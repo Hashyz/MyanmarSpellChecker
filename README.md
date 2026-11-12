@@ -37,16 +37,17 @@ This project is open-source software licensed under the **[GNU General Public Li
 ### System Requirements
 - **OS:** Windows 10 or Windows 11 (64-bit or 32-bit)
 - **Microsoft Office:** Microsoft Word & Microsoft Excel **2016 / 2019 / 2021 / Office 365** (Desktop Edition)
-- **Runtime:** `.NET Framework 4.8` (pre-installed on Windows 10/11) and `.NET SDK` (to build from source)
+- **Runtime:** `.NET Framework 4.8` (already pre-installed on Windows 10/11 — **no `.NET SDK` required** for installation; `.NET SDK` is only needed if editing/recompiling C# source code)
 - **Recommended Font:** **Pyidaungsu** Unicode Font (for crisp Myanmar rendering)
 
 ---
 
 ### Step 1 — Install & Register the Add-in (Word + Excel)
 
-#### Option A — 1-Click Friendly Setup (Recommended for All Users / Non-Technical Users)
-1. **Close Microsoft Word and Microsoft Excel** (save any open documents first).
-2. **Double-click `Install-MyanmarSpellChecker.bat`** in the project folder *(or if you downloaded the pre-built Release `.zip` package, extract the `.zip` and double-click **`Install-EasyUser.bat`** — **no PowerShell commands, no `.NET SDK`, and no Administrator password required!**)*.
+#### Option A — 1-Click Friendly Setup (Recommended for All Users — Zero `.NET SDK` / Zero Admin Needed)
+1. **Download or Clone:** Click **`Code ➔ Download ZIP`** on GitHub *(or download `MyanmarSpellChecker-EasySetup-Word-Excel.zip`)* and **Right-click the `.zip` file ➔ `Extract All...`** into a normal folder first.
+2. **Close Microsoft Word and Microsoft Excel** (save any open documents first).
+3. **Double-click `Install-MyanmarSpellChecker.bat`** inside the extracted folder *(or **`Install-EasyUser.bat`** inside the standalone Release ZIP — **no PowerShell commands, no `.NET SDK`, and no Administrator password required!**)*.
 3. A friendly confirmation popup (`✓ အောင်မြင်စွာ ထည့်သွင်းပြီးပါပြီ!`) will appear once the **12.44 MB (`89,578` headwords / `118,664` entries)** offline dictionary and both Word + Excel Add-ins are installed into `%LocalAppData%\MyanmarSpellChecker\app`.
 4. **Open Microsoft Word or Microsoft Excel** — you will see the **`မြန်မာစာ စစ်ဆေးရေး`** Ribbon tab and the **4-Tab Myanmar Proofing Task Pane** docked on the right!
 

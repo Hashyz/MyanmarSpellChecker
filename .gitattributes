@@ -1,0 +1,17 @@
+# Binary assets — never alter bytes or line endings on any OS / git config
+*.db binary
+*.dll binary
+*.exe binary
+*.pdb binary
+*.cer binary
+*.pfx binary
+*.zip binary
+*.png binary
+*.jpg binary
+*.ico binary
+
+# Windows batch and PowerShell scripts require CRLF line endings
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+

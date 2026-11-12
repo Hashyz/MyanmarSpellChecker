@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$CertSubject = "CN=Myanmar Official Spell Checker (B2G Enterprise)"
 )
 

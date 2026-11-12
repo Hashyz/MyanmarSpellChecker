@@ -1,33 +1,75 @@
-param(
+﻿param(
     [switch]$Unregister
 )
 
 $ErrorActionPreference = "Stop"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 function Resolve-NewestAddInDll([string[]]$CandidatePaths) {
-    $existing = @($CandidatePaths | Where-Object {
-        (Test-Path $_) -and (Test-Path (Join-Path (Split-Path $_ -Parent) "MyanmarSpellChecker.Core.dll"))
-    } | Sort-Object {
-        $addInTime = (Get-Item $_).LastWriteTimeUtc
-        $coreTime  = (Get-Item (Join-Path (Split-Path $_ -Parent) "MyanmarSpellChecker.Core.dll")).LastWriteTimeUtc
-        if ($addInTime -lt $coreTime) { $addInTime } else { $coreTime }
-    } -Descending)
-    if ($existing.Count -eq 0) { return $null }
-    return [System.IO.Path]::GetFullPath($existing[0])
+    $validFiles = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
+    foreach ($p in $CandidatePaths) {
+        if ([string]::IsNullOrWhiteSpace($p)) { continue }
+        try {
+            if ([System.IO.File]::Exists($p)) {
+                $full = [System.IO.Path]::GetFullPath($p)
+                $coreSibling = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($full), "MyanmarSpellChecker.Core.dll")
+                if ([System.IO.File]::Exists($coreSibling)) {
+                    $validFiles.Add([System.IO.FileInfo]::new($full))
+                }
+            }
+        } catch { }
+    }
+    if ($validFiles.Count -eq 0) { return $null }
+
+    $best = $validFiles | Sort-Object -Property @{
+        Expression = {
+            $t1 = $_.LastWriteTimeUtc
+            $t2 = [System.IO.FileInfo]::new([System.IO.Path]::Combine($_.DirectoryName, "MyanmarSpellChecker.Core.dll")).LastWriteTimeUtc
+            if ($t1 -lt $t2) { $t1 } else { $t2 }
+        }
+        Descending = $true
+    } | Select-Object -First 1
+
+    return $best.FullName
 }
 
+function Resolve-FullDictionaryDb([string[]]$CandidatePaths) {
+    $validFiles = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
+    foreach ($p in $CandidatePaths) {
+        if ([string]::IsNullOrWhiteSpace($p)) { continue }
+        try {
+            if ([System.IO.File]::Exists($p)) {
+                $fi = [System.IO.FileInfo]::new([System.IO.Path]::GetFullPath($p))
+                if ($fi.Length -ge 5000000) {
+                    $validFiles.Add($fi)
+                }
+            }
+        } catch { }
+    }
+    if ($validFiles.Count -eq 0) { return $null }
+
+    $best = $validFiles | Sort-Object -Property LastWriteTimeUtc, Length -Descending | Select-Object -First 1
+    return $best.FullName
+}
+
+$scriptDir   = [System.IO.Path]::GetFullPath($PSScriptRoot)
+$repoRoot    = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($scriptDir, ".."))
+$prebuiltDir = [System.IO.Path]::Combine($scriptDir, "prebuilt")
+
 $wordAddInDll = Resolve-NewestAddInDll @(
-    (Join-Path $PSScriptRoot "..\src\MyanmarSpellChecker.WordAddIn\bin\Release\net48\MyanmarSpellChecker.WordAddIn.dll"),
-    (Join-Path $PSScriptRoot "..\artifacts\release-package\MyanmarSpellChecker.WordAddIn.dll"),
-    (Join-Path $PSScriptRoot "..\artifacts\staged-word\MyanmarSpellChecker.WordAddIn.dll"),
-    (Join-Path $PSScriptRoot "..\src\MyanmarSpellChecker.WordAddIn\bin\Debug\net48\MyanmarSpellChecker.WordAddIn.dll")
+    ([System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.WordAddIn\bin\Release\net48\MyanmarSpellChecker.WordAddIn.dll")),
+    ([System.IO.Path]::Combine($repoRoot, "artifacts\release-package\MyanmarSpellChecker.WordAddIn.dll")),
+    ([System.IO.Path]::Combine($repoRoot, "artifacts\staged-word\MyanmarSpellChecker.WordAddIn.dll")),
+    ([System.IO.Path]::Combine($prebuiltDir, "MyanmarSpellChecker.WordAddIn.dll")),
+    ([System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.WordAddIn\bin\Debug\net48\MyanmarSpellChecker.WordAddIn.dll"))
 )
 
 $excelAddInDll = Resolve-NewestAddInDll @(
-    (Join-Path $PSScriptRoot "..\src\MyanmarSpellChecker.ExcelAddIn\bin\Release\net48\MyanmarSpellChecker.ExcelAddIn.dll"),
-    (Join-Path $PSScriptRoot "..\artifacts\release-package\MyanmarSpellChecker.ExcelAddIn.dll"),
-    (Join-Path $PSScriptRoot "..\artifacts\staged-excel\MyanmarSpellChecker.ExcelAddIn.dll"),
-    (Join-Path $PSScriptRoot "..\src\MyanmarSpellChecker.ExcelAddIn\bin\Debug\net48\MyanmarSpellChecker.ExcelAddIn.dll")
+    ([System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.ExcelAddIn\bin\Release\net48\MyanmarSpellChecker.ExcelAddIn.dll")),
+    ([System.IO.Path]::Combine($repoRoot, "artifacts\release-package\MyanmarSpellChecker.ExcelAddIn.dll")),
+    ([System.IO.Path]::Combine($repoRoot, "artifacts\staged-excel\MyanmarSpellChecker.ExcelAddIn.dll")),
+    ([System.IO.Path]::Combine($prebuiltDir, "MyanmarSpellChecker.ExcelAddIn.dll")),
+    ([System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.ExcelAddIn\bin\Debug\net48\MyanmarSpellChecker.ExcelAddIn.dll"))
 )
 
 $wordAddInKey  = "HKCU:\Software\Microsoft\Office\Word\Addins\MyanmarSpellChecker.WordAddIn"
@@ -79,78 +121,78 @@ if ($Unregister) {
     }
     Remove-Item -Path $wordAddInKey  -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -Path $excelAddInKey -Recurse -Force -ErrorAction SilentlyContinue
-    $localAppAppDir = Join-Path $env:LOCALAPPDATA "MyanmarSpellChecker\app"
-    if (Test-Path $localAppAppDir) {
-        Remove-Item -Path $localAppAppDir -Recurse -Force -ErrorAction SilentlyContinue
+    $localAppAppDir = [System.IO.Path]::Combine($env:LOCALAPPDATA, "MyanmarSpellChecker\app")
+    if ([System.IO.Directory]::Exists($localAppAppDir)) {
+        try { [System.IO.Directory]::Delete($localAppAppDir, $true) } catch { }
     }
     Write-Host "[+] Unregistered Word + Excel Add-ins successfully." -ForegroundColor Green
     exit 0
 }
 
-if (-not $wordAddInDll -or -not (Test-Path $wordAddInDll)) {
-    throw "WordAddIn DLL not found. Run 'dotnet build' first."
+if (-not $wordAddInDll -or -not [System.IO.File]::Exists($wordAddInDll)) {
+    throw "WordAddIn DLL not found. Run 'dotnet build -c Release' first."
 }
-if (-not $excelAddInDll -or -not (Test-Path $excelAddInDll)) {
-    throw "ExcelAddIn DLL not found. Run 'dotnet build' first."
+if (-not $excelAddInDll -or -not [System.IO.File]::Exists($excelAddInDll)) {
+    throw "ExcelAddIn DLL not found. Run 'dotnet build -c Release' first."
 }
 
 # Copy freshest FULL (>= 5 MB, 89,500+ headwords) mlc_thatpon.db into Word bin, Excel bin, artifacts\, and %LocalAppData%\MyanmarSpellChecker
-# Never allow a small (< 5 MB) 106-word seed fallback DB to overwrite the full dictionary!
-$dataDb = Join-Path $PSScriptRoot "..\data\mlc_thatpon.db"
-$releasePkgDb = Join-Path $PSScriptRoot "..\artifacts\release-package\mlc_thatpon.db"
-$legacyArtifactDb = Join-Path $PSScriptRoot "..\artifacts\mlc_thatpon.db"
-$candidateDbs = @($dataDb, $releasePkgDb, $legacyArtifactDb) |
-    Where-Object { Test-Path $_ } |
-    Sort-Object `
-        @{ Expression = { if ((Get-Item $_).Length -ge 5000000) { 1 } else { 0 } }; Descending = $true }, `
-        @{ Expression = { (Get-Item $_).LastWriteTimeUtc }; Descending = $true }, `
-        @{ Expression = { (Get-Item $_).Length }; Descending = $true }
-$artifactDb = if ($candidateDbs.Count -gt 0) { $candidateDbs[0] } else { $dataDb }
+# Uses explicit FileInfo list so single-item result on a fresh git clone NEVER unrolls to a [string] scalar!
+$dataDb           = [System.IO.Path]::Combine($repoRoot, "data\mlc_thatpon.db")
+$releasePkgDb     = [System.IO.Path]::Combine($repoRoot, "artifacts\release-package\mlc_thatpon.db")
+$legacyArtifactDb = [System.IO.Path]::Combine($repoRoot, "artifacts\mlc_thatpon.db")
+$localExistingDb  = [System.IO.Path]::Combine($env:LOCALAPPDATA, "MyanmarSpellChecker\mlc_thatpon.db")
 
-if ((Test-Path $artifactDb) -and ((Get-Item $artifactDb).Length -lt 5000000) -and (Test-Path $dataDb) -and ((Get-Item $dataDb).Length -ge 5000000)) {
-    $artifactDb = $dataDb
+$artifactDb = Resolve-FullDictionaryDb @($dataDb, $releasePkgDb, $legacyArtifactDb, $localExistingDb)
+if (-not $artifactDb) {
+    throw "Full Myanmar Dictionary Database (mlc_thatpon.db >= 12 MB) was not found! Ensure 'data\mlc_thatpon.db' is present."
 }
 
-if (Test-Path $artifactDb) {
-    $dbSizeMb = [Math]::Round(((Get-Item $artifactDb).Length / 1MB), 2)
-    Write-Host "[*] Syncing full dictionary database: $artifactDb ($dbSizeMb MB)" -ForegroundColor Cyan
-    $srcFull = [System.IO.Path]::GetFullPath($artifactDb)
-    $targetDirs = @(
-        (Split-Path $legacyArtifactDb -Parent),
-        (Split-Path $wordAddInDll -Parent),
-        (Split-Path $excelAddInDll -Parent),
-        (Join-Path $PSScriptRoot "..\src\MyanmarSpellChecker.WordAddIn\bin\Release\net48"),
-        (Join-Path $PSScriptRoot "..\src\MyanmarSpellChecker.ExcelAddIn\bin\Release\net48")
-    )
+$dbSizeMb = [Math]::Round(([System.IO.FileInfo]::new($artifactDb).Length / 1MB), 2)
+Write-Host "[*] Syncing full dictionary database: $artifactDb ($dbSizeMb MB)" -ForegroundColor Cyan
+$srcFull = [System.IO.Path]::GetFullPath($artifactDb)
+$targetDirs = @(
+    ([System.IO.Path]::GetDirectoryName($legacyArtifactDb)),
+    ([System.IO.Path]::GetDirectoryName($wordAddInDll)),
+    ([System.IO.Path]::GetDirectoryName($excelAddInDll)),
+    ([System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.WordAddIn\bin\Release\net48")),
+    ([System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.ExcelAddIn\bin\Release\net48"))
+)
 
-    foreach ($dir in $targetDirs) {
-        if (Test-Path $dir) {
-            $dst = [System.IO.Path]::GetFullPath((Join-Path $dir "mlc_thatpon.db"))
-            if ($srcFull -ne $dst) {
-                try { Copy-Item $artifactDb $dst -Force -ErrorAction Stop } catch { }
-            }
+foreach ($dir in $targetDirs) {
+    if ($dir -and [System.IO.Directory]::Exists($dir)) {
+        $dst = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($dir, "mlc_thatpon.db"))
+        if (-not [string]::Equals($srcFull, $dst, [System.StringComparison]::OrdinalIgnoreCase)) {
+            try { [System.IO.File]::Copy($srcFull, $dst, $true) } catch { }
         }
     }
+}
 
-    $localAppDir = Join-Path $env:LOCALAPPDATA "MyanmarSpellChecker"
-    New-Item -ItemType Directory -Path $localAppDir -Force | Out-Null
-    Copy-Item $artifactDb (Join-Path $localAppDir "mlc_thatpon.db") -Force
+$localAppDir = [System.IO.Path]::Combine($env:LOCALAPPDATA, "MyanmarSpellChecker")
+[void][System.IO.Directory]::CreateDirectory($localAppDir)
+try { [System.IO.File]::Copy($srcFull, [System.IO.Path]::Combine($localAppDir, "mlc_thatpon.db"), $true) } catch { }
 
-    $progDataDb = Join-Path $env:ProgramData "MyanmarSpellChecker\mlc_thatpon.db"
-    if (Test-Path (Split-Path $progDataDb -Parent)) {
-        try { Copy-Item $artifactDb $progDataDb -Force -ErrorAction Stop } catch { }
-    }
+$localAppSubDir = [System.IO.Path]::Combine($localAppDir, "app")
+if ([System.IO.Directory]::Exists($localAppSubDir)) {
+    try { [System.IO.File]::Copy($srcFull, [System.IO.Path]::Combine($localAppSubDir, "mlc_thatpon.db"), $true) } catch { }
+}
 
-    $progFilesDir = Join-Path $env:ProgramFiles "MyanmarSpellChecker"
-    if (Test-Path $progFilesDir) {
-        try {
-            Copy-Item $artifactDb (Join-Path $progFilesDir "mlc_thatpon.db") -Force -ErrorAction Stop
-            $coreDll = Join-Path (Split-Path $excelAddInDll -Parent) "MyanmarSpellChecker.Core.dll"
-            if (Test-Path $coreDll) { Copy-Item $coreDll (Join-Path $progFilesDir "MyanmarSpellChecker.Core.dll") -Force -ErrorAction Stop }
-            Copy-Item $wordAddInDll  (Join-Path $progFilesDir "MyanmarSpellChecker.WordAddIn.dll")  -Force -ErrorAction Stop
-            Copy-Item $excelAddInDll (Join-Path $progFilesDir "MyanmarSpellChecker.ExcelAddIn.dll") -Force -ErrorAction Stop
-        } catch { }
-    }
+$progDataDir = [System.IO.Path]::Combine($env:ProgramData, "MyanmarSpellChecker")
+if ([System.IO.Directory]::Exists($progDataDir)) {
+    try { [System.IO.File]::Copy($srcFull, [System.IO.Path]::Combine($progDataDir, "mlc_thatpon.db"), $true) } catch { }
+}
+
+$progFilesDir = [System.IO.Path]::Combine($env:ProgramFiles, "MyanmarSpellChecker")
+if ([System.IO.Directory]::Exists($progFilesDir)) {
+    try {
+        [System.IO.File]::Copy($srcFull, [System.IO.Path]::Combine($progFilesDir, "mlc_thatpon.db"), $true)
+        $coreDll = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($excelAddInDll), "MyanmarSpellChecker.Core.dll")
+        if ([System.IO.File]::Exists($coreDll)) {
+            [System.IO.File]::Copy($coreDll, [System.IO.Path]::Combine($progFilesDir, "MyanmarSpellChecker.Core.dll"), $true)
+        }
+        [System.IO.File]::Copy($wordAddInDll,  [System.IO.Path]::Combine($progFilesDir, "MyanmarSpellChecker.WordAddIn.dll"),  $true)
+        [System.IO.File]::Copy($excelAddInDll, [System.IO.Path]::Combine($progFilesDir, "MyanmarSpellChecker.ExcelAddIn.dll"), $true)
+    } catch { }
 }
 
 Write-Host "[*] Registering COM classes (Word + Excel) in HKCU:\Software\Classes (Both 64-bit & 32-bit RegistryViews)..." -ForegroundColor Cyan
@@ -160,7 +202,7 @@ foreach ($view in $views) {
     $hkcuBase = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $view)
     try {
         foreach ($c in $comClasses) {
-            $codeBaseUri = "file:///" + ($c.DllPath -replace "\\", "/")
+            $codeBaseUri = ([System.Uri]::new($c.DllPath)).AbsoluteUri.Replace("%20", " ")
 
             $progKey = $hkcuBase.CreateSubKey("Software\Classes\$($c.ProgId)")
             $progKey.SetValue("", $c.TypeName)
@@ -211,7 +253,7 @@ foreach ($view in $views) {
 
 # Clear any Word or Excel Resiliency / DisabledItems blocks
 foreach ($appName in @("Word", "Excel")) {
-    foreach ($ver in @("16.0", "15.0")) {
+    foreach ($ver in @("16.0", "15.0", "14.0")) {
         foreach ($sub in @("DisabledItems", "CrashingAddinList")) {
             $rKey = "HKCU:\Software\Microsoft\Office\$ver\$appName\Resiliency\$sub"
             if (Test-Path $rKey) {

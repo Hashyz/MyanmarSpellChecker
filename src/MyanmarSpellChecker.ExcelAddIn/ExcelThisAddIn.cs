@@ -78,15 +78,14 @@ namespace MyanmarSpellChecker.ExcelAddIn
             {
                 try
                 {
-                    string? addInDir = Path.GetDirectoryName(typeof(ExcelThisAddIn).Assembly.Location);
-                    if (string.IsNullOrEmpty(addInDir))
-                        return null;
-
                     var asmName = new System.Reflection.AssemblyName(args.Name);
-                    string candidatePath = Path.Combine(addInDir, asmName.Name + ".dll");
-                    if (File.Exists(candidatePath))
+                    foreach (string dir in GetCandidateAddInDirectories(typeof(ExcelThisAddIn).Assembly))
                     {
-                        return System.Reflection.Assembly.LoadFrom(candidatePath);
+                        string candidatePath = Path.Combine(dir, asmName.Name + ".dll");
+                        if (File.Exists(candidatePath))
+                        {
+                            return System.Reflection.Assembly.LoadFrom(candidatePath);
+                        }
                     }
                 }
                 catch
@@ -95,6 +94,51 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 }
                 return null;
             };
+        }
+
+        private static List<string> GetCandidateAddInDirectories(System.Reflection.Assembly asm)
+        {
+            var dirs = new List<string>(4);
+            try
+            {
+                string? loc = asm.Location;
+                if (!string.IsNullOrWhiteSpace(loc))
+                {
+                    string? locDir = Path.GetDirectoryName(loc);
+                    if (!string.IsNullOrWhiteSpace(locDir) && Directory.Exists(locDir))
+                        dirs.Add(locDir);
+                }
+            }
+            catch { }
+
+            try
+            {
+                string? codeBase = asm.CodeBase;
+                if (!string.IsNullOrWhiteSpace(codeBase))
+                {
+                    string localPath = new Uri(codeBase).LocalPath;
+                    string? cbDir = Path.GetDirectoryName(localPath);
+                    if (!string.IsNullOrWhiteSpace(cbDir) && Directory.Exists(cbDir) &&
+                        !dirs.Contains(cbDir, StringComparer.OrdinalIgnoreCase))
+                    {
+                        dirs.Add(cbDir);
+                    }
+                }
+            }
+            catch { }
+
+            try
+            {
+                string perUserAppDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "MyanmarSpellChecker",
+                    "app");
+                if (Directory.Exists(perUserAppDir) && !dirs.Contains(perUserAppDir, StringComparer.OrdinalIgnoreCase))
+                    dirs.Add(perUserAppDir);
+            }
+            catch { }
+
+            return dirs;
         }
 
         public void OnConnection(object application, ext_ConnectMode connectMode, object addInInst, ref Array custom)
@@ -126,12 +170,20 @@ namespace MyanmarSpellChecker.ExcelAddIn
 
         private void InitializePathsAndStartAsyncEngineLoad()
         {
-            string? installDir = Path.GetDirectoryName(typeof(ExcelThisAddIn).Assembly.Location);
+            List<string> addInDirs = GetCandidateAddInDirectories(typeof(ExcelThisAddIn).Assembly);
+            string? installDir = addInDirs.Count > 0 ? addInDirs[0] : Path.GetDirectoryName(typeof(ExcelThisAddIn).Assembly.Location);
             string programDataDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
                 "MyanmarSpellChecker");
             string localAppDataDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "MyanmarSpellChecker");
+            string localAppSubDir = Path.Combine(localAppDataDir, "app");
+            string progFilesDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "MyanmarSpellChecker");
+            string progFilesX86Dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
                 "MyanmarSpellChecker");
 
             _appDataFolder = Directory.Exists(programDataDir) ? programDataDir : localAppDataDir;
@@ -150,13 +202,23 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 ? installLic
                 : (File.Exists(progDataLic) ? progDataLic : Path.Combine(_appDataFolder, "license.lic"));
 
-            string installDb = !string.IsNullOrEmpty(installDir) ? Path.Combine(installDir, "mlc_thatpon.db") : string.Empty;
-            string repoDataDb = FindAncestorRepoDatabasePath(installDir);
-            string progDataDb = Path.Combine(programDataDir, "mlc_thatpon.db");
+            var rawDbPaths = new List<string>(12);
+            foreach (string dir in addInDirs)
+            {
+                rawDbPaths.Add(Path.Combine(dir, "mlc_thatpon.db"));
+                string ancestorDb = FindAncestorRepoDatabasePath(dir);
+                if (!string.IsNullOrEmpty(ancestorDb))
+                    rawDbPaths.Add(ancestorDb);
+            }
+            rawDbPaths.Add(Path.Combine(localAppSubDir, "mlc_thatpon.db"));
+            rawDbPaths.Add(Path.Combine(localAppDataDir, "mlc_thatpon.db"));
+            rawDbPaths.Add(Path.Combine(programDataDir, "mlc_thatpon.db"));
+            rawDbPaths.Add(Path.Combine(progFilesDir, "mlc_thatpon.db"));
+            rawDbPaths.Add(Path.Combine(progFilesX86Dir, "mlc_thatpon.db"));
             string localAppDb = Path.Combine(localAppDataDir, "mlc_thatpon.db");
 
             // Always prefer the full compiled dictionary (>= 5 MB, 89,500+ headwords) over any small 106-word seed fallback DB
-            var candidateDbs = new[] { installDb, repoDataDb, progDataDb, localAppDb }
+            var candidateDbs = rawDbPaths
                 .Where(p => !string.IsNullOrWhiteSpace(p) && File.Exists(p))
                 .Select(p => Path.GetFullPath(p))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -242,7 +304,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
             try
             {
                 string? cur = startDir;
-                for (int depth = 0; depth < 6 && !string.IsNullOrEmpty(cur); depth++)
+                for (int depth = 0; depth <= 8 && !string.IsNullOrEmpty(cur); depth++)
                 {
                     string candidate = Path.Combine(cur, "data", "mlc_thatpon.db");
                     if (File.Exists(candidate))

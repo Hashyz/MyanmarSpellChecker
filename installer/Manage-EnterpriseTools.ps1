@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet("all", "show-machine-id", "sign-license", "compile-dict")]
     [string]$Action = "all",
     [string]$MinistryName = "ပြည်ထောင်စုအစိုးရအဖွဲ့ရုံး ဝန်ကြီးဌာန",

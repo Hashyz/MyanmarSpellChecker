@@ -261,6 +261,12 @@ REM 1-Click Friendly Setup (No Admin, No Git, No .NET SDK Needed!)
 REM Double-click this file to install for Microsoft Word & Microsoft Excel
 REM ============================================================================
 setlocal
+
+if not exist "%~dp0Easy-Setup.ps1" (
+    "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -STA -Command "Add-Type -AssemblyName System.Windows.Forms; [void][System.Windows.Forms.MessageBox]::Show('Please extract the .ZIP file first!`r`n`r`nRight-click the downloaded .zip file -> click ''Extract All...'' -> then double-click Install-EasyUser.bat inside the extracted folder.', 'Myanmar Official Spell Checker - Extract ZIP First', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)"
+    exit /b 1
+)
+
 "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Easy-Setup.ps1"
 exit /b %ERRORLEVEL%
 '@
@@ -269,10 +275,45 @@ Set-Content -Path (Join-Path $releasePkgDir "Install-EasyUser.bat") -Value $easy
 $easyUninstBat = @'
 @echo off
 setlocal
+if not exist "%~dp0Easy-Setup.ps1" (
+    "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -STA -Command "Add-Type -AssemblyName System.Windows.Forms; [void][System.Windows.Forms.MessageBox]::Show('Please extract the .ZIP file first before running Uninstall-EasyUser.bat.', 'Myanmar Official Spell Checker - Extract ZIP First', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)"
+    exit /b 1
+)
 "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Easy-Setup.ps1" -Uninstall
 exit /b %ERRORLEVEL%
 '@
 Set-Content -Path (Join-Path $releasePkgDir "Uninstall-EasyUser.bat") -Value $easyUninstBat -Encoding ASCII
 
-Write-Host "[5/5] Unified Office Suite Release Package Ready at: $releasePkgDir" -ForegroundColor Green
+# Sync signed pre-built AnyCPU binaries (~1.07 MB) into installer\prebuilt so fresh git clone / GitHub ZIP works on PCs without .NET SDK!
+$prebuiltDir = Join-Path $PSScriptRoot "prebuilt"
+New-Item -ItemType Directory -Path $prebuiltDir -Force | Out-Null
+$unlockedCoreSrc = Join-Path $excelBuildOutDir "MyanmarSpellChecker.Core.dll"
+if (-not (Test-Path $unlockedCoreSrc)) { $unlockedCoreSrc = Join-Path $wordBuildOutDir "MyanmarSpellChecker.Core.dll" }
+[System.IO.File]::Copy($unlockedCoreSrc, (Join-Path $prebuiltDir "MyanmarSpellChecker.Core.dll"), $true)
+[System.IO.File]::Copy((Join-Path $wordBuildOutDir "MyanmarSpellChecker.WordAddIn.dll"), (Join-Path $prebuiltDir "MyanmarSpellChecker.WordAddIn.dll"), $true)
+[System.IO.File]::Copy((Join-Path $excelBuildOutDir "MyanmarSpellChecker.ExcelAddIn.dll"), (Join-Path $prebuiltDir "MyanmarSpellChecker.ExcelAddIn.dll"), $true)
+[System.IO.File]::Copy($cerPath, (Join-Path $prebuiltDir "MyanmarSpellChecker-EnterpriseCA.cer"), $true)
+
+# Build lock-safe standalone EasySetup .zip archive even if MS Word or Excel is currently open!
+$zipOutPath = Join-Path $artifactsDir "MyanmarSpellChecker-EasySetup-Word-Excel.zip"
+$zipStaging = Join-Path $artifactsDir "zip-staging"
+if (Test-Path $zipStaging) { Remove-Item -Path $zipStaging -Recurse -Force -ErrorAction SilentlyContinue }
+New-Item -ItemType Directory -Path $zipStaging -Force | Out-Null
+[System.IO.File]::Copy($unlockedCoreSrc, (Join-Path $zipStaging "MyanmarSpellChecker.Core.dll"), $true)
+[System.IO.File]::Copy((Join-Path $wordBuildOutDir "MyanmarSpellChecker.WordAddIn.dll"), (Join-Path $zipStaging "MyanmarSpellChecker.WordAddIn.dll"), $true)
+[System.IO.File]::Copy((Join-Path $excelBuildOutDir "MyanmarSpellChecker.ExcelAddIn.dll"), (Join-Path $zipStaging "MyanmarSpellChecker.ExcelAddIn.dll"), $true)
+[System.IO.File]::Copy($outDbPath, (Join-Path $zipStaging "mlc_thatpon.db"), $true)
+[System.IO.File]::Copy($cerPath, (Join-Path $zipStaging "MyanmarSpellChecker-EnterpriseCA.cer"), $true)
+foreach ($extra in @("Easy-Setup.ps1", "Install-EasyUser.bat", "Uninstall-EasyUser.bat", "Install-MinistryGPO.cmd", "LICENSE", "NOTICE", "CITATION.cff")) {
+    $extraSrc = Join-Path $releasePkgDir $extra
+    if (Test-Path $extraSrc) { [System.IO.File]::Copy($extraSrc, (Join-Path $zipStaging $extra), $true) }
+}
+if (Test-Path $zipOutPath) { Remove-Item -Path $zipOutPath -Force }
+Compress-Archive -Path (Join-Path $zipStaging "*") -DestinationPath $zipOutPath -CompressionLevel Optimal -Force
+Remove-Item -Path $zipStaging -Recurse -Force -ErrorAction SilentlyContinue
+
+Write-Host "[5/5] Unified Office Suite Release Package & Standalone ZIP Ready:" -ForegroundColor Green
+Write-Host "      Package Dir : $releasePkgDir" -ForegroundColor Green
+Write-Host "      Prebuilt Dir: $prebuiltDir" -ForegroundColor Green
+Write-Host "      EasySetup   : $zipOutPath ($([Math]::Round((Get-Item $zipOutPath).Length / 1MB, 2)) MB)" -ForegroundColor Green
 Get-ChildItem $releasePkgDir | Select-Object Name, Length

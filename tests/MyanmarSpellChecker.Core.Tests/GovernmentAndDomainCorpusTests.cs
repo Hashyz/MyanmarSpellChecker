@@ -1537,5 +1537,120 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.True(sw.Elapsed.TotalMilliseconds < 150.0,
                 $"20x 40-paragraph DocumentQualityAnalyzer.Analyze took {sw.Elapsed.TotalMilliseconds:F2} ms (expected < 150 ms).");
         }
+
+        [Fact]
+        public void V46_CleanMachineInstallerAndSingleDbDiscoveryVerification()
+        {
+            string repoRoot = TestPaths.RepoRoot;
+            string sourceDb = Path.Combine(repoRoot, "data", "mlc_thatpon.db");
+            string easySetupPs1 = Path.Combine(repoRoot, "installer", "Easy-Setup.ps1");
+            string registerDevPs1 = Path.Combine(repoRoot, "installer", "Register-DevAddIn.ps1");
+
+            Assert.True(File.Exists(sourceDb), "Tracked data/mlc_thatpon.db must exist for clean git clones.");
+            long dbLength = new FileInfo(sourceDb).Length;
+            Assert.True(dbLength >= 10_000_000, $"Expected full mlc_thatpon.db >= 10 MB, actual: {dbLength} bytes.");
+
+            // 1. Verify UTF-8 BOM (EF BB BF) on PowerShell scripts containing Myanmar Unicode text (required for Windows PowerShell 5.1)
+            foreach (string ps1 in new[] { easySetupPs1, registerDevPs1 })
+            {
+                byte[] header = File.ReadAllBytes(ps1);
+                Assert.True(header.Length >= 3 && header[0] == 0xEF && header[1] == 0xBB && header[2] == 0xBF,
+                    $"Script '{Path.GetFileName(ps1)}' must be encoded as UTF-8 with BOM for Windows PowerShell 5.1 compatibility.");
+            }
+
+            // Locate compiled Core/WordAddIn/ExcelAddIn DLLs to populate simulated clean-PC prebuilt & standalone directories
+            string prebuiltDir = Path.Combine(repoRoot, "installer", "prebuilt");
+            string coreDll = File.Exists(Path.Combine(prebuiltDir, "MyanmarSpellChecker.Core.dll"))
+                ? Path.Combine(prebuiltDir, "MyanmarSpellChecker.Core.dll")
+                : typeof(MyanmarProofingEngine).Assembly.Location;
+            string wordDll = File.Exists(Path.Combine(prebuiltDir, "MyanmarSpellChecker.WordAddIn.dll"))
+                ? Path.Combine(prebuiltDir, "MyanmarSpellChecker.WordAddIn.dll")
+                : coreDll;
+            string excelDll = File.Exists(Path.Combine(prebuiltDir, "MyanmarSpellChecker.ExcelAddIn.dll"))
+                ? Path.Combine(prebuiltDir, "MyanmarSpellChecker.ExcelAddIn.dll")
+                : coreDll;
+
+            // 2. Simulate a clean second PC (fresh git clone / Download ZIP in a folder with spaces AND [1] wildcard brackets,
+            //    with ONLY ONE database file 'data\mlc_thatpon.db' and NO 'artifacts\' or 'src\*\bin\' directories!)
+            string simRoot = Path.Combine(
+                Path.GetTempPath(),
+                "MyanmarSpellChecker Clean PC [1]_" + Guid.NewGuid().ToString("N").Substring(0, 6));
+            string simInstaller = Path.Combine(simRoot, "installer");
+            string simPrebuilt = Path.Combine(simInstaller, "prebuilt");
+            string simData = Path.Combine(simRoot, "data");
+            string simStandalone = Path.Combine(simRoot, "standalone_extracted [1]");
+
+            try
+            {
+                Directory.CreateDirectory(simPrebuilt);
+                Directory.CreateDirectory(simData);
+                Directory.CreateDirectory(simStandalone);
+
+                File.Copy(easySetupPs1, Path.Combine(simInstaller, "Easy-Setup.ps1"), overwrite: true);
+                File.Copy(coreDll, Path.Combine(simPrebuilt, "MyanmarSpellChecker.Core.dll"), overwrite: true);
+                File.Copy(wordDll, Path.Combine(simPrebuilt, "MyanmarSpellChecker.WordAddIn.dll"), overwrite: true);
+                File.Copy(excelDll, Path.Combine(simPrebuilt, "MyanmarSpellChecker.ExcelAddIn.dll"), overwrite: true);
+                File.Copy(sourceDb, Path.Combine(simData, "mlc_thatpon.db"), overwrite: true);
+
+                string psExe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe");
+                if (!File.Exists(psExe))
+                    psExe = "powershell.exe";
+
+                // 2a. Verify Repo / Clean-Clone Mode (single data\mlc_thatpon.db + installer\prebuilt\*)
+                var psiRepo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = psExe,
+                    Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{Path.Combine(simInstaller, "Easy-Setup.ps1")}\" -ValidateOnly -Silent",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using (var proc = System.Diagnostics.Process.Start(psiRepo)!)
+                {
+                    string stdout = proc.StandardOutput.ReadToEnd();
+                    string stderr = proc.StandardError.ReadToEnd();
+                    proc.WaitForExit(20_000);
+                    Assert.True(proc.ExitCode == 0, $"Clean-clone Easy-Setup -ValidateOnly failed (exit {proc.ExitCode}): {stdout} {stderr}");
+                    Assert.Contains("VALIDATE_OK|", stdout);
+                    Assert.Contains($"DbBytes={dbLength}", stdout);
+                }
+
+                // 2b. Verify Standalone Extracted ZIP Mode (Easy-Setup.ps1 + DLLs + mlc_thatpon.db in flat directory)
+                File.Copy(easySetupPs1, Path.Combine(simStandalone, "Easy-Setup.ps1"), overwrite: true);
+                File.Copy(coreDll, Path.Combine(simStandalone, "MyanmarSpellChecker.Core.dll"), overwrite: true);
+                File.Copy(wordDll, Path.Combine(simStandalone, "MyanmarSpellChecker.WordAddIn.dll"), overwrite: true);
+                File.Copy(excelDll, Path.Combine(simStandalone, "MyanmarSpellChecker.ExcelAddIn.dll"), overwrite: true);
+                File.Copy(sourceDb, Path.Combine(simStandalone, "mlc_thatpon.db"), overwrite: true);
+
+                var psiZip = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = psExe,
+                    Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{Path.Combine(simStandalone, "Easy-Setup.ps1")}\" -ValidateOnly -Silent",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using (var proc = System.Diagnostics.Process.Start(psiZip)!)
+                {
+                    string stdout = proc.StandardOutput.ReadToEnd();
+                    string stderr = proc.StandardError.ReadToEnd();
+                    proc.WaitForExit(20_000);
+                    Assert.True(proc.ExitCode == 0, $"Standalone Easy-Setup -ValidateOnly failed (exit {proc.ExitCode}): {stdout} {stderr}");
+                    Assert.Contains("VALIDATE_OK|", stdout);
+                    Assert.Contains($"DbBytes={dbLength}", stdout);
+                }
+            }
+            finally
+            {
+                try
+                {
+                    if (Directory.Exists(simRoot))
+                        Directory.Delete(simRoot, recursive: true);
+                }
+                catch { }
+            }
+        }
     }
 }
