@@ -22,22 +22,40 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
     }
 
     /// <summary>
-    /// Formula-safe, Undo-safe, bulk 2D SAFEARRAY scanner and spreadsheet toolkit for Microsoft Excel.
+    /// Formula-safe, Undo-safe, bulk 2D SAFEARRAY scanner, Save/Print-safe In-Cell Underline Manager,
+    /// and spreadsheet toolkit for Microsoft Excel.
     /// Rules enforced at all times:
-    /// 1. Scanning is 100% READ-ONLY (zero Range/Font writes during scan), so Excel's native Ctrl+Z Undo stack
-    ///    and Workbook.Saved flag are never dirtied by scanning.
+    /// 1. Bulk scanning reads 2D SAFEARRAYs; when visual underlines are enabled, only plain-text non-formula cells
+    ///    with active issues (or cells being cleaned) have per-word Red/Blue/Amber underlines applied, and all
+    ///    temporary proofing underlines are automatically stripped before Save (Ctrl+S) and Print (Ctrl+P).
     /// 2. Formula cells (HasFormula == true or Formula starting with '=') and numeric calculation cells are
-    ///    NEVER modified by spellcheck fixes, Zawgyi conversion, numeral conversion, or style rewrites.
+    ///    NEVER modified by spellcheck fixes, underlines, Zawgyi conversion, numeral conversion, or style rewrites.
     /// 3. In-Cell Edit Mode / Formula Bar typing is guarded via IsExcelReadyForInterop + HRESULT shields
     ///    (0x800A03EC, 0x800AC472, 0x80010001) so Excel never throws or lags while a user is typing.
     /// 4. Every add-in cell modification is recorded in SpreadsheetUndoManager for instant 1-click Undo.
     /// </summary>
-    public sealed class ExcelWorkbookScannerAndToolkit
+    public sealed class ExcelWorkbookScannerAndToolkit : IDisposable
     {
         private const int MaxRowsPerChunk = 2000;
         private const int MaxColsPerChunk = 256;
         private const int MaxCellsPerFullScan = 250_000;
         private const int MaxCellsPerLiveEditScan = 5_000;
+        private const int MaxUnderlinedCellsPerScan = 300;
+
+        // OLE BGR colors for Excel Range.Characters.Font.Color
+        private const int OleColorSpellingRed = 0x001C1CD2;  // RGB(210, 28, 28)
+        private const int OleColorGrammarBlue = 0x00C05814;  // RGB(20, 88, 192)
+        private const int OleColorContextAmber = 0x000866BA; // RGB(186, 102, 8)
+
+        private sealed class MarkedCellBaseline
+        {
+            public string SheetName { get; set; } = string.Empty;
+            public int Row { get; set; }
+            public int Column { get; set; }
+            public bool WasColorAutomatic { get; set; } = true;
+            public int OriginalOleColor { get; set; }
+            public int OriginalUnderline { get; set; } = (int)Excel.XlUnderlineStyle.xlUnderlineStyleNone;
+        }
 
         private readonly Excel.Application _excelApp;
         private readonly MyanmarProofingEngine _engine;
@@ -49,9 +67,15 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
         private readonly Dictionary<string, DocumentQualityReport> _qualityByWorkbook =
             new Dictionary<string, DocumentQualityReport>(StringComparer.OrdinalIgnoreCase);
 
+        private readonly Dictionary<string, Dictionary<string, MarkedCellBaseline>> _markedCellsByWorkbook =
+            new Dictionary<string, Dictionary<string, MarkedCellBaseline>>(StringComparer.OrdinalIgnoreCase);
+
+        private readonly System.Windows.Forms.Timer _postSaveRestoreTimer;
+        private string? _pendingRestoreWorkbookName;
         private int _suppressSheetChangeEvents;
 
         public bool IsLiveAutoScanEnabled { get; set; } = true;
+        public bool IsVisualUnderlineEnabled { get; set; } = true;
         public SpreadsheetScanScope CurrentScope { get; set; } = SpreadsheetScanScope.ActiveSheet;
         public SpreadsheetUndoManager UndoManager => _undoManager;
 
@@ -63,6 +87,15 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
         {
             _excelApp = excelApp ?? throw new ArgumentNullException(nameof(excelApp));
             _engine = engine ?? throw new ArgumentNullException(nameof(engine));
+
+            _postSaveRestoreTimer = new System.Windows.Forms.Timer { Interval = 450 };
+            _postSaveRestoreTimer.Tick += OnPostSaveRestoreTimerTick;
+        }
+
+        public void Dispose()
+        {
+            _postSaveRestoreTimer.Stop();
+            _postSaveRestoreTimer.Dispose();
         }
 
         public static bool IsExcelReadyForInterop(Excel.Application? app)
@@ -115,6 +148,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             string wbKey = GetActiveWorkbookKey();
             if (!string.IsNullOrEmpty(wbKey))
             {
+                ClearAllVisualUnderlinesInActiveWorkbook();
                 _issuesByWorkbook.Remove(wbKey);
                 _qualityByWorkbook.Remove(wbKey);
             }
@@ -127,6 +161,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
             _issuesByWorkbook.Remove(workbookName!);
             _qualityByWorkbook.Remove(workbookName!);
+            _markedCellsByWorkbook.Remove(workbookName!);
+            if (string.Equals(_pendingRestoreWorkbookName, workbookName, StringComparison.OrdinalIgnoreCase))
+            {
+                _pendingRestoreWorkbookName = null;
+                _postSaveRestoreTimer.Stop();
+            }
             _undoManager.ClearForWorkbook(workbookName!);
             UndoStateChanged?.Invoke();
         }
@@ -206,6 +246,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
                 _issuesByWorkbook[wbName] = collected;
                 _qualityByWorkbook.Remove(wbName);
+                SyncVisualUnderlinesForWorkbook(wb, wbName, preserveSavedState: true);
             }
             catch (COMException ex) when (IsTransientExcelBusyComError(ex))
             {
@@ -225,8 +266,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
         }
 
         /// <summary>
-        /// Incremental read-only cell re-check triggered after a user finishes editing cell(s) and presses Enter/Tab.
-        /// Never writes to Excel COM, so Excel's native Ctrl+Z Undo history remains 100% preserved!
+        /// Incremental cell re-check triggered after a user finishes editing cell(s) and presses Enter/Tab.
+        /// Updates per-word Red/Blue/Amber underlines on affected cells when visual underlines are enabled.
         /// </summary>
         public void OnWorkbookSheetChange(object sh, Excel.Range target)
         {
@@ -286,6 +327,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 }
 
                 _qualityByWorkbook.Remove(wbName);
+                SyncVisualUnderlinesForWorkbook(wb, wbName, preserveSavedState: false);
                 ScanCompleted?.Invoke(existingList);
             }
             catch (COMException ex) when (IsTransientExcelBusyComError(ex))
@@ -412,8 +454,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
                 WithExcelWriteGuard(() =>
                 {
+                    RestoreAndUntrackSingleCellIfMarked(wbName, cell, item.SheetName, item.Row, item.Column);
                     WriteSafePlainStringToCell(cell, updatedText);
                 });
+
+                SyncVisualUnderlinesForWorkbook(wb, wbName, preserveSavedState: false);
 
                 _undoManager.PushBatch(new SpreadsheetUndoBatch
                 {
@@ -476,6 +521,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 return 0;
 
             int totalFixedIssues = ApplyCellWriteOperations(wb, wbName, ops, descriptionLabel, out busyWarning);
+            if (totalFixedIssues > 0)
+            {
+                SyncVisualUnderlinesForWorkbook(wb, wbName, preserveSavedState: false);
+            }
             return totalFixedIssues;
         }
 
@@ -506,12 +555,17 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             if (ops.Count == 0)
                 return 0;
 
-            return ApplyCellWriteOperations(
+            int count = ApplyCellWriteOperations(
                 wb,
                 wbName,
                 ops,
                 $"တူညီအမှား \"{originalText}\" ➔ \"{replacementText}\"",
                 out busyWarning);
+            if (count > 0)
+            {
+                SyncVisualUnderlinesForWorkbook(wb, wbName, preserveSavedState: false);
+            }
+            return count;
         }
 
         public bool UndoLastAction(out string statusMessage)
@@ -556,6 +610,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                                 if (IsSingleCellFormula(cell))
                                     continue;
 
+                                RestoreAndUntrackSingleCellIfMarked(entry.WorkbookName, cell, entry.SheetName, entry.Row, entry.Column);
                                 WriteSafePlainStringToCell(cell, entry.PreviousText);
                                 if (!string.IsNullOrEmpty(entry.PreviousFontName))
                                 {
@@ -1109,6 +1164,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                             if (IsSingleCellFormula(cell))
                                 continue;
 
+                            RestoreAndUntrackSingleCellIfMarked(wbName, cell, op.SheetName, op.Row, op.Column);
                             WriteSafePlainStringToCell(cell, op.UpdatedText);
                             if (!string.IsNullOrEmpty(op.TargetFontName))
                             {
@@ -1481,6 +1537,410 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             int cmpCol = a.Column.CompareTo(b.Column);
             if (cmpCol != 0) return cmpCol;
             return a.Issue.StartIndex.CompareTo(b.Issue.StartIndex);
+        }
+
+        // ================= SAVE/PRINT-SAFE IN-CELL VISUAL UNDERLINE MANAGER =================
+
+        public void RefreshVisualUnderlinesForActiveWorkbook()
+        {
+            if (!IsExcelReadyForInterop(_excelApp))
+                return;
+
+            try
+            {
+                Excel.Workbook? wb = _excelApp.ActiveWorkbook;
+                if (wb == null)
+                    return;
+
+                string wbName = SafeGetWorkbookName(wb);
+                SyncVisualUnderlinesForWorkbook(wb, wbName, preserveSavedState: true);
+            }
+            catch (COMException ex) when (IsTransientExcelBusyComError(ex))
+            {
+                // Ignore busy state
+            }
+            catch (Exception ex)
+            {
+                AddInDiagnostics.LogException("RefreshVisualUnderlinesForActiveWorkbook", ex);
+            }
+        }
+
+        public int ClearAllVisualUnderlinesInActiveWorkbook()
+        {
+            if (!IsExcelReadyForInterop(_excelApp))
+                return 0;
+
+            try
+            {
+                Excel.Workbook? wb = _excelApp.ActiveWorkbook;
+                if (wb == null)
+                    return 0;
+
+                return StripAllUnderlinesForWorkbook(wb, preserveSavedState: true);
+            }
+            catch (COMException ex) when (IsTransientExcelBusyComError(ex))
+            {
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                AddInDiagnostics.LogException("ClearAllVisualUnderlinesInActiveWorkbook", ex);
+                return 0;
+            }
+        }
+
+        public void TemporarilyStripUnderlinesForSaveOrPrint(Excel.Workbook? wb)
+        {
+            if (wb == null)
+                return;
+
+            try
+            {
+                string wbName = SafeGetWorkbookName(wb);
+                int stripped = StripAllUnderlinesForWorkbook(wb, preserveSavedState: false);
+                if (stripped > 0 && IsVisualUnderlineEnabled)
+                {
+                    _pendingRestoreWorkbookName = wbName;
+                    _postSaveRestoreTimer.Stop();
+                    _postSaveRestoreTimer.Start();
+                }
+            }
+            catch (Exception ex)
+            {
+                AddInDiagnostics.LogException("TemporarilyStripUnderlinesForSaveOrPrint", ex);
+            }
+        }
+
+        private void OnPostSaveRestoreTimerTick(object? sender, EventArgs e)
+        {
+            _postSaveRestoreTimer.Stop();
+            string? targetWbName = _pendingRestoreWorkbookName;
+            _pendingRestoreWorkbookName = null;
+
+            if (string.IsNullOrEmpty(targetWbName) || !IsVisualUnderlineEnabled || !IsExcelReadyForInterop(_excelApp))
+                return;
+
+            try
+            {
+                foreach (Excel.Workbook wb in _excelApp.Workbooks)
+                {
+                    if (string.Equals(SafeGetWorkbookName(wb), targetWbName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        bool wasSavedAfterSave = false;
+                        try { wasSavedAfterSave = wb.Saved; } catch { }
+                        SyncVisualUnderlinesForWorkbook(wb, targetWbName!, preserveSavedState: wasSavedAfterSave);
+                        break;
+                    }
+                }
+            }
+            catch
+            {
+                // Workbook may have closed right after saving — safe no-op
+            }
+        }
+
+        private int StripAllUnderlinesForWorkbook(Excel.Workbook wb, bool preserveSavedState)
+        {
+            string wbName = SafeGetWorkbookName(wb);
+            if (!_markedCellsByWorkbook.TryGetValue(wbName, out var markedMap) || markedMap.Count == 0)
+                return 0;
+
+            bool wasSaved = false;
+            try { wasSaved = wb.Saved; } catch { }
+
+            int restoredCount = 0;
+            WithExcelWriteGuard(() =>
+            {
+                foreach (var sheetGroup in markedMap.Values.GroupBy(m => m.SheetName, StringComparer.OrdinalIgnoreCase))
+                {
+                    Excel.Worksheet? ws = FindWorksheetByName(wb, sheetGroup.Key);
+                    if (ws == null)
+                        continue;
+
+                    bool isProtected = false;
+                    try { isProtected = ws.ProtectContents; } catch { }
+
+                    foreach (var mark in sheetGroup)
+                    {
+                        try
+                        {
+                            Excel.Range cell = (Excel.Range)ws.Cells[mark.Row, mark.Column];
+                            if (isProtected && IsCellLockedSafe(cell))
+                                continue;
+
+                            RestoreCellBaselineFormatting(cell, mark);
+                            restoredCount++;
+                        }
+                        catch { }
+                    }
+                }
+            });
+
+            markedMap.Clear();
+            if (preserveSavedState && wasSaved)
+            {
+                try { wb.Saved = true; } catch { }
+            }
+
+            return restoredCount;
+        }
+
+        private void SyncVisualUnderlinesForWorkbook(Excel.Workbook wb, string wbName, bool preserveSavedState)
+        {
+            if (!IsVisualUnderlineEnabled)
+            {
+                StripAllUnderlinesForWorkbook(wb, preserveSavedState);
+                return;
+            }
+
+            _issuesByWorkbook.TryGetValue(wbName, out var allIssues);
+            var activeByCellKey = new Dictionary<string, List<SpreadsheetCellIssue>>(StringComparer.OrdinalIgnoreCase);
+
+            if (allIssues != null && allIssues.Count > 0)
+            {
+                foreach (var issue in allIssues)
+                {
+                    if (issue.IsResolved)
+                        continue;
+
+                    string cellKey = MakeCellKey(issue.SheetName, issue.Row, issue.Column);
+                    if (!activeByCellKey.TryGetValue(cellKey, out var list))
+                    {
+                        if (activeByCellKey.Count >= MaxUnderlinedCellsPerScan)
+                            continue;
+
+                        list = new List<SpreadsheetCellIssue>(2);
+                        activeByCellKey[cellKey] = list;
+                    }
+                    list.Add(issue);
+                }
+            }
+
+            _markedCellsByWorkbook.TryGetValue(wbName, out var existingMarks);
+            bool hasExistingMarks = existingMarks != null && existingMarks.Count > 0;
+
+            // Fast zero-COM-write exit when workbook is clean and has no prior temporary underlines
+            if (activeByCellKey.Count == 0 && !hasExistingMarks)
+                return;
+
+            if (existingMarks == null)
+            {
+                existingMarks = new Dictionary<string, MarkedCellBaseline>(StringComparer.OrdinalIgnoreCase);
+                _markedCellsByWorkbook[wbName] = existingMarks;
+            }
+
+            bool wasSaved = false;
+            try { wasSaved = wb.Saved; } catch { }
+
+            WithExcelWriteGuard(() =>
+            {
+                // 1. Clean any previously underlined cells that now have 0 unresolved issues
+                if (existingMarks.Count > 0)
+                {
+                    var staleKeys = existingMarks.Keys.Where(k => !activeByCellKey.ContainsKey(k)).ToList();
+                    foreach (var staleGroup in staleKeys
+                        .Select(k => (Key: k, Mark: existingMarks[k]))
+                        .GroupBy(x => x.Mark.SheetName, StringComparer.OrdinalIgnoreCase))
+                    {
+                        Excel.Worksheet? ws = FindWorksheetByName(wb, staleGroup.Key);
+                        foreach (var entry in staleGroup)
+                        {
+                            if (ws != null)
+                            {
+                                try
+                                {
+                                    Excel.Range cell = (Excel.Range)ws.Cells[entry.Mark.Row, entry.Mark.Column];
+                                    RestoreCellBaselineFormatting(cell, entry.Mark);
+                                }
+                                catch { }
+                            }
+                            existingMarks.Remove(entry.Key);
+                        }
+                    }
+                }
+
+                // 2. Apply exact per-word Red / Blue / Amber underlines on plain-text non-formula cells with active issues
+                foreach (var sheetGroup in activeByCellKey.GroupBy(kv => kv.Value[0].SheetName, StringComparer.OrdinalIgnoreCase))
+                {
+                    Excel.Worksheet? ws = FindWorksheetByName(wb, sheetGroup.Key);
+                    if (ws == null)
+                        continue;
+
+                    bool isProtected = false;
+                    try { isProtected = ws.ProtectContents; } catch { }
+
+                    foreach (var kv in sheetGroup)
+                    {
+                        string cellKey = kv.Key;
+                        List<SpreadsheetCellIssue> cellIssues = kv.Value;
+                        int row = cellIssues[0].Row;
+                        int col = cellIssues[0].Column;
+
+                        try
+                        {
+                            Excel.Range cell = (Excel.Range)ws.Cells[row, col];
+                            if (isProtected && IsCellLockedSafe(cell))
+                                continue;
+
+                            if (IsSingleCellFormula(cell))
+                                continue;
+
+                            string? liveText = cell.Value2 as string;
+                            if (string.IsNullOrEmpty(liveText))
+                                continue;
+
+                            if (!existingMarks.TryGetValue(cellKey, out var mark))
+                            {
+                                mark = CaptureCellBaseline(cell, cellIssues[0].SheetName, row, col);
+                                existingMarks[cellKey] = mark;
+                            }
+                            else
+                            {
+                                // Reset whole cell to baseline first so any resolved sibling word in the same cell loses its old underline
+                                RestoreCellBaselineFormatting(cell, mark);
+                            }
+
+                            ApplyUnderlinesToSingleCell(cell, liveText!, cellIssues);
+                        }
+                        catch
+                        {
+                            // Never let a single locked/merged cell abort highlighting remaining cells
+                        }
+                    }
+                }
+            });
+
+            if (preserveSavedState && wasSaved)
+            {
+                try { wb.Saved = true; } catch { }
+            }
+        }
+
+        private void RestoreAndUntrackSingleCellIfMarked(string wbName, Excel.Range cell, string sheetName, int row, int col)
+        {
+            if (string.IsNullOrEmpty(wbName))
+                return;
+
+            if (_markedCellsByWorkbook.TryGetValue(wbName, out var marks))
+            {
+                string key = MakeCellKey(sheetName, row, col);
+                if (marks.TryGetValue(key, out var baseline))
+                {
+                    RestoreCellBaselineFormatting(cell, baseline);
+                    marks.Remove(key);
+                }
+            }
+        }
+
+        private static MarkedCellBaseline CaptureCellBaseline(Excel.Range cell, string sheetName, int row, int col)
+        {
+            var baseline = new MarkedCellBaseline
+            {
+                SheetName = sheetName,
+                Row = row,
+                Column = col,
+                WasColorAutomatic = true,
+                OriginalUnderline = (int)Excel.XlUnderlineStyle.xlUnderlineStyleNone
+            };
+
+            try
+            {
+                object? rawColorIdx = cell.Font.ColorIndex;
+                object? rawColor = cell.Font.Color;
+                int oleColor = 0;
+                bool hasConcreteColor = false;
+
+                if (rawColor is double d && !double.IsNaN(d))
+                {
+                    oleColor = Convert.ToInt32(d);
+                    hasConcreteColor = true;
+                }
+                else if (rawColor is int i)
+                {
+                    oleColor = i;
+                    hasConcreteColor = true;
+                }
+
+                bool isOurProofingColor = hasConcreteColor &&
+                    (oleColor == OleColorSpellingRed || oleColor == OleColorGrammarBlue || oleColor == OleColorContextAmber);
+
+                if (!isOurProofingColor && rawColorIdx is int ci && ci != (int)Excel.XlColorIndex.xlColorIndexAutomatic && hasConcreteColor)
+                {
+                    baseline.WasColorAutomatic = false;
+                    baseline.OriginalOleColor = oleColor;
+                }
+
+                if (!isOurProofingColor && cell.Font.Underline is int ul && ul != 9999999)
+                {
+                    baseline.OriginalUnderline = ul;
+                }
+            }
+            catch { }
+
+            return baseline;
+        }
+
+        private static void RestoreCellBaselineFormatting(Excel.Range cell, MarkedCellBaseline baseline)
+        {
+            if (IsSingleCellFormula(cell))
+                return;
+
+            try { cell.Font.Underline = baseline.OriginalUnderline; } catch { }
+            try
+            {
+                if (baseline.WasColorAutomatic)
+                    cell.Font.ColorIndex = Excel.XlColorIndex.xlColorIndexAutomatic;
+                else
+                    cell.Font.Color = baseline.OriginalOleColor;
+            }
+            catch { }
+        }
+
+        private static void ApplyUnderlinesToSingleCell(Excel.Range cell, string liveText, List<SpreadsheetCellIssue> cellIssues)
+        {
+            foreach (var item in cellIssues)
+            {
+                if (item.IsResolved)
+                    continue;
+
+                int start0 = item.Issue.StartIndex;
+                int len = item.Issue.Length;
+                if (start0 < 0 || len <= 0 || start0 + len > liveText.Length)
+                    continue;
+
+                int oleColor = item.Issue.IsContextualWarning
+                    ? OleColorContextAmber
+                    : (item.Issue.IsGrammarOrStyle ? OleColorGrammarBlue : OleColorSpellingRed);
+
+                Excel.XlUnderlineStyle ulStyle = item.Issue.IsGrammarOrStyle
+                    ? Excel.XlUnderlineStyle.xlUnderlineStyleDouble
+                    : Excel.XlUnderlineStyle.xlUnderlineStyleSingle;
+
+                try
+                {
+                    Excel.Characters chars = cell.Characters[start0 + 1, len];
+                    chars.Font.Color = oleColor;
+                    chars.Font.Underline = ulStyle;
+                }
+                catch { }
+            }
+        }
+
+        private static bool IsCellLockedSafe(Excel.Range cell)
+        {
+            try
+            {
+                return cell.Locked is bool b && b;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        private static string MakeCellKey(string sheetName, int row, int col)
+        {
+            return string.Concat(sheetName ?? string.Empty, "\u001F", row.ToString(CultureInfo.InvariantCulture), "\u001F", col.ToString(CultureInfo.InvariantCulture));
         }
     }
 }

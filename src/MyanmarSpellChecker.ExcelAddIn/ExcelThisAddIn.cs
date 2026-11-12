@@ -56,6 +56,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
         private ExcelWorkbookScannerAndToolkit? _scannerToolkit;
         private ProofingStyleMode _pendingStyleMode = ProofingStyleMode.GeneralStandard;
         private bool _pendingLiveAutoScan = true;
+        private bool _pendingVisualUnderlines = true;
 
         // Per-Window Task Pane map (keyed by Excel.Window.Hwnd) for Multi-Workbook SDI support
         private readonly Dictionary<int, (Office.CustomTaskPane Pane, ExcelProofingTaskPaneControl Control)> _windowTaskPanes =
@@ -63,6 +64,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
 
         private string _appDataFolder = string.Empty;
         private string _styleModeConfigPath = string.Empty;
+        private string _visualUnderlineConfigPath = string.Empty;
         private string _customDictFilePath = string.Empty;
         private string _licenseFilePath = string.Empty;
         private string _databaseFilePath = string.Empty;
@@ -138,6 +140,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
             AddInDiagnostics.ConfigureLogDirectory(localAppDataDir);
 
             _styleModeConfigPath = Path.Combine(localAppDataDir, "style_mode.txt");
+            _visualUnderlineConfigPath = Path.Combine(localAppDataDir, "excel_underlines.txt");
             _customDictFilePath = Path.Combine(localAppDataDir, "custom_dictionary.txt");
             string ministryCustomDictPath = Path.Combine(programDataDir, "ministry_custom_dictionary.txt");
 
@@ -164,6 +167,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 : Path.Combine(_appDataFolder, "mlc_thatpon.db");
 
             _pendingStyleMode = LoadSavedStyleMode();
+            _pendingVisualUnderlines = LoadSavedVisualUnderlineSetting();
 
             string dbPathSnapshot = _databaseFilePath;
             string licPathSnapshot = _licenseFilePath;
@@ -224,7 +228,8 @@ namespace MyanmarSpellChecker.ExcelAddIn
 
             _scannerToolkit = new ExcelWorkbookScannerAndToolkit(_excelApp, _proofingEngine)
             {
-                IsLiveAutoScanEnabled = _pendingLiveAutoScan
+                IsLiveAutoScanEnabled = _pendingLiveAutoScan,
+                IsVisualUnderlineEnabled = _pendingVisualUnderlines
             };
 
             _scannerToolkit.ScanStarted += () =>
@@ -274,7 +279,28 @@ namespace MyanmarSpellChecker.ExcelAddIn
             _excelApp.WindowActivate += OnWindowActivate;
             _excelApp.WorkbookOpen += OnWorkbookOpen;
             ((Excel.AppEvents_Event)_excelApp).NewWorkbook += OnNewWorkbook;
+            _excelApp.WorkbookBeforeSave += OnWorkbookBeforeSave;
+            _excelApp.WorkbookBeforePrint += OnWorkbookBeforePrint;
             _excelApp.WorkbookBeforeClose += OnWorkbookBeforeClose;
+        }
+
+        private void OnWorkbookBeforeSave(Excel.Workbook wb, bool saveAsUI, ref bool cancel)
+        {
+            AddInDiagnostics.SafeExecute("OnWorkbookBeforeSave", () =>
+            {
+                // Strip temporary Red/Blue/Amber proofing underlines before Excel writes the .xlsx file,
+                // then restore them 450ms later if the workbook remains open
+                _scannerToolkit?.TemporarilyStripUnderlinesForSaveOrPrint(wb);
+            });
+        }
+
+        private void OnWorkbookBeforePrint(Excel.Workbook wb, ref bool cancel)
+        {
+            AddInDiagnostics.SafeExecute("OnWorkbookBeforePrint", () =>
+            {
+                // Strip temporary proofing underlines before printing, then restore 450ms later
+                _scannerToolkit?.TemporarilyStripUnderlinesForSaveOrPrint(wb);
+            });
         }
 
         private void OnSheetChange(object sh, Excel.Range target)
@@ -496,6 +522,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
             ctrl.RequestScanScope += scope => TriggerScanWithDbHotReload(scope);
             ctrl.RequestFixAllIssues += ExecuteFixAllInActiveScope;
             ctrl.RequestUndoLastAction += ExecuteUndoLastAction;
+            ctrl.RequestClearUnderlines += () => ExecuteClearExcelUnderlines();
             ctrl.RequestLicenseDialog += ShowLicenseDialog;
             ctrl.RequestChangeStyleMode += ApplyStyleModeAndRescan;
             ctrl.RequestSelectIssueInSheet += item => _scannerToolkit?.SelectAndScrollToIssue(item);
@@ -538,7 +565,10 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 _proofingEngine?.IgnoreWordInSession(item.Issue.OriginalText);
                 item.IsResolved = true;
                 if (_scannerToolkit != null)
+                {
+                    _scannerToolkit.RefreshVisualUnderlinesForActiveWorkbook();
                     ctrl.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
+                }
             };
 
             ctrl.RequestAddToDictionary += item =>
@@ -557,6 +587,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
                             cached.IsResolved = true;
                         }
                     }
+                    _scannerToolkit.RefreshVisualUnderlinesForActiveWorkbook();
                     ctrl.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
                     ctrl.ShowToastBanner($"✓ \"{item.Issue.OriginalText}\" ကို ကိုယ်ပိုင်အဘိဓာန် (Word + Excel) သို့ မှတ်သားပြီးပါပြီ။");
                 }
@@ -601,6 +632,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
                         if (UnicodeNormalizer.NormalizeCanonicalOrder(cached.Issue.OriginalText.Trim()) == normAdded)
                             cached.IsResolved = true;
                     }
+                    _scannerToolkit.RefreshVisualUnderlinesForActiveWorkbook();
                 }
                 return true;
             };
@@ -801,6 +833,34 @@ namespace MyanmarSpellChecker.ExcelAddIn
             _scannerToolkit.ScanScope(scope);
         }
 
+        private bool LoadSavedVisualUnderlineSetting()
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(_visualUnderlineConfigPath) && File.Exists(_visualUnderlineConfigPath))
+                {
+                    string raw = File.ReadAllText(_visualUnderlineConfigPath).Trim();
+                    if (bool.TryParse(raw, out bool parsed))
+                        return parsed;
+                }
+            }
+            catch { }
+            return true;
+        }
+
+        private void ExecuteClearExcelUnderlines()
+        {
+            if (_scannerToolkit == null)
+                return;
+
+            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+            int cleaned = _scannerToolkit.ClearAllVisualUnderlinesInActiveWorkbook();
+            ctrl?.ShowToastBanner(
+                cleaned > 0
+                    ? $"✓ အကွက် ({cleaned}) ကွက်ရှိ စစ်ဆေးရေး အနီ/အပြာ မျဉ်းသားချက်များကို ဖယ်ရှားပြီးပါပြီ။"
+                    : "✓ ဖယ်ရှားရန် စစ်ဆေးရေးမျဉ်း မရှိပါ။");
+        }
+
         private ProofingStyleMode LoadSavedStyleMode()
         {
             try
@@ -936,7 +996,20 @@ namespace MyanmarSpellChecker.ExcelAddIn
                         imageMso='ReviewTrackChanges'
                         getPressed='GetLiveScanPressed'
                         onAction='OnRibbonToggleLiveScan'
-                        screentip='အကွက်အတွင်း စာရိုက်ပြီး Enter နှိပ်တိုင်း အလိုအလျောက် စစ်ဆေးပေးရန် (Excel Ctrl+Z မပျက်စီးပါ)' />
+                        screentip='အကွက်အတွင်း စာရိုက်ပြီး Enter နှိပ်တိုင်း အလိုအလျောက် စစ်ဆေးပေးရန်' />
+          <toggleButton id='BtnToggleVisualUnderlines'
+                        label='အနီမျဉ်း ပြသမှု (Underlines)'
+                        size='normal'
+                        imageMso='FontColorPicker'
+                        getPressed='GetVisualUnderlinesPressed'
+                        onAction='OnRibbonToggleVisualUnderlines'
+                        screentip='အမှားရှိသော စာသားကွက်များတွင် အနီ/အပြာ/လိမ္မော် မျဉ်းသားပြသမှုကို ဖွင့်/ပိတ်ရန် (Save/Print လုပ်ချိန် အလိုအလျောက် ဖယ်ရှားပေးသည်)' />
+          <button id='BtnClearExcelUnderlines'
+                  label='မျဉ်းရှင်းမည်'
+                  size='normal'
+                  imageMso='ClearFormatting'
+                  onAction='OnRibbonClearUnderlines'
+                  screentip='Excel အကွက်များအတွင်းရှိ စစ်ဆေးရေး မျဉ်းသားချက်အားလုံးကို ချက်ချင်းဖယ်ရှားရန်' />
         </group>
         <group id='GrpExcelDictionary' label='အဘိဓာန်နှင့် စစ်ဆေးရေးပြကွက် (Offline)'>
           <button id='BtnSearchDictionary'
@@ -1048,6 +1121,43 @@ namespace MyanmarSpellChecker.ExcelAddIn
                     _scannerToolkit.IsLiveAutoScanEnabled = pressed;
                 _ribbonUi?.InvalidateControl("BtnToggleLiveScan");
             });
+        }
+
+        public bool GetVisualUnderlinesPressed(Office.IRibbonControl control)
+        {
+            return _scannerToolkit?.IsVisualUnderlineEnabled ?? _pendingVisualUnderlines;
+        }
+
+        public void OnRibbonToggleVisualUnderlines(Office.IRibbonControl control, bool pressed)
+        {
+            AddInDiagnostics.SafeExecute("OnRibbonToggleVisualUnderlines", () =>
+            {
+                _pendingVisualUnderlines = pressed;
+                try
+                {
+                    if (!string.IsNullOrEmpty(_visualUnderlineConfigPath))
+                        File.WriteAllText(_visualUnderlineConfigPath, pressed.ToString());
+                }
+                catch { }
+
+                if (_scannerToolkit != null)
+                {
+                    _scannerToolkit.IsVisualUnderlineEnabled = pressed;
+                    _scannerToolkit.RefreshVisualUnderlinesForActiveWorkbook();
+                }
+
+                _ribbonUi?.InvalidateControl("BtnToggleVisualUnderlines");
+                var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
+                ctrl?.ShowToastBanner(
+                    pressed
+                        ? "✓ Excel အကွက်အတွင်း အနီ/အပြာ/လိမ္မော် စစ်ဆေးရေးမျဉ်း ပြသမှုကို ဖွင့်လိုက်ပါပြီ (Save/Print လုပ်ချိန် အလိုအလျောက် ဖယ်ရှားပေးသည်)။"
+                        : "✓ Excel အကွက်အတွင်း မျဉ်းသားပြသမှုကို ပိတ်ပြီး မျဉ်းအားလုံး ရှင်းလင်းလိုက်ပါပြီ။");
+            });
+        }
+
+        public void OnRibbonClearUnderlines(Office.IRibbonControl control)
+        {
+            AddInDiagnostics.SafeExecute("OnRibbonClearUnderlines", ExecuteClearExcelUnderlines);
         }
 
         public bool GetTaskPanePressed(Office.IRibbonControl control)
@@ -1231,8 +1341,13 @@ namespace MyanmarSpellChecker.ExcelAddIn
                     _excelApp.WindowActivate -= OnWindowActivate;
                     _excelApp.WorkbookOpen -= OnWorkbookOpen;
                     ((Excel.AppEvents_Event)_excelApp).NewWorkbook -= OnNewWorkbook;
+                    _excelApp.WorkbookBeforeSave -= OnWorkbookBeforeSave;
+                    _excelApp.WorkbookBeforePrint -= OnWorkbookBeforePrint;
                     _excelApp.WorkbookBeforeClose -= OnWorkbookBeforeClose;
                 }
+
+                _scannerToolkit?.Dispose();
+                _scannerToolkit = null;
 
                 _windowTaskPanes.Clear();
                 _uiMarshaller?.Dispose();

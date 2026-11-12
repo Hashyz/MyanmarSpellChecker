@@ -106,6 +106,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private readonly Button _btnScanNow;
         private readonly Button _btnFixAll;
         private readonly Button _btnUndoLast;
+        private readonly Button _btnClearUnderlines;
         private readonly Button _btnFilterAll;
         private readonly Button _btnFilterSpelling;
         private readonly Button _btnFilterGrammar;
@@ -162,6 +163,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         public event Action<SpreadsheetScanScope>? RequestScanScope;
         public event Action<IssueFilterMode>? RequestFixAllIssues;
         public event Action? RequestUndoLastAction;
+        public event Action? RequestClearUnderlines;
         public event Action? RequestLicenseDialog;
         public event Action<ProofingStyleMode>? RequestChangeStyleMode;
         public event Action<SpreadsheetCellIssue>? RequestSelectIssueInSheet;
@@ -427,37 +429,44 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             scopeRow.Controls.Add(_btnScopeSelection, 1, 0);
             scopeRow.Controls.Add(_btnScopeWorkbook, 2, 0);
 
-            // Primary Action Buttons Row: Scan | Fix All | Undo
+            // Primary Action Buttons Row: Scan | Fix All | Undo | Clear Underlines
             var actionRow = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 3,
+                ColumnCount = 4,
                 RowCount = 1,
                 Margin = new Padding(0, 0, 0, 4)
             };
-            actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36F));
-            actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36F));
-            actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 28F));
+            actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30F));
+            actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30F));
+            actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22F));
+            actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 18F));
             actionRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             _btnScanNow = CreateActionButton("Sheet စစ်မည်", Color.FromArgb(16, 124, 65), Color.White, Color.FromArgb(14, 102, 53), _fontSmallBold);
-            _btnScanNow.Margin = new Padding(0, 0, 3, 0);
+            _btnScanNow.Margin = new Padding(0, 0, 2, 0);
             _btnScanNow.Click += (s, e) => RequestScanScope?.Invoke(_currentScanScope);
 
             _btnFixAll = CreateActionButton("အားလုံးပြင်", Color.FromArgb(24, 90, 188), Color.White, Color.FromArgb(18, 72, 158), _fontSmallBold);
-            _btnFixAll.Margin = new Padding(2, 0, 3, 0);
+            _btnFixAll.Margin = new Padding(2, 0, 2, 0);
             _btnFixAll.Click += (s, e) => RequestFixAllIssues?.Invoke(_currentFilter);
 
             _btnUndoLast = CreateActionButton("↶ ပြန်ဆုတ်", Color.FromArgb(244, 246, 250), Color.FromArgb(55, 65, 82), Color.FromArgb(210, 218, 230), _fontSmallBold);
-            _btnUndoLast.Margin = new Padding(2, 0, 0, 0);
+            _btnUndoLast.Margin = new Padding(2, 0, 2, 0);
             _btnUndoLast.Enabled = false;
             _btnUndoLast.Click += (s, e) => RequestUndoLastAction?.Invoke();
+
+            _btnClearUnderlines = CreateActionButton("မျဉ်းရှင်း", Color.FromArgb(244, 246, 250), Color.FromArgb(55, 65, 82), Color.FromArgb(210, 218, 230), _fontSmall);
+            _btnClearUnderlines.Margin = new Padding(2, 0, 0, 0);
+            _btnClearUnderlines.Click += (s, e) => RequestClearUnderlines?.Invoke();
+            _toolTip.SetToolTip(_btnClearUnderlines, "အကွက်များအတွင်းရှိ စစ်ဆေးရေး အနီ/အပြာ/လိမ္မော် မျဉ်းသားချက်များကို ဖယ်ရှားရန် (Save/Print လုပ်ချိန်တွင်လည်း အလိုအလျောက် ဖယ်ရှားပေးသည်)");
 
             actionRow.Controls.Add(_btnScanNow, 0, 0);
             actionRow.Controls.Add(_btnFixAll, 1, 0);
             actionRow.Controls.Add(_btnUndoLast, 2, 0);
+            actionRow.Controls.Add(_btnClearUnderlines, 3, 0);
 
             // 4-Pill Filter + Stepper Row
             var filterRow = new TableLayoutPanel

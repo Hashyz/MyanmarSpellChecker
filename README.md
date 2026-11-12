@@ -95,20 +95,23 @@ This project is open-source software licensed under the **[GNU General Public Li
 
 ### Step 3 — How to Use in Microsoft Excel (`မြန်မာစာ စစ်ဆေးရေး` Tab)
 
-Excel does not support per-word wavy underlines without breaking cell formatting, so the Excel Add-in provides a **100% Formula-Safe Cell-by-Cell Proofing & Accounting Workspace**:
+The Excel Add-in provides **In-Cell Color-Coded Underlines + Formula-Safe Cell-by-Cell Proofing & Accounting Tools**:
 
-1. **Choose Scan Scope (Ribbon or Task Pane):**
+1. **In-Cell Red / Blue / Amber Underlines (Save & Print Safe):**
+   - Misspelled words inside plain-text cells are highlighted directly inside the cell with **Red Single Underline (`သတ်ပုံအမှား`)**, **Blue Double Underline (`သဒ္ဒါ/စာဟန်`)**, or **Amber Single Underline (`အနက်သံသယ`)**.
+   - All temporary proofing underlines are **automatically restored to clean normal text** as soon as you fix the word, click **`မျဉ်းရှင်း`**, or press **`Ctrl+S` (Save) / `Ctrl+P` (Print)** so proofing underlines are **never** baked into your saved `.xlsx` file. You can also toggle **`အနီမျဉ်း ပြသမှု (Underlines)`** on/off from the Ribbon at any time.
+2. **Choose Scan Scope (Ribbon or Task Pane):**
    - **`လက်ရှိ Sheet စစ်မည်` (`Sheet`):** Scans all text cells in the active worksheet in milliseconds using bulk 2D `SAFEARRAY` reads.
    - **`ရွေးကွက် စစ်မည်` (`ရွေးကွက်`):** Scans only your highlighted cell range.
    - **`Workbook လုံး စစ်မည်` (`စာအုပ်လုံး`):** Scans every worksheet across the entire `.xlsx` workbook.
    - **`အလိုအလျောက် စစ်ဆေးမှု (Live)`:** Automatically checks cells right after you press `Enter` to finish editing a cell.
-2. **100% Formula & Number Protection Guarantee:**
-   - Cells containing Excel formulas (`=SUM(...)`, `=VLOOKUP(...)`, `=IF(...)`, `=TEXT(...)`), pure accounting numbers, currencies, percentages, and dates are **strictly shielded** and **never** modified during single fixes, `အားလုံးပြင်`, font conversion, or numeral conversion.
-3. **Click-to-Navigate, Fix & 25-Step Undo (`↶ ပြန်ဆုတ်`):**
+3. **100% Formula & Number Protection Guarantee:**
+   - Cells containing Excel formulas (`=SUM(...)`, `=VLOOKUP(...)`, `=IF(...)`, `=TEXT(...)`), pure accounting numbers, currencies, percentages, and dates are **strictly shielded** and **never** modified during single fixes, `အားလုံးပြင်`, underlining, font conversion, or numeral conversion.
+4. **Click-to-Navigate, Fix & 25-Step Undo (`↶ ပြန်ဆုတ်`):**
    - Click any issue card (e.g. `စာရင်း(၁)!B4`) in the Task Pane to jump straight to that sheet and cell in Excel.
    - Click `✓ ပြင်မည်` for a single fix or `အားလုံးပြင်` for a batch fix across cells.
    - Because COM writes normally clear Excel's native `Ctrl+Z`, the add-in includes its own **25-step Multi-Level Undo stack** — click **`ပြန်ဆုတ်မည် (Undo)`** on the Ribbon or **`↶ ပြန်ဆုတ်`** in the Task Pane at any time to restore previous cell values and fonts!
-4. **Excel Accounting & Audit Tools:**
+5. **Excel Accounting & Audit Tools:**
    - Select any numeric budget cell in Excel and open the **`ကိရိယာ` (Toolkit)** tab — the number is automatically captured and converted into **Kyat Lakh (`ကျပ်သိန်း...တိတိ`)** Burmese words ready to copy or insert!
    - Click **`အရည်အသွေး အစီရင်ခံစာ`** to generate a formatted printable audit report sheet (`မြန်မာစာ_စစ်ဆေးချက်`) listing quality scores and cell-by-cell findings.
 
