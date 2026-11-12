@@ -1,0 +1,17 @@
+<Project>
+
+  <PropertyGroup>
+    <Authors>Htet Yar Zar (ထက်ရာဇာ)</Authors>
+    <Company>Htet Yar Zar — Department of Geology, Kyaukse University, Kyaukse, Myanmar</Company>
+    <Product>Myanmar Official Spell, Grammar &amp; Dictionary Suite (Word + Excel)</Product>
+    <Description>100% Offline Enterprise &amp; Government Myanmar Spell, Grammar, Contextual Meaning &amp; Dictionary Suite for Microsoft Word &amp; Excel. Created by Htet Yar Zar (ထက်ရာဇာ), M.Sc. Part II Candidate in Geology (M.Sc. Part I Completed), Department of Geology, Kyaukse University, Kyaukse, Mandalay Region, Myanmar.</Description>
+    <Copyright>Copyright © 2026 Htet Yar Zar (ထက်ရာဇာ), Department of Geology, Kyaukse University, Kyaukse, Myanmar. Licensed under GNU GPL v3.0 (with Section 7b Attribution Notice).</Copyright>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+    <!-- Preserve AssemblyVersion 1.0.0.0 for deterministic COM InprocServer32 registration compatibility -->
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.22.0</FileVersion>
+    <InformationalVersion>1.0.22-kyaukse-geology (Author: Htet Yar Zar / ထက်ရာဇာ, Kyaukse University)</InformationalVersion>
+  </PropertyGroup>
+
+</Project>
+

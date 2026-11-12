@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*"
+           Name="Myanmar Official Spell &amp; Grammar Checker (မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း)"
+           Language="1033"
+           Version="1.0.0.0"
+           Manufacturer="Myanmar Enterprise B2G Solutions"
+           UpgradeCode="94E1B231-7A40-4C9B-B112-65E8A9012C44">
+
+    <Package InstallerVersion="500"
+             Compressed="yes"
+             InstallScope="perMachine"
+             Description="100% Offline Myanmar (Burmese) Spell and Grammar Checker Add-in for Microsoft Word" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Myanmar Spell Checker is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Directory Structure: Program Files + %ProgramData%\MyanmarSpellChecker for GPO License & Encrypted DB -->
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="MyanmarSpellChecker" />
+      </Directory>
+      <Directory Id="CommonAppDataFolder">
+        <Directory Id="APPDATAFOLDER" Name="MyanmarSpellChecker" />
+      </Directory>
+    </Directory>
+
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      <!-- Self-Contained 2-DLL Pure .NET Framework 4.8 Architecture (Zero 3rd-party unsigned DLLs) -->
+      <Component Id="Cmp_AddInBinaries" Guid="3D11A9C0-4F22-4B78-9A11-88C2D4E5F601" Win64="yes">
+        <File Id="File_CoreDll" Source="..\src\MyanmarSpellChecker.WordAddIn\bin\Release\net48\MyanmarSpellChecker.Core.dll" KeyPath="yes" />
+        <File Id="File_AddInDll" Source="..\src\MyanmarSpellChecker.WordAddIn\bin\Release\net48\MyanmarSpellChecker.WordAddIn.dll" />
+
+        <!-- Register for 64-bit MS Word -->
+        <RegistryKey Root="HKLM" Key="Software\Microsoft\Office\Word\Addins\MyanmarSpellChecker.WordAddIn">
+          <RegistryValue Type="string" Name="FriendlyName" Value="မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း စစ်ဆေးရေး" />
+          <RegistryValue Type="string" Name="Description" Value="Myanmar Official Offline Spell &amp; Grammar Checker (B2G Edition)" />
+          <RegistryValue Type="integer" Name="LoadBehavior" Value="3" />
+        </RegistryKey>
+      </Component>
+
+      <!-- Register for 32-bit MS Word on 64-bit Windows (WOW6432Node) -->
+      <Component Id="Cmp_Office32Registry" Guid="7E22B8D1-5A33-4C89-8B22-99D3E5F6A702" Win64="no">
+        <RegistryKey Root="HKLM" Key="Software\Microsoft\Office\Word\Addins\MyanmarSpellChecker.WordAddIn">
+          <RegistryValue Type="string" Name="FriendlyName" Value="မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း စစ်ဆေးရေး" />
+          <RegistryValue Type="string" Name="Description" Value="Myanmar Official Offline Spell &amp; Grammar Checker (B2G Edition)" />
+          <RegistryValue Type="integer" Name="LoadBehavior" Value="3" />
+        </RegistryKey>
+      </Component>
+    </ComponentGroup>
+
+    <!-- Encrypted AES-256 + HMAC-SHA256 Dictionary & Ministry GPO License in %ProgramData%\MyanmarSpellChecker -->
+    <ComponentGroup Id="DataComponents" Directory="APPDATAFOLDER">
+      <Component Id="Cmp_EncryptedDictionary" Guid="1F33C7E2-6B44-4D9A-9C33-00E4F6A7B803" Win64="yes">
+        <File Id="File_EncryptedDb" Source="..\artifacts\mlc_thatpon.db" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="ProductFeature" Title="Myanmar Spell Checker Word Add-in" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+      <ComponentGroupRef Id="DataComponents" />
+    </Feature>
+  </Product>
+</Wix>

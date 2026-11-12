@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use, fork, or reference this software or its curated linguistic and geological datasets, please cite the original author as below."
+type: software
+title: "Myanmar Official Spell, Grammar, Contextual Meaning & Dictionary Suite for Microsoft Word and Microsoft Excel"
+abstract: "100% Offline, air-gapped Microsoft Word and Microsoft Excel COM Add-in Suite (.NET Framework 4.8) featuring Viterbi word-lattice Burmese orthography proofing, contextual homophone disambiguation, official style rewriting, formula-safe spreadsheet proofing, and a 118,600+ entry Myanmar-to-Myanmar dictionary & encyclopedia including specialized Geology & Earth Sciences terminology."
+authors:
+  - name: "Htet Yar Zar (ထက်ရာဇာ)"
+    affiliation: "M.Sc. Part II Candidate in Geology (M.Sc. Part I Completed), Department of Geology, Kyaukse University"
+    city: "Kyaukse"
+    region: "Mandalay Region"
+    country: MM
+version: "1.0.22"
+date-released: "2026-11-12"
+license: "GPL-3.0-or-later"
+url: "https://github.com/Hashyz/MyanmarSpellChecker"
+repository-code: "https://github.com/Hashyz/MyanmarSpellChecker"
+keywords:
+  - myanmar
+  - burmese
+  - spell-checker
+  - grammar-checker
+  - nlp
+  - microsoft-word
+  - microsoft-excel
+  - kyaukse-university
+  - geology
+

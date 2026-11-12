@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Obfuscator>
+  <Var name="InPath" value="..\src\MyanmarSpellChecker.WordAddIn\bin\Release\net48" />
+  <Var name="OutPath" value="..\artifacts\obfuscated" />
+  <Var name="KeepPublicApi" value="false" />
+  <Var name="HidePrivateApi" value="true" />
+  <Var name="HideStrings" value="true" />
+  <Var name="UseUnicodeNames" value="true" />
+  <Var name="ReuseNames" value="true" />
+  <Var name="OptimizeMethods" value="true" />
+  <Var name="SuppressIldasm" value="true" />
+
+  <Module file="$(InPath)\MyanmarSpellChecker.Core.dll">
+    <!-- Preserve DataContract serialized properties for JSON & License payloads -->
+    <SkipType name="MyanmarSpellChecker.Core.Models.DictionaryEntry" skipProperties="true" skipFields="true" />
+    <SkipType name="MyanmarSpellChecker.Core.Models.OrthographyRule" skipProperties="true" skipFields="true" />
+    <SkipType name="MyanmarSpellChecker.Core.Dictionary.MasterDictionaryJsonModel" skipProperties="true" skipFields="true" />
+    <SkipType name="MyanmarSpellChecker.Core.Security.LicensePayload" skipProperties="true" skipFields="true" />
+    <SkipType name="MyanmarSpellChecker.Core.Security.SignedLicenseFile" skipProperties="true" skipFields="true" />
+  </Module>
+
+  <Module file="$(InPath)\MyanmarSpellChecker.WordAddIn.dll">
+    <!-- CRITICAL: Preserve COM ProgId entry points and Ribbon XML onAction callback method names -->
+    <SkipType name="MyanmarSpellChecker.WordAddIn.ThisAddIn" skipMethods="true" skipProperties="true" />
+    <SkipType name="MyanmarSpellChecker.WordAddIn.UI.ProofingTaskPaneControl" skipMethods="true" skipProperties="true" />
+  </Module>
+</Obfuscator>
+

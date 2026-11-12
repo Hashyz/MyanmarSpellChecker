@@ -1,0 +1,40 @@
+# Build & Visual Studio outputs
+[Bb]in/
+[Oo]bj/
+[Tt]est[Rr]esults/
+.vs/
+.vscode/
+
+# User-specific IDE files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Generated intermediate 81 MB JSON (rebuilt automatically from data/sources/ when needed;
+# ready-to-run ~12 MB encrypted data/mlc_thatpon.db IS tracked for instant out-of-the-box use)
+data/mlc_thatpon_master.json
+
+# Generated release packages, private signing keys & machine-bound licenses
+artifacts/vendor_private_key.xml
+artifacts/vendor_public_key.xml
+artifacts/*.lic
+artifacts/*.cer
+artifacts/*.pfx
+artifacts/mlc_thatpon.db
+artifacts/obfuscated/
+artifacts/release-package/
+artifacts/staged-word/
+artifacts/staged-excel/
+
+# WiX / MSI installer build outputs
+*.msi
+*.wixobj
+*.wixpdb
+*.cab
+
+# Office temporary lock files & OS metadata
+~$*
+Thumbs.db
+.DS_Store
