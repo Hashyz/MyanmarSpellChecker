@@ -195,6 +195,231 @@ namespace MyanmarSpellChecker.Core.Nlp
             @"\u1031([\u103B-\u103E]+)",
             RegexOptions.Compiled);
 
+        private const uint LookalikeZeroWidth = 1u << 0;
+        private const uint LookalikeVirama1039 = 1u << 1;
+        private const uint LookalikeGreatSaDup = 1u << 2;
+        private const uint LookalikeHmoun = 1u << 3;
+        private const uint LookalikeIuCombo = 1u << 4;
+        private const uint LookalikeMedialAfterVowel = 1u << 5;
+        private const uint LookalikeVowelAfterAsat = 1u << 6;
+        private const uint LookalikeDuplicateMark = 1u << 7;
+        private const uint LookalikeLaKaung = 1u << 8;
+        private const uint LookalikeDigitStrayMark = 1u << 9;
+        private const uint LookalikeMisplacedMedialAaAsat = 1u << 10;
+        private const uint LookalikeDecomposedUu = 1u << 11;
+        private const uint LookalikeMisusedCya = 1u << 12;
+        private const uint LookalikeMisusedAw = 1u << 13;
+        private const uint LookalikeDigitZero = 1u << 14;
+        private const uint LookalikeMisusedVowelU = 1u << 15;
+        private const uint LookalikeNya1009 = 1u << 16;
+        private const uint LookalikeTallAa = 1u << 17;
+        private const uint LookalikeRoundAa = 1u << 18;
+        private const uint LookalikeReversedMedial = 1u << 19;
+        private const uint LookalikeSwappedLowerUpperVowel = 1u << 20;
+
+        /// <summary>
+        /// Zero-allocation O(N) check returning false when <paramref name="s"/> is already in canonical Myanmar combining order.
+        /// </summary>
+        private static bool NeedsCanonicalReorder(string s)
+        {
+            int len = s.Length;
+            if (len < 2)
+                return false;
+
+            bool has1039 = false;
+            bool has102B = false;
+            char prev = s[0];
+            if (prev == '\u1039') has1039 = true;
+            else if (prev == '\u102B') has102B = true;
+
+            for (int i = 1; i < len; i++)
+            {
+                char c = s[i];
+                if (c == '\u1039') has1039 = true;
+                else if (c == '\u102B') has102B = true;
+
+                switch (prev)
+                {
+                    case '\u1025':
+                        if (c == '\u102E') return true;
+                        break;
+                    case '\u1031':
+                        if (c >= '\u103B' && c <= '\u103E') return true;
+                        break;
+                    case '\u102D':
+                    case '\u102E':
+                    case '\u1032':
+                        if (c == '\u103D' || c == '\u103E') return true;
+                        break;
+                    case '\u102F':
+                        if (c == '\u102D' || c == '\u102E' || c == '\u103D' || c == '\u103E') return true;
+                        break;
+                    case '\u1030':
+                        if (c == '\u102D' || c == '\u103D' || c == '\u103E') return true;
+                        break;
+                    case '\u1036':
+                        if (c == '\u102F') return true;
+                        break;
+                    case '\u1037':
+                        if (c == '\u102B' || c == '\u102C' || c == '\u102F' || c == '\u1036' || c == '\u103A') return true;
+                        break;
+                    case '\u103D':
+                        if (c == '\u103B' || c == '\u103C') return true;
+                        break;
+                    case '\u103E':
+                        if (c >= '\u103B' && c <= '\u103D') return true;
+                        break;
+                }
+
+                prev = c;
+            }
+
+            return has1039 && has102B;
+        }
+
+        private static bool IsNarrowTallAaConsonant(char c)
+        {
+            return c == '\u1001' || c == '\u1002' || c == '\u1004' ||
+                   c == '\u1012' || c == '\u1015' || c == '\u101D';
+        }
+
+        /// <summary>
+        /// Single-pass O(N) bitmask scanner identifying which lookalike / combining-corruption Regexes could possibly match <paramref name="s"/>.
+        /// Returns 0 in ~10ns with zero allocations for clean Myanmar words.
+        /// </summary>
+        private static uint ComputeLookalikeTriggerMask(string s)
+        {
+            int len = s.Length;
+            uint mask = 0;
+            char prev = '\0';
+
+            for (int i = 0; i < len; i++)
+            {
+                char c = s[i];
+
+                if ((c >= '\u200B' && c <= '\u200D') || c == '\uFEFF')
+                {
+                    mask |= LookalikeZeroWidth;
+                }
+                else if (c == '\u1039')
+                {
+                    mask |= LookalikeVirama1039;
+                }
+                else if (c == '\u103F')
+                {
+                    if (prev == '\u103F') mask |= LookalikeGreatSaDup;
+                }
+                else if (c == '\u1040')
+                {
+                    mask |= LookalikeDigitZero;
+                }
+                else if (c == '\u1044' || c == '\u104E')
+                {
+                    mask |= LookalikeLaKaung;
+                }
+                else if (c == '\u1009')
+                {
+                    mask |= LookalikeNya1009;
+                }
+                else if (c == '\u102B')
+                {
+                    int baseIdx = prev == '\u1031' ? i - 2 : i - 1;
+                    bool cleanNarrowCons = baseIdx >= 0 &&
+                                           IsNarrowTallAaConsonant(s[baseIdx]) &&
+                                           (baseIdx == 0 || s[baseIdx - 1] != '\u1039');
+                    if (!cleanNarrowCons)
+                    {
+                        mask |= LookalikeTallAa;
+                    }
+                }
+                else if (c == '\u102C')
+                {
+                    int baseIdx = prev == '\u1031' ? i - 2 : i - 1;
+                    if (baseIdx >= 0)
+                    {
+                        char b = s[baseIdx];
+                        if (IsNarrowTallAaConsonant(b) || (b == '\u103D' && baseIdx >= 1 && s[baseIdx - 1] == '\u1012'))
+                        {
+                            mask |= LookalikeRoundAa;
+                        }
+                    }
+                }
+
+                if (i > 0)
+                {
+                    if (c == prev && ((c >= '\u102B' && c <= '\u1032') || (c >= '\u1036' && c <= '\u103E')))
+                    {
+                        mask |= LookalikeDuplicateMark;
+                    }
+                    else if (i >= 2 &&
+                             ((c == '\u103A' && prev == '\u1037' && s[i - 2] == '\u103A') ||
+                              (c == '\u1037' && prev == '\u103A' && s[i - 2] == '\u1037')))
+                    {
+                        mask |= LookalikeDuplicateMark;
+                    }
+
+                    if (c == '\u1036' && prev == '\u102F')
+                    {
+                        mask |= LookalikeHmoun;
+                    }
+                    else if ((c == '\u1030' && prev == '\u102D') || (c == '\u102D' && prev == '\u1030'))
+                    {
+                        mask |= LookalikeIuCombo;
+                    }
+                    else if ((c == '\u103D' || c == '\u103E') && ((prev >= '\u102D' && prev <= '\u1030') || prev == '\u1032'))
+                    {
+                        mask |= LookalikeMedialAfterVowel;
+                    }
+                    else if (prev == '\u103A' && ((c >= '\u102D' && c <= '\u1030') || c == '\u1032'))
+                    {
+                        mask |= LookalikeVowelAfterAsat;
+                    }
+                    else if (prev >= '\u1041' && prev <= '\u1049' && c >= '\u102B' && c <= '\u103E')
+                    {
+                        mask |= LookalikeDigitStrayMark;
+                    }
+                    else if (c == '\u103A' && (prev == '\u102B' || prev == '\u102C') && i >= 2 && (s[i - 2] == '\u103B' || s[i - 2] == '\u103C'))
+                    {
+                        mask |= LookalikeMisplacedMedialAaAsat;
+                    }
+                    else if ((prev == '\u1025' && c == '\u102E') || (prev == '\u1026' && (c == '\u102D' || c == '\u102E')))
+                    {
+                        mask |= LookalikeDecomposedUu;
+                    }
+                    else if (prev == '\u1005' && c == '\u103B')
+                    {
+                        mask |= LookalikeMisusedCya;
+                    }
+                    else if ((prev == '\u101E' || prev == '\u1029') && c == '\u103C')
+                    {
+                        mask |= LookalikeMisusedAw;
+                    }
+                    else if (prev == '\u1025' && (c == '\u103A' || c == '\u102C' || c == '\u1039' || c == '\u1037'))
+                    {
+                        mask |= LookalikeMisusedVowelU;
+                    }
+                    else if ((prev == '\u103E' && (c == '\u103B' || c == '\u103C' || c == '\u103D')) ||
+                             (prev == '\u103D' && (c == '\u103B' || c == '\u103C')))
+                    {
+                        mask |= LookalikeReversedMedial;
+                    }
+                    else if ((prev == '\u102F' && (c == '\u102D' || c == '\u102E')) || (prev == '\u1030' && c == '\u102E'))
+                    {
+                        mask |= LookalikeSwappedLowerUpperVowel;
+                    }
+                }
+
+                prev = c;
+            }
+
+            if ((mask & LookalikeDuplicateMark) == 0 && NeedsCanonicalReorder(s))
+            {
+                mask |= LookalikeDuplicateMark;
+            }
+
+            return mask;
+        }
+
         /// <summary>
         /// Normalizes Myanmar combining marks to canonical Unicode 5.1+ order while preserving length for common swaps.
         /// </summary>
@@ -202,6 +427,9 @@ namespace MyanmarSpellChecker.Core.Nlp
         {
             if (string.IsNullOrEmpty(text))
                 return string.Empty;
+
+            if (!NeedsCanonicalReorder(text))
+                return text;
 
             string result = text;
 
@@ -259,32 +487,75 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (string.IsNullOrEmpty(token))
                 return string.Empty;
 
-            string fixedToken = ZeroWidthCorruptionPattern.Replace(token, string.Empty);
-            fixedToken = AccidentalViramaBeforeYaPinPattern.Replace(fixedToken, "\u103A");
-            fixedToken = MisplacedKinziPattern.Replace(fixedToken, "\u1004\u103A\u1039${Cluster}");
-            fixedToken = DanglingViramaPattern.Replace(fixedToken, string.Empty);
-            fixedToken = MisusedGreatSaPattern.Replace(fixedToken, "\u103F");
-            fixedToken = RepairIllegalAspiratedStacks(fixedToken);
-            fixedToken = ImpossibleHmounRhymePattern.Replace(fixedToken, "\u1019\u103E\u102F\u1014\u103A${Tone}");
-            fixedToken = ImpossibleIuVowelComboPattern.Replace(fixedToken, "\u102D\u102F");
-            fixedToken = MedialAfterVowelPattern.Replace(fixedToken, "${Medial}${Vowel}");
-            fixedToken = VowelAfterAsatCodaPattern.Replace(fixedToken, "${Onset}${Vowel}${Coda}${Tone}");
+            uint mask = ComputeLookalikeTriggerMask(token);
+            if (mask == 0)
+                return NormalizeCanonicalOrder(token);
+
+            string fixedToken = token;
+            if ((mask & LookalikeZeroWidth) != 0)
+            {
+                fixedToken = ZeroWidthCorruptionPattern.Replace(fixedToken, string.Empty);
+                mask = ComputeLookalikeTriggerMask(fixedToken);
+            }
+            if ((mask & LookalikeVirama1039) != 0)
+            {
+                fixedToken = AccidentalViramaBeforeYaPinPattern.Replace(fixedToken, "\u103A");
+                fixedToken = MisplacedKinziPattern.Replace(fixedToken, "\u1004\u103A\u1039${Cluster}");
+                fixedToken = DanglingViramaPattern.Replace(fixedToken, string.Empty);
+            }
+            if ((mask & (LookalikeVirama1039 | LookalikeGreatSaDup)) != 0)
+            {
+                fixedToken = MisusedGreatSaPattern.Replace(fixedToken, "\u103F");
+            }
+            if ((mask & LookalikeVirama1039) != 0)
+            {
+                fixedToken = RepairIllegalAspiratedStacks(fixedToken);
+            }
+            if ((mask & LookalikeHmoun) != 0)
+                fixedToken = ImpossibleHmounRhymePattern.Replace(fixedToken, "\u1019\u103E\u102F\u1014\u103A${Tone}");
+            if ((mask & LookalikeIuCombo) != 0)
+                fixedToken = ImpossibleIuVowelComboPattern.Replace(fixedToken, "\u102D\u102F");
+            if ((mask & LookalikeMedialAfterVowel) != 0)
+                fixedToken = MedialAfterVowelPattern.Replace(fixedToken, "${Medial}${Vowel}");
+            if ((mask & LookalikeVowelAfterAsat) != 0)
+                fixedToken = VowelAfterAsatCodaPattern.Replace(fixedToken, "${Onset}${Vowel}${Coda}${Tone}");
+
             fixedToken = fixedToken.Replace("\u103A\u1037\u103A", "\u103A\u1037").Replace("\u1037\u103A\u1037", "\u103A\u1037");
             fixedToken = DuplicateCombiningMarkPattern.Replace(fixedToken, "$1");
-            fixedToken = StackedSubscriptTallAaPattern.Replace(fixedToken, "\u102C");
-            fixedToken = MisusedLaKaungPattern.Replace(fixedToken, "\u104E\u1004\u103A\u1038");
-            fixedToken = DigitWithStrayMarkPattern.Replace(fixedToken, "${Digit}");
-            fixedToken = MisplacedMedialAaAsatPattern.Replace(fixedToken, "${Base}\u103A${Medial}\u102C${Tone}");
-            fixedToken = MisusedDecomposedUuPattern.Replace(fixedToken, "\u1026");
-            fixedToken = MisusedCyaPattern.Replace(fixedToken, "\u1008");
-            fixedToken = MisusedAwExclamPattern.Replace(fixedToken, "\u102A");
-            fixedToken = MisusedAwLetterPattern.Replace(fixedToken, "\u1029");
-            fixedToken = MisusedDigitZeroPattern.Replace(fixedToken, "\u101D");
-            fixedToken = MisusedVowelUPattern.Replace(fixedToken, "\u1009");
-            fixedToken = MisusedNyaIiAsUuPattern.Replace(fixedToken, "\u1026");
-            fixedToken = MisusedNyaAsVowelUPattern.Replace(fixedToken, "\u1025");
-            fixedToken = MisusedTallAaPattern.Replace(fixedToken, "\u102C");
-            fixedToken = MisusedRoundAaPattern.Replace(fixedToken, "\u102B");
+
+            if ((mask & LookalikeVirama1039) != 0)
+                fixedToken = StackedSubscriptTallAaPattern.Replace(fixedToken, "\u102C");
+            if ((mask & LookalikeLaKaung) != 0)
+                fixedToken = MisusedLaKaungPattern.Replace(fixedToken, "\u104E\u1004\u103A\u1038");
+            if ((mask & LookalikeDigitStrayMark) != 0)
+                fixedToken = DigitWithStrayMarkPattern.Replace(fixedToken, "${Digit}");
+            if ((mask & LookalikeMisplacedMedialAaAsat) != 0)
+                fixedToken = MisplacedMedialAaAsatPattern.Replace(fixedToken, "${Base}\u103A${Medial}\u102C${Tone}");
+            if ((mask & LookalikeDecomposedUu) != 0)
+                fixedToken = MisusedDecomposedUuPattern.Replace(fixedToken, "\u1026");
+            if ((mask & LookalikeMisusedCya) != 0)
+                fixedToken = MisusedCyaPattern.Replace(fixedToken, "\u1008");
+            if ((mask & LookalikeMisusedAw) != 0)
+            {
+                fixedToken = MisusedAwExclamPattern.Replace(fixedToken, "\u102A");
+                fixedToken = MisusedAwLetterPattern.Replace(fixedToken, "\u1029");
+            }
+            if ((mask & LookalikeDigitZero) != 0)
+                fixedToken = MisusedDigitZeroPattern.Replace(fixedToken, "\u101D");
+            if ((mask & (LookalikeMisusedVowelU | LookalikeZeroWidth | LookalikeVirama1039)) != 0)
+                fixedToken = MisusedVowelUPattern.Replace(fixedToken, "\u1009");
+            if ((mask & LookalikeNya1009) != 0)
+            {
+                fixedToken = MisusedNyaIiAsUuPattern.Replace(fixedToken, "\u1026");
+                fixedToken = MisusedNyaAsVowelUPattern.Replace(fixedToken, "\u1025");
+            }
+
+            // Re-check Tall/Round AA after consonant fixes (e.g. ၀ -> ဝ or ဉ -> ဥ or Kinzi shift)
+            if (fixedToken.IndexOf('\u102B') >= 0)
+                fixedToken = MisusedTallAaPattern.Replace(fixedToken, "\u102C");
+            if (fixedToken.IndexOf('\u102C') >= 0)
+                fixedToken = MisusedRoundAaPattern.Replace(fixedToken, "\u102B");
+
             fixedToken = NormalizeCanonicalOrder(fixedToken);
             fixedToken = DuplicateCombiningMarkPattern.Replace(fixedToken, "$1");
             return NormalizeCanonicalOrder(fixedToken);
@@ -301,168 +572,173 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (string.IsNullOrEmpty(token))
                 return false;
 
-            if (MisusedLaKaungPattern.IsMatch(token))
+            uint mask = ComputeLookalikeTriggerMask(token);
+            if (mask == 0)
+                return false;
+
+            if ((mask & LookalikeLaKaung) != 0 && MisusedLaKaungPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "ရုံးသုံးစံနှုန်းအရ '၄င်း / ၄်င်း / ၎င်းင်း' အစား ယူနီကုဒ် '၎င်း' (U+104E + င်း) ကို တိကျစွာ ရေးသားရမည်။";
                 return true;
             }
 
-            if (DigitWithStrayMarkPattern.IsMatch(token))
+            if ((mask & LookalikeDigitStrayMark) != 0 && DigitWithStrayMarkPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "သင်္ချာဂဏန်းနောက်တွင် သရ/အသတ်သင်္ကေတ မှားယွင်းကပ်နေပါသည်။";
                 return true;
             }
 
-            if (MisplacedKinziPattern.IsMatch(token))
+            if ((mask & LookalikeVirama1039) != 0 && MisplacedKinziPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "ကင်းစီး ('င်္') အစီအစဉ် လွဲမှားနေပါသည် — ယူနီကုဒ်စံနှုန်းအရ ကင်းစီးကို အောက်ခံဗျည်းရှေ့မှ ရိုက်နှိပ်ရမည် (ဥပမာ - မင်္ဂလာ၊ သင်္ကန်း၊ ခြင်္သေ့)။";
                 return true;
             }
 
-            if (MisplacedMedialAaAsatPattern.IsMatch(token))
+            if ((mask & LookalikeMisplacedMedialAaAsat) != 0 && MisplacedMedialAaAsatPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "အသတ် ('်') နှင့် ယပင့်/ရရစ် အစီအစဉ် လွဲမှားနေပါသည် — ယူနီကုဒ်စံနှုန်းအရ ရှေ့ဗျည်းနောက်တွင် အသတ်ဦးစွာရိုက်ပြီးမှ ယပင့်ရေးချ ရိုက်နှိပ်ရမည် (ဥပမာ - ယောက်ျား၊ လက်ျာ)။";
                 return true;
             }
 
-            if (MisusedCyaPattern.IsMatch(token))
+            if ((mask & LookalikeMisusedCya) != 0 && MisusedCyaPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "စလုံး ယပင့် 'စျ' (U+1005 U+103B) အစား သတ်ပုံကျမ်းဝင် ဇမြင်းဆွဲဗျည်း 'ဈ' (U+1008) ဖြင့် ရေးသားရမည် (ဥပမာ - ဈေး၊ ဈာန်)။";
                 return true;
             }
 
-            if (MisusedAwExclamPattern.IsMatch(token) || MisusedAwLetterPattern.IsMatch(token))
+            if ((mask & LookalikeMisusedAw) != 0 && (MisusedAwExclamPattern.IsMatch(token) || MisusedAwLetterPattern.IsMatch(token)))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "သကြီး ရရစ် 'သြ' အစား ယူနီကုဒ် သီးသန့်အက္ခရာ 'ဩ' (U+1029) သို့မဟုတ် 'ဪ' (U+102A) ဖြင့် ရေးသားရမည် (ဥပမာ - ဩဂုတ်၊ ဩဝါဒ)။";
                 return true;
             }
 
-            if (MisusedDecomposedUuPattern.IsMatch(token))
+            if ((mask & LookalikeDecomposedUu) != 0 && MisusedDecomposedUuPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "အက္ခရာ 'ဥ' + 'ီ' (သို့မဟုတ် 'ဦ' ပေါ်တွင် 'ီ' ထပ်ရိုက်ထားခြင်း) အစား တစ်လုံးတည်းသော 'ဦ' (U+1026) အက္ခရာဖြင့်သာ ရေးသားရမည် (ဥပမာ - ဦး၊ ဦးခေါင်း)။";
                 return true;
             }
 
-            if (MisusedDigitZeroPattern.IsMatch(token))
+            if ((mask & LookalikeDigitZero) != 0 && MisusedDigitZeroPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "သုညဂဏန်း '၀' (U+1040) အစား ဝလုံးဗျည်း 'ဝ' (U+101D) ကို ရိုက်နှိပ်ရမည်။";
                 return true;
             }
 
-            if (MisusedVowelUPattern.IsMatch(token))
+            if ((mask & LookalikeMisusedVowelU) != 0 && MisusedVowelUPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "အက္ခရာ 'ဥ' (U+1025) အစား ဉကလေးဗျည်း 'ဉ' (U+1009) ကို ရိုက်နှိပ်ရမည် (ဥပမာ - စဉ်၊ ယာဉ်၊ ဉာဏ်)။";
                 return true;
             }
 
-            if (MisusedNyaIiAsUuPattern.IsMatch(token) || MisusedNyaAsVowelUPattern.IsMatch(token))
+            if ((mask & LookalikeNya1009) != 0 && (MisusedNyaIiAsUuPattern.IsMatch(token) || MisusedNyaAsVowelUPattern.IsMatch(token)))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "ဉကလေးဗျည်း 'ဉ' (U+1009) အစား သရအက္ခရာ 'ဥ' (U+1025) သို့မဟုတ် 'ဦ' (U+1026) ကို ရိုက်နှိပ်ရမည် (ဥပမာ - ဥက္ကဋ္ဌ၊ ဥပဒေ၊ ဥယျာဉ်၊ ဦး)။";
                 return true;
             }
 
-            if (MisusedTallAaPattern.IsMatch(token) || StackedSubscriptTallAaPattern.IsMatch(token))
+            if ((mask & LookalikeTallAa) != 0 && (MisusedTallAaPattern.IsMatch(token) || StackedSubscriptTallAaPattern.IsMatch(token)))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "ဤဗျည်းနောက်တွင် မောက်ချ 'ါ' (U+102B) မသုံးရဘဲ ရေးချ 'ာ' (U+102C) ဖြင့်သာ ရေးသားရမည်။";
                 return true;
             }
 
-            if (MisusedRoundAaPattern.IsMatch(token))
+            if ((mask & LookalikeRoundAa) != 0 && MisusedRoundAaPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "ခ၊ ဂ၊ င၊ ဒ၊ ပ၊ ဝ ဗျည်းများနောက်တွင် ရေးချ 'ာ' (U+102C) မသုံးရဘဲ မောက်ချ 'ါ' (U+102B) ဖြင့်သာ ရေးသားရမည် (ဥပမာ - ဒေါ်၊ ပေါင်း၊ ခေါင်း၊ ပါ)။";
                 return true;
             }
 
-            if (AccidentalViramaBeforeYaPinPattern.IsMatch(token))
+            if ((mask & LookalikeVirama1039) != 0 && AccidentalViramaBeforeYaPinPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "အသတ် ('်' U+103A) အစား ပါဌ်ဆင့်သင်္ကေတ ('္' U+1039) မှားယွင်းရိုက်နှိပ်မိနေပါသည် (ဥပမာ - လိုအပ်ချက်)။";
                 return true;
             }
 
-            if (ImpossibleHmounRhymePattern.IsMatch(token))
+            if ((mask & LookalikeHmoun) != 0 && ImpossibleHmounRhymePattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်းတွင် 'မှုံ / မှုံ့' ရေးထုံးမရှိပါ — နသတ်ဖြင့် 'မှုန် / မှုန့်' ဟု ရေးသားရမည်။";
                 return true;
             }
 
-            if (ImpossibleIuVowelComboPattern.IsMatch(token))
+            if ((mask & LookalikeIuCombo) != 0 && ImpossibleIuVowelComboPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "မြန်မာယူနီကုဒ်စံနှုန်းတွင် လုံးကြီးတင်နှင့် နှစ်ချောင်းငင်တွဲ ('ိူ') ရေးထုံးမရှိပါ — လုံးကြီးတင် တစ်ချောင်းငင် ('ို') ဖြင့်သာ ရေးသားရမည် (ဥပမာ - နိုင်ငံ၊ လူမျိုး၊ အကျိုး၊ လှိုင်း)။";
                 return true;
             }
 
-            if (MedialAfterVowelPattern.IsMatch(token))
+            if ((mask & LookalikeMedialAfterVowel) != 0 && MedialAfterVowelPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "ဗျည်းတွဲ ('ွ / ှ') နှင့် သရ အစီအစဉ် လွဲမှားနေပါသည် — ယူနီကုဒ်စံနှုန်းအရ ဝဆွဲ/ဟထိုးကို သရရှေ့မှ ဦးစွာ ရိုက်နှိပ်ရမည် (ဥပမာ - လွှဲအပ်၊ ညှိနှိုင်း)။";
                 return true;
             }
 
-            if (ReversedMedialClusterPattern.IsMatch(token))
+            if ((mask & LookalikeReversedMedial) != 0 && ReversedMedialClusterPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "ဗျည်းတွဲ အစီအစဉ် လွဲမှားနေပါသည် — ယူနီကုဒ်စံနှုန်းအရ ယပင့်/ရရစ် (ျ/ြ) ကို ဝဆွဲ/ဟထိုး (ွ/ှ) ရှေ့မှ ရိုက်နှိပ်ရမည် (ဥပမာ - လျှို့၊ ကျွန်)။";
                 return true;
             }
 
-            if (DuplicateCombiningMarkPattern.IsMatch(token) || DuplicateCombiningMarkPattern.IsMatch(NormalizeCanonicalOrder(token)))
+            if ((mask & LookalikeDuplicateMark) != 0 &&
+                (DuplicateCombiningMarkPattern.IsMatch(token) || DuplicateCombiningMarkPattern.IsMatch(NormalizeCanonicalOrder(token))))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "သရ သို့မဟုတ် အသတ်/သင်္ကေတ နှစ်ထပ်ရိုက်နှိပ်မိနေပါသည်။";
                 return true;
             }
 
-            if (VowelAfterAsatCodaPattern.IsMatch(token))
+            if ((mask & LookalikeVowelAfterAsat) != 0 && VowelAfterAsatCodaPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "သရနှင့် အသတ် အစီအစဉ် လွဲမှားနေပါသည် — သရကို အသတ်ဗျည်းရှေ့မှ ရိုက်နှိပ်ရမည်။";
                 return true;
             }
 
-            if (SwappedLowerUpperVowelPattern.IsMatch(token))
+            if ((mask & LookalikeSwappedLowerUpperVowel) != 0 && SwappedLowerUpperVowelPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "သရ အစီအစဉ် လွဲမှားနေပါသည် — လုံးကြီးတင် ('ိ/ီ') ကို တစ်ချောင်းငင် ('ု/ူ') ရှေ့မှ ရိုက်နှိပ်ရမည် (ဥပမာ - ကြိုးပမ်း၊ မြို့)။";
                 return true;
             }
 
-            if (DanglingViramaPattern.IsMatch(token))
+            if ((mask & LookalikeVirama1039) != 0 && DanglingViramaPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "အောက်ခံဗျည်း မပါသော ပါဌ်ဆင့်သင်္ကေတ ('္') ပိုနေပါသည်။";
                 return true;
             }
 
-            if (ZeroWidthCorruptionPattern.IsMatch(token))
+            if ((mask & LookalikeZeroWidth) != 0 && ZeroWidthCorruptionPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "စာလုံးအတွင်း မမြင်ရသော ခြားနားသင်္ကေတ (Zero-Width Character) ရောနှောနေပါသည်။";
                 return true;
             }
 
-            if (MisusedGreatSaPattern.IsMatch(token))
+            if ((mask & (LookalikeVirama1039 | LookalikeGreatSaDup)) != 0 && MisusedGreatSaPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "သကြီးနှစ်လုံးဆင့်ကို 'သ္သ' (သို့မဟုတ် 'ဿဿ' နှစ်ထပ်) အစား ယူနီကုဒ် 'ဿ' (U+103F) တစ်လုံးတည်းဖြင့် ရေးသားရမည်။";
                 return true;
             }
 
-            if (IllegalAspiratedOrNyaStackPattern.IsMatch(token))
+            if ((mask & LookalikeVirama1039) != 0 && IllegalAspiratedOrNyaStackPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "ပါဠိသက် ပါဌ်ဆင့်စည်းကမ်းအရ ဓနိတဗျည်းနှစ်လုံး ထပ်မဆင့်ရဘဲ ရှေ့မှ သိထိလဗျည်းဖြင့်သာ ဆင့်ရမည် (ဥပမာ - ဝတ္ထု၊ ဗုဒ္ဓ၊ ဥက္ကဋ္ဌ၊ ပဉ္စင်း)။";

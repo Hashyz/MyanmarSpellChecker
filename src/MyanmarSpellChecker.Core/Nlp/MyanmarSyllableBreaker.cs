@@ -39,33 +39,6 @@ namespace MyanmarSpellChecker.Core.Nlp
     /// </summary>
     public static class MyanmarSyllableBreaker
     {
-        // Matches a complete Myanmar orthographic syllable, number, punctuation, whitespace, or other token:
-        // 1. Optional Kinzi prefix: \u1004\u103A\u1039
-        // 2. Base consonant / independent vowel / symbol (including \u1040 or \u1044 when misused with combining marks/coda)
-        // 3. Optional subscript consonants: (\u1039[\u1000-\u1021])*
-        // 4. Optional medials, vowels, anusvara, tones, and asat (for \u1031\u102C\u103A)
-        // 5. Optional coda consonant with asat ([\u1000-\u1021]\u103A(?!\u1039)[\u1037\u1038]*) or stacked Pali coda
-        private static readonly Regex TokenPattern = new Regex(
-            @"(?<Punct>[\u104A\u104B]+)|" +
-            @"(?<Space>\s+)|" +
-            @"(?<LaKaung>(?:\u104E|\u1044)[\u102B-\u103E]*(?:\u1004[\u102B-\u103E]*)+)|" +
-            @"(?<Number>[\u1040-\u1049]+(?![\u102B-\u103E]|[\u1000-\u1021\u1025]\u103A))|" +
-            @"(?<Syllable>" +
-                @"(?:\u1004\u103A\u1039)?" +
-                @"[\u1000-\u102A\u103F\u1040-\u1049\u104C-\u104F]" +
-                @"(?:\u1039[\u1000-\u1021])*" +
-                @"[\u102B-\u103E]*" +
-                @"(?:[\u1000-\u1021\u1025]\u103B?(?:\u103A+(?!\u1039)[\u1037\u1038\u103A]*|\u1037\u103A+\u1038?))*" +
-            @")|" +
-            @"(?<StrayMark>[\u102B-\u103E]+)|" +
-            @"(?<Other>[^\u1000-\u104F\s]+)",
-            RegexOptions.Compiled);
-
-        // Detects illegal repeated dependent vowels or tone marks inside a single syllable (e.g., ာာ, ိီ, းး, ့့)
-        private static readonly Regex IllegalDuplicateMarksPattern = new Regex(
-            @"(\u102B\u102B|\u102C\u102C|\u102B\u102C|\u102C\u102B|[\u102D\u102E]{2,}|[\u102F\u1030]{2,}|\u1031{2,}|\u1032{2,}|\u1036{2,}|\u1037{2,}|\u1038{2,}|\u103A{2,})",
-            RegexOptions.Compiled);
-
         // Matches non-Kinzi virama consonant stacks (upper + \u1039 + lower) for Pali/Myanmar pat-sint validation
         private static readonly Regex PatSintStackPattern = new Regex(
             @"(?<!\u1004\u103A)([\u1000-\u102A\u103F])\u1039([\u1000-\u102A\u103F])",
@@ -96,55 +69,65 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         /// <summary>
         /// Segments text into tokens (Syllables, Numbers, Punctuation, Whitespace, Other) with exact character offsets.
+        /// Uses a deterministic zero-Regex O(N) maximal-munch scanner 100% equivalent to TokenPattern.
         /// </summary>
         public static List<SyllableToken> Tokenize(string text)
         {
-            var tokens = new List<SyllableToken>();
             if (string.IsNullOrEmpty(text))
-                return tokens;
+                return new List<SyllableToken>(0);
 
-            MatchCollection matches = TokenPattern.Matches(text);
-            foreach (Match match in matches)
+            int textLen = text.Length;
+            var tokens = new List<SyllableToken>(Math.Min((textLen >> 1) + 4, 4096));
+            int pos = 0;
+
+            while (pos < textLen)
             {
-                if (!match.Success || match.Length == 0)
-                    continue;
-
-                string raw = match.Value;
-                int start = match.Index;
-                int len = match.Length;
-
-                if (match.Groups["Space"].Success)
+                ScanNextToken(text, pos, out int len, out TokenKind kind);
+                string raw;
+                if (len == 1)
                 {
-                    tokens.Add(new SyllableToken(raw, raw, start, len, TokenKind.Whitespace));
-                }
-                else if (match.Groups["Punct"].Success)
-                {
-                    tokens.Add(new SyllableToken(raw, raw, start, len, TokenKind.MyanmarPunctuation));
-                }
-                else if (match.Groups["LaKaung"].Success || match.Groups["Syllable"].Success || match.Groups["StrayMark"].Success)
-                {
-                    string normalized = UnicodeNormalizer.NormalizeCanonicalOrder(raw);
-                    tokens.Add(new SyllableToken(raw, normalized, start, len, TokenKind.MyanmarSyllable));
-                }
-                else if (match.Groups["Number"].Success)
-                {
-                    // Check if a single '၀' is actually adjacent to Myanmar syllables (e.g. "တာ၀န်" where '၀' has no vowel/coda)
-                    if (raw == "\u1040" && IsSurroundedByMyanmarLetters(text, start, len))
-                    {
-                        tokens.Add(new SyllableToken(raw, raw, start, len, TokenKind.MyanmarSyllable));
-                    }
-                    else
-                    {
-                        tokens.Add(new SyllableToken(raw, raw, start, len, TokenKind.MyanmarNumber));
-                    }
+                    char ch = text[pos];
+                    if (ch == ' ') raw = " ";
+                    else if (ch == '\u104B') raw = "\u104B";
+                    else if (ch == '\u104A') raw = "\u104A";
+                    else if (ch == '\n') raw = "\n";
+                    else raw = text.Substring(pos, 1);
                 }
                 else
                 {
-                    tokens.Add(new SyllableToken(raw, raw, start, len, TokenKind.Other));
+                    raw = (pos == 0 && len == textLen) ? text : text.Substring(pos, len);
                 }
+
+                string normalized = kind == TokenKind.MyanmarSyllable
+                    ? UnicodeNormalizer.NormalizeCanonicalOrder(raw)
+                    : raw;
+
+                tokens.Add(new SyllableToken(raw, normalized, pos, len, kind));
+                pos += len;
             }
 
             return tokens;
+        }
+
+        /// <summary>
+        /// Zero-allocation O(N) Myanmar syllable counter 100% equivalent to Tokenize(text).Count(t => t.Kind == TokenKind.MyanmarSyllable).
+        /// </summary>
+        public static int CountMyanmarSyllables(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return 0;
+
+            int textLen = text.Length;
+            int count = 0;
+            int pos = 0;
+            while (pos < textLen)
+            {
+                ScanNextToken(text, pos, out int len, out TokenKind kind);
+                if (kind == TokenKind.MyanmarSyllable)
+                    count++;
+                pos += len;
+            }
+            return count;
         }
 
         /// <summary>
@@ -156,28 +139,181 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (string.IsNullOrEmpty(text))
                 return result;
 
-            for (Match match = TokenPattern.Match(text); match.Success; match = match.NextMatch())
+            int textLen = text.Length;
+            int pos = 0;
+            while (pos < textLen)
             {
-                if (match.Length == 0)
-                    continue;
-
-                if (match.Groups["LaKaung"].Success || match.Groups["Syllable"].Success || match.Groups["StrayMark"].Success)
+                ScanNextToken(text, pos, out int len, out TokenKind kind);
+                if (kind == TokenKind.MyanmarSyllable)
                 {
-                    string raw = match.Value;
+                    string raw = (pos == 0 && len == textLen) ? text : text.Substring(pos, len);
                     result.Add(isPreNormalized ? raw : UnicodeNormalizer.NormalizeCanonicalOrder(raw));
                 }
-                else if (match.Groups["Number"].Success && match.Length == 1 && text[match.Index] == '\u1040' &&
-                         IsSurroundedByMyanmarLetters(text, match.Index, 1))
-                {
-                    result.Add("\u1040");
-                }
+                pos += len;
             }
             return result;
         }
 
+        private static bool IsSyllableBaseChar(char c)
+        {
+            return (c >= '\u1000' && c <= '\u102A') ||
+                   c == '\u103F' ||
+                   (c >= '\u1040' && c <= '\u1049') ||
+                   (c >= '\u104C' && c <= '\u104F');
+        }
+
+        private static void ScanNextToken(string text, int i, out int length, out TokenKind kind)
+        {
+            int len = text.Length;
+            char c = text[i];
+
+            // 1. Punct: [\u104A\u104B]+
+            if (c == '\u104A' || c == '\u104B')
+            {
+                int p = i + 1;
+                while (p < len && (text[p] == '\u104A' || text[p] == '\u104B'))
+                    p++;
+                length = p - i;
+                kind = TokenKind.MyanmarPunctuation;
+                return;
+            }
+
+            // 2. Space: \s+
+            if (char.IsWhiteSpace(c))
+            {
+                int p = i + 1;
+                while (p < len && char.IsWhiteSpace(text[p]))
+                    p++;
+                length = p - i;
+                kind = TokenKind.Whitespace;
+                return;
+            }
+
+            // 3. LaKaung: (?:\u104E|\u1044)[\u102B-\u103E]*(?:\u1004[\u102B-\u103E]*)+
+            if (c == '\u104E' || c == '\u1044')
+            {
+                int p = i + 1;
+                while (p < len && text[p] >= '\u102B' && text[p] <= '\u103E')
+                    p++;
+                if (p < len && text[p] == '\u1004')
+                {
+                    while (p < len && text[p] == '\u1004')
+                    {
+                        p++;
+                        while (p < len && text[p] >= '\u102B' && text[p] <= '\u103E')
+                            p++;
+                    }
+                    length = p - i;
+                    kind = TokenKind.MyanmarSyllable;
+                    return;
+                }
+            }
+
+            // 4. Number: [\u1040-\u1049]+(?![\u102B-\u103E]|[\u1000-\u1021\u1025]\u103A)
+            if (c >= '\u1040' && c <= '\u1049')
+            {
+                int p = i + 1;
+                while (p < len && text[p] >= '\u1040' && text[p] <= '\u1049')
+                    p++;
+
+                bool followedBySyllableTail = p < len &&
+                    ((text[p] >= '\u102B' && text[p] <= '\u103E') ||
+                     (((text[p] >= '\u1000' && text[p] <= '\u1021') || text[p] == '\u1025') &&
+                      p + 1 < len && text[p + 1] == '\u103A'));
+
+                int numEnd = followedBySyllableTail ? (p - 1) : p;
+                if (numEnd > i)
+                {
+                    int numLen = numEnd - i;
+                    length = numLen;
+                    kind = (numLen == 1 && c == '\u1040' && IsSurroundedByMyanmarLetters(text, i, 1))
+                        ? TokenKind.MyanmarSyllable
+                        : TokenKind.MyanmarNumber;
+                    return;
+                }
+            }
+
+            // 5. Syllable: (?:\u1004\u103A\u1039)?[\u1000-\u102A\u103F\u1040-\u1049\u104C-\u104F](?:\u1039[\u1000-\u1021])*[\u102B-\u103E]*(?:[\u1000-\u1021\u1025]\u103B?(?:\u103A+(?!\u1039)[\u1037\u1038\u103A]*|\u1037\u103A+\u1038?))*
+            if (IsSyllableBaseChar(c))
+            {
+                int p = (c == '\u1004' && i + 3 < len && text[i + 1] == '\u103A' && text[i + 2] == '\u1039' && IsSyllableBaseChar(text[i + 3]))
+                    ? (i + 4)
+                    : (i + 1);
+
+                while (p + 1 < len && text[p] == '\u1039' && text[p + 1] >= '\u1000' && text[p + 1] <= '\u1021')
+                    p += 2;
+
+                while (p < len && text[p] >= '\u102B' && text[p] <= '\u103E')
+                    p++;
+
+                while (p < len)
+                {
+                    char cc = text[p];
+                    if (!((cc >= '\u1000' && cc <= '\u1021') || cc == '\u1025'))
+                        break;
+
+                    int q = p + 1;
+                    if (q < len && text[q] == '\u103B')
+                        q++;
+
+                    if (q < len && text[q] == '\u103A')
+                    {
+                        int aEnd = q + 1;
+                        while (aEnd < len && text[aEnd] == '\u103A')
+                            aEnd++;
+
+                        if (aEnd - q == 1 && aEnd < len && text[aEnd] == '\u1039')
+                            break;
+
+                        while (aEnd < len && (text[aEnd] == '\u1037' || text[aEnd] == '\u1038' || text[aEnd] == '\u103A'))
+                            aEnd++;
+
+                        p = aEnd;
+                    }
+                    else if (q + 1 < len && text[q] == '\u1037' && text[q + 1] == '\u103A')
+                    {
+                        int aEnd = q + 2;
+                        while (aEnd < len && text[aEnd] == '\u103A')
+                            aEnd++;
+                        if (aEnd < len && text[aEnd] == '\u1038')
+                            aEnd++;
+                        p = aEnd;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+
+                length = p - i;
+                kind = TokenKind.MyanmarSyllable;
+                return;
+            }
+
+            // 6. StrayMark: [\u102B-\u103E]+
+            if (c >= '\u102B' && c <= '\u103E')
+            {
+                int p = i + 1;
+                while (p < len && text[p] >= '\u102B' && text[p] <= '\u103E')
+                    p++;
+                length = p - i;
+                kind = TokenKind.MyanmarSyllable;
+                return;
+            }
+
+            // 7. Other: [^\u1000-\u104F\s]+
+            {
+                int p = i + 1;
+                while (p < len && (text[p] < '\u1000' || text[p] > '\u104F') && !char.IsWhiteSpace(text[p]))
+                    p++;
+                length = p - i;
+                kind = TokenKind.Other;
+            }
+        }
+
         /// <summary>
         /// Zero-Regex fast path for pre-normalized dictionary headword syllable breaking with optional string-pool interning.
-        /// Produces 100% identical output to <see cref="BreakIntoSyllables"/> while avoiding Regex Match allocations on standard Myanmar words.
+        /// Produces 100% identical output to <see cref="BreakIntoSyllables"/> while avoiding Regex Match allocations on all Myanmar words.
         /// </summary>
         internal static void BreakIntoSyllablesFast(
             string text,
@@ -188,92 +324,17 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (string.IsNullOrEmpty(text))
                 return;
 
-            int len = text.Length;
-            bool canUseFastScanner = ((text[0] >= '\u1000' && text[0] <= '\u102A') || text[0] == '\u103F');
-            if (canUseFastScanner)
+            int textLen = text.Length;
+            int pos = 0;
+            while (pos < textLen)
             {
-                for (int k = 0; k < len; k++)
+                ScanNextToken(text, pos, out int len, out TokenKind kind);
+                if (kind == TokenKind.MyanmarSyllable)
                 {
-                    char ch = text[k];
-                    if (ch < '\u1000' || ch > '\u103F' || ch == '\u1039')
-                    {
-                        canUseFastScanner = false;
-                        break;
-                    }
+                    string syl = (pos == 0 && len == textLen) ? text : text.Substring(pos, len);
+                    result.Add(InternIfPooled(syl, stringPool));
                 }
-            }
-
-            if (!canUseFastScanner)
-            {
-                for (Match match = TokenPattern.Match(text); match.Success; match = match.NextMatch())
-                {
-                    if (match.Length == 0)
-                        continue;
-
-                    if (match.Groups["LaKaung"].Success || match.Groups["Syllable"].Success || match.Groups["StrayMark"].Success)
-                    {
-                        string raw = match.Value;
-                        result.Add(InternIfPooled(raw, stringPool));
-                    }
-                    else if (match.Groups["Number"].Success && match.Length == 1 && text[match.Index] == '\u1040' &&
-                             IsSurroundedByMyanmarLetters(text, match.Index, 1))
-                    {
-                        result.Add(InternIfPooled("\u1040", stringPool));
-                    }
-                }
-                return;
-            }
-
-            int i = 0;
-            while (i < len)
-            {
-                int start = i;
-                char c0 = text[i];
-                if ((c0 >= '\u1000' && c0 <= '\u102A') || c0 == '\u103F')
-                {
-                    i++;
-                    while (i < len && text[i] >= '\u102B' && text[i] <= '\u103E')
-                        i++;
-
-                    while (i < len)
-                    {
-                        char cc = text[i];
-                        if (!((cc >= '\u1000' && cc <= '\u1021') || cc == '\u1025'))
-                            break;
-
-                        int p = i + 1;
-                        if (p < len && text[p] == '\u103B')
-                            p++;
-
-                        if (p < len && text[p] == '\u103A')
-                        {
-                            while (p < len && (text[p] == '\u103A' || text[p] == '\u1037' || text[p] == '\u1038'))
-                                p++;
-                            i = p;
-                        }
-                        else if (p + 1 < len && text[p] == '\u1037' && text[p + 1] == '\u103A')
-                        {
-                            p += 2;
-                            while (p < len && text[p] == '\u103A')
-                                p++;
-                            if (p < len && text[p] == '\u1038')
-                                p++;
-                            i = p;
-                        }
-                        else
-                        {
-                            break;
-                        }
-                    }
-                }
-                else
-                {
-                    while (i < len && text[i] >= '\u102B' && text[i] <= '\u103E')
-                        i++;
-                }
-
-                string syl = (start == 0 && i == len) ? text : text.Substring(start, i - start);
-                result.Add(InternIfPooled(syl, stringPool));
+                pos += len;
             }
         }
 
@@ -285,6 +346,34 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return existing;
             pool[s] = s;
             return s;
+        }
+
+        private static bool HasIllegalDuplicateMarks(string s)
+        {
+            for (int i = 1; i < s.Length; i++)
+            {
+                char a = s[i - 1];
+                char b = s[i];
+                if (b < '\u102B' || b > '\u103A' || a < '\u102B' || a > '\u103A')
+                    continue;
+
+                if (a == b)
+                {
+                    if (a == '\u102B' || a == '\u102C' || a == '\u102D' || a == '\u102E' ||
+                        a == '\u102F' || a == '\u1030' || a == '\u1031' || a == '\u1032' ||
+                        a == '\u1036' || a == '\u1037' || a == '\u1038' || a == '\u103A')
+                    {
+                        return true;
+                    }
+                }
+                else if (((a == '\u102B' && b == '\u102C') || (a == '\u102C' && b == '\u102B')) ||
+                         ((a == '\u102D' && b == '\u102E') || (a == '\u102E' && b == '\u102D')) ||
+                         ((a == '\u102F' && b == '\u1030') || (a == '\u1030' && b == '\u102F')))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>
@@ -305,7 +394,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 2. Duplicate vowels or tone marks (e.g., ာာ, ိီ, းး)
-            if (IllegalDuplicateMarksPattern.IsMatch(syllable))
+            if (HasIllegalDuplicateMarks(syllable))
             {
                 errorReason = "သရ သို့မဟုတ် အသံထွက်သင်္ကေတ နှစ်ထပ်မှားယွင်းရိုက်နှိပ်ထားပါသည်။";
                 return false;

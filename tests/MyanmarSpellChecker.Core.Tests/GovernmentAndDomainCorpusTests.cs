@@ -1442,5 +1442,100 @@ namespace MyanmarSpellChecker.Core.Tests
             }
             Assert.True(verifiedEntries >= 90_000);
         }
+
+        [Fact]
+        public void V45_CpuThroughputAndZeroLinguisticRegressionVerification()
+        {
+            var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
+            var trie = repo.LoadIntoTrie(MyanmarSpellChecker.Core.Security.AntiTamperGuard.ReconstructProtectedFallbackKey());
+            var engine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+            var sugg = new SuggestionEngine(trie);
+
+            // 1. Verify zero-Regex SyllableBreaker equivalence (including Kinzi, Pali stacks, LaKaung, zero-lookalike, numbers, ASCII)
+            string[] trickyTokenizerInputs =
+            {
+                "ပြည်ထောင်စုသမ္မတမြန်မာနိုင်ငံတော် င်္က သင်္ဘော ၎င်း ၄င်း တာ၀န် ၁၀၀ ၂၀၂၆ ISO-9001!",
+                "ကျောက်ဆည်တက္ကသိုလ် ဘူမိဗေဒဌာနတွင် သုတေသန စာတမ်းများ ရေးသားပြုစုလျက် ရှိပါသည်။",
+                "၁၀ာ ၀ါ ဥက္ကဋ္ဌ ပုဂ္ဂိုလ် ဣန္ဒြေ ဿ ၌ ၍ ၎င်းတို့၏ အချက်အလက်များ။"
+            };
+            foreach (string sample in trickyTokenizerInputs)
+            {
+                var toks = MyanmarSyllableBreaker.Tokenize(sample);
+                int expectedSyls = toks.Count(t => t.Kind == TokenKind.MyanmarSyllable);
+                Assert.Equal(expectedSyls, MyanmarSyllableBreaker.CountMyanmarSyllables(sample));
+                Assert.Equal(sample, string.Concat(toks.Select(t => t.Text)));
+            }
+
+            // 2. Verify zero linguistic regression on uncached GetSuggestions across colloquial, Pali, medial-drop, nasal-voicing & compositional typos
+            (string Wrong, string ExpectedTop)[] suggestionPairs =
+            {
+                ("ပီးပီ", "ပြီးပြီ"),
+                ("ဥက္ကဌ", "ဥက္ကဋ္ဌ"),
+                ("ပော", "ပြော"),
+                ("တဂါး", "တံခါး"),
+                ("စာလုံးပေါင်သတ်ပုံ", "စာလုံးပေါင်းသတ်ပုံ")
+            };
+            foreach (var (wrong, expected) in suggestionPairs)
+            {
+                sugg.ClearCache();
+                var cands = sugg.GetSuggestions(wrong, 5);
+                Assert.NotEmpty(cands);
+                Assert.Contains(cands, c => c.Replacement == expected);
+                Assert.False(string.IsNullOrWhiteSpace(cands[0].SyllableBreakdown));
+            }
+            Assert.Equal("ပြော", sugg.GetSuggestions("ပော", 5)[0].Replacement);
+            Assert.Equal("ပြီးပြီ", sugg.GetSuggestions("ပီးပီ", 5)[0].Replacement);
+            Assert.Equal("ဥက္ကဋ္ဌ", sugg.GetSuggestions("ဥက္ကဌ", 5)[0].Replacement);
+            Assert.Equal("တံခါး", sugg.GetSuggestions("တဂါး", 5)[0].Replacement);
+
+            // 3. Verify uncached CheckText accuracy on lookalikes, spelling, grammar, Tier-1 homophones & Tier-2 Amber warnings
+            var checkHits = engine.CheckText("တာ၀န်ရှိသူများက ကြိုးကို တင်းကျပ်စွာ ချဉ်ပြီး ဥပဒေကို ချိုးဖဲ့ပါတယ်။");
+            Assert.Contains(checkHits, i => i.OriginalText.Contains("တာ၀န်") && i.Suggestions.Any(s => s.Replacement.Contains("တာဝန်")));
+            Assert.Contains(checkHits, i => i.OriginalText == "ချဉ်" && i.IsAutoFixSafe && i.Suggestions[0].Replacement == "ချည်");
+            Assert.Contains(checkHits, i => i.OriginalText == "ချိုးဖဲ့" && i.IsContextualWarning && !i.IsAutoFixSafe && i.Suggestions[0].Replacement == "ချိုးဖောက်");
+            Assert.Contains(checkHits, i => i.IssueType == ProofingIssueType.OfficialStyleGrammarError);
+
+            // 4. Verify uncached CheckText, GetSuggestions & DocumentQualityAnalyzer throughput
+            string basePara = "ပြည်ထောင်စုသမ္မတမြန်မာနိုင်ငံတော် ဝန်ကြီးဌာန အစည်းအဝေးတွင် စီမံကိန်းလုပ်ငန်းများ ဆောင်ရွက်ပြီးပြီ ဖြစ်ပါတယ်။ ကျောက်ဆည်တက္ကသိုလ် ဘူမိဗေဒဌာနတွင် သုတေသန စာတမ်းများ ရေးသားပြုစုလျက် ရှိပါသည်။";
+            _ = engine.CheckText(basePara + " warmup");
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            for (int i = 0; i < 50; i++)
+            {
+                var res = engine.CheckText(basePara + " " + i);
+                Assert.NotEmpty(res);
+            }
+            sw.Stop();
+            Assert.True(sw.Elapsed.TotalMilliseconds < 600.0,
+                $"50 unique uncached paragraphs took {sw.Elapsed.TotalMilliseconds:F2} ms (expected < 600 ms).");
+
+            sw.Restart();
+            for (int r = 0; r < 5; r++)
+            {
+                sugg.ClearCache();
+                foreach (var (wrong, _) in suggestionPairs)
+                {
+                    var res = sugg.GetSuggestions(wrong, 5);
+                    Assert.NotEmpty(res);
+                }
+            }
+            sw.Stop();
+            Assert.True(sw.Elapsed.TotalMilliseconds < 450.0,
+                $"25 uncached GetSuggestions calls took {sw.Elapsed.TotalMilliseconds:F2} ms (expected < 450 ms).");
+
+            string doc40 = string.Join("\n", Enumerable.Repeat(basePara, 40));
+            var sampleIssues = engine.CheckText(basePara);
+            _ = DocumentQualityAnalyzer.Analyze(doc40, sampleIssues, engine);
+            sw.Restart();
+            for (int i = 0; i < 20; i++)
+            {
+                var rep = DocumentQualityAnalyzer.Analyze(doc40, sampleIssues, engine);
+                Assert.Equal(40, rep.ParagraphCount);
+                Assert.True(rep.MyanmarSyllableCount > 800);
+            }
+            sw.Stop();
+            Assert.True(sw.Elapsed.TotalMilliseconds < 150.0,
+                $"20x 40-paragraph DocumentQualityAnalyzer.Analyze took {sw.Elapsed.TotalMilliseconds:F2} ms (expected < 150 ms).");
+        }
     }
 }

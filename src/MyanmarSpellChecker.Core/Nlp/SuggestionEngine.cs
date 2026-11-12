@@ -16,6 +16,10 @@ namespace MyanmarSpellChecker.Core.Nlp
         private readonly MyanmarTrie _trie;
         private readonly ConcurrentDictionary<string, List<SuggestionCandidate>> _suggestionCache =
             new ConcurrentDictionary<string, List<SuggestionCandidate>>(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<string, List<SuggestionCandidate>> _atomicSuggestionCache =
+            new ConcurrentDictionary<string, List<SuggestionCandidate>>(StringComparer.Ordinal);
+
+        private static readonly ulong[] s_compatibleBaseMasks = BuildCompatibleBaseMasks();
 
         [ThreadStatic]
         private static char[]? t_bufA;
@@ -29,12 +33,180 @@ namespace MyanmarSpellChecker.Core.Nlp
         [ThreadStatic]
         private static Dictionary<string, DictionaryEntry>? t_anchorScratch;
 
+        [ThreadStatic]
+        private static char[]? t_preCompact;
+
+        [ThreadStatic]
+        private static double[]? t_preDelCosts;
+
+        [ThreadStatic]
+        private static ulong[]? t_preReqMasks;
+
+        internal readonly struct PreEncodedQuery
+        {
+            public readonly string Source;
+            public readonly char[] Compact;
+            public readonly int CompactLen;
+            public readonly double[] DelCosts;
+            public readonly ulong PresentMask;
+            public readonly ulong[] ReqMasks;
+            public readonly int ReqCount;
+
+            public PreEncodedQuery(
+                string source,
+                char[] compact,
+                int compactLen,
+                double[] delCosts,
+                ulong presentMask,
+                ulong[] reqMasks,
+                int reqCount)
+            {
+                Source = source;
+                Compact = compact;
+                CompactLen = compactLen;
+                DelCosts = delCosts;
+                PresentMask = presentMask;
+                ReqMasks = reqMasks;
+                ReqCount = reqCount;
+            }
+
+            public double DistanceTo(string s2, double maxAllowedDistance)
+            {
+                if (Source == s2) return 0.0;
+
+                if (Source.Length >= 3 && Source.Length == s2.Length && CharMultisetSignatureMatches(Source, s2))
+                {
+                    List<string> syls = MyanmarSyllableBreaker.BreakIntoSyllables(Source, isPreNormalized: true);
+                    if (MatchesAdjacentSyllableSwap(syls, s2))
+                        return 0.36;
+                }
+
+                char[] b = t_bufB ??= new char[128];
+                if (b.Length < s2.Length) b = t_bufB = new char[Math.Max(s2.Length * 2, 128)];
+                int m = EncodeCompactRhymeChars(s2, b);
+
+                return ComputeCoreDistanceFromCompact(
+                    Compact, CompactLen, DelCosts, PresentMask, ReqMasks, ReqCount, hasPrecomputedMask: true, b, m, maxAllowedDistance);
+            }
+        }
+
+        internal static PreEncodedQuery CreateThreadLocalPreEncodedQuery(string preNormalizedSource)
+        {
+            int srcLen = preNormalizedSource.Length;
+            char[] qCompact = t_preCompact ??= new char[128];
+            if (qCompact.Length < srcLen)
+                qCompact = t_preCompact = new char[Math.Max(srcLen * 2, 128)];
+
+            int qLen = EncodeCompactRhymeChars(preNormalizedSource, qCompact);
+
+            double[] qDel = t_preDelCosts ??= new double[128];
+            if (qDel.Length < qLen)
+                qDel = t_preDelCosts = new double[Math.Max(qLen * 2, 128)];
+
+            ulong[] qReq = t_preReqMasks ??= new ulong[128];
+            if (qReq.Length < qLen)
+                qReq = t_preReqMasks = new ulong[Math.Max(qLen * 2, 128)];
+
+            ulong presentMask = 0UL;
+            int reqCount = 0;
+            for (int qi = 0; qi < qLen; qi++)
+            {
+                char qc = qCompact[qi];
+                char qPrev = qi > 0 ? qCompact[qi - 1] : '\0';
+                qDel[qi] = GetIndelCost(qc, qPrev);
+                int bIdx = GetTrackableBaseIndex(qc);
+                if (bIdx >= 0)
+                {
+                    presentMask |= 1UL << bIdx;
+                    if (qPrev != '\u1039')
+                    {
+                        qReq[reqCount++] = s_compatibleBaseMasks[bIdx];
+                    }
+                }
+            }
+
+            return new PreEncodedQuery(preNormalizedSource, qCompact, qLen, qDel, presentMask, qReq, reqCount);
+        }
+
+        internal static void ComputeEntryCompactMasks(
+            string word,
+            ref char[] scratchBuf,
+            out ulong presentMask,
+            out ulong packedUnstackedAndLen)
+        {
+            if (scratchBuf.Length < word.Length)
+                scratchBuf = new char[Math.Max(word.Length * 2, 64)];
+
+            int m = EncodeCompactRhymeChars(word, scratchBuf);
+            ulong pMask = 0UL;
+            ulong uMask = 0UL;
+            for (int j = 0; j < m; j++)
+            {
+                int bIdx = GetTrackableBaseIndex(scratchBuf[j]);
+                if (bIdx >= 0)
+                {
+                    ulong bit = 1UL << bIdx;
+                    pMask |= bit;
+                    if (j == 0 || scratchBuf[j - 1] != '\u1039')
+                    {
+                        uMask |= bit;
+                    }
+                }
+            }
+
+            presentMask = pMask;
+            packedUnstackedAndLen = uMask | ((ulong)(m & 0xFF) << 45);
+        }
+
         public SuggestionEngine(MyanmarTrie trie)
         {
             _trie = trie ?? throw new ArgumentNullException(nameof(trie));
         }
 
-        public void ClearCache() => _suggestionCache.Clear();
+        public void ClearCache()
+        {
+            _suggestionCache.Clear();
+            _atomicSuggestionCache.Clear();
+        }
+
+        private static int GetTrackableBaseIndex(char c)
+        {
+            if (c >= '\u1000' && c <= '\u102A') return c - '\u1000';
+            if (c == '\u103F') return 43;
+            if (c == '\u1040') return 44;
+            return -1;
+        }
+
+        private static char GetTrackableBaseCharFromIndex(int idx)
+        {
+            if (idx <= 42) return (char)('\u1000' + idx);
+            if (idx == 43) return '\u103F';
+            return '\u1040';
+        }
+
+        private static ulong[] BuildCompatibleBaseMasks()
+        {
+            const int Count = 45;
+            var masks = new ulong[Count];
+            for (int i = 0; i < Count; i++)
+            {
+                char ci = GetTrackableBaseCharFromIndex(i);
+                ulong m = 1UL << i;
+                for (int j = 0; j < Count; j++)
+                {
+                    if (i == j) continue;
+                    char cj = GetTrackableBaseCharFromIndex(j);
+                    if (GetSubstitutionCost(ci, cj) <= 0.45 ||
+                        IsNasalVoicedStopPair(ci, cj) ||
+                        IsNasalVoicedStopPair(cj, ci))
+                    {
+                        m |= 1UL << j;
+                    }
+                }
+                masks[i] = m;
+            }
+            return masks;
+        }
 
         private static List<SuggestionCandidate> CloneCandidates(List<SuggestionCandidate> src, int maxTake)
         {
@@ -96,12 +268,22 @@ namespace MyanmarSpellChecker.Core.Nlp
             string rawTrimmed = misspelledWord.Trim();
             string normalized = UnicodeNormalizer.NormalizeCanonicalOrder(rawTrimmed);
 
-            if (allowCompositional && maxResults <= 5 && rawTrimmed == normalized &&
-                _suggestionCache.TryGetValue(normalized, out var cachedList))
+            if (rawTrimmed == normalized)
             {
-                return CloneCandidates(cachedList, maxResults);
+                if (allowCompositional && maxResults <= 5 &&
+                    _suggestionCache.TryGetValue(normalized, out var cachedList))
+                {
+                    return CloneCandidates(cachedList, maxResults);
+                }
+                if (!allowCompositional && maxResults <= 3 &&
+                    _atomicSuggestionCache.TryGetValue(normalized, out var atomicCached))
+                {
+                    return CloneCandidates(atomicCached, maxResults);
+                }
             }
-            int computeCap = (allowCompositional && maxResults <= 5) ? 5 : maxResults;
+            int computeCap = allowCompositional
+                ? (maxResults <= 5 ? 5 : maxResults)
+                : (maxResults <= 3 ? 3 : maxResults);
 
             // 0. Curated Colloquial / Chat Phonetic Shortcuts (instant multi-choice options)
             AddColloquialPhoneticShortcuts(results, rawTrimmed, normalized);
@@ -130,11 +312,41 @@ namespace MyanmarSpellChecker.Core.Nlp
                 AddOrUpdateEnrichedCandidate(results, rawTrimmed, lookalikeFixed, 99.6);
             }
 
+            List<string> spanSyllables = MyanmarSyllableBreaker.BreakIntoSyllables(lookalikeFixed, isPreNormalized: true);
+
+            // Pre-encode lookalikeFixed once into recursion-safe local buffers so candidate loops never re-encode s1
+            var queryCompact = new char[lookalikeFixed.Length];
+            int qLen = EncodeCompactRhymeChars(lookalikeFixed, queryCompact);
+            var qDelCosts = new double[qLen];
+            ulong qPresentMask = 0UL;
+            ulong qAllCompatibleMask = 0UL;
+            var qReqMasks = new ulong[qLen];
+            int qReqCount = 0;
+            for (int qi = 0; qi < qLen; qi++)
+            {
+                char qc = queryCompact[qi];
+                char qPrev = qi > 0 ? queryCompact[qi - 1] : '\0';
+                qDelCosts[qi] = GetIndelCost(qc, qPrev);
+                int bIdx = GetTrackableBaseIndex(qc);
+                if (bIdx >= 0)
+                {
+                    qPresentMask |= 1UL << bIdx;
+                    ulong compat = s_compatibleBaseMasks[bIdx];
+                    qAllCompatibleMask |= compat;
+                    if (qPrev != '\u1039')
+                    {
+                        qReqMasks[qReqCount++] = compat;
+                    }
+                }
+            }
+            ulong invQCompat = (~qAllCompatibleMask) & 0x1FFFFFFFFFFFUL;
+
             // 3. Strict & Relaxed Phonetic Homophone Index lookup (O(1))
             foreach (var entry in _trie.LookupStrictHomophones(lookalikeFixed))
             {
                 if (entry.Word == normalized) continue;
-                double dist = ComputeWeightedMyanmarDistance(lookalikeFixed, entry.Word);
+                double dist = ComputeWeightedMyanmarDistancePreEncoded(
+                    lookalikeFixed, spanSyllables, queryCompact, qLen, qDelCosts, qPresentMask, qReqMasks, qReqCount, entry.Word, double.MaxValue);
                 double freqBonus = Math.Min(8.5, Math.Log10(entry.Frequency + 1) * 2.5);
                 double thatponBonus = entry.IsOfficialThatpon ? 1.5 : 0.0;
                 double cueBonus = string.IsNullOrWhiteSpace(entry.MeaningCue) ? 0.0 : 0.8;
@@ -145,7 +357,8 @@ namespace MyanmarSpellChecker.Core.Nlp
             foreach (var entry in _trie.LookupByPhoneticKey(lookalikeFixed))
             {
                 if (entry.Word == normalized) continue;
-                double dist = ComputeWeightedMyanmarDistance(lookalikeFixed, entry.Word);
+                double dist = ComputeWeightedMyanmarDistancePreEncoded(
+                    lookalikeFixed, spanSyllables, queryCompact, qLen, qDelCosts, qPresentMask, qReqMasks, qReqCount, entry.Word, double.MaxValue);
                 double freqBonus = Math.Min(8.5, Math.Log10(entry.Frequency + 1) * 2.5);
                 double thatponBonus = entry.IsOfficialThatpon ? 1.2 : 0.0;
                 double cueBonus = string.IsNullOrWhiteSpace(entry.MeaningCue) ? 0.0 : 0.6;
@@ -154,7 +367,6 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 4. Generative Multi-Syllable Anchor Index (catches arbitrary typos, missing medials, vowel swaps, tone drops in 2..5 syllable words)
-            List<string> spanSyllables = MyanmarSyllableBreaker.BreakIntoSyllables(lookalikeFixed, isPreNormalized: true);
             if (spanSyllables.Count >= 2 && spanSyllables.Count <= 5)
             {
                 var anchorPool = t_anchorScratch ??= new Dictionary<string, DictionaryEntry>(StringComparer.Ordinal);
@@ -162,7 +374,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                 _trie.PopulateCompoundAnchorCandidates(spanSyllables, lookalikeFixed, anchorPool);
                 foreach (var entry in anchorPool.Values)
                 {
-                    double dist = ComputeWeightedMyanmarDistance(lookalikeFixed, entry.Word, 1.85);
+                    double dist = ComputeWeightedMyanmarDistancePreEncoded(
+                        lookalikeFixed, spanSyllables, queryCompact, qLen, qDelCosts, qPresentMask, qReqMasks, qReqCount, entry.Word, 1.85);
                     if (dist <= 1.85)
                     {
                         double freqBonus = Math.Min(8.5, Math.Log10(entry.Frequency + 1) * 2.5);
@@ -173,32 +386,129 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            // 5. Fast Bucketed Weighted Edit Distance (always run for 1-syllable or short words so missing-medial high-freq words like 'ပော->ပြော' beat rare phonetic hits!)
+            // 5. Fast Bucketed Weighted Edit Distance using Center-Outward Branch-and-Bound + 45-bit Base Pre-Filtering
             if (results.Count < computeCap || spanSyllables.Count <= 1 || lookalikeFixed.Length <= 8)
             {
                 int targetLen = lookalikeFixed.Length;
                 char firstChar = lookalikeFixed[0];
+                char lastChar = lookalikeFixed[targetLen - 1];
                 double maxAllowedDist = hasExplicitWrongRule ? 0.95 : 1.75;
+                bool canHaveMedialBonus = targetLen >= 2 &&
+                    (firstChar == '\u1001' || firstChar == '\u1002' || firstChar == '\u1004' ||
+                     firstChar == '\u1012' || firstChar == '\u1015' || firstChar == '\u101D') &&
+                    lookalikeFixed.IndexOf('\u102C') > 0;
+                double maxBucketCeiling = 94.0 + 8.5 + 1.5 + 0.5 + (canHaveMedialBonus ? 4.0 : 0.0);
+                double floorScore = ComputeSafeFloorScore(results, computeCap);
 
-                foreach (var entry in _trie.GetEntriesByLengthWindow(targetLen, maxLengthDelta: 2))
+                int[] bucketOffsets = { 0, 1, -1, 2, -2 };
+                for (int bo = 0; bo < bucketOffsets.Length; bo++)
                 {
-                    string w = entry.Word;
-                    if (w == normalized) continue;
-
-                    char w0 = w[0];
-                    if (w0 != firstChar && GetSubstitutionCost(firstChar, w0) > 0.45 && w[w.Length - 1] != lookalikeFixed[targetLen - 1])
+                    int bLen = targetLen + bucketOffsets[bo];
+                    if (bLen < 1)
                         continue;
 
-                    double dist = ComputeWeightedMyanmarDistance(lookalikeFixed, w, maxAllowedDist);
-                    if (dist <= maxAllowedDist)
+                    double curGlobalMaxDist = floorScore > 0.0
+                        ? Math.Min(maxAllowedDist, (maxBucketCeiling - floorScore + 0.001) / 9.0)
+                        : maxAllowedDist;
+                    if (curGlobalMaxDist < 0.0)
+                        break;
+
+                    var bucket = _trie.GetCompiledLengthBucket(bLen);
+                    if (bucket == null)
+                        continue;
+
+                    int curMaxUnpartnered = curGlobalMaxDist < 0.849 ? 0 : (curGlobalMaxDist < 0.999 ? 1 : 2);
+                    int curMaxCompactDelta = (int)((curGlobalMaxDist + 0.002) / 0.20);
+                    int minCompactLen = qLen - curMaxCompactDelta;
+                    int maxCompactLen = qLen + curMaxCompactDelta;
+
+                    var entriesArr = bucket.Entries;
+                    var presentArr = bucket.PresentMasks;
+                    var packedArr = bucket.PackedUnstackedAndLen;
+                    int count = entriesArr.Length;
+
+                    for (int idx = 0; idx < count; idx++)
                     {
+                        ulong packedU = packedArr[idx];
+                        int m = (int)((packedU >> 45) & 0xFF);
+                        if (m < minCompactLen || m > maxCompactLen)
+                            continue;
+
+                        ulong unpB = packedU & invQCompat;
+                        int budgetRem = curMaxUnpartnered;
+                        if (unpB != 0UL)
+                        {
+                            if (--budgetRem < 0) continue;
+                            unpB &= unpB - 1UL;
+                            if (unpB != 0UL)
+                            {
+                                if (--budgetRem < 0) continue;
+                                unpB &= unpB - 1UL;
+                                if (unpB != 0UL) continue;
+                            }
+                        }
+
+                        if (qReqCount > 0)
+                        {
+                            ulong bPres = presentArr[idx];
+                            bool exceeded = false;
+                            for (int r = 0; r < qReqCount; r++)
+                            {
+                                if ((qReqMasks[r] & bPres) == 0UL && --budgetRem < 0)
+                                {
+                                    exceeded = true;
+                                    break;
+                                }
+                            }
+                            if (exceeded)
+                                continue;
+                        }
+
+                        var entry = entriesArr[idx];
+                        string w = entry.Word;
+                        if (w == normalized) continue;
+
+                        char w0 = w[0];
+                        if (w0 != firstChar && GetSubstitutionCost(firstChar, w0) > 0.45 && w[bLen - 1] != lastChar)
+                            continue;
+
                         double freqBonus = Math.Min(8.5, Math.Log10(entry.Frequency + 1) * 2.6);
                         double thatponBonus = entry.IsOfficialThatpon ? 1.5 : 0.0;
                         double cueBonus = string.IsNullOrWhiteSpace(entry.MeaningCue) ? 0.0 : 0.5;
-                        // Bonus when user typed Round AA 'ာ' after ခ/ဂ/င/ဒ/ပ/ဝ because they intended medial ျ/ြ/ွ (e.g. 'ပော' -> 'ပြော')
-                        double medialOrthographyBonus = HasMissingMedialBeforeRoundAa(lookalikeFixed, w) ? 4.0 : 0.0;
-                        double score = Math.Max(50.0, 94.0 - dist * 9.0 + freqBonus + thatponBonus + cueBonus + medialOrthographyBonus);
-                        AddOrUpdateEnrichedCandidate(results, rawTrimmed, w, score);
+                        double medialOrthographyBonus = (canHaveMedialBonus && HasMissingMedialBeforeRoundAa(lookalikeFixed, w)) ? 4.0 : 0.0;
+                        double entryZeroScore = 94.0 + freqBonus + thatponBonus + cueBonus + medialOrthographyBonus;
+
+                        double entryMaxDist = curGlobalMaxDist;
+                        if (floorScore > 0.0)
+                        {
+                            if (entryZeroScore < floorScore - 0.001)
+                                continue;
+                            double neededDist = (entryZeroScore - floorScore + 0.001) / 9.0;
+                            if (neededDist < entryMaxDist)
+                                entryMaxDist = neededDist;
+                        }
+
+                        double dist = ComputeWeightedMyanmarDistancePreEncoded(
+                            lookalikeFixed, spanSyllables, queryCompact, qLen, qDelCosts, qPresentMask, qReqMasks, qReqCount, w, entryMaxDist);
+                        if (dist <= maxAllowedDist)
+                        {
+                            double score = Math.Max(50.0, entryZeroScore - dist * 9.0);
+                            if (floorScore <= 0.0 || score >= floorScore - 0.001)
+                            {
+                                AddOrUpdateEnrichedCandidate(results, rawTrimmed, w, score);
+                                if (results.Count >= computeCap && score > floorScore)
+                                {
+                                    floorScore = ComputeSafeFloorScore(results, computeCap);
+                                    curGlobalMaxDist = floorScore > 0.0
+                                        ? Math.Min(maxAllowedDist, (maxBucketCeiling - floorScore + 0.001) / 9.0)
+                                        : maxAllowedDist;
+                                    curMaxUnpartnered = curGlobalMaxDist < 0.849 ? 0 : (curGlobalMaxDist < 0.999 ? 1 : 2);
+                                    curMaxCompactDelta = (int)((curGlobalMaxDist + 0.002) / 0.20);
+                                    minCompactLen = qLen - curMaxCompactDelta;
+                                    maxCompactLen = qLen + curMaxCompactDelta;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -217,21 +527,76 @@ namespace MyanmarSpellChecker.Core.Nlp
                 int targetLen = lookalikeFixed.Length;
                 char f0 = lookalikeFixed[0];
                 char fLast = lookalikeFixed[targetLen - 1];
-                foreach (var entry in _trie.GetEntriesByLengthWindow(targetLen, maxLengthDelta: 3))
+                int minCompactLen7 = qLen - 13;
+                int maxCompactLen7 = qLen + 13;
+                int minBucketLen7 = Math.Max(1, targetLen - 3);
+                int maxBucketLen7 = targetLen + 3;
+
+                for (int bLen = minBucketLen7; bLen <= maxBucketLen7; bLen++)
                 {
-                    if (entry.Word == normalized || entry.Frequency < 2)
+                    var bucket = _trie.GetCompiledLengthBucket(bLen);
+                    if (bucket == null)
                         continue;
 
-                    string ew = entry.Word;
-                    if (targetLen <= 2 && ew[0] != f0 && ew[ew.Length - 1] != fLast && GetSubstitutionCost(f0, ew[0]) > 0.65)
-                        continue;
+                    var entriesArr = bucket.Entries;
+                    var presentArr = bucket.PresentMasks;
+                    var packedArr = bucket.PackedUnstackedAndLen;
+                    int count = entriesArr.Length;
 
-                    double dist = ComputeWeightedMyanmarDistance(lookalikeFixed, ew, 2.60);
-                    if (dist <= 2.60)
+                    for (int idx = 0; idx < count; idx++)
                     {
-                        double freqBonus = Math.Min(7.5, Math.Log10(entry.Frequency + 1) * 2.2);
-                        double score = Math.Max(42.0, 84.0 - dist * 9.5 + freqBonus + (entry.IsOfficialThatpon ? 1.5 : 0.0));
-                        AddOrUpdateEnrichedCandidate(results, rawTrimmed, ew, score);
+                        ulong packedU = packedArr[idx];
+                        int m = (int)((packedU >> 45) & 0xFF);
+                        if (m < minCompactLen7 || m > maxCompactLen7)
+                            continue;
+
+                        ulong unpB = packedU & invQCompat;
+                        int uBLower = 0;
+                        while (unpB != 0UL && uBLower < 4)
+                        {
+                            uBLower++;
+                            unpB &= unpB - 1UL;
+                        }
+                        if (uBLower >= 4)
+                            continue;
+
+                        int uA = 0;
+                        if (qReqCount > 0)
+                        {
+                            ulong bPres = presentArr[idx];
+                            for (int r = 0; r < qReqCount; r++)
+                            {
+                                if ((qReqMasks[r] & bPres) == 0UL && ++uA >= 4)
+                                    break;
+                            }
+                            if (uA >= 4)
+                                continue;
+                        }
+
+                        if (uA > 0 || uBLower > 0)
+                        {
+                            int paired = uA < uBLower ? uA : uBLower;
+                            int diff = uA > uBLower ? (uA - uBLower) : (uBLower - uA);
+                            if (paired * 1.00 + diff * 0.85 > 2.601)
+                                continue;
+                        }
+
+                        var entry = entriesArr[idx];
+                        if (entry.Frequency < 2 || entry.Word == normalized)
+                            continue;
+
+                        string ew = entry.Word;
+                        if (targetLen <= 2 && ew[0] != f0 && ew[bLen - 1] != fLast && GetSubstitutionCost(f0, ew[0]) > 0.65)
+                            continue;
+
+                        double dist = ComputeWeightedMyanmarDistancePreEncoded(
+                            lookalikeFixed, spanSyllables, queryCompact, qLen, qDelCosts, qPresentMask, qReqMasks, qReqCount, ew, 2.60);
+                        if (dist <= 2.60)
+                        {
+                            double freqBonus = Math.Min(7.5, Math.Log10(entry.Frequency + 1) * 2.2);
+                            double score = Math.Max(42.0, 84.0 - dist * 9.5 + freqBonus + (entry.IsOfficialThatpon ? 1.5 : 0.0));
+                            AddOrUpdateEnrichedCandidate(results, rawTrimmed, ew, score);
+                        }
                     }
                 }
             }
@@ -260,13 +625,24 @@ namespace MyanmarSpellChecker.Core.Nlp
                 PopulateSingleCandidateMetadata(rawTrimmed, cand);
             }
 
-            if (allowCompositional && maxResults <= 5 && rawTrimmed == normalized)
+            if (rawTrimmed == normalized)
             {
-                if (_suggestionCache.Count >= 4096)
-                    _suggestionCache.Clear();
-                _suggestionCache[normalized] = CloneCandidates(topList, computeCap);
-                if (topList.Count > maxResults)
-                    return topList.Take(maxResults).ToList();
+                if (allowCompositional && maxResults <= 5)
+                {
+                    if (_suggestionCache.Count >= 4096)
+                        _suggestionCache.Clear();
+                    _suggestionCache[normalized] = CloneCandidates(topList, computeCap);
+                    if (topList.Count > maxResults)
+                        return topList.Take(maxResults).ToList();
+                }
+                else if (!allowCompositional && maxResults <= 3)
+                {
+                    if (_atomicSuggestionCache.Count >= 4096)
+                        _atomicSuggestionCache.Clear();
+                    _atomicSuggestionCache[normalized] = CloneCandidates(topList, computeCap);
+                    if (topList.Count > maxResults)
+                        return topList.Take(maxResults).ToList();
+                }
             }
 
             return topList;
@@ -426,6 +802,29 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
         }
 
+        private static string ConcatSyllableRange(List<string> syls, int start, int count)
+        {
+            if (count <= 0) return string.Empty;
+            if (count == 1) return syls[start];
+            if (count == 2) return string.Concat(syls[start], syls[start + 1]);
+            if (count == 3) return string.Concat(syls[start], syls[start + 1], syls[start + 2]);
+
+            int totalLen = 0;
+            int end = start + count;
+            for (int i = start; i < end; i++)
+                totalLen += syls[i].Length;
+
+            var buf = new char[totalLen];
+            int pos = 0;
+            for (int i = start; i < end; i++)
+            {
+                string s = syls[i];
+                s.CopyTo(0, buf, pos, s.Length);
+                pos += s.Length;
+            }
+            return new string(buf);
+        }
+
         private void SynthesizeCompositionalCandidates(
             List<SuggestionCandidate> results,
             string rawTrimmed,
@@ -437,8 +836,8 @@ namespace MyanmarSpellChecker.Core.Nlp
             // 6a. Exact + Repair 2-Segment Split (e.g. 'စာလုံးပေါင်' + 'သတ်ပုံ' -> 'စာလုံးပေါင်းသတ်ပုံ', 'သွား' + 'ပီးပီ' -> 'သွားပြီးပြီ')
             for (int split = 1; split < count; split++)
             {
-                string left = string.Concat(spanSyllables.Take(split));
-                string right = string.Concat(spanSyllables.Skip(split));
+                string left = ConcatSyllableRange(spanSyllables, 0, split);
+                string right = ConcatSyllableRange(spanSyllables, split, count - split);
 
                 bool leftValid = IsKnownSegment(left);
                 bool rightValid = IsKnownSegment(right);
@@ -473,14 +872,15 @@ namespace MyanmarSpellChecker.Core.Nlp
             // 6b. Syllable-by-Syllable Beam Synthesis (e.g. 'ဖစ်နေပီ -> ဖြစ်နေပြီ', 'မဖစ်ပု -> မဖြစ်ဘူး', 'စားပီးသွားပီ -> စားပြီးသွားပြီ')
             if (count <= 5)
             {
-                var beam = new List<(string Text, double Penalty)> { (string.Empty, 0.0) };
+                var beam = new List<(string Text, double Penalty)>(6) { (string.Empty, 0.0) };
+                var nextBeam = new List<(string Text, double Penalty)>(18);
                 bool hasNegMa = spanSyllables[0] == "မ";
 
                 for (int i = 0; i < count; i++)
                 {
                     string syl = spanSyllables[i];
                     var sylOptions = GetSyllableBeamOptions(syl, i, count, hasNegMa);
-                    var nextBeam = new List<(string Text, double Penalty)>(beam.Count * sylOptions.Count);
+                    nextBeam.Clear();
 
                     for (int b = 0; b < beam.Count; b++)
                     {
@@ -490,12 +890,25 @@ namespace MyanmarSpellChecker.Core.Nlp
                         }
                     }
 
-                    beam = nextBeam
-                        .OrderBy(x => x.Penalty)
-                        .GroupBy(x => x.Text, StringComparer.Ordinal)
-                        .Select(g => g.First())
-                        .Take(5)
-                        .ToList();
+                    nextBeam.Sort((a, b) => a.Penalty.CompareTo(b.Penalty));
+                    beam.Clear();
+                    for (int nb = 0; nb < nextBeam.Count && beam.Count < 5; nb++)
+                    {
+                        string candTxt = nextBeam[nb].Text;
+                        bool dup = false;
+                        for (int k = 0; k < beam.Count; k++)
+                        {
+                            if (beam[k].Text == candTxt)
+                            {
+                                dup = true;
+                                break;
+                            }
+                        }
+                        if (!dup)
+                        {
+                            beam.Add(nextBeam[nb]);
+                        }
+                    }
                 }
 
                 int rank = 0;
@@ -635,6 +1048,143 @@ namespace MyanmarSpellChecker.Core.Nlp
             return opts;
         }
 
+        private static bool HasMyanmarScript(string s)
+        {
+            for (int i = 0; i < s.Length; i++)
+            {
+                char ch = s[i];
+                if (ch >= '\u1000' && ch <= '\u109F')
+                    return true;
+            }
+            return false;
+        }
+
+        private static double ComputeSafeFloorScore(List<SuggestionCandidate> results, int computeCap)
+        {
+            int count = results.Count;
+            if (count < computeCap)
+                return 0.0;
+
+            // Only count IsOfficialThatpon candidates toward the pruning floor because non-official 0-freq bound stems can be filtered out later
+            SpanLikeTopScores(results, computeCap, out double kthScore);
+            return kthScore;
+        }
+
+        private static void SpanLikeTopScores(List<SuggestionCandidate> results, int k, out double kthScore)
+        {
+            kthScore = 0.0;
+            if (k <= 0)
+                return;
+
+            // Fast zero-allocation selection for small k (typically 3 or 5)
+            if (k <= 8)
+            {
+                double s0 = -1, s1 = -1, s2 = -1, s3 = -1, s4 = -1, s5 = -1, s6 = -1, s7 = -1;
+                int filled = 0;
+                for (int i = 0; i < results.Count; i++)
+                {
+                    var c = results[i];
+                    if (!c.IsOfficialThatpon)
+                        continue;
+
+                    double v = c.Score;
+                    if (filled == k && v <= GetSlot(k - 1, s0, s1, s2, s3, s4, s5, s6, s7))
+                        continue;
+
+                    InsertSlot(v, k, ref filled, ref s0, ref s1, ref s2, ref s3, ref s4, ref s5, ref s6, ref s7);
+                }
+
+                if (filled >= k)
+                    kthScore = GetSlot(k - 1, s0, s1, s2, s3, s4, s5, s6, s7);
+                return;
+            }
+
+            var safeScores = new List<double>(results.Count);
+            for (int i = 0; i < results.Count; i++)
+            {
+                if (results[i].IsOfficialThatpon)
+                    safeScores.Add(results[i].Score);
+            }
+            if (safeScores.Count >= k)
+            {
+                safeScores.Sort((a, b) => b.CompareTo(a));
+                kthScore = safeScores[k - 1];
+            }
+        }
+
+        private static double GetSlot(int idx, double s0, double s1, double s2, double s3, double s4, double s5, double s6, double s7)
+        {
+            switch (idx)
+            {
+                case 0: return s0;
+                case 1: return s1;
+                case 2: return s2;
+                case 3: return s3;
+                case 4: return s4;
+                case 5: return s5;
+                case 6: return s6;
+                default: return s7;
+            }
+        }
+
+        private static void InsertSlot(
+            double v, int cap, ref int filled,
+            ref double s0, ref double s1, ref double s2, ref double s3,
+            ref double s4, ref double s5, ref double s6, ref double s7)
+        {
+            double[] tmp = { s0, s1, s2, s3, s4, s5, s6, s7 };
+            int lim = filled < cap ? filled : (cap - 1);
+            if (filled < cap) filled++;
+            int pos = lim;
+            while (pos > 0 && v > tmp[pos - 1])
+            {
+                tmp[pos] = tmp[pos - 1];
+                pos--;
+            }
+            tmp[pos] = v;
+            s0 = tmp[0]; s1 = tmp[1]; s2 = tmp[2]; s3 = tmp[3];
+            s4 = tmp[4]; s5 = tmp[5]; s6 = tmp[6]; s7 = tmp[7];
+        }
+
+        private static string ExtractTopTwoMeaningCues(List<DictionaryEntry> entries)
+        {
+            string? firstPrimary = null;
+            string? secondPrimary = null;
+            string? firstSecondary = null;
+            string? secondSecondary = null;
+
+            for (int i = 0; i < entries.Count; i++)
+            {
+                string m = entries[i].MeaningCue;
+                if (string.IsNullOrWhiteSpace(m) || !HasMyanmarScript(m))
+                    continue;
+
+                bool isSecondary = m.StartsWith("သတ်ပုံကျမ်း တွဲဖက်အညွှန်း", StringComparison.Ordinal);
+                if (!isSecondary)
+                {
+                    if (firstPrimary == null) firstPrimary = m;
+                    else if (secondPrimary == null && m != firstPrimary) secondPrimary = m;
+                }
+                else
+                {
+                    if (firstSecondary == null) firstSecondary = m;
+                    else if (secondSecondary == null && m != firstSecondary) secondSecondary = m;
+                }
+            }
+
+            string? c1 = firstPrimary ?? firstSecondary;
+            if (c1 == null)
+                return string.Empty;
+
+            string? c2 = null;
+            if (firstPrimary != null)
+                c2 = secondPrimary ?? (firstSecondary != firstPrimary ? firstSecondary : secondSecondary);
+            else
+                c2 = secondSecondary;
+
+            return c2 != null ? (c1 + " / " + c2) : c1;
+        }
+
         private void PopulateSingleCandidateMetadata(string rawTrimmed, SuggestionCandidate cand)
         {
             if (string.IsNullOrWhiteSpace(cand.SyllableBreakdown))
@@ -643,12 +1193,36 @@ namespace MyanmarSpellChecker.Core.Nlp
                 cand.DiagnosticDetail = OrthographicDiffExplainer.ExplainDifference(rawTrimmed, cand.Replacement);
             if (string.IsNullOrWhiteSpace(cand.HomophoneSiblings))
                 cand.HomophoneSiblings = _trie.GetHomophoneSiblingsSummary(cand.Replacement, 3);
-            if (string.IsNullOrWhiteSpace(cand.AbidanSummary) &&
+
+            bool needCue = string.IsNullOrWhiteSpace(cand.MeaningCue);
+            bool needPos = string.IsNullOrWhiteSpace(cand.PosTag);
+            bool needAbidan = string.IsNullOrWhiteSpace(cand.AbidanSummary);
+            if ((needCue || needPos || needAbidan) &&
                 _trie.TryGetExactEntries(cand.Replacement, out var candEntries) && candEntries.Count > 0)
             {
-                cand.AbidanSummary = candEntries
-                    .Select(e => e.CompactAbidanSummary)
-                    .FirstOrDefault(s => !string.IsNullOrWhiteSpace(s)) ?? string.Empty;
+                if (needCue)
+                    cand.MeaningCue = ExtractTopTwoMeaningCues(candEntries);
+
+                for (int i = 0; i < candEntries.Count; i++)
+                {
+                    var ce = candEntries[i];
+                    if (needPos && !string.IsNullOrWhiteSpace(ce.PosTag))
+                    {
+                        cand.PosTag = ce.PosTag;
+                        needPos = false;
+                    }
+                    if (needAbidan)
+                    {
+                        string ab = ce.CompactAbidanSummary;
+                        if (!string.IsNullOrWhiteSpace(ab))
+                        {
+                            cand.AbidanSummary = ab;
+                            needAbidan = false;
+                        }
+                    }
+                    if (!needPos && !needAbidan)
+                        break;
+                }
             }
         }
 
@@ -666,23 +1240,34 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             if (_trie.TryGetExactEntries(replacement, out var entries) && entries.Count > 0)
             {
-                if (!preferFallbackCue || string.IsNullOrWhiteSpace(fallbackCue))
+                isThatpon = false;
+                for (int i = 0; i < entries.Count; i++)
                 {
-                    var distinctCues = entries
-                        .Select(e => e.MeaningCue)
-                        .Where(m => !string.IsNullOrWhiteSpace(m) && m.Any(ch => ch >= '\u1000' && ch <= '\u109F'))
-                        .Distinct()
-                        .OrderByDescending(m => !m.StartsWith("သတ်ပုံကျမ်း တွဲဖက်အညွှန်း", StringComparison.Ordinal))
-                        .ToList();
-                    cue = string.Join(" / ", distinctCues.Take(2));
+                    if (entries[i].IsOfficialThatpon)
+                    {
+                        isThatpon = true;
+                        break;
+                    }
                 }
-                pos = entries.Select(e => e.PosTag).FirstOrDefault(p => !string.IsNullOrWhiteSpace(p)) ?? string.Empty;
-                isThatpon = entries.Any(e => e.IsOfficialThatpon);
+
+                if (!string.IsNullOrEmpty(fallbackCue))
+                {
+                    if (!preferFallbackCue)
+                        cue = ExtractTopTwoMeaningCues(entries);
+                    for (int i = 0; i < entries.Count; i++)
+                    {
+                        if (!string.IsNullOrWhiteSpace(entries[i].PosTag))
+                        {
+                            pos = entries[i].PosTag;
+                            break;
+                        }
+                    }
+                }
             }
 
             if (string.IsNullOrWhiteSpace(cue) &&
                 !string.IsNullOrWhiteSpace(fallbackCue) &&
-                fallbackCue.Any(ch => ch >= '\u1000' && ch <= '\u109F'))
+                HasMyanmarScript(fallbackCue))
             {
                 cue = fallbackCue;
             }
@@ -735,6 +1320,37 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
         }
 
+        private static bool MatchesAdjacentSyllableSwap(List<string> syls, string s2)
+        {
+            if (syls.Count < 2 || syls.Count > 5)
+                return false;
+
+            for (int k = 0; k < syls.Count - 1; k++)
+            {
+                string sk = syls[k];
+                string sk1 = syls[k + 1];
+                if (sk == sk1) continue;
+
+                int pos = 0;
+                bool match = true;
+                for (int idx = 0; idx < syls.Count; idx++)
+                {
+                    string part = idx == k ? sk1 : (idx == k + 1 ? sk : syls[idx]);
+                    if (string.CompareOrdinal(s2, pos, part, 0, part.Length) != 0)
+                    {
+                        match = false;
+                        break;
+                    }
+                    pos += part.Length;
+                }
+
+                if (match && pos == s2.Length)
+                    return true;
+            }
+
+            return false;
+        }
+
         /// <summary>
         /// Computes empirical Burmese orthographic/phonetic edit distance between two canonical strings,
         /// incorporating syllable-rhyme equivalences, labialized rhyme mergers (-ွက်/-ွတ် <-> -ုတ်/-ုပ်),
@@ -750,29 +1366,39 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (s1.Length >= 3 && s1.Length == s2.Length && CharMultisetSignatureMatches(s1, s2))
             {
                 List<string> syls = MyanmarSyllableBreaker.BreakIntoSyllables(s1);
-                if (syls.Count >= 2 && syls.Count <= 5)
-                {
-                    for (int k = 0; k < syls.Count - 1; k++)
-                    {
-                        string sk = syls[k];
-                        string sk1 = syls[k + 1];
-                        if (sk == sk1) continue;
-
-                        var sb = new System.Text.StringBuilder(s1.Length);
-                        for (int idx = 0; idx < syls.Count; idx++)
-                        {
-                            if (idx == k) sb.Append(sk1);
-                            else if (idx == k + 1) sb.Append(sk);
-                            else sb.Append(syls[idx]);
-                        }
-
-                        if (sb.ToString() == s2)
-                            return 0.36;
-                    }
-                }
+                if (MatchesAdjacentSyllableSwap(syls, s2))
+                    return 0.36;
             }
 
             return ComputeCoreDistance(s1, s2, maxAllowedDistance);
+        }
+
+        private static double ComputeWeightedMyanmarDistancePreEncoded(
+            string s1,
+            List<string> s1Syllables,
+            char[] a,
+            int n,
+            double[] aDelCosts,
+            ulong qPresentMask,
+            ulong[] qReqMasks,
+            int qReqCount,
+            string s2,
+            double maxAllowedDistance)
+        {
+            if (s1 == s2) return 0.0;
+
+            if (s1.Length >= 3 && s1.Length == s2.Length && CharMultisetSignatureMatches(s1, s2))
+            {
+                if (MatchesAdjacentSyllableSwap(s1Syllables, s2))
+                    return 0.36;
+            }
+
+            char[] b = t_bufB ??= new char[128];
+            if (b.Length < s2.Length) b = t_bufB = new char[Math.Max(s2.Length * 2, 128)];
+            int m = EncodeCompactRhymeChars(s2, b);
+
+            return ComputeCoreDistanceFromCompact(
+                a, n, aDelCosts, qPresentMask, qReqMasks, qReqCount, hasPrecomputedMask: true, b, m, maxAllowedDistance);
         }
 
         private static double ComputeCoreDistance(string s1, string s2, double maxAllowedDistance)
@@ -787,6 +1413,22 @@ namespace MyanmarSpellChecker.Core.Nlp
             int n = EncodeCompactRhymeChars(s1, a);
             int m = EncodeCompactRhymeChars(s2, b);
 
+            return ComputeCoreDistanceFromCompact(
+                a, n, null, 0UL, null, 0, hasPrecomputedMask: false, b, m, maxAllowedDistance);
+        }
+
+        private static double ComputeCoreDistanceFromCompact(
+            char[] a,
+            int n,
+            double[]? aDelCosts,
+            ulong qPresentMask,
+            ulong[]? qReqMasks,
+            int qReqCount,
+            bool hasPrecomputedMask,
+            char[] b,
+            int m,
+            double maxAllowedDistance)
+        {
             if (n == m)
             {
                 bool allSame = true;
@@ -801,10 +1443,52 @@ namespace MyanmarSpellChecker.Core.Nlp
                 if (allSame) return 0.28;
             }
 
+            bool checkThreshold = maxAllowedDistance < 1000.0;
+            double thresholdPlusEps = maxAllowedDistance + 0.001;
+
             // Minimum possible indel cost in GetIndelCost is 0.20 per character delta
-            if (maxAllowedDistance < 1000.0 && Math.Abs(n - m) * 0.20 > maxAllowedDistance + 0.001)
+            if (checkThreshold && Math.Abs(n - m) * 0.20 > thresholdPlusEps)
             {
                 return maxAllowedDistance + 1.0;
+            }
+
+            // Exact O(n + m) bipartite unpartnered base-consonant lower bound using 45-bit compatibility masks
+            if (checkThreshold && hasPrecomputedMask && qReqMasks != null)
+            {
+                ulong bPresentMask = 0UL;
+                int uB = 0;
+                for (int j = 0; j < m; j++)
+                {
+                    int bIdx = GetTrackableBaseIndex(b[j]);
+                    if (bIdx >= 0)
+                    {
+                        bPresentMask |= 1UL << bIdx;
+                        if ((j == 0 || b[j - 1] != '\u1039') && (s_compatibleBaseMasks[bIdx] & qPresentMask) == 0UL)
+                        {
+                            uB++;
+                        }
+                    }
+                }
+
+                int uA = 0;
+                for (int r = 0; r < qReqCount; r++)
+                {
+                    if ((qReqMasks[r] & bPresentMask) == 0UL)
+                    {
+                        uA++;
+                    }
+                }
+
+                if (uA > 0 || uB > 0)
+                {
+                    int paired = uA < uB ? uA : uB;
+                    int diff = uA > uB ? (uA - uB) : (uB - uA);
+                    double baseLowerBound = paired * 1.00 + diff * 0.85;
+                    if (baseLowerBound > thresholdPlusEps)
+                    {
+                        return maxAllowedDistance + 1.0;
+                    }
+                }
             }
 
             int stride = m + 1;
@@ -821,21 +1505,20 @@ namespace MyanmarSpellChecker.Core.Nlp
                 dp[j] = dp[j - 1] + GetIndelCost(b[j - 1], j > 1 ? b[j - 2] : '\0');
             }
 
-            double prevRowMin = 0.0;
-            bool checkThreshold = maxAllowedDistance < 1000.0;
-            double thresholdPlusEps = maxAllowedDistance + 0.001;
+            double prevRowMinTotal = Math.Abs(n - m) * 0.20;
 
             for (int i = 1; i <= n; i++)
             {
                 int rowOff = i * stride;
                 int prevRowOff = (i - 1) * stride;
                 int prev2RowOff = (i - 2) * stride;
+                int remA = n - i;
 
                 char c1 = a[i - 1];
-                double delCost = GetIndelCost(c1, i > 1 ? a[i - 2] : '\0');
+                double delCost = aDelCosts != null ? aDelCosts[i - 1] : GetIndelCost(c1, i > 1 ? a[i - 2] : '\0');
                 double rowZero = dp[prevRowOff] + delCost;
                 dp[rowOff] = rowZero;
-                double curRowMin = rowZero;
+                double curRowMinTotal = rowZero + Math.Abs(remA - m) * 0.20;
 
                 for (int j = 1; j <= m; j++)
                 {
@@ -899,18 +1582,21 @@ namespace MyanmarSpellChecker.Core.Nlp
                     }
 
                     dp[rowOff + j] = best;
-                    if (best < curRowMin)
+                    int remDiff = remA - (m - j);
+                    if (remDiff < 0) remDiff = -remDiff;
+                    double estTotal = best + remDiff * 0.20;
+                    if (estTotal < curRowMinTotal)
                     {
-                        curRowMin = best;
+                        curRowMinTotal = estTotal;
                     }
                 }
 
-                if (checkThreshold && curRowMin > thresholdPlusEps && prevRowMin + 0.28 > thresholdPlusEps)
+                if (checkThreshold && curRowMinTotal > thresholdPlusEps && prevRowMinTotal > thresholdPlusEps)
                 {
                     return maxAllowedDistance + 1.0;
                 }
 
-                prevRowMin = curRowMin;
+                prevRowMinTotal = curRowMinTotal;
             }
 
             return dp[n * stride + m];

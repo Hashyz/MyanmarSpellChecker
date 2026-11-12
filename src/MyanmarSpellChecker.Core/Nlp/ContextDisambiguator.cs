@@ -1979,7 +1979,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 {
                     SyllableToken endTok = sylTokens[idx + matchedLen - 1];
                     int charLen = (endTok.StartIndex + endTok.Length) - st.StartIndex;
-                    string norm = string.Concat(sylTokens.Skip(idx).Take(matchedLen).Select(x => x.NormalizedText));
+                    string norm = MyanmarProofingEngine.ConcatNormalizedTokens(sylTokens, idx, matchedLen);
                     result.Add(new ClauseWordToken
                     {
                         StartIndex = st.StartIndex,
@@ -1995,6 +1995,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
                 // 2. Check if a multi-syllable ContextualRule WrongForm (2..3 contiguous syllables) starts here
                 int ctxMatchedLen = 0;
+                string? matchedCtxNorm = null;
                 if (trie.ContextualRuleCount > 0)
                 {
                     int maxCheck = Math.Min(3, sylTokens.Count - idx);
@@ -2012,10 +2013,11 @@ namespace MyanmarSpellChecker.Core.Nlp
                         }
                         if (!contiguous) continue;
 
-                        string candNorm = string.Concat(sylTokens.Skip(idx).Take(len).Select(x => x.NormalizedText));
+                        string candNorm = MyanmarProofingEngine.ConcatNormalizedTokens(sylTokens, idx, len);
                         if (trie.TryGetContextualRules(candNorm, out _))
                         {
                             ctxMatchedLen = len;
+                            matchedCtxNorm = candNorm;
                             break;
                         }
                     }
@@ -2025,7 +2027,6 @@ namespace MyanmarSpellChecker.Core.Nlp
                 {
                     SyllableToken endTok = sylTokens[idx + ctxMatchedLen - 1];
                     int charLen = (endTok.StartIndex + endTok.Length) - st.StartIndex;
-                    string norm = string.Concat(sylTokens.Skip(idx).Take(ctxMatchedLen).Select(x => x.NormalizedText));
                     result.Add(new ClauseWordToken
                     {
                         StartIndex = st.StartIndex,
@@ -2033,7 +2034,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                         ClauseId = clauseId,
                         SyllableCount = ctxMatchedLen,
                         RawText = text.Substring(st.StartIndex, charLen),
-                        NormText = norm
+                        NormText = matchedCtxNorm!
                     });
                     idx += ctxMatchedLen;
                     continue;

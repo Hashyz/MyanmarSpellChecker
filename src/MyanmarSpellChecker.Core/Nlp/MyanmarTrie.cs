@@ -213,7 +213,23 @@ namespace MyanmarSpellChecker.Core.Nlp
         private readonly Dictionary<string, object> _strictHomophoneIndex;
         private readonly Dictionary<string, List<DictionaryEntry>>?[,] _exactAnchorBuckets = new Dictionary<string, List<DictionaryEntry>>?[6, 5];
         private readonly Dictionary<string, List<DictionaryEntry>>?[,] _phoneticAnchorBuckets = new Dictionary<string, List<DictionaryEntry>>?[6, 5];
+        internal sealed class CompiledLengthBucket
+        {
+            public readonly DictionaryEntry[] Entries;
+            public readonly ulong[] PresentMasks;
+            public readonly ulong[] PackedUnstackedAndLen;
+
+            public CompiledLengthBucket(DictionaryEntry[] entries, ulong[] presentMasks, ulong[] packedUnstackedAndLen)
+            {
+                Entries = entries;
+                PresentMasks = presentMasks;
+                PackedUnstackedAndLen = packedUnstackedAndLen;
+            }
+        }
+
         private readonly Dictionary<int, List<DictionaryEntry>> _lengthBucketIndex = new Dictionary<int, List<DictionaryEntry>>();
+        private readonly object _lengthBucketLock = new object();
+        private readonly ConcurrentDictionary<int, CompiledLengthBucket> _compiledLengthBuckets = new ConcurrentDictionary<int, CompiledLengthBucket>();
         private readonly Dictionary<string, OrthographyRule> _wrongFormIndex;
         private readonly Dictionary<string, List<ContextualRule>> _contextualRuleIndex = new Dictionary<string, List<ContextualRule>>(StringComparer.Ordinal);
         private readonly Dictionary<(string Left, string Right), int> _wordBigramIndex;
@@ -419,12 +435,28 @@ namespace MyanmarSpellChecker.Core.Nlp
                     SpecializedDomainCount++;
 
                 int wLen = normalizedWord.Length;
-                if (!_lengthBucketIndex.TryGetValue(wLen, out var lenBucket))
+                if (stringPool != null)
                 {
-                    lenBucket = new List<DictionaryEntry>();
-                    _lengthBucketIndex[wLen] = lenBucket;
+                    if (!_lengthBucketIndex.TryGetValue(wLen, out var lenBucket))
+                    {
+                        lenBucket = new List<DictionaryEntry>();
+                        _lengthBucketIndex[wLen] = lenBucket;
+                    }
+                    lenBucket.Add(entry);
                 }
-                lenBucket.Add(entry);
+                else
+                {
+                    lock (_lengthBucketLock)
+                    {
+                        if (!_lengthBucketIndex.TryGetValue(wLen, out var lenBucket))
+                        {
+                            lenBucket = new List<DictionaryEntry>();
+                            _lengthBucketIndex[wLen] = lenBucket;
+                        }
+                        lenBucket.Add(entry);
+                        _compiledLengthBuckets.TryRemove(wLen, out _);
+                    }
+                }
             }
             else if (entry.IsOfficialThatpon && !isCustomEntry && !exactList.Any(x => x.IsOfficialThatpon))
             {
@@ -669,9 +701,13 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (_lengthBucketIndex.TryGetValue(norm.Length, out var lenBucket))
+            lock (_lengthBucketLock)
             {
-                lenBucket.RemoveAll(e => e.Word == norm && string.Equals(e.PosTag, "CUSTOM", StringComparison.OrdinalIgnoreCase));
+                if (_lengthBucketIndex.TryGetValue(norm.Length, out var lenBucket))
+                {
+                    lenBucket.RemoveAll(e => e.Word == norm && string.Equals(e.PosTag, "CUSTOM", StringComparison.OrdinalIgnoreCase));
+                    _compiledLengthBuckets.TryRemove(norm.Length, out _);
+                }
             }
 
             string pKey = ComputePhoneticKey(norm);
@@ -1508,16 +1544,52 @@ namespace MyanmarSpellChecker.Core.Nlp
             return summary;
         }
 
+        internal CompiledLengthBucket? GetCompiledLengthBucket(int length)
+        {
+            if (length <= 0)
+                return null;
+            if (_compiledLengthBuckets.TryGetValue(length, out var cached))
+                return cached;
+
+            DictionaryEntry[] snapshot;
+            lock (_lengthBucketLock)
+            {
+                if (!_lengthBucketIndex.TryGetValue(length, out var bucket) || bucket.Count == 0)
+                    return null;
+                snapshot = bucket.ToArray();
+            }
+
+            int count = snapshot.Length;
+            var presentMasks = new ulong[count];
+            var packedUnstacked = new ulong[count];
+            var scratchBuf = new char[Math.Max(length + 4, 64)];
+
+            for (int i = 0; i < count; i++)
+            {
+                SuggestionEngine.ComputeEntryCompactMasks(
+                    snapshot[i].Word,
+                    ref scratchBuf,
+                    out presentMasks[i],
+                    out packedUnstacked[i]);
+            }
+
+            var compiled = new CompiledLengthBucket(snapshot, presentMasks, packedUnstacked);
+            _compiledLengthBuckets[length] = compiled;
+            return compiled;
+        }
+
         public IEnumerable<DictionaryEntry> GetEntriesByLengthWindow(int targetLength, int maxLengthDelta = 2)
         {
             int minLen = Math.Max(1, targetLength - maxLengthDelta);
             int maxLen = targetLength + maxLengthDelta;
             for (int len = minLen; len <= maxLen; len++)
             {
-                if (_lengthBucketIndex.TryGetValue(len, out var bucket))
+                var compiled = GetCompiledLengthBucket(len);
+                if (compiled != null)
                 {
-                    for (int i = 0; i < bucket.Count; i++)
-                        yield return bucket[i];
+                    var arr = compiled.Entries;
+                    for (int i = 0; i < arr.Length; i++)
+                        yield return arr[i];
                 }
             }
         }

@@ -138,6 +138,9 @@ The Excel Add-in provides **In-Cell Color-Coded Underlines + Formula-Safe Cell-b
   - Authoritative **မြန်မာအဘိဓာန်** definitions, Burmese pronunciations, numeral classifiers, etymologies, synonyms, and antonyms.
   - **25,001 Offline Myanmar Encyclopedia (`စွယ်စုံဗဟုသုတကျမ်း`)** articles, **U Hoke Sein Pali-Myanmar** cognates, classical proverbs (`စကားပုံ` / `ဆိုရိုးစကား`), MOFA/GAD global countries, cities, and all **330 Myanmar townships**.
   - **6 Specialized Domains:** **Geology & Earth Sciences (`ဘူမိဗေဒနှင့် မြေကမ္ဘာသိပ္ပံ` — Kyaukse University)**, Legal & Judicial, Banking/Tax/Finance, Medical & Health, Pali & Religious Affairs, and IT/Cybersecurity + Global Currencies & Scientific Units.
+- **High-Throughput & Low-Memory Architecture:**
+  - **Streaming Binary Trie + Lazy Encyclopedia Hydration:** ~`85 MB` managed heap (`~120 MB` steady-state RAM) with `~1.8 s` cold encrypted database load across `89,578` unique headwords and `85,000` word bigrams.
+  - **Sub-5 ms Real-Time Proofing:** Zero-Regex O(N) syllable tokenization (`~0.02 ms/paragraph`), deferred Viterbi lattice issue materialization (`~2.5–4.8 ms` per unique uncached paragraph; `< 0.1 ms` cached), and 45-bit base-consonant branch-and-bound suggestion pruning (`~0.3–4.9 ms` uncached).
 - **Zero Internet Calls & 100% Free Open-Source Runtime:**
   - Pure `.NET Framework 4.8` FIPS-compliant `AES-256` + `PBKDF2-SHA256` + `HMAC-SHA256` binary dictionary (`mlc_thatpon.db`) — **100% free & active out-of-the-box under GNU GPL v3.0 (no `.lic` activation key required)**.
 
@@ -176,14 +179,14 @@ SpellChecker/
 │   ├── Register-DevAddIn.ps1                      # Zero-Admin HKCU COM registration for local MS Word + MS Excel
 │   └── Product.wxs                                # WiX MSI installer definition
 └── tests/
-    └── MyanmarSpellChecker.Core.Tests/            # Automated xUnit test suite (55 end-to-end tests)
+    └── MyanmarSpellChecker.Core.Tests/            # Automated xUnit test suite (59 end-to-end tests)
 ```
 
 ---
 
 ## 3. Developer & Maintainer Commands
 
-### Run All 55 Automated Tests
+### Run All 59 Automated Tests
 *(On a fresh Git clone, `TestPaths.MasterJsonPath` automatically builds the intermediate `mlc_thatpon_master.json` from `data/sources/` on the first test run.)*
 ```powershell
 dotnet test .\tests\MyanmarSpellChecker.Core.Tests\MyanmarSpellChecker.Core.Tests.csproj -c Release

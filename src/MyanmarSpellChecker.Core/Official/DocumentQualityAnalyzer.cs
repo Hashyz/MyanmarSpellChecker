@@ -39,21 +39,156 @@ namespace MyanmarSpellChecker.Core.Official
     /// </summary>
     public static class DocumentQualityAnalyzer
     {
-        private static readonly Regex SentenceEndRegex = new Regex(
-            @"[\u104B.!?]+",
-            RegexOptions.Compiled);
+        private static bool IsAsciiAlnum(char c) =>
+            (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
 
-        private static readonly Regex FormalMarkerRegex = new Regex(
-            @"(?:ပါသည်|ဖြစ်သည်|ရှိသည်|ရမည်|နိုင်သည်|သဖြင့်|သောကြောင့်|လျက်|အလို့ငှာ|နှင့်အညီ|၏|၌)(?=\s|$|[\u104A\u104B])",
-            RegexOptions.Compiled);
+        private static bool IsLatinConnector(char c) =>
+            c == '-' || c == '_' || c == '.' || c == '/';
 
-        private static readonly Regex ColloquialMarkerRegex = new Regex(
-            @"(?:ပါတယ်|ပါမယ်|ဖြစ်တယ်|ရှိတယ်|ရမယ်|သွားတယ်|လာတယ်|မဟုတ်ဘူး|ဒါပေမဲ့|အဲဒါ|တွေကို|နဲ့အတူ)(?=\s|$|[\u104A\u104B])",
-            RegexOptions.Compiled);
+        private static bool IsRegisterBoundary(string text, int endIdx)
+        {
+            if (endIdx >= text.Length)
+                return true;
+            char ch = text[endIdx];
+            return char.IsWhiteSpace(ch) || ch == '\u104A' || ch == '\u104B';
+        }
 
-        private static readonly Regex LatinWordRegex = new Regex(
-            @"[A-Za-z0-9]+(?:[-_./][A-Za-z0-9]+)*",
-            RegexOptions.Compiled);
+        private static bool TryMatchTokenAt(string text, string literal, ref int idx)
+        {
+            int mLen = literal.Length;
+            if (idx + mLen <= text.Length &&
+                string.CompareOrdinal(text, idx, literal, 0, mLen) == 0 &&
+                IsRegisterBoundary(text, idx + mLen))
+            {
+                idx += mLen - 1;
+                return true;
+            }
+            return false;
+        }
+
+        private static void ScanDocumentMetrics(
+            string text,
+            out int paragraphCount,
+            out int sentenceHits,
+            out int latinWords,
+            out int formalHits,
+            out int colloqHits)
+        {
+            int len = text.Length;
+            int paras = 0;
+            int sents = 0;
+            bool lineHasNonWs = false;
+            bool inSentEnd = false;
+
+            for (int i = 0; i < len; i++)
+            {
+                char c = text[i];
+                if (c == '\r')
+                {
+                    if (lineHasNonWs) { paras++; lineHasNonWs = false; }
+                    if (i + 1 < len && text[i + 1] == '\n') i++;
+                    inSentEnd = false;
+                    continue;
+                }
+                if (c == '\n')
+                {
+                    if (lineHasNonWs) { paras++; lineHasNonWs = false; }
+                    inSentEnd = false;
+                    continue;
+                }
+
+                if (!char.IsWhiteSpace(c))
+                    lineHasNonWs = true;
+
+                if (c == '\u104B' || c == '.' || c == '!' || c == '?')
+                {
+                    if (!inSentEnd) { sents++; inSentEnd = true; }
+                }
+                else
+                {
+                    inSentEnd = false;
+                }
+            }
+            if (lineHasNonWs)
+                paras++;
+
+            int lwCount = 0;
+            int lw = 0;
+            while (lw < len)
+            {
+                if (!IsAsciiAlnum(text[lw]))
+                {
+                    lw++;
+                    continue;
+                }
+                lwCount++;
+                lw++;
+                while (lw < len && IsAsciiAlnum(text[lw]))
+                    lw++;
+                while (lw + 1 < len && IsLatinConnector(text[lw]) && IsAsciiAlnum(text[lw + 1]))
+                {
+                    lw += 2;
+                    while (lw < len && IsAsciiAlnum(text[lw]))
+                        lw++;
+                }
+            }
+
+            int fHits = 0;
+            int cHits = 0;
+            for (int i = 0; i < len; i++)
+            {
+                switch (text[i])
+                {
+                    case '\u1015': // ပ: ပါသည် | ပါတယ် | ပါမယ်
+                        if (TryMatchTokenAt(text, "ပါသည်", ref i)) fHits++;
+                        else if (TryMatchTokenAt(text, "ပါတယ်", ref i) || TryMatchTokenAt(text, "ပါမယ်", ref i)) cHits++;
+                        break;
+                    case '\u1016': // ဖ: ဖြစ်သည် | ဖြစ်တယ်
+                        if (TryMatchTokenAt(text, "ဖြစ်သည်", ref i)) fHits++;
+                        else if (TryMatchTokenAt(text, "ဖြစ်တယ်", ref i)) cHits++;
+                        break;
+                    case '\u101B': // ရ: ရှိသည် | ရမည် | ရှိတယ် | ရမယ်
+                        if (TryMatchTokenAt(text, "ရှိသည်", ref i) || TryMatchTokenAt(text, "ရမည်", ref i)) fHits++;
+                        else if (TryMatchTokenAt(text, "ရှိတယ်", ref i) || TryMatchTokenAt(text, "ရမယ်", ref i)) cHits++;
+                        break;
+                    case '\u1014': // န: နိုင်သည် | နှင့်အညီ | နဲ့အတူ
+                        if (TryMatchTokenAt(text, "နိုင်သည်", ref i) || TryMatchTokenAt(text, "နှင့်အညီ", ref i)) fHits++;
+                        else if (TryMatchTokenAt(text, "နဲ့အတူ", ref i)) cHits++;
+                        break;
+                    case '\u101E': // သ: သဖြင့် | သောကြောင့် | သွားတယ်
+                        if (TryMatchTokenAt(text, "သဖြင့်", ref i) || TryMatchTokenAt(text, "သောကြောင့်", ref i)) fHits++;
+                        else if (TryMatchTokenAt(text, "သွားတယ်", ref i)) cHits++;
+                        break;
+                    case '\u101C': // လ: လျက် | လာတယ်
+                        if (TryMatchTokenAt(text, "လျက်", ref i)) fHits++;
+                        else if (TryMatchTokenAt(text, "လာတယ်", ref i)) cHits++;
+                        break;
+                    case '\u1021': // အ: အလို့ငှာ | အဲဒါ
+                        if (TryMatchTokenAt(text, "အလို့ငှာ", ref i)) fHits++;
+                        else if (TryMatchTokenAt(text, "အဲဒါ", ref i)) cHits++;
+                        break;
+                    case '\u104E': // ၏
+                    case '\u104C': // ၌
+                        if (IsRegisterBoundary(text, i + 1)) fHits++;
+                        break;
+                    case '\u1019': // မ: မဟုတ်ဘူး
+                        if (TryMatchTokenAt(text, "မဟုတ်ဘူး", ref i)) cHits++;
+                        break;
+                    case '\u1012': // ဒ: ဒါပေမဲ့
+                        if (TryMatchTokenAt(text, "ဒါပေမဲ့", ref i)) cHits++;
+                        break;
+                    case '\u1010': // တ: တွေကို
+                        if (TryMatchTokenAt(text, "တွေကို", ref i)) cHits++;
+                        break;
+                }
+            }
+
+            paragraphCount = paras;
+            sentenceHits = sents;
+            latinWords = lwCount;
+            formalHits = fHits;
+            colloqHits = cHits;
+        }
 
         public static DocumentQualityReport Analyze(
             string? documentText,
@@ -74,16 +209,20 @@ namespace MyanmarSpellChecker.Core.Official
                 return report;
             }
 
-            // 1. Paragraphs & Sentences
-            string[] rawParas = text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
-            report.ParagraphCount = rawParas.Count(p => !string.IsNullOrWhiteSpace(p));
-            int sentHits = SentenceEndRegex.Matches(text).Count;
-            report.SentenceCount = Math.Max(sentHits, report.ParagraphCount > 0 ? 1 : 0);
+            // 1. Paragraphs, Sentences, Latin Words & Register Markers in zero-allocation passes
+            ScanDocumentMetrics(
+                text,
+                out int paraCount,
+                out int sentHits,
+                out int latinWords,
+                out int formalHits,
+                out int colloqHits);
 
-            // 2. Myanmar Syllables & Estimated Words
-            List<SyllableToken> tokens = MyanmarSyllableBreaker.Tokenize(text);
-            int mmSyllables = tokens.Count(t => t.Kind == TokenKind.MyanmarSyllable);
-            int latinWords = LatinWordRegex.Matches(text).Count;
+            report.ParagraphCount = paraCount;
+            report.SentenceCount = Math.Max(sentHits, paraCount > 0 ? 1 : 0);
+
+            // 2. Myanmar Syllables & Estimated Words (zero-allocation O(N) syllable counter)
+            int mmSyllables = MyanmarSyllableBreaker.CountMyanmarSyllables(text);
             report.MyanmarSyllableCount = mmSyllables;
             int estimatedMmWords = mmSyllables == 0 ? 0 : Math.Max(1, (int)Math.Round(mmSyllables / 2.2));
             report.WordCount = estimatedMmWords + latinWords;
@@ -138,8 +277,6 @@ namespace MyanmarSpellChecker.Core.Official
             report.UnicodePurityPercent = Math.Round(Math.Max(0.0, purity), 1);
 
             // 5. Formal Literary Register %
-            int formalHits = FormalMarkerRegex.Matches(text).Count;
-            int colloqHits = ColloquialMarkerRegex.Matches(text).Count;
             if (formalHits == 0 && colloqHits == 0)
             {
                 report.FormalRegisterPercent = 100.0;

@@ -188,32 +188,51 @@ namespace MyanmarSpellChecker.Core.Official
                 return result;
 
             string body = text!;
-            bool hasRef = RefNumberRegex.IsMatch(body);
-            bool hasDate = DateHeaderRegex.IsMatch(body);
-            bool hasMyanmarEra = MyanmarEraYearRegex.IsMatch(body);
-            bool hasAddressee = AddresseeOrTitleRegex.IsMatch(body);
-            bool hasSubject = SubjectLineRegex.IsMatch(body)
-                || body.Contains("အမိန့်ကြော်ငြာစာ")
-                || body.Contains("အစည်းအဝေးမှတ်တမ်း")
-                || body.Contains("သတင်းထုတ်ပြန်ချက်")
-                || body.Contains("အသိပေးကြေညာချက်")
-                || body.Contains("ညွှန်ကြားချက်")
-                || body.Contains("အိတ်ဖွင့်တင်ဒါ");
-            bool hasClosing = DistributionClosingRegex.IsMatch(body);
-            bool hasColloquial = ColloquialLeakRegex.IsMatch(body);
+            bool hasMmDigit = false;
+            bool hasAsciiNonZeroDigit = false;
+            bool hasPoteMa = false;
+            for (int i = 0; i < body.Length; i++)
+            {
+                char ch = body[i];
+                if (ch >= '\u1040' && ch <= '\u1049') hasMmDigit = true;
+                else if (ch >= '1' && ch <= '9') hasAsciiNonZeroDigit = true;
+                else if (ch == '\u104B') hasPoteMa = true;
+            }
 
-            result.LooksLikeOfficialDocument = hasRef || hasSubject || hasAddressee || body.Contains("အကြောင်းအရာ") || body.Contains("စာအမှတ်");
+            bool hasRef = body.IndexOf("အမှတ်", StringComparison.Ordinal) >= 0 && RefNumberRegex.IsMatch(body);
+            bool hasDate = (hasMmDigit || body.IndexOf("ရက်", StringComparison.Ordinal) >= 0) && DateHeaderRegex.IsMatch(body);
+            bool hasMyanmarEra = (body.IndexOf("၁၃", StringComparison.Ordinal) >= 0 || body.IndexOf('လ') >= 0) && MyanmarEraYearRegex.IsMatch(body);
+            bool hasOfficialTitleKeyword =
+                body.IndexOf("အမိန့်ကြော်ငြာစာ", StringComparison.Ordinal) >= 0 ||
+                body.IndexOf("အစည်းအဝေးမှတ်တမ်း", StringComparison.Ordinal) >= 0 ||
+                body.IndexOf("သတင်းထုတ်ပြန်ချက်", StringComparison.Ordinal) >= 0 ||
+                body.IndexOf("အသိပေးကြေညာချက်", StringComparison.Ordinal) >= 0 ||
+                body.IndexOf("ညွှန်ကြားချက်", StringComparison.Ordinal) >= 0 ||
+                body.IndexOf("အိတ်ဖွင့်တင်ဒါ", StringComparison.Ordinal) >= 0;
+            bool hasAddressee = (hasOfficialTitleKeyword || body.IndexOf("သို့", StringComparison.Ordinal) >= 0 || body.IndexOf("ကြေညာချက်", StringComparison.Ordinal) >= 0) &&
+                AddresseeOrTitleRegex.IsMatch(body);
+            bool hasSubjectHeader = body.IndexOf("အကြောင်းအရာ", StringComparison.Ordinal) >= 0;
+            bool hasSubject = (hasSubjectHeader && SubjectLineRegex.IsMatch(body)) || hasOfficialTitleKeyword;
+            bool hasClosing = DistributionClosingRegex.IsMatch(body);
+            bool hasColloquial =
+                (body.IndexOf("တယ်", StringComparison.Ordinal) >= 0 ||
+                 body.IndexOf("မယ်", StringComparison.Ordinal) >= 0 ||
+                 body.IndexOf("ဘူး", StringComparison.Ordinal) >= 0 ||
+                 body.IndexOf("ဒါ", StringComparison.Ordinal) >= 0) &&
+                ColloquialLeakRegex.IsMatch(body);
+
+            result.LooksLikeOfficialDocument = hasRef || hasSubject || hasAddressee || hasSubjectHeader || body.IndexOf("စာအမှတ်", StringComparison.Ordinal) >= 0;
 
             // Check Burmese numbered paragraphs sequence (၁။, ၂။, ၃။ ...)
-            MatchCollection paraMatches = BurmeseNumberedParaRegex.Matches(body);
+            MatchCollection? paraMatches = (hasMmDigit && hasPoteMa) ? BurmeseNumberedParaRegex.Matches(body) : null;
             bool numberingOk = true;
             string numberingDetail;
-            if (AsciiNumberedParaRegex.IsMatch(body))
+            if (hasAsciiNonZeroDigit && AsciiNumberedParaRegex.IsMatch(body))
             {
                 numberingOk = false;
                 numberingDetail = "အင်္ဂလိပ်ဂဏန်း '1.' / '2.' အစား မြန်မာရုံးသုံး '၁။' / '၂။' စနစ်ကို သုံးနှုန်းသင့်ပါသည်။";
             }
-            else if (paraMatches.Count == 0)
+            else if (paraMatches == null || paraMatches.Count == 0)
             {
                 numberingOk = body.Length < 220;
                 numberingDetail = numberingOk

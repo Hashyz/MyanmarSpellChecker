@@ -234,11 +234,36 @@ namespace MyanmarSpellChecker.Core.Nlp
                 [UnicodeNormalizer.NormalizeCanonicalOrder("ဝသ်")] = ("ဝတ်", "မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်းအရ 'ဝတ်' (တဝမ်းပူသတ်) ဖြင့် ရေးသားရမည်။")
             };
 
-        private sealed class LatticeEdge
+        [ThreadStatic]
+        private static StringBuilder? t_spanBuilder;
+
+        private readonly struct LatticeEdge
         {
-            public int Length { get; set; }
-            public double Cost { get; set; }
-            public ProofingIssue? Issue { get; set; }
+            public readonly int Length;
+            public readonly double Cost;
+            public readonly string? IssueOriginalText;
+            public readonly int UnrecognizedSingleSylTokenIndex;
+            public readonly Func<ProofingIssue>? IssueFactory;
+
+            public bool HasIssue => UnrecognizedSingleSylTokenIndex >= 0 || IssueFactory != null;
+
+            public static LatticeEdge Clean(int length, double cost) =>
+                new LatticeEdge(length, cost, null, -1, null);
+
+            public static LatticeEdge UnrecognizedSingleSyllable(int tokenIndex, string rawSyl, double cost) =>
+                new LatticeEdge(1, cost, rawSyl, tokenIndex, null);
+
+            public static LatticeEdge DeferredIssue(int length, double cost, string originalText, Func<ProofingIssue> issueFactory) =>
+                new LatticeEdge(length, cost, originalText, -1, issueFactory);
+
+            private LatticeEdge(int length, double cost, string? issueOriginalText, int unrecognizedSingleSylTokenIndex, Func<ProofingIssue>? issueFactory)
+            {
+                Length = length;
+                Cost = cost;
+                IssueOriginalText = issueOriginalText;
+                UnrecognizedSingleSylTokenIndex = unrecognizedSingleSylTokenIndex;
+                IssueFactory = issueFactory;
+            }
         }
 
         public MyanmarProofingEngine(MyanmarTrie trie, ProofingStyleMode styleMode = ProofingStyleMode.FormalOfficial)
@@ -779,8 +804,15 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             // Pre-tokenize once & build Supreme Official-Thatpon Compound Shield + Exact Multi-Word Lexicon Shield + Personal-Name Shield!
             List<SyllableToken> tokens = MyanmarSyllableBreaker.Tokenize(nlpText);
-            ComputeCompoundProtectionSpans(nlpText, tokens, out List<(int Start, int End)> officialHeadwordSpans, out List<(int Start, int End)> exactLexiconMultiWordSpans);
-            bool[] personNameProtected = tokens.Count > 0 ? ComputePersonNameProtectionMask(nlpText, tokens) : Array.Empty<bool>();
+            ComputeCompoundProtectionSpans(
+                nlpText,
+                tokens,
+                out List<(int Start, int End)> officialHeadwordSpans,
+                out List<(int Start, int End)> exactLexiconMultiWordSpans,
+                out bool[] insideKnownWord);
+            bool[] personNameProtected = tokens.Count > 0
+                ? ComputePersonNameProtectionMask(nlpText, tokens, insideKnownWord)
+                : Array.Empty<bool>();
 
             // 2. Style & Grammar Check (တ/တစ်, ခုနစ်/ခုနှစ်, မ...ဘဲ, လဲ/လည်း, classifiers, tense, broken compounds, casual typos, plus အပြောစကား->အရေးစကား when FormalOfficial)
             List<ProofingIssue> grammarIssues = _grammarEngine.AnalyzeGrammarAndStyle(nlpText, StyleMode, _trie);
@@ -929,10 +961,15 @@ namespace MyanmarSpellChecker.Core.Nlp
             string fullText,
             List<SyllableToken> tokens,
             out List<(int Start, int End)> officialSpans,
-            out List<(int Start, int End)> exactMultiWordSpans)
+            out List<(int Start, int End)> exactMultiWordSpans,
+            out bool[] insideKnownWord)
         {
             officialSpans = new List<(int Start, int End)>();
             exactMultiWordSpans = new List<(int Start, int End)>();
+            insideKnownWord = tokens.Count > 0 ? new bool[tokens.Count] : Array.Empty<bool>();
+            if (tokens.Count == 0)
+                return;
+
             var buf = new List<(int Length, List<DictionaryEntry>? Entries, OrthographyRule? WrongRule)>(8);
             for (int i = 0; i < tokens.Count; i++)
             {
@@ -945,6 +982,11 @@ namespace MyanmarSpellChecker.Core.Nlp
                     var (len, entries, wrongRule) = buf[s];
                     if (len >= 2 && wrongRule == null && entries != null && entries.Count > 0)
                     {
+                        for (int k = 1; k < len; k++)
+                        {
+                            insideKnownWord[i + k] = true;
+                        }
+
                         // Confirm contiguous syllables (no whitespace inside compound) and zero lookalike error
                         bool contiguous = true;
                         for (int k = 1; k < len; k++)
@@ -957,13 +999,25 @@ namespace MyanmarSpellChecker.Core.Nlp
                         }
                         if (!contiguous) continue;
 
-                        var sp = GetTokenSpan(fullText, tokens, i, len);
-                        if (!UnicodeNormalizer.HasLookalikeError(sp.RawText, out _, out _))
+                        int charStart = tokens[i].StartIndex;
+                        SyllableToken lastTok = tokens[i + len - 1];
+                        int charLen = (lastTok.StartIndex + lastTok.Length) - charStart;
+                        string rawSpan = fullText.Substring(charStart, charLen);
+                        if (!UnicodeNormalizer.HasLookalikeError(rawSpan, out _, out _))
                         {
-                            var range = (sp.StartIndex, sp.StartIndex + sp.Length);
+                            var range = (charStart, charStart + charLen);
                             exactMultiWordSpans.Add(range);
-                            if (entries.Any(e => e.IsOfficialThatpon || e.IsProperNoun))
-                            if (entries.Any(e => e.IsOfficialThatpon || e.IsProperNoun || string.Equals(e.PosTag, "CUSTOM", StringComparison.OrdinalIgnoreCase)))
+                            bool isProtectedOfficial = false;
+                            for (int eIdx = 0; eIdx < entries.Count; eIdx++)
+                            {
+                                var e = entries[eIdx];
+                                if (e.IsOfficialThatpon || e.IsProperNoun || string.Equals(e.PosTag, "CUSTOM", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    isProtectedOfficial = true;
+                                    break;
+                                }
+                            }
+                            if (isProtectedOfficial)
                             {
                                 officialSpans.Add(range);
                             }
@@ -1018,24 +1072,9 @@ namespace MyanmarSpellChecker.Core.Nlp
             return false;
         }
 
-        private bool[] ComputePersonNameProtectionMask(string fullText, List<SyllableToken> tokens)
+        private bool[] ComputePersonNameProtectionMask(string fullText, List<SyllableToken> tokens, bool[] insideKnownWord)
         {
             var mask = new bool[tokens.Count];
-            var insideKnownWord = new bool[tokens.Count];
-            var spanBuf = new List<(int Length, List<DictionaryEntry>? Entries, OrthographyRule? WrongRule)>(8);
-            for (int sIdx = 0; sIdx < tokens.Count; sIdx++)
-            {
-                if (tokens[sIdx].Kind != TokenKind.MyanmarSyllable) continue;
-                _trie.MatchSpansAt(tokens, sIdx, Math.Min(12, tokens.Count - sIdx), spanBuf);
-                for (int b = 0; b < spanBuf.Count; b++)
-                {
-                    if (spanBuf[b].Length >= 2 && spanBuf[b].WrongRule == null && spanBuf[b].Entries != null && spanBuf[b].Entries!.Count > 0)
-                    {
-                        for (int k = 1; k < spanBuf[b].Length; k++)
-                            insideKnownWord[sIdx + k] = true;
-                    }
-                }
-            }
 
             int grace = 0;
             bool awaitingNameStartAfterHonorific = false;
@@ -1469,7 +1508,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             var bestCost = new double[m + 1];
             var backPrev = new int[m + 1];
-            var backEdge = new LatticeEdge?[m + 1];
+            var backEdge = new LatticeEdge[m + 1];
 
             for (int i = 1; i <= m; i++)
             {
@@ -1479,22 +1518,27 @@ namespace MyanmarSpellChecker.Core.Nlp
             bestCost[0] = 0.0;
 
             var exactSpansBuffer = new List<(int Length, List<DictionaryEntry>? Entries, OrthographyRule? WrongRule)>(12);
+            var allExactSpans = new List<(int Length, List<DictionaryEntry>? Entries, OrthographyRule? WrongRule)>(m * 2);
+            var spanOffsets = new int[m + 1];
             var candidateEdges = new List<LatticeEdge>(8);
 
-            // Precompute whether an exact multi-syllable word covers [i .. i+len) up to 12 syllables (covers long Pali/Official compounds like အဂ္ဂမဟာပဏ္ဍိတ)
+            // Precompute exact Trie spans & multi-syllable word mask [i .. i+len) in ONE single Trie pass per clause!
             var exactMultiWordMask = new bool[m, 13];
             for (int i = 0; i < m; i++)
             {
+                spanOffsets[i] = allExactSpans.Count;
                 _trie.MatchSpansAt(tokens, runStart + i, Math.Min(12, m - i), exactSpansBuffer);
                 for (int s = 0; s < exactSpansBuffer.Count; s++)
                 {
                     var sp = exactSpansBuffer[s];
+                    allExactSpans.Add(sp);
                     if (sp.WrongRule == null && sp.Entries != null && sp.Entries.Count > 0 && sp.Length <= 12)
                     {
                         exactMultiWordMask[i, sp.Length] = true;
                     }
                 }
             }
+            spanOffsets[m] = allExactSpans.Count;
 
             bool isPaliVerseRun = IsClassicalPaliVerseWord(tokens, runStart, runEnd);
 
@@ -1503,7 +1547,18 @@ namespace MyanmarSpellChecker.Core.Nlp
                 if (double.IsPositiveInfinity(bestCost[i]))
                     continue;
 
-                BuildEdgesAt(fullText, tokens, runStart, runEnd, i, exactMultiWordMask, isPaliVerseRun, exactSpansBuffer, candidateEdges);
+                BuildEdgesAt(
+                    fullText,
+                    tokens,
+                    runStart,
+                    runEnd,
+                    i,
+                    exactMultiWordMask,
+                    isPaliVerseRun,
+                    allExactSpans,
+                    spanOffsets[i],
+                    spanOffsets[i + 1],
+                    candidateEdges);
 
                 for (int eIdx = 0; eIdx < candidateEdges.Count; eIdx++)
                 {
@@ -1522,15 +1577,18 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            // Backtrack optimal Viterbi path from m -> 0 and emit non-null issues in forward order
+            // Backtrack optimal Viterbi path from m -> 0 and materialize ONLY winning non-ignored issues!
             var chosenIssues = new List<ProofingIssue>();
             int cur = m;
             while (cur > 0 && backPrev[cur] >= 0)
             {
-                LatticeEdge? edge = backEdge[cur];
-                if (edge?.Issue != null && !IsIgnoredInSession(edge.Issue.OriginalText))
+                LatticeEdge edge = backEdge[cur];
+                if (edge.HasIssue && !IsIgnoredInSession(edge.IssueOriginalText!))
                 {
-                    chosenIssues.Add(edge.Issue);
+                    ProofingIssue materialized = edge.UnrecognizedSingleSylTokenIndex >= 0
+                        ? BuildUnrecognizedSingleSyllableIssue(tokens[edge.UnrecognizedSingleSylTokenIndex])
+                        : edge.IssueFactory!();
+                    chosenIssues.Add(materialized);
                 }
                 cur = backPrev[cur];
             }
@@ -1549,36 +1607,37 @@ namespace MyanmarSpellChecker.Core.Nlp
             int localOffset,
             bool[,] exactMultiWordMask,
             bool isPaliVerseRun,
-            List<(int Length, List<DictionaryEntry>? Entries, OrthographyRule? WrongRule)> exactSpansBuffer,
+            List<(int Length, List<DictionaryEntry>? Entries, OrthographyRule? WrongRule)> allExactSpans,
+            int spanSliceStart,
+            int spanSliceEnd,
             List<LatticeEdge> edgesOut)
         {
             edgesOut.Clear();
             int tokIdx = runStart + localOffset;
             int remaining = runEnd - tokIdx;
 
-            // 1. Exact Trie Words & Explicit Orthography Rules (L = 1 .. 12)
-            _trie.MatchSpansAt(tokens, tokIdx, Math.Min(12, remaining), exactSpansBuffer);
-            var exactCleanLengths = new HashSet<int>();
+            // 1. Exact Trie Words & Explicit Orthography Rules (L = 1 .. 12) — reused from precomputed slice
+            uint exactCleanMask = 0;
 
-            for (int s = 0; s < exactSpansBuffer.Count; s++)
+            for (int s = spanSliceStart; s < spanSliceEnd; s++)
             {
-                var (len, entries, wrongRule) = exactSpansBuffer[s];
+                var (len, entries, wrongRule) = allExactSpans[s];
                 var span = GetTokenSpan(fullText, tokens, tokIdx, len);
 
                 if (wrongRule != null)
                 {
                     if (wrongRule.Category == "OfficialStyle" && StyleMode == ProofingStyleMode.GeneralStandard)
                     {
-                        edgesOut.Add(new LatticeEdge { Length = len, Cost = 0.86 + 0.10 * len, Issue = null });
-                        exactCleanLengths.Add(len);
+                        edgesOut.Add(LatticeEdge.Clean(len, 0.86 + 0.10 * len));
+                        exactCleanMask |= 1u << len;
                         continue;
                     }
 
                     // Do not trigger 1-syllable Burmese wrong-form rules on transliterated syllables directly attached to parenthesized loanword coda clarifiers like 'ဗက်(စ်)မဲ့(န်)'
                     if (len == 1 && IsAdjacentToParenthesizedCodaClarifier(fullText, tokens[tokIdx]))
                     {
-                        edgesOut.Add(new LatticeEdge { Length = 1, Cost = 1.45, Issue = null });
-                        exactCleanLengths.Add(1);
+                        edgesOut.Add(LatticeEdge.Clean(1, 1.45));
+                        exactCleanMask |= 1u << 1;
                         continue;
                     }
 
@@ -1606,79 +1665,86 @@ namespace MyanmarSpellChecker.Core.Nlp
                         continue;
                     }
 
-                    string canonCorrect = UnicodeNormalizer.NormalizeCanonicalOrder(wrongRule.CorrectForm);
-                    _trie.TryGetExactEntries(canonCorrect, out var targetEntries);
-                    string? ruleMeaningCue = targetEntries != null && targetEntries.Count > 0 ? targetEntries[0].MeaningCue : null;
-                    var suggestions = _suggestionEngine.GetSuggestions(span.NormalizedText);
-                    EnsureTopSuggestionMetadata(suggestions, span.RawText, canonCorrect, ruleMeaningCue);
-                    string diffDetail = OrthographicDiffExplainer.ExplainDifference(span.RawText, canonCorrect);
-
-                    edgesOut.Add(new LatticeEdge
-                    {
-                        Length = len,
-                        Cost = 0.55 + 0.08 * len,
-                        Issue = new ProofingIssue
+                    var capturedSpan = span;
+                    var capturedRule = wrongRule;
+                    edgesOut.Add(LatticeEdge.DeferredIssue(
+                        len,
+                        0.55 + 0.08 * len,
+                        span.RawText,
+                        () =>
                         {
-                            StartIndex = span.StartIndex,
-                            Length = span.Length,
-                            OriginalText = span.RawText,
-                            IssueType = wrongRule.Category == "NumeralClassifier"
-                                ? ProofingIssueType.NumeralClassifierError
-                                : (wrongRule.Category == "OfficialStyle"
-                                    ? ProofingIssueType.OfficialStyleGrammarError
-                                    : ProofingIssueType.SpellingError),
-                            Message = string.IsNullOrWhiteSpace(wrongRule.Explanation)
-                                ? BuildDetailedSpellingMessage(span.RawText, wrongRule.CorrectForm, ruleMeaningCue, diffDetail)
-                                : wrongRule.Explanation,
-                            Suggestions = suggestions
-                        }
-                    });
+                            string canonCorrect = UnicodeNormalizer.NormalizeCanonicalOrder(capturedRule.CorrectForm);
+                            _trie.TryGetExactEntries(canonCorrect, out var targetEntries);
+                            string? ruleMeaningCue = targetEntries != null && targetEntries.Count > 0 ? targetEntries[0].MeaningCue : null;
+                            var suggestions = _suggestionEngine.GetSuggestions(capturedSpan.NormalizedText);
+                            EnsureTopSuggestionMetadata(suggestions, capturedSpan.RawText, canonCorrect, ruleMeaningCue);
+                            string diffDetail = OrthographicDiffExplainer.ExplainDifference(capturedSpan.RawText, canonCorrect);
+
+                            return new ProofingIssue
+                            {
+                                StartIndex = capturedSpan.StartIndex,
+                                Length = capturedSpan.Length,
+                                OriginalText = capturedSpan.RawText,
+                                IssueType = capturedRule.Category == "NumeralClassifier"
+                                    ? ProofingIssueType.NumeralClassifierError
+                                    : (capturedRule.Category == "OfficialStyle"
+                                        ? ProofingIssueType.OfficialStyleGrammarError
+                                        : ProofingIssueType.SpellingError),
+                                Message = string.IsNullOrWhiteSpace(capturedRule.Explanation)
+                                    ? BuildDetailedSpellingMessage(capturedSpan.RawText, capturedRule.CorrectForm, ruleMeaningCue, diffDetail)
+                                    : capturedRule.Explanation,
+                                Suggestions = suggestions
+                            };
+                        }));
                     continue;
                 }
 
                 if (len >= 2 && entries != null && entries.Count > 0)
                 {
-                    int maxFreq = entries.Max(e => e.Frequency);
+                    int maxFreq = 0;
+                    for (int eIdx = 0; eIdx < entries.Count; eIdx++)
+                    {
+                        if (entries[eIdx].Frequency > maxFreq)
+                            maxFreq = entries[eIdx].Frequency;
+                    }
                     double freqBonus = Math.Min(0.24, Math.Log10(maxFreq + 1) * 0.065);
 
                     if (UnicodeNormalizer.HasLookalikeError(span.RawText, out string fixedLookalike, out string lookReason))
                     {
-                        edgesOut.Add(new LatticeEdge
-                        {
-                            Length = len,
-                            Cost = 0.86 + 0.10 * len,
-                            Issue = new ProofingIssue
+                        var capturedSpan = span;
+                        var capturedFirstEntry = entries[0];
+                        string capFixed = fixedLookalike;
+                        string capReason = lookReason;
+                        edgesOut.Add(LatticeEdge.DeferredIssue(
+                            len,
+                            0.86 + 0.10 * len,
+                            span.RawText,
+                            () => new ProofingIssue
                             {
-                                StartIndex = span.StartIndex,
-                                Length = span.Length,
-                                OriginalText = span.RawText,
+                                StartIndex = capturedSpan.StartIndex,
+                                Length = capturedSpan.Length,
+                                OriginalText = capturedSpan.RawText,
                                 IssueType = ProofingIssueType.LookalikeCharacterError,
-                                Message = lookReason,
+                                Message = capReason,
                                 Suggestions = new List<SuggestionCandidate>
                                 {
                                     new SuggestionCandidate
                                     {
-                                        Replacement = fixedLookalike,
-                                        MeaningCue = entries[0].MeaningCue ?? "စာလုံးပေါင်းအမှန်",
-                                        PosTag = entries[0].PosTag,
-                                        IsOfficialThatpon = entries[0].IsOfficialThatpon,
-                                        SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(fixedLookalike),
-                                        DiagnosticDetail = OrthographicDiffExplainer.ExplainDifference(span.RawText, fixedLookalike),
+                                        Replacement = capFixed,
+                                        MeaningCue = capturedFirstEntry.MeaningCue ?? "စာလုံးပေါင်းအမှန်",
+                                        PosTag = capturedFirstEntry.PosTag,
+                                        IsOfficialThatpon = capturedFirstEntry.IsOfficialThatpon,
+                                        SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(capFixed),
+                                        DiagnosticDetail = OrthographicDiffExplainer.ExplainDifference(capturedSpan.RawText, capFixed),
                                         Score = 100.0
                                     }
                                 }
-                            }
-                        });
+                            }));
                     }
                     else
                     {
-                        exactCleanLengths.Add(len);
-                        edgesOut.Add(new LatticeEdge
-                        {
-                            Length = len,
-                            Cost = 0.88 + 0.12 * len - freqBonus,
-                            Issue = null
-                        });
+                        exactCleanMask |= 1u << len;
+                        edgesOut.Add(LatticeEdge.Clean(len, 0.88 + 0.12 * len - freqBonus));
                     }
                 }
             }
@@ -1686,19 +1752,18 @@ namespace MyanmarSpellChecker.Core.Nlp
             // 1b. Multi-Syllable Induced Creaky Tone ('့', U+1037) on Nouns/Pronouns (e.g., မြန်မာ့, ကမ္ဘာ့, ကျွန်တော့်, နိုင်ငံ့, အမေ့, အဖေ့)
             for (int creakyLen = 2; creakyLen <= Math.Min(4, remaining); creakyLen++)
             {
-                if (exactCleanLengths.Contains(creakyLen))
+                if ((exactCleanMask & (1u << creakyLen)) != 0)
                     continue;
 
-                var cSpan = GetTokenSpan(fullText, tokens, tokIdx, creakyLen);
-                if (IsValidInducedCreakyToneForm(cSpan.NormalizedText, tokens[tokIdx + creakyLen - 1].NormalizedText))
+                string lastCreakySyl = tokens[tokIdx + creakyLen - 1].NormalizedText;
+                if (lastCreakySyl.Length == 0 || lastCreakySyl[lastCreakySyl.Length - 1] != '\u1037')
+                    continue;
+
+                string cNorm = ConcatNormalizedTokens(tokens, tokIdx, creakyLen);
+                if (IsValidInducedCreakyToneForm(cNorm, lastCreakySyl))
                 {
-                    exactCleanLengths.Add(creakyLen);
-                    edgesOut.Add(new LatticeEdge
-                    {
-                        Length = creakyLen,
-                        Cost = 0.88 + 0.12 * creakyLen - 0.12,
-                        Issue = null
-                    });
+                    exactCleanMask |= 1u << creakyLen;
+                    edgesOut.Add(LatticeEdge.Clean(creakyLen, 0.88 + 0.12 * creakyLen - 0.12));
                 }
             }
 
@@ -1709,14 +1774,14 @@ namespace MyanmarSpellChecker.Core.Nlp
             int maxRepairLen = Math.Min(5, remaining);
             for (int windowLen = 2; windowLen <= maxRepairLen; windowLen++)
             {
-                if (exactCleanLengths.Contains(windowLen))
+                if ((exactCleanMask & (1u << windowLen)) != 0)
                     continue;
 
                 LatticeEdge? repairEdge = TryBuildCompoundRepairEdge(
                     fullText, tokens, runStart, runEnd, localOffset, windowLen, exactMultiWordMask, isPaliVerseRun);
-                if (repairEdge != null)
+                if (repairEdge.HasValue)
                 {
-                    edgesOut.Add(repairEdge);
+                    edgesOut.Add(repairEdge.Value);
                 }
             }
         }
@@ -1754,23 +1819,27 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return false;
 
             bool hasPaliSignature = false;
-            var runBuilder = new StringBuilder(runLen * 4);
             for (int i = runStart; i < runEnd; i++)
             {
                 if (UnicodeNormalizer.HasLookalikeError(tokens[i].Text, out _, out _))
                     return false;
 
                 string sy = tokens[i].NormalizedText;
-                runBuilder.Append(sy);
                 // Pure Pali Gatha words never use Burmese aukmyit (\u1037), visarga (\u1038), or non-Kinzi killed consonants (\u103A)
                 if (sy.IndexOf('\u1037') >= 0 || sy.IndexOf('\u1038') >= 0)
                     return false;
 
-                string withoutKinzi = sy.Replace("\u1004\u103A\u1039", string.Empty);
-                if (withoutKinzi.IndexOf('\u103A') >= 0)
-                    return false;
+                string withoutKinzi = sy;
+                if (sy.IndexOf('\u103A') >= 0)
+                {
+                    if (sy.IndexOf("\u1004\u103A\u1039", StringComparison.Ordinal) < 0)
+                        return false;
+                    withoutKinzi = sy.Replace("\u1004\u103A\u1039", string.Empty);
+                    if (withoutKinzi.IndexOf('\u103A') >= 0)
+                        return false;
+                }
 
-                if (ClassicalPaliMarkerRegex.IsMatch(withoutKinzi))
+                if (!hasPaliSignature && ClassicalPaliMarkerRegex.IsMatch(withoutKinzi))
                     hasPaliSignature = true;
             }
 
@@ -1779,7 +1848,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 if (runLen >= 4)
                     return true;
 
-                string runNorm = runBuilder.ToString();
+                string runNorm = ConcatNormalizedTokens(tokens, runStart, runLen);
                 if (runNorm.EndsWith("\u1031\u102C", StringComparison.Ordinal) ||
                     runNorm.EndsWith("\u1031\u102B", StringComparison.Ordinal) ||
                     runNorm.EndsWith("\u1036", StringComparison.Ordinal) ||
@@ -2391,56 +2460,62 @@ namespace MyanmarSpellChecker.Core.Nlp
             {
                 string normFixedSyl = UnicodeNormalizer.NormalizeCanonicalOrder(fixedSyl);
                 bool isFixedStandalone = _trie.IsStandaloneWord(normFixedSyl) || _trie.ContainsExactWord(normFixedSyl);
-                return new LatticeEdge
-                {
-                    Length = 1,
-                    Cost = isFixedStandalone ? 1.05 : 1.95,
-                    Issue = new ProofingIssue
+                var capToken = token;
+                string capRaw = rawSyl;
+                string capFixed = fixedSyl;
+                string capReason = lookalikeReason;
+                return LatticeEdge.DeferredIssue(
+                    1,
+                    isFixedStandalone ? 1.05 : 1.95,
+                    rawSyl,
+                    () => new ProofingIssue
                     {
-                        StartIndex = token.StartIndex,
-                        Length = token.Length,
-                        OriginalText = rawSyl,
+                        StartIndex = capToken.StartIndex,
+                        Length = capToken.Length,
+                        OriginalText = capRaw,
                         IssueType = ProofingIssueType.LookalikeCharacterError,
-                        Message = lookalikeReason,
+                        Message = capReason,
                         Suggestions = new List<SuggestionCandidate>
                         {
                             new SuggestionCandidate
                             {
-                                Replacement = fixedSyl,
+                                Replacement = capFixed,
                                 MeaningCue = "စာလုံးပေါင်းအမှန်",
                                 IsOfficialThatpon = true,
-                                SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(fixedSyl),
-                                DiagnosticDetail = OrthographicDiffExplainer.ExplainDifference(rawSyl, fixedSyl),
+                                SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(capFixed),
+                                DiagnosticDetail = OrthographicDiffExplainer.ExplainDifference(capRaw, capFixed),
                                 Score = 100.0
                             }
                         }
-                    }
-                };
+                    });
             }
 
             if (!MyanmarSyllableBreaker.IsStructurallyValidSyllable(normSyl, out string structError))
             {
-                return new LatticeEdge
-                {
-                    Length = 1,
-                    Cost = 2.40,
-                    Issue = new ProofingIssue
+                var capToken = token;
+                string capRaw = rawSyl;
+                string capNorm = normSyl;
+                string capErr = structError;
+                return LatticeEdge.DeferredIssue(
+                    1,
+                    2.40,
+                    rawSyl,
+                    () => new ProofingIssue
                     {
-                        StartIndex = token.StartIndex,
-                        Length = token.Length,
-                        OriginalText = rawSyl,
+                        StartIndex = capToken.StartIndex,
+                        Length = capToken.Length,
+                        OriginalText = capRaw,
                         IssueType = ProofingIssueType.SpellingError,
-                        Message = structError,
-                        Suggestions = _suggestionEngine.GetSuggestions(normSyl)
-                    }
-                };
+                        Message = capErr,
+                        Suggestions = _suggestionEngine.GetSuggestions(capNorm)
+                    });
             }
 
             if (GrammaticalParticles.Contains(normSyl) ||
                 (StyleMode == ProofingStyleMode.GeneralStandard && ColloquialParticles.Contains(normSyl)) ||
                 NumeralsAndDemonstratives.Contains(normSyl))
             {
-                return new LatticeEdge { Length = 1, Cost = 1.02, Issue = null };
+                return LatticeEdge.Clean(1, 1.02);
             }
 
             // Contextual Bound-Morpheme & Ghost Pat-Sint Index Tab Repair (e.g. 'ဖြားနေတာလား -> ဖျား', 'ဟုပ်လား -> ဟုတ်', 'ပြောက်သွားတယ် -> ပျောက်', 'ရေသောပ်မယ် -> သောက်')
@@ -2468,28 +2543,34 @@ namespace MyanmarSpellChecker.Core.Nlp
                                                (prevSyl == "မ" && nextSyl != null);
                     if (inVerbOrClauseFrame)
                     {
-                        _trie.TryGetExactEntries(boundFix.Target, out var domEntries);
-                        string? domCue = domEntries != null && domEntries.Count > 0 ? domEntries[0].MeaningCue : "သတ်ပုံကျမ်း စာလုံးပေါင်းအမှန်";
-                        string? domPos = domEntries != null && domEntries.Count > 0 ? domEntries[0].PosTag : "V";
-                        var boundSuggestions = _suggestionEngine.GetSuggestions(normSyl);
-                        EnsureTopSuggestionMetadata(boundSuggestions, rawSyl, boundFix.Target, domCue, domPos, true);
-
-                        return new LatticeEdge
-                        {
-                            Length = 1,
-                            Cost = 1.38,
-                            Issue = new ProofingIssue
+                        var capToken = token;
+                        string capRaw = rawSyl;
+                        string capNorm = normSyl;
+                        var capBoundFix = boundFix;
+                        return LatticeEdge.DeferredIssue(
+                            1,
+                            1.38,
+                            rawSyl,
+                            () =>
                             {
-                                StartIndex = token.StartIndex,
-                                Length = token.Length,
-                                OriginalText = rawSyl,
-                                IssueType = ProofingIssueType.SpellingError,
-                                Message = boundFix.Explanation,
-                                GrammaticalReasoning = $"သတ်ပုံကျမ်းအရ '{rawSyl}' သည် တစ်လုံးတည်း သီးခြားကြိယာအဖြစ် မသုံးဘဲ သတ်မှတ်ပေါင်းစပ်ပုဒ်၌သာ တွဲသုံးရသဖြင့် ဤဝါကျစကားစပ်တွင် အသံတူ '{boundFix.Target}' ဖြစ်ရမည်။",
-                                AuthoritativeSource = "မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း နှင့် မြန်မာသဒ္ဒါ",
-                                Suggestions = boundSuggestions
-                            }
-                        };
+                                _trie.TryGetExactEntries(capBoundFix.Target, out var domEntries);
+                                string? domCue = domEntries != null && domEntries.Count > 0 ? domEntries[0].MeaningCue : "သတ်ပုံကျမ်း စာလုံးပေါင်းအမှန်";
+                                string? domPos = domEntries != null && domEntries.Count > 0 ? domEntries[0].PosTag : "V";
+                                var boundSuggestions = _suggestionEngine.GetSuggestions(capNorm);
+                                EnsureTopSuggestionMetadata(boundSuggestions, capRaw, capBoundFix.Target, domCue, domPos, true);
+
+                                return new ProofingIssue
+                                {
+                                    StartIndex = capToken.StartIndex,
+                                    Length = capToken.Length,
+                                    OriginalText = capRaw,
+                                    IssueType = ProofingIssueType.SpellingError,
+                                    Message = capBoundFix.Explanation,
+                                    GrammaticalReasoning = $"သတ်ပုံကျမ်းအရ '{capRaw}' သည် တစ်လုံးတည်း သီးခြားကြိယာအဖြစ် မသုံးဘဲ သတ်မှတ်ပေါင်းစပ်ပုဒ်၌သာ တွဲသုံးရသဖြင့် ဤဝါကျစကားစပ်တွင် အသံတူ '{capBoundFix.Target}' ဖြစ်ရမည်။",
+                                    AuthoritativeSource = "မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း နှင့် မြန်မာသဒ္ဒါ",
+                                    Suggestions = boundSuggestions
+                                };
+                            });
                     }
                 }
             }
@@ -2500,17 +2581,17 @@ namespace MyanmarSpellChecker.Core.Nlp
                 if (freq > 0)
                 {
                     double bonus = Math.Min(0.18, Math.Log10(freq + 1) * 0.05);
-                    return new LatticeEdge { Length = 1, Cost = 1.50 - bonus, Issue = null };
+                    return LatticeEdge.Clean(1, 1.50 - bonus);
                 }
 
                 // Zero-frequency archaic standalone headword: valid if alone, but prefers coalescing into a compound
-                return new LatticeEdge { Length = 1, Cost = 1.65, Issue = null };
+                return LatticeEdge.Clean(1, 1.65);
             }
 
             // Induced creaky tone on 1-syllable Nouns/Pronouns (e.g. လူ့, သူ့, ငါ့, ကိုယ့်, ရွာ့)
             if (IsValidInducedCreakyToneForm(normSyl, normSyl))
             {
-                return new LatticeEdge { Length = 1, Cost = 1.44, Issue = null };
+                return LatticeEdge.Clean(1, 1.44);
             }
 
             // Valid Pali pat-sint / Kinzi / Great-Sa syllable (e.g. က္ကံ, ဗ္ဗ, ဂ္ဂီ, န္ဒ, င်္ခ, ဋ္ဌာ, ဿု), classical Pali Gatha word (e.g. ဓမ္မေန, မက္ကဋော, ကိမ္ပုရိသော, နိဝတ္တဿု), or foreign transliteration coda (ကားလ်, ဂိတ်စ်, ဖေ့စ်, လိုက်ဘ်, သိသ်)
@@ -2519,30 +2600,32 @@ namespace MyanmarSpellChecker.Core.Nlp
                 isPaliVerseRun ||
                 IsAdjacentToParenthesizedCodaClarifier(fullText, token))
             {
-                return new LatticeEdge { Length = 1, Cost = 1.48, Issue = null };
+                return LatticeEdge.Clean(1, 1.48);
             }
 
-            // Unrecognized single syllable -> SpellingError
+            // Unrecognized single syllable -> defer expensive GetSuggestions unless this L=1 edge actually wins Viterbi!
+            return LatticeEdge.UnrecognizedSingleSyllable(tokIdx, rawSyl, 2.65);
+        }
+
+        private ProofingIssue BuildUnrecognizedSingleSyllableIssue(SyllableToken token)
+        {
+            string rawSyl = token.Text;
+            string normSyl = token.NormalizedText;
             var singleSuggestions = _suggestionEngine.GetSuggestions(normSyl);
             string singleMessage = singleSuggestions.Count > 0 && !string.IsNullOrWhiteSpace(singleSuggestions[0].DiagnosticDetail)
                 ? $"'{rawSyl}' သည် သတ်ပုံကျမ်းဝင် စာလုံးပေါင်းမဟုတ်ပါ — အနီးစပ်ဆုံး '{singleSuggestions[0].Replacement}' ({singleSuggestions[0].DiagnosticDetail})။"
                 : $"'{rawSyl}' သည် မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းတွင် မပါဝင်သော စာလုံးပေါင်းဖြစ်နေပါသည်။";
 
             bool hasExplicitSingleRule = _trie.TryGetWrongFormRule(normSyl, out _);
-            return new LatticeEdge
+            return new ProofingIssue
             {
-                Length = 1,
-                Cost = 2.65,
-                Issue = new ProofingIssue
-                {
-                    StartIndex = token.StartIndex,
-                    Length = token.Length,
-                    OriginalText = rawSyl,
-                    IssueType = ProofingIssueType.SpellingError,
-                    Message = singleMessage,
-                    RequiresReviewBeforeBatchFix = !hasExplicitSingleRule,
-                    Suggestions = singleSuggestions
-                }
+                StartIndex = token.StartIndex,
+                Length = token.Length,
+                OriginalText = rawSyl,
+                IssueType = ProofingIssueType.SpellingError,
+                Message = singleMessage,
+                RequiresReviewBeforeBatchFix = !hasExplicitSingleRule,
+                Suggestions = singleSuggestions
             };
         }
 
@@ -2565,43 +2648,53 @@ namespace MyanmarSpellChecker.Core.Nlp
                 string normFixed = UnicodeNormalizer.NormalizeCanonicalOrder(fixedCompound);
                 if (_trie.ContainsExactWord(normFixed))
                 {
-                    var suggestions = _suggestionEngine.GetSuggestions(normFixed);
-                    EnsureTopSuggestionMetadata(suggestions, span.RawText, normFixed, "စာလုံးပေါင်းအမှန်");
-                    return new LatticeEdge
-                    {
-                        Length = windowLen,
-                        Cost = 0.85 + 0.10 * windowLen,
-                        Issue = new ProofingIssue
+                    var capSpan = span;
+                    string capNormFixed = normFixed;
+                    string capReason = lookalikeExplanation;
+                    return LatticeEdge.DeferredIssue(
+                        windowLen,
+                        0.85 + 0.10 * windowLen,
+                        span.RawText,
+                        () =>
                         {
-                            StartIndex = span.StartIndex,
-                            Length = span.Length,
-                            OriginalText = span.RawText,
-                            IssueType = ProofingIssueType.LookalikeCharacterError,
-                            Message = lookalikeExplanation,
-                            Suggestions = suggestions
-                        }
-                    };
+                            var suggestions = _suggestionEngine.GetSuggestions(capNormFixed);
+                            EnsureTopSuggestionMetadata(suggestions, capSpan.RawText, capNormFixed, "စာလုံးပေါင်းအမှန်");
+                            return new ProofingIssue
+                            {
+                                StartIndex = capSpan.StartIndex,
+                                Length = capSpan.Length,
+                                OriginalText = capSpan.RawText,
+                                IssueType = ProofingIssueType.LookalikeCharacterError,
+                                Message = capReason,
+                                Suggestions = suggestions
+                            };
+                        });
                 }
 
                 if (_trie.TryGetWrongFormRule(normFixed, out var ruleAfterLookalike) && ruleAfterLookalike != null)
                 {
-                    string targetWord = UnicodeNormalizer.NormalizeCanonicalOrder(ruleAfterLookalike.CorrectForm);
-                    var suggestions = _suggestionEngine.GetSuggestions(targetWord);
-                    EnsureTopSuggestionMetadata(suggestions, span.RawText, targetWord, "စာလုံးပေါင်းအမှန်");
-                    return new LatticeEdge
-                    {
-                        Length = windowLen,
-                        Cost = 0.55 + 0.08 * windowLen,
-                        Issue = new ProofingIssue
+                    var capSpan = span;
+                    var capRule = ruleAfterLookalike;
+                    string capReason = lookalikeExplanation;
+                    return LatticeEdge.DeferredIssue(
+                        windowLen,
+                        0.55 + 0.08 * windowLen,
+                        span.RawText,
+                        () =>
                         {
-                            StartIndex = span.StartIndex,
-                            Length = span.Length,
-                            OriginalText = span.RawText,
-                            IssueType = ProofingIssueType.LookalikeCharacterError,
-                            Message = ruleAfterLookalike.Explanation ?? lookalikeExplanation,
-                            Suggestions = suggestions
-                        }
-                    };
+                            string targetWord = UnicodeNormalizer.NormalizeCanonicalOrder(capRule.CorrectForm);
+                            var suggestions = _suggestionEngine.GetSuggestions(targetWord);
+                            EnsureTopSuggestionMetadata(suggestions, capSpan.RawText, targetWord, "စာလုံးပေါင်းအမှန်");
+                            return new ProofingIssue
+                            {
+                                StartIndex = capSpan.StartIndex,
+                                Length = capSpan.Length,
+                                OriginalText = capSpan.RawText,
+                                IssueType = ProofingIssueType.LookalikeCharacterError,
+                                Message = capRule.Explanation ?? capReason,
+                                Suggestions = suggestions
+                            };
+                        });
                 }
 
                 // If the first syllable is a lookalike error on a valid standalone word (e.g. 'ပွါး' -> 'ပွား', 'ခွါ' -> 'ခွာ') followed by a particle/auxiliary ('စေ', 'ကာ'),
@@ -2639,11 +2732,16 @@ namespace MyanmarSpellChecker.Core.Nlp
             {
                 string prefixNorm = windowLen == 2
                     ? firstSyl
-                    : string.Concat(tokens.Skip(startIndex).Take(windowLen - 1).Select(t => t.NormalizedText));
+                    : ConcatNormalizedTokens(tokens, startIndex, windowLen - 1);
                 string asatMerged = UnicodeNormalizer.NormalizeCanonicalOrder(prefixNorm + finalCons + "\u103A" + trailingTone);
                 if (_trie.TryGetExactEntries(asatMerged, out var mergedEntries) && mergedEntries != null && mergedEntries.Count > 0)
                 {
-                    int maxMergedFreq = mergedEntries.Max(e => e.Frequency);
+                    int maxMergedFreq = 0;
+                    for (int mIdx = 0; mIdx < mergedEntries.Count; mIdx++)
+                    {
+                        if (mergedEntries[mIdx].Frequency > maxMergedFreq)
+                            maxMergedFreq = mergedEntries[mIdx].Frequency;
+                    }
                     int minReqFreq = windowLen == 2 ? 80 : 15;
                     if (maxMergedFreq >= minReqFreq)
                     {
@@ -2654,22 +2752,27 @@ namespace MyanmarSpellChecker.Core.Nlp
                             else if (chosenTarget == "မယ်") chosenTarget = "မည်";
                         }
 
-                        var suggestions = _suggestionEngine.GetSuggestions(chosenTarget);
-                        EnsureTopSuggestionMetadata(suggestions, span.RawText, chosenTarget, mergedEntries[0].MeaningCue, mergedEntries[0].PosTag, mergedEntries[0].IsOfficialThatpon);
-                        return new LatticeEdge
-                        {
-                            Length = windowLen,
-                            Cost = 0.85 + 0.10 * windowLen,
-                            Issue = new ProofingIssue
+                        var capSpan = span;
+                        string capTarget = chosenTarget;
+                        var capFirstMerged = mergedEntries[0];
+                        return LatticeEdge.DeferredIssue(
+                            windowLen,
+                            0.85 + 0.10 * windowLen,
+                            span.RawText,
+                            () =>
                             {
-                                StartIndex = span.StartIndex,
-                                Length = span.Length,
-                                OriginalText = span.RawText,
-                                IssueType = ProofingIssueType.SpellingError,
-                                Message = $"အသတ် ('်') ကျန်ခဲ့ပါသည် — '{span.RawText}' အစား '{chosenTarget}' ဟု ရေးသားရမည်။",
-                                Suggestions = suggestions
-                            }
-                        };
+                                var suggestions = _suggestionEngine.GetSuggestions(capTarget);
+                                EnsureTopSuggestionMetadata(suggestions, capSpan.RawText, capTarget, capFirstMerged.MeaningCue, capFirstMerged.PosTag, capFirstMerged.IsOfficialThatpon);
+                                return new ProofingIssue
+                                {
+                                    StartIndex = capSpan.StartIndex,
+                                    Length = capSpan.Length,
+                                    OriginalText = capSpan.RawText,
+                                    IssueType = ProofingIssueType.SpellingError,
+                                    Message = $"အသတ် ('်') ကျန်ခဲ့ပါသည် — '{capSpan.RawText}' အစား '{capTarget}' ဟု ရေးသားရမည်။",
+                                    Suggestions = suggestions
+                                };
+                            });
                     }
                 }
             }
@@ -2690,22 +2793,27 @@ namespace MyanmarSpellChecker.Core.Nlp
                         symEntries != null && symEntries.Count > 0 &&
                         symEntries.Max(e => e.Frequency) >= (symEntries.Any(e => e.IsOfficialThatpon) ? 10 : 25))
                     {
-                        var suggestions = _suggestionEngine.GetSuggestions(symmetricCand);
-                        EnsureTopSuggestionMetadata(suggestions, span.RawText, symmetricCand, symEntries[0].MeaningCue, symEntries[0].PosTag, true);
-                        return new LatticeEdge
-                        {
-                            Length = 3,
-                            Cost = 1.08,
-                            Issue = new ProofingIssue
+                        var capSpan = span;
+                        string capSym = symmetricCand;
+                        var capFirstSym = symEntries[0];
+                        return LatticeEdge.DeferredIssue(
+                            3,
+                            1.08,
+                            span.RawText,
+                            () =>
                             {
-                                StartIndex = span.StartIndex,
-                                Length = span.Length,
-                                OriginalText = span.RawText,
-                                IssueType = ProofingIssueType.SpellingError,
-                                Message = $"ပေါင်းစပ်ပုဒ်အတွင်း 'အ' ကျန်ခဲ့ပါသည် — '{span.RawText}' အစား '{symmetricCand}' ဟု ရေးသားရမည်။",
-                                Suggestions = suggestions
-                            }
-                        };
+                                var suggestions = _suggestionEngine.GetSuggestions(capSym);
+                                EnsureTopSuggestionMetadata(suggestions, capSpan.RawText, capSym, capFirstSym.MeaningCue, capFirstSym.PosTag, true);
+                                return new ProofingIssue
+                                {
+                                    StartIndex = capSpan.StartIndex,
+                                    Length = capSpan.Length,
+                                    OriginalText = capSpan.RawText,
+                                    IssueType = ProofingIssueType.SpellingError,
+                                    Message = $"ပေါင်းစပ်ပုဒ်အတွင်း 'အ' ကျန်ခဲ့ပါသည် — '{capSpan.RawText}' အစား '{capSym}' ဟု ရေးသားရမည်။",
+                                    Suggestions = suggestions
+                                };
+                            });
                     }
                 }
             }
@@ -2895,7 +3003,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                  ((firstSyl == "ပြီး" || firstSyl == "ကြောင်း") && startIndex > runStart)) &&
                 windowLen >= 2)
             {
-                string remNorm = string.Concat(tokens.Skip(startIndex + 1).Take(windowLen - 1).Select(t => t.NormalizedText));
+                string remNorm = ConcatNormalizedTokens(tokens, startIndex + 1, windowLen - 1);
                 if (_trie.ContainsExactWord(remNorm) || NumeralClassifiers.Contains(remNorm))
                     return null;
             }
@@ -3223,6 +3331,9 @@ namespace MyanmarSpellChecker.Core.Nlp
             bool isPartialSliceOfRun = windowLen < (runEnd - runStart);
             bool followedByGeoClassifier = windowLen == 2 && IsFollowedByGeographicClassifier(tokens, startIndex + windowLen);
 
+            bool hasPreQuery = false;
+            SuggestionEngine.PreEncodedQuery preQuery = default;
+
             // Tier 2: Strict Tone-Preserving Orthographic Homophone Skeleton
             DictionaryEntry? bestStrict = null;
             double bestStrictDist = double.MaxValue;
@@ -3249,7 +3360,12 @@ namespace MyanmarSpellChecker.Core.Nlp
                             continue;
                     }
 
-                    double d = SuggestionEngine.ComputeWeightedMyanmarDistance(span.NormalizedText, e.Word, strictMaxDist);
+                    if (!hasPreQuery)
+                    {
+                        preQuery = SuggestionEngine.CreateThreadLocalPreEncodedQuery(span.NormalizedText);
+                        hasPreQuery = true;
+                    }
+                    double d = preQuery.DistanceTo(e.Word, strictMaxDist);
                     if (d <= strictMaxDist && IsBetterCandidate(e, d, bestStrict, bestStrictDist))
                     {
                         bestStrict = e;
@@ -3268,7 +3384,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             // Tier 3: Generative Noisy-Channel Fuzzy Repair (Phonetic Skeleton + Positional Syllable Anchor Index)
             double bestFuzzyDist = double.MaxValue;
             DictionaryEntry? bestFuzzy = TryFindBestFuzzyCandidate(
-                span.NormalizedText, tokens, startIndex, windowLen, firstSyl, lastSyl, hasExactPrefixCompound, bothFullStandaloneInL2, isPartialSliceOfRun, out bestFuzzyDist);
+                span.NormalizedText, tokens, startIndex, windowLen, firstSyl, lastSyl, hasExactPrefixCompound, bothFullStandaloneInL2, isPartialSliceOfRun, ref hasPreQuery, ref preQuery, out bestFuzzyDist);
             if (isProductiveANominalization && bestFuzzy != null &&
                 bestFuzzy.Word.IndexOf('\u1039') < 0 &&
                 !AreTrueBurmeseHomophones(span.NormalizedText, bestFuzzy.Word))
@@ -3306,29 +3422,34 @@ namespace MyanmarSpellChecker.Core.Nlp
             {
                 double freqBonus = Math.Min(0.24, Math.Log10(bestStrict.Frequency + 1) * 0.065);
                 double thatponBonus = bestStrict.IsOfficialThatpon ? 0.06 : 0.0;
-                var suggestions = _suggestionEngine.GetSuggestions(span.NormalizedText);
-                EnsureTopSuggestionMetadata(suggestions, span.RawText, bestStrict.Word, bestStrict.MeaningCue, bestStrict.PosTag, bestStrict.IsOfficialThatpon);
-                string diffDetail = OrthographicDiffExplainer.ExplainDifference(span.RawText, bestStrict.Word);
+                var capSpan = span;
+                var capBestStrict = bestStrict;
+                double capStrictDist = bestStrictDist;
 
-                bool strictNeedsHumanReview =
-                    IsProperNameDictionaryEntry(bestStrict) ||
-                    bestStrictDist > 0.45;
-
-                return new LatticeEdge
-                {
-                    Length = windowLen,
-                    Cost = 0.96 + 0.12 * windowLen + bestStrictDist * 0.85 - freqBonus - thatponBonus,
-                    Issue = new ProofingIssue
+                return LatticeEdge.DeferredIssue(
+                    windowLen,
+                    0.96 + 0.12 * windowLen + bestStrictDist * 0.85 - freqBonus - thatponBonus,
+                    span.RawText,
+                    () =>
                     {
-                        StartIndex = span.StartIndex,
-                        Length = span.Length,
-                        OriginalText = span.RawText,
-                        IssueType = ProofingIssueType.SpellingError,
-                        Message = BuildDetailedSpellingMessage(span.RawText, bestStrict.Word, bestStrict.MeaningCue, diffDetail),
-                        RequiresReviewBeforeBatchFix = strictNeedsHumanReview,
-                        Suggestions = suggestions
-                    }
-                };
+                        var suggestions = _suggestionEngine.GetSuggestions(capSpan.NormalizedText);
+                        EnsureTopSuggestionMetadata(suggestions, capSpan.RawText, capBestStrict.Word, capBestStrict.MeaningCue, capBestStrict.PosTag, capBestStrict.IsOfficialThatpon);
+                        string diffDetail = OrthographicDiffExplainer.ExplainDifference(capSpan.RawText, capBestStrict.Word);
+                        bool strictNeedsHumanReview =
+                            IsProperNameDictionaryEntry(capBestStrict) ||
+                            capStrictDist > 0.45;
+
+                        return new ProofingIssue
+                        {
+                            StartIndex = capSpan.StartIndex,
+                            Length = capSpan.Length,
+                            OriginalText = capSpan.RawText,
+                            IssueType = ProofingIssueType.SpellingError,
+                            Message = BuildDetailedSpellingMessage(capSpan.RawText, capBestStrict.Word, capBestStrict.MeaningCue, diffDetail),
+                            RequiresReviewBeforeBatchFix = strictNeedsHumanReview,
+                            Suggestions = suggestions
+                        };
+                    });
             }
 
             if (bestFuzzy == null)
@@ -3336,28 +3457,34 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             double fBonus = Math.Min(0.24, Math.Log10(bestFuzzy.Frequency + 1) * 0.065);
             double tBonus = bestFuzzy.IsOfficialThatpon ? 0.06 : 0.0;
-            var fuzzySuggestions = _suggestionEngine.GetSuggestions(span.NormalizedText);
-            EnsureTopSuggestionMetadata(fuzzySuggestions, span.RawText, bestFuzzy.Word, bestFuzzy.MeaningCue, bestFuzzy.PosTag, bestFuzzy.IsOfficialThatpon);
-            string fuzzyDiff = OrthographicDiffExplainer.ExplainDifference(span.RawText, bestFuzzy.Word);
-            bool fuzzyNeedsHumanReview =
-                IsProperNameDictionaryEntry(bestFuzzy) ||
-                bestFuzzyDist > 0.36;
+            var capFuzzySpan = span;
+            var capBestFuzzy = bestFuzzy;
+            double capFuzzyDist = bestFuzzyDist;
 
-            return new LatticeEdge
-            {
-                Length = windowLen,
-                Cost = 1.00 + 0.12 * windowLen + bestFuzzyDist * 1.10 - fBonus - tBonus,
-                Issue = new ProofingIssue
+            return LatticeEdge.DeferredIssue(
+                windowLen,
+                1.00 + 0.12 * windowLen + bestFuzzyDist * 1.10 - fBonus - tBonus,
+                span.RawText,
+                () =>
                 {
-                    StartIndex = span.StartIndex,
-                    Length = span.Length,
-                    OriginalText = span.RawText,
-                    IssueType = ProofingIssueType.SpellingError,
-                    Message = BuildDetailedSpellingMessage(span.RawText, bestFuzzy.Word, bestFuzzy.MeaningCue, fuzzyDiff),
-                    RequiresReviewBeforeBatchFix = fuzzyNeedsHumanReview,
-                    Suggestions = fuzzySuggestions
-                }
-            };
+                    var fuzzySuggestions = _suggestionEngine.GetSuggestions(capFuzzySpan.NormalizedText);
+                    EnsureTopSuggestionMetadata(fuzzySuggestions, capFuzzySpan.RawText, capBestFuzzy.Word, capBestFuzzy.MeaningCue, capBestFuzzy.PosTag, capBestFuzzy.IsOfficialThatpon);
+                    string fuzzyDiff = OrthographicDiffExplainer.ExplainDifference(capFuzzySpan.RawText, capBestFuzzy.Word);
+                    bool fuzzyNeedsHumanReview =
+                        IsProperNameDictionaryEntry(capBestFuzzy) ||
+                        capFuzzyDist > 0.36;
+
+                    return new ProofingIssue
+                    {
+                        StartIndex = capFuzzySpan.StartIndex,
+                        Length = capFuzzySpan.Length,
+                        OriginalText = capFuzzySpan.RawText,
+                        IssueType = ProofingIssueType.SpellingError,
+                        Message = BuildDetailedSpellingMessage(capFuzzySpan.RawText, capBestFuzzy.Word, capBestFuzzy.MeaningCue, fuzzyDiff),
+                        RequiresReviewBeforeBatchFix = fuzzyNeedsHumanReview,
+                        Suggestions = fuzzySuggestions
+                    };
+                });
         }
 
         private DictionaryEntry? TryFindBestFuzzyCandidate(
@@ -3370,6 +3497,8 @@ namespace MyanmarSpellChecker.Core.Nlp
             bool hasExactPrefixCompound,
             bool bothFullStandaloneInL2,
             bool isPartialSliceOfRun,
+            ref bool hasPreQuery,
+            ref SuggestionEngine.PreEncodedQuery preQuery,
             out double bestFuzzyDist)
         {
             bestFuzzyDist = double.MaxValue;
@@ -3435,6 +3564,8 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             DictionaryEntry? bestFuzzy = null;
             double localBestDist = double.MaxValue;
+            bool localHasPre = hasPreQuery;
+            SuggestionEngine.PreEncodedQuery localPre = preQuery;
 
             void EvaluateCandidate(DictionaryEntry e, bool enforceAnchorLengthDelta)
             {
@@ -3517,7 +3648,12 @@ namespace MyanmarSpellChecker.Core.Nlp
                         return;
                 }
 
-                double dist = SuggestionEngine.ComputeWeightedMyanmarDistance(spanNormalized, w, allowedMaxDist);
+                if (!localHasPre)
+                {
+                    localPre = SuggestionEngine.CreateThreadLocalPreEncodedQuery(spanNormalized);
+                    localHasPre = true;
+                }
+                double dist = localPre.DistanceTo(w, allowedMaxDist);
                 if (dist > allowedMaxDist)
                     return;
 
@@ -3578,6 +3714,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
+            hasPreQuery = localHasPre;
+            preQuery = localPre;
             bestFuzzyDist = localBestDist;
             return bestFuzzy;
         }
@@ -3773,18 +3911,57 @@ namespace MyanmarSpellChecker.Core.Nlp
             return $"မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ '{wrongRaw}' အစား '{correctWord}'{cueText} ဟု ရေးသားရမည်။";
         }
 
+        internal static string ConcatNormalizedTokens(IReadOnlyList<SyllableToken> tokens, int startIdx, int count)
+        {
+            switch (count)
+            {
+                case 0:
+                    return string.Empty;
+                case 1:
+                    return tokens[startIdx].NormalizedText;
+                case 2:
+                    return string.Concat(tokens[startIdx].NormalizedText, tokens[startIdx + 1].NormalizedText);
+                case 3:
+                    return string.Concat(
+                        tokens[startIdx].NormalizedText,
+                        tokens[startIdx + 1].NormalizedText,
+                        tokens[startIdx + 2].NormalizedText);
+                case 4:
+                    return string.Concat(
+                        tokens[startIdx].NormalizedText,
+                        tokens[startIdx + 1].NormalizedText,
+                        tokens[startIdx + 2].NormalizedText,
+                        tokens[startIdx + 3].NormalizedText);
+                default:
+                    StringBuilder sb = t_spanBuilder ??= new StringBuilder(64);
+                    sb.Clear();
+                    int end = startIdx + count;
+                    for (int i = startIdx; i < end; i++)
+                    {
+                        sb.Append(tokens[i].NormalizedText);
+                    }
+                    return sb.ToString();
+            }
+        }
+
         private static (int StartIndex, int Length, string RawText, string NormalizedText) GetTokenSpan(
             string fullText,
             IReadOnlyList<SyllableToken> tokens,
             int startIdx,
             int count)
         {
-            int charStart = tokens[startIdx].StartIndex;
+            SyllableToken firstToken = tokens[startIdx];
+            if (count == 1)
+            {
+                return (firstToken.StartIndex, firstToken.Length, firstToken.Text, firstToken.NormalizedText);
+            }
+
+            int charStart = firstToken.StartIndex;
             SyllableToken lastToken = tokens[startIdx + count - 1];
             int charEnd = lastToken.StartIndex + lastToken.Length;
             int charLen = charEnd - charStart;
             string raw = fullText.Substring(charStart, charLen);
-            string norm = string.Concat(tokens.Skip(startIdx).Take(count).Select(t => t.NormalizedText));
+            string norm = ConcatNormalizedTokens(tokens, startIdx, count);
             return (charStart, charLen, raw, norm);
         }
 
