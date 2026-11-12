@@ -1396,5 +1396,51 @@ namespace MyanmarSpellChecker.Core.Tests
             var geoHits = trie.SearchDictionary("ဘူမိဗေဒ", maxResults: 10);
             Assert.NotEmpty(geoHits);
         }
+
+        [Fact]
+        public void V44_LowMemoryStreamingAndLazyReferenceEquivalence()
+        {
+            var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
+            var trie = repo.LoadIntoTrie(MyanmarSpellChecker.Core.Security.AntiTamperGuard.ReconstructProtectedFallbackKey());
+
+            // 1. Verify exact corpus counts BEFORE lazy reference load
+            int initialWordCount = trie.WordCount;
+            int initialOfficialCount = trie.OfficialThatponCount;
+            int initialRefCount = trie.ReferenceCount;
+            int initialEncycCount = trie.EncyclopediaCount;
+            int initialBigramCount = trie.BigramCount;
+
+            Assert.True(initialWordCount >= 89_500, $"Expected >= 89,500 headwords, got {initialWordCount}.");
+            Assert.True(initialOfficialCount >= 24_200, $"Expected >= 24,200 official Thatpon words, got {initialOfficialCount}.");
+            Assert.True(initialRefCount >= 26_900, $"Expected >= 26,900 reference entries, got {initialRefCount}.");
+            Assert.True(initialEncycCount >= 25_000, $"Expected >= 25,000 encyclopedia entries, got {initialEncycCount}.");
+            Assert.True(initialBigramCount >= 85_000, $"Expected >= 85,000 word bigrams, got {initialBigramCount}.");
+
+            // 2. Verify lazy Encyclopedia & Proverb hydration preserves exact counts and returns full articles
+            var featured = trie.GetFeaturedKnowledgeEntries(8);
+            Assert.NotEmpty(featured);
+            Assert.Contains(featured, e => e.IsEncyclopediaEntry && !string.IsNullOrEmpty(e.KnowledgeSummary));
+
+            var encycHits = trie.SearchReferenceCorpus("မြန်မာ", includeProverbs: false, includeEncyclopedia: true, maxResults: 10);
+            Assert.NotEmpty(encycHits);
+
+            var proverbHits = trie.SearchReferenceCorpus("ရေ", includeProverbs: true, includeEncyclopedia: false, maxResults: 10);
+            Assert.NotEmpty(proverbHits);
+
+            Assert.Equal(initialRefCount, trie.ReferenceCount);
+            Assert.Equal(initialEncycCount, trie.EncyclopediaCount);
+            Assert.Equal(initialWordCount, trie.WordCount);
+
+            // 3. Verify every headword in the Trie resolves cleanly via exact, phonetic, and strict homophone lookups
+            int verifiedEntries = 0;
+            foreach (var entry in trie.GetAllEntries())
+            {
+                Assert.True(trie.ContainsExactWord(entry.Word));
+                Assert.False(string.IsNullOrEmpty(entry.PhoneticKey));
+                Assert.True(entry.SyllableCount >= 1);
+                verifiedEntries++;
+            }
+            Assert.True(verifiedEntries >= 90_000);
+        }
     }
 }

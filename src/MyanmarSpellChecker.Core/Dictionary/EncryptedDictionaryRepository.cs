@@ -292,128 +292,326 @@ namespace MyanmarSpellChecker.Core.Dictionary
             }
         }
 
-        /// <summary>
-        /// Verifies the HMAC-SHA256 signature, decrypts the AES-256 database in memory, and populates a MyanmarTrie.
-        /// Throws CryptographicException if the password is wrong or the database was tampered with.
-        /// </summary>
-        public MyanmarTrie LoadIntoTrie(string encryptionPassword)
+        private sealed class FastBinaryReader : BinaryReader
+        {
+            private byte[] _byteBuffer = new byte[4096];
+            private char[] _charBuffer = new char[4096];
+
+            public FastBinaryReader(Stream input) : base(input, Encoding.UTF8, leaveOpen: true)
+            {
+            }
+
+            public string ReadFastString()
+            {
+                int byteLen = Read7BitEncodedInt();
+                if (byteLen <= 0)
+                    return string.Empty;
+
+                if (byteLen > _byteBuffer.Length)
+                {
+                    int grown = Math.Max(byteLen, _byteBuffer.Length * 2);
+                    _byteBuffer = new byte[grown];
+                    _charBuffer = new char[grown];
+                }
+
+                Stream stream = BaseStream;
+                int offset = 0;
+                while (offset < byteLen)
+                {
+                    int read = stream.Read(_byteBuffer, offset, byteLen - offset);
+                    if (read <= 0)
+                        throw new EndOfStreamException("Unexpected end of dictionary stream while reading string.");
+                    offset += read;
+                }
+
+                int charCount = Encoding.UTF8.GetChars(_byteBuffer, 0, byteLen, _charBuffer, 0);
+                return new string(_charBuffer, 0, charCount);
+            }
+
+            public void SkipString()
+            {
+                int byteLen = Read7BitEncodedInt();
+                Stream stream = BaseStream;
+                while (byteLen > 0)
+                {
+                    int toRead = byteLen < _byteBuffer.Length ? byteLen : _byteBuffer.Length;
+                    int read = stream.Read(_byteBuffer, 0, toRead);
+                    if (read <= 0)
+                        throw new EndOfStreamException("Unexpected end of dictionary stream while skipping field.");
+                    byteLen -= read;
+                }
+            }
+        }
+
+        private static bool IsEncyclopediaPosTag(string posTag) =>
+            string.Equals(posTag, "ENCYC", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsReferencePosTag(string posTag) =>
+            !string.IsNullOrEmpty(posTag) &&
+            (string.Equals(posTag, "ENCYC", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(posTag, "PROVERB", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(posTag, "SAYING", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(posTag, "RHETORIC", StringComparison.OrdinalIgnoreCase));
+
+        private static string PoolIfShort(string value, Dictionary<string, string> pool, int maxLen = 64)
+        {
+            if (value.Length == 0)
+                return string.Empty;
+            if (value.Length > maxLen)
+                return value;
+            if (pool.TryGetValue(value, out string? existing))
+                return existing;
+            pool[value] = value;
+            return value;
+        }
+
+        private void WithAuthenticatedReader(
+            string encryptionPassword,
+            Action<FastBinaryReader, bool, bool, bool> consumer)
         {
             if (!File.Exists(_databasePath))
                 throw new FileNotFoundException("Encrypted dictionary database not found.", _databasePath);
 
-            byte[] fileBytes = File.ReadAllBytes(_databasePath);
-            int headerLen = FileMagic.Length + 16 + 16 + 32;
-            if (fileBytes.Length <= headerLen)
-                throw new CryptographicException("Encrypted dictionary file is truncated or invalid.");
-
-            bool isV5 = true;
-            bool isV4 = true;
-            bool isV3 = true;
-            bool isV2 = true;
-            for (int i = 0; i < FileMagic.Length; i++)
+            using (var fs = new FileStream(_databasePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 16384))
             {
-                if (fileBytes[i] != FileMagic[i]) isV5 = false;
-                if (fileBytes[i] != FileMagicV4[i]) isV4 = false;
-                if (fileBytes[i] != FileMagicV3[i]) isV3 = false;
-                if (fileBytes[i] != FileMagicV2[i]) isV2 = false;
-            }
-            if (!isV5 && !isV4 && !isV3 && !isV2)
-                throw new CryptographicException("Invalid dictionary file header.");
+                int headerLen = FileMagic.Length + 16 + 16 + 32;
+                if (fs.Length <= headerLen)
+                    throw new CryptographicException("Encrypted dictionary file is truncated or invalid.");
 
-            byte[] salt = new byte[16];
-            byte[] iv = new byte[16];
-            byte[] expectedHmac = new byte[32];
-            int offset = FileMagic.Length;
-
-            Buffer.BlockCopy(fileBytes, offset, salt, 0, 16); offset += 16;
-            Buffer.BlockCopy(fileBytes, offset, iv, 0, 16); offset += 16;
-            Buffer.BlockCopy(fileBytes, offset, expectedHmac, 0, 32); offset += 32;
-
-            int cipherLen = fileBytes.Length - offset;
-            byte[] ciphertext = new byte[cipherLen];
-            Buffer.BlockCopy(fileBytes, offset, ciphertext, 0, cipherLen);
-
-            byte[] aesKey;
-            byte[] hmacKey;
-            using (var kdf = new Rfc2898DeriveBytes(encryptionPassword, salt, Pbkdf2Iterations, HashAlgorithmName.SHA256))
-            {
-                aesKey = kdf.GetBytes(32);
-                hmacKey = kdf.GetBytes(32);
-            }
-
-            byte[] actualHmac;
-            using (var hmac = new HMACSHA256(hmacKey))
-            {
-                hmac.TransformBlock(salt, 0, salt.Length, null, 0);
-                hmac.TransformBlock(iv, 0, iv.Length, null, 0);
-                hmac.TransformFinalBlock(ciphertext, 0, ciphertext.Length);
-                actualHmac = hmac.Hash!;
-            }
-
-            int diff = 0;
-            for (int i = 0; i < 32; i++)
-            {
-                diff |= expectedHmac[i] ^ actualHmac[i];
-            }
-            if (diff != 0)
-            {
-                throw new CryptographicException("Invalid encryption key or tampered dictionary database.");
-            }
-
-            byte[] compressedPayload;
-            using (var aes = Aes.Create())
-            {
-                aes.KeySize = 256;
-                aes.Key = aesKey;
-                aes.IV = iv;
-                aes.Mode = CipherMode.CBC;
-                aes.Padding = PaddingMode.PKCS7;
-
-                using (var decMs = new MemoryStream())
-                using (var cs = new CryptoStream(decMs, aes.CreateDecryptor(), CryptoStreamMode.Write))
+                byte[] header = new byte[headerLen];
+                int headerRead = 0;
+                while (headerRead < headerLen)
                 {
-                    cs.Write(ciphertext, 0, ciphertext.Length);
-                    cs.FlushFinalBlock();
-                    compressedPayload = decMs.ToArray();
+                    int n = fs.Read(header, headerRead, headerLen - headerRead);
+                    if (n <= 0)
+                        throw new CryptographicException("Encrypted dictionary file header is truncated.");
+                    headerRead += n;
+                }
+
+                bool isV5 = true;
+                bool isV4 = true;
+                bool isV3 = true;
+                bool isV2 = true;
+                for (int i = 0; i < FileMagic.Length; i++)
+                {
+                    if (header[i] != FileMagic[i]) isV5 = false;
+                    if (header[i] != FileMagicV4[i]) isV4 = false;
+                    if (header[i] != FileMagicV3[i]) isV3 = false;
+                    if (header[i] != FileMagicV2[i]) isV2 = false;
+                }
+                if (!isV5 && !isV4 && !isV3 && !isV2)
+                    throw new CryptographicException("Invalid dictionary file header.");
+
+                byte[] salt = new byte[16];
+                byte[] iv = new byte[16];
+                byte[] expectedHmac = new byte[32];
+                int offset = FileMagic.Length;
+                Buffer.BlockCopy(header, offset, salt, 0, 16); offset += 16;
+                Buffer.BlockCopy(header, offset, iv, 0, 16); offset += 16;
+                Buffer.BlockCopy(header, offset, expectedHmac, 0, 32);
+
+                byte[] aesKey;
+                byte[] hmacKey;
+                using (var kdf = new Rfc2898DeriveBytes(encryptionPassword, salt, Pbkdf2Iterations, HashAlgorithmName.SHA256))
+                {
+                    aesKey = kdf.GetBytes(32);
+                    hmacKey = kdf.GetBytes(32);
+                }
+
+                byte[] actualHmac;
+                using (var hmac = new HMACSHA256(hmacKey))
+                {
+                    hmac.TransformBlock(salt, 0, salt.Length, null, 0);
+                    hmac.TransformBlock(iv, 0, iv.Length, null, 0);
+                    byte[] chunk = new byte[16384];
+                    int read;
+                    while ((read = fs.Read(chunk, 0, chunk.Length)) > 0)
+                    {
+                        hmac.TransformBlock(chunk, 0, read, null, 0);
+                    }
+                    hmac.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+                    actualHmac = hmac.Hash!;
+                }
+
+                int diff = 0;
+                for (int i = 0; i < 32; i++)
+                {
+                    diff |= expectedHmac[i] ^ actualHmac[i];
+                }
+                if (diff != 0)
+                {
+                    throw new CryptographicException("Invalid encryption key or tampered dictionary database.");
+                }
+
+                // Rewind directly to ciphertext and stream FileStream -> CryptoStream -> GZipStream -> FastBinaryReader
+                // with zero Large Object Heap (> 85 KB) byte[] allocations.
+                fs.Position = headerLen;
+                using (var aes = Aes.Create())
+                {
+                    aes.KeySize = 256;
+                    aes.Key = aesKey;
+                    aes.IV = iv;
+                    aes.Mode = CipherMode.CBC;
+                    aes.Padding = PaddingMode.PKCS7;
+
+                    using (var decryptor = aes.CreateDecryptor())
+                    using (var cs = new CryptoStream(fs, decryptor, CryptoStreamMode.Read))
+                    {
+                        using (var gzip = new GZipStream(cs, CompressionMode.Decompress, leaveOpen: true))
+                        using (var buffered = new BufferedStream(gzip, 65536))
+                        using (var reader = new FastBinaryReader(buffered))
+                        {
+                            consumer(reader, isV3, isV4, isV5);
+                        }
+
+                        // When a consumer exits early (e.g. LoadReferenceEntriesOnly stops right after entries),
+                        // drain remaining AES blocks directly without GZip decompression so CryptoStream.Dispose()
+                        // validates PKCS7 padding on the true final block rather than mid-stream ciphertext.
+                        if (!cs.HasFlushedFinalBlock)
+                        {
+                            byte[] drain = new byte[16384];
+                            while (cs.Read(drain, 0, drain.Length) > 0)
+                            {
+                            }
+                        }
+                    }
                 }
             }
+        }
 
-            var trie = new MyanmarTrie();
-            using (var compMs = new MemoryStream(compressedPayload))
-            using (var gzip = new GZipStream(compMs, CompressionMode.Decompress))
-            using (var reader = new BinaryReader(gzip, Encoding.UTF8))
+        private List<DictionaryEntry> LoadReferenceEntriesOnly(string encryptionPassword)
+        {
+            var refEntries = new List<DictionaryEntry>(27000);
+            if (!File.Exists(_databasePath))
+                return refEntries;
+
+            WithAuthenticatedReader(encryptionPassword, (reader, isV3, isV4, isV5) =>
             {
                 int entryCount = reader.ReadInt32();
+                var tagPool = new Dictionary<string, string>(16, StringComparer.Ordinal);
                 for (int i = 0; i < entryCount; i++)
                 {
-                    var entry = new DictionaryEntry
+                    int id = reader.ReadInt32();
+                    string word = reader.ReadFastString();
+                    string meaningCue = reader.ReadFastString();
+                    string posTag = reader.ReadFastString();
+
+                    if (IsReferencePosTag(posTag))
                     {
-                        Id = reader.ReadInt32(),
-                        Word = reader.ReadString(),
-                        MeaningCue = reader.ReadString(),
-                        PosTag = reader.ReadString(),
-                        PhoneticKey = reader.ReadString(),
-                        UsageNote = reader.ReadString()
-                    };
+                        string phoneticKey = reader.ReadFastString();
+                        string usageNote = reader.ReadFastString();
+                        int freq = 0;
+                        bool isOfficial = true;
+                        if (isV3 || isV4 || isV5)
+                        {
+                            freq = reader.ReadInt32();
+                            isOfficial = reader.ReadBoolean();
+                        }
+
+                        refEntries.Add(new DictionaryEntry
+                        {
+                            Id = id,
+                            Word = word,
+                            MeaningCue = meaningCue,
+                            PosTag = PoolIfShort(posTag, tagPool, 32),
+                            PhoneticKey = phoneticKey,
+                            UsageNote = usageNote,
+                            Frequency = freq,
+                            IsOfficialThatpon = isOfficial
+                        });
+                    }
+                    else
+                    {
+                        reader.SkipString(); // PhoneticKey
+                        reader.SkipString(); // UsageNote
+                        if (isV3 || isV4 || isV5)
+                        {
+                            reader.ReadInt32();
+                            reader.ReadBoolean();
+                        }
+                    }
+                }
+            });
+
+            return refEntries;
+        }
+
+        /// <summary>
+        /// Verifies the HMAC-SHA256 signature, streams the AES-256 + GZip database with zero LOH allocations,
+        /// interns shared strings, defers multi-paragraph Encyclopedia/Proverb bodies until Dictionary search, and populates a MyanmarTrie.
+        /// Throws CryptographicException if the password is wrong or the database was tampered with.
+        /// </summary>
+        public MyanmarTrie LoadIntoTrie(string encryptionPassword)
+        {
+            bool isFullCorpus = File.Exists(_databasePath) && new FileInfo(_databasePath).Length >= 1_000_000;
+            var trie = new MyanmarTrie(bulkCapacity: isFullCorpus);
+            int deferredRefCount = 0;
+            int deferredEncycCount = 0;
+
+            WithAuthenticatedReader(encryptionPassword, (reader, isV3, isV4, isV5) =>
+            {
+                int entryCount = reader.ReadInt32();
+                bool deferReferenceEntries = entryCount >= 10000;
+                var pool = new Dictionary<string, string>(entryCount >= 10000 ? 110000 : 512, StringComparer.Ordinal);
+                var sylBuf = new List<string>(8);
+
+                for (int i = 0; i < entryCount; i++)
+                {
+                    int id = reader.ReadInt32();
+                    string word = reader.ReadFastString();
+                    string meaningCue = reader.ReadFastString();
+                    string posTag = reader.ReadFastString();
+
+                    if (deferReferenceEntries && IsReferencePosTag(posTag))
+                    {
+                        reader.SkipString(); // PhoneticKey
+                        reader.SkipString(); // UsageNote (skips multi-paragraph ENCYC body without UTF-8 string allocation)
+                        if (isV3 || isV4 || isV5)
+                        {
+                            reader.ReadInt32();
+                            reader.ReadBoolean();
+                        }
+                        deferredRefCount++;
+                        if (IsEncyclopediaPosTag(posTag))
+                            deferredEncycCount++;
+                        continue;
+                    }
+
+                    string phoneticKey = reader.ReadFastString();
+                    string usageNote = reader.ReadFastString();
+                    int freq = 0;
+                    bool isOfficial = true;
                     if (isV3 || isV4 || isV5)
                     {
-                        entry.Frequency = reader.ReadInt32();
-                        entry.IsOfficialThatpon = reader.ReadBoolean();
+                        freq = reader.ReadInt32();
+                        isOfficial = reader.ReadBoolean();
                     }
-                    trie.InsertEntry(entry, isPreNormalized: true);
+
+                    var entry = new DictionaryEntry
+                    {
+                        Id = id,
+                        Word = PoolIfShort(word, pool, 64),
+                        MeaningCue = PoolIfShort(meaningCue, pool, 64),
+                        PosTag = PoolIfShort(posTag, pool, 32),
+                        PhoneticKey = PoolIfShort(phoneticKey, pool, 64),
+                        UsageNote = PoolIfShort(usageNote, pool, 64),
+                        Frequency = freq,
+                        IsOfficialThatpon = isOfficial
+                    };
+                    trie.InsertEntryBulkPreNormalized(entry, sylBuf, pool);
                 }
 
                 int ruleCount = reader.ReadInt32();
                 for (int i = 0; i < ruleCount; i++)
                 {
-                    trie.InsertOrthographyRule(new OrthographyRule
+                    trie.InsertOrthographyRuleBulkPreNormalized(new OrthographyRule
                     {
                         Id = reader.ReadInt32(),
-                        WrongForm = reader.ReadString(),
-                        CorrectForm = reader.ReadString(),
-                        Category = reader.ReadString(),
-                        Explanation = reader.ReadString()
-                    }, isPreNormalized: true);
+                        WrongForm = reader.ReadFastString(),
+                        CorrectForm = reader.ReadFastString(),
+                        Category = reader.ReadFastString(),
+                        Explanation = reader.ReadFastString()
+                    }, sylBuf, pool);
                 }
 
                 if (isV5 || isV4)
@@ -425,27 +623,27 @@ namespace MyanmarSpellChecker.Core.Dictionary
                         {
                             trie.InsertContextualRule(new ContextualRule
                             {
-                                WrongForm = reader.ReadString(),
-                                CorrectForm = reader.ReadString(),
-                                TriggerWords = reader.ReadString(),
-                                AntiTriggerWords = reader.ReadString(),
-                                Direction = reader.ReadString(),
+                                WrongForm = PoolIfShort(reader.ReadFastString(), pool, 64),
+                                CorrectForm = PoolIfShort(reader.ReadFastString(), pool, 64),
+                                TriggerWords = reader.ReadFastString(),
+                                AntiTriggerWords = reader.ReadFastString(),
+                                Direction = PoolIfShort(reader.ReadFastString(), pool, 16),
                                 Window = reader.ReadInt32(),
                                 IsWarningOnly = reader.ReadBoolean(),
                                 SkipParticles = reader.ReadBoolean(),
-                                Explanation = reader.ReadString()
+                                Explanation = reader.ReadFastString()
                             }, isPreNormalized: true);
                         }
                         else
                         {
                             trie.InsertContextualRule(new ContextualRule
                             {
-                                WrongForm = reader.ReadString(),
-                                CorrectForm = reader.ReadString(),
-                                TriggerWords = reader.ReadString(),
-                                Direction = reader.ReadString(),
+                                WrongForm = PoolIfShort(reader.ReadFastString(), pool, 64),
+                                CorrectForm = PoolIfShort(reader.ReadFastString(), pool, 64),
+                                TriggerWords = reader.ReadFastString(),
+                                Direction = PoolIfShort(reader.ReadFastString(), pool, 16),
                                 Window = reader.ReadInt32(),
-                                Explanation = reader.ReadString()
+                                Explanation = reader.ReadFastString()
                             }, isPreNormalized: true);
                         }
                     }
@@ -453,12 +651,20 @@ namespace MyanmarSpellChecker.Core.Dictionary
                     int bgCount = reader.ReadInt32();
                     for (int i = 0; i < bgCount; i++)
                     {
-                        string lw = reader.ReadString();
-                        string rw = reader.ReadString();
+                        string lw = reader.ReadFastString();
+                        string rw = reader.ReadFastString();
                         int cnt = reader.ReadInt32();
-                        trie.InsertWordBigram(lw, rw, cnt, isPreNormalized: true);
+                        trie.InsertWordBigramBulkPreNormalized(lw, rw, cnt, pool);
                     }
                 }
+            });
+
+            if (deferredRefCount > 0)
+            {
+                trie.AttachLazyReferenceCorpus(
+                    deferredRefCount,
+                    deferredEncycCount,
+                    () => LoadReferenceEntriesOnly(encryptionPassword));
             }
 
             return trie;

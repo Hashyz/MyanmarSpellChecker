@@ -176,6 +176,118 @@ namespace MyanmarSpellChecker.Core.Nlp
         }
 
         /// <summary>
+        /// Zero-Regex fast path for pre-normalized dictionary headword syllable breaking with optional string-pool interning.
+        /// Produces 100% identical output to <see cref="BreakIntoSyllables"/> while avoiding Regex Match allocations on standard Myanmar words.
+        /// </summary>
+        internal static void BreakIntoSyllablesFast(
+            string text,
+            List<string> result,
+            Dictionary<string, string>? stringPool = null)
+        {
+            result.Clear();
+            if (string.IsNullOrEmpty(text))
+                return;
+
+            int len = text.Length;
+            bool canUseFastScanner = ((text[0] >= '\u1000' && text[0] <= '\u102A') || text[0] == '\u103F');
+            if (canUseFastScanner)
+            {
+                for (int k = 0; k < len; k++)
+                {
+                    char ch = text[k];
+                    if (ch < '\u1000' || ch > '\u103F' || ch == '\u1039')
+                    {
+                        canUseFastScanner = false;
+                        break;
+                    }
+                }
+            }
+
+            if (!canUseFastScanner)
+            {
+                for (Match match = TokenPattern.Match(text); match.Success; match = match.NextMatch())
+                {
+                    if (match.Length == 0)
+                        continue;
+
+                    if (match.Groups["LaKaung"].Success || match.Groups["Syllable"].Success || match.Groups["StrayMark"].Success)
+                    {
+                        string raw = match.Value;
+                        result.Add(InternIfPooled(raw, stringPool));
+                    }
+                    else if (match.Groups["Number"].Success && match.Length == 1 && text[match.Index] == '\u1040' &&
+                             IsSurroundedByMyanmarLetters(text, match.Index, 1))
+                    {
+                        result.Add(InternIfPooled("\u1040", stringPool));
+                    }
+                }
+                return;
+            }
+
+            int i = 0;
+            while (i < len)
+            {
+                int start = i;
+                char c0 = text[i];
+                if ((c0 >= '\u1000' && c0 <= '\u102A') || c0 == '\u103F')
+                {
+                    i++;
+                    while (i < len && text[i] >= '\u102B' && text[i] <= '\u103E')
+                        i++;
+
+                    while (i < len)
+                    {
+                        char cc = text[i];
+                        if (!((cc >= '\u1000' && cc <= '\u1021') || cc == '\u1025'))
+                            break;
+
+                        int p = i + 1;
+                        if (p < len && text[p] == '\u103B')
+                            p++;
+
+                        if (p < len && text[p] == '\u103A')
+                        {
+                            while (p < len && (text[p] == '\u103A' || text[p] == '\u1037' || text[p] == '\u1038'))
+                                p++;
+                            i = p;
+                        }
+                        else if (p + 1 < len && text[p] == '\u1037' && text[p + 1] == '\u103A')
+                        {
+                            p += 2;
+                            while (p < len && text[p] == '\u103A')
+                                p++;
+                            if (p < len && text[p] == '\u1038')
+                                p++;
+                            i = p;
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    while (i < len && text[i] >= '\u102B' && text[i] <= '\u103E')
+                        i++;
+                }
+
+                string syl = (start == 0 && i == len) ? text : text.Substring(start, i - start);
+                result.Add(InternIfPooled(syl, stringPool));
+            }
+        }
+
+        private static string InternIfPooled(string s, Dictionary<string, string>? pool)
+        {
+            if (pool == null || s.Length == 0)
+                return s;
+            if (pool.TryGetValue(s, out string? existing))
+                return existing;
+            pool[s] = s;
+            return s;
+        }
+
+        /// <summary>
         /// Validates whether a single Myanmar syllable obeys Unicode 5.1+ orthographic rules.
         /// </summary>
         public static bool IsStructurallyValidSyllable(string syllable, out string errorReason)

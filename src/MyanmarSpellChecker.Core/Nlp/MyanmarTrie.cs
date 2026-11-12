@@ -17,14 +17,179 @@ namespace MyanmarSpellChecker.Core.Nlp
     {
         private sealed class TrieNode
         {
-            public Dictionary<string, TrieNode> Children { get; } = new Dictionary<string, TrieNode>(StringComparer.Ordinal);
+            public readonly string EdgeSyllable;
+            private object? _children; // null | TrieNode | TrieNode?[] | Dictionary<string, TrieNode>
             public List<DictionaryEntry>? Entries { get; set; }
             public OrthographyRule? WrongFormRule { get; set; }
+
+            public TrieNode(string edgeSyllable)
+            {
+                EdgeSyllable = edgeSyllable;
+            }
+
+            public bool TryGetChild(string syl, out TrieNode? next)
+            {
+                object? ch = _children;
+                if (ch == null)
+                {
+                    next = null;
+                    return false;
+                }
+                if (ch is TrieNode single)
+                {
+                    if (string.Equals(single.EdgeSyllable, syl, StringComparison.Ordinal))
+                    {
+                        next = single;
+                        return true;
+                    }
+                    next = null;
+                    return false;
+                }
+                if (ch is TrieNode?[] arr)
+                {
+                    for (int i = 0; i < arr.Length; i++)
+                    {
+                        TrieNode? item = arr[i];
+                        if (item == null) break;
+                        if (string.Equals(item.EdgeSyllable, syl, StringComparison.Ordinal))
+                        {
+                            next = item;
+                            return true;
+                        }
+                    }
+                    next = null;
+                    return false;
+                }
+                return ((Dictionary<string, TrieNode>)ch).TryGetValue(syl, out next);
+            }
+
+            public TrieNode GetOrAddChild(string syl)
+            {
+                object? ch = _children;
+                if (ch == null)
+                {
+                    var created = new TrieNode(syl);
+                    _children = created;
+                    return created;
+                }
+                if (ch is TrieNode single)
+                {
+                    if (string.Equals(single.EdgeSyllable, syl, StringComparison.Ordinal))
+                        return single;
+                    var next = new TrieNode(syl);
+                    _children = new TrieNode?[] { single, next, null, null };
+                    return next;
+                }
+                if (ch is TrieNode?[] arr)
+                {
+                    int count = 0;
+                    for (; count < arr.Length; count++)
+                    {
+                        TrieNode? item = arr[count];
+                        if (item == null) break;
+                        if (string.Equals(item.EdgeSyllable, syl, StringComparison.Ordinal))
+                            return item;
+                    }
+                    var next = new TrieNode(syl);
+                    if (count < arr.Length)
+                    {
+                        arr[count] = next;
+                        return next;
+                    }
+                    if (arr.Length < 6)
+                    {
+                        var grown = new TrieNode?[6];
+                        Array.Copy(arr, grown, arr.Length);
+                        grown[count] = next;
+                        _children = grown;
+                        return next;
+                    }
+                    var dict = new Dictionary<string, TrieNode>(12, StringComparer.Ordinal);
+                    for (int i = 0; i < arr.Length; i++)
+                    {
+                        TrieNode item = arr[i]!;
+                        dict[item.EdgeSyllable] = item;
+                    }
+                    dict[syl] = next;
+                    _children = dict;
+                    return next;
+                }
+                var existingDict = (Dictionary<string, TrieNode>)ch;
+                if (!existingDict.TryGetValue(syl, out TrieNode? found))
+                {
+                    found = new TrieNode(syl);
+                    existingDict[syl] = found;
+                }
+                return found;
+            }
+
+            public void PushMatchingChildren(Stack<TrieNode> stack, string? prefixFilter, bool requireLongerThanPrefix)
+            {
+                object? ch = _children;
+                if (ch == null)
+                    return;
+                if (ch is TrieNode single)
+                {
+                    if (MatchesPrefix(single.EdgeSyllable, prefixFilter, requireLongerThanPrefix))
+                        stack.Push(single);
+                    return;
+                }
+                if (ch is TrieNode?[] arr)
+                {
+                    for (int i = 0; i < arr.Length; i++)
+                    {
+                        TrieNode? item = arr[i];
+                        if (item == null) break;
+                        if (MatchesPrefix(item.EdgeSyllable, prefixFilter, requireLongerThanPrefix))
+                            stack.Push(item);
+                    }
+                    return;
+                }
+                var dict = (Dictionary<string, TrieNode>)ch;
+                if (prefixFilter == null)
+                {
+                    foreach (var child in dict.Values)
+                        stack.Push(child);
+                }
+                else
+                {
+                    foreach (var kvp in dict)
+                    {
+                        if (MatchesPrefix(kvp.Key, prefixFilter, requireLongerThanPrefix))
+                            stack.Push(kvp.Value);
+                    }
+                }
+            }
+
+            private static bool MatchesPrefix(string key, string? prefix, bool requireLonger)
+            {
+                if (prefix == null) return true;
+                if (requireLonger && key.Length <= prefix.Length) return false;
+                return key.StartsWith(prefix, StringComparison.Ordinal);
+            }
         }
 
-        private static readonly Regex OpenEVowelRhymeRegex = new Regex(
-            @"\u1031(?![\u102B\u102C])",
-            RegexOptions.Compiled);
+        private sealed class OrdinalStringPairComparer : IEqualityComparer<(string Left, string Right)>
+        {
+            public static readonly OrdinalStringPairComparer Instance = new OrdinalStringPairComparer();
+
+            public bool Equals((string Left, string Right) x, (string Left, string Right) y) =>
+                string.Equals(x.Left, y.Left, StringComparison.Ordinal) &&
+                string.Equals(x.Right, y.Right, StringComparison.Ordinal);
+
+            public int GetHashCode((string Left, string Right) obj)
+            {
+                unchecked
+                {
+                    int h1 = StringComparer.Ordinal.GetHashCode(obj.Left);
+                    int h2 = StringComparer.Ordinal.GetHashCode(obj.Right);
+                    return ((h1 << 5) + h1) ^ h2;
+                }
+            }
+        }
+
+        [ThreadStatic]
+        private static StringBuilder? t_skeletonSb;
 
         private static readonly Regex GeminatedStackRegex = new Regex(
             @"([\u1000-\u1021])\u1039([\u1000-\u1021])",
@@ -38,31 +203,41 @@ namespace MyanmarSpellChecker.Core.Nlp
             @"(?:\+[0-9]{1,4}(?:-[0-9]{1,4})?|[A-Za-z][A-Za-z0-9\-]{1,}|[0-9]+[A-Za-z][A-Za-z0-9\-]*)",
             RegexOptions.Compiled);
 
-        // Silent '-ို' codas (-ိုလ်, -ိုဟ်, -ိုရ်, -ိုဃ်, -ိုဠ် without visarga 'း') all pronounce identically as /ò/ in Burmese (ဗိုလ်, ကုသိုလ်, ဂြိုဟ်, မြင်းမိုရ်, သီဟိုဠ်)
-        private static readonly Regex SilentOiCodaRhymeRegex = new Regex(
-            @"\u102D\u102F[\u101C\u101F\u101B\u1003\u1020]\u103A(?![\u1037\u1038])",
-            RegexOptions.Compiled);
-
         private static readonly List<DictionaryEntry> EmptyEntryList = new List<DictionaryEntry>(0);
         private static readonly ConcurrentDictionary<string, string> s_strictSkeletonCache = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
         private static readonly ConcurrentDictionary<string, string> s_phoneticSkeletonCache = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
 
-        private readonly TrieNode _root = new TrieNode();
-        private readonly Dictionary<string, List<DictionaryEntry>> _exactWordIndex = new Dictionary<string, List<DictionaryEntry>>(StringComparer.Ordinal);
-        private readonly Dictionary<string, List<DictionaryEntry>> _phoneticIndex = new Dictionary<string, List<DictionaryEntry>>(StringComparer.Ordinal);
-        private readonly Dictionary<string, List<DictionaryEntry>> _strictHomophoneIndex = new Dictionary<string, List<DictionaryEntry>>(StringComparer.Ordinal);
+        private readonly TrieNode _root = new TrieNode(string.Empty);
+        private readonly Dictionary<string, List<DictionaryEntry>> _exactWordIndex;
+        private readonly Dictionary<string, object> _phoneticIndex;
+        private readonly Dictionary<string, object> _strictHomophoneIndex;
         private readonly Dictionary<string, List<DictionaryEntry>>?[,] _exactAnchorBuckets = new Dictionary<string, List<DictionaryEntry>>?[6, 5];
         private readonly Dictionary<string, List<DictionaryEntry>>?[,] _phoneticAnchorBuckets = new Dictionary<string, List<DictionaryEntry>>?[6, 5];
         private readonly Dictionary<int, List<DictionaryEntry>> _lengthBucketIndex = new Dictionary<int, List<DictionaryEntry>>();
-        private readonly Dictionary<string, OrthographyRule> _wrongFormIndex = new Dictionary<string, OrthographyRule>(StringComparer.Ordinal);
+        private readonly Dictionary<string, OrthographyRule> _wrongFormIndex;
         private readonly Dictionary<string, List<ContextualRule>> _contextualRuleIndex = new Dictionary<string, List<ContextualRule>>(StringComparer.Ordinal);
-        private readonly Dictionary<string, Dictionary<string, int>> _wordBigramIndex = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
+        private readonly Dictionary<(string Left, string Right), int> _wordBigramIndex;
         private readonly ConcurrentDictionary<string, string> _syllablePhoneticCache = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, string> _homophoneSummaryCache = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
         private readonly HashSet<string> _validSyllables = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> _standaloneSyllables = new HashSet<string>(StringComparer.Ordinal);
         private readonly List<DictionaryEntry> _referenceCorpus = new List<DictionaryEntry>();
+        private Func<List<DictionaryEntry>>? _lazyReferenceLoader;
+        private int _deferredReferenceCount;
         private long _mutationVersion;
+
+        public MyanmarTrie() : this(bulkCapacity: false)
+        {
+        }
+
+        internal MyanmarTrie(bool bulkCapacity)
+        {
+            _exactWordIndex = new Dictionary<string, List<DictionaryEntry>>(bulkCapacity ? 90500 : 0, StringComparer.Ordinal);
+            _phoneticIndex = new Dictionary<string, object>(bulkCapacity ? 80000 : 0, StringComparer.Ordinal);
+            _strictHomophoneIndex = new Dictionary<string, object>(bulkCapacity ? 88500 : 0, StringComparer.Ordinal);
+            _wrongFormIndex = new Dictionary<string, OrthographyRule>(bulkCapacity ? 1600 : 0, StringComparer.Ordinal);
+            _wordBigramIndex = new Dictionary<(string Left, string Right), int>(bulkCapacity ? 86000 : 0, OrdinalStringPairComparer.Instance);
+        }
 
         public long MutationVersion => Volatile.Read(ref _mutationVersion);
 
@@ -117,10 +292,67 @@ namespace MyanmarSpellChecker.Core.Nlp
         public int BigramCount { get; private set; }
         public int OfficialThatponCount { get; private set; }
         public int SpecializedDomainCount { get; private set; }
-        public int ReferenceCount => _referenceCorpus.Count;
+        public int ReferenceCount => _referenceCorpus.Count + Volatile.Read(ref _deferredReferenceCount);
         public int EncyclopediaCount { get; private set; }
 
-        public void InsertEntry(DictionaryEntry entry, bool isPreNormalized = false)
+        internal void AttachLazyReferenceCorpus(int deferredRefCount, int deferredEncycCount, Func<List<DictionaryEntry>> loader)
+        {
+            _deferredReferenceCount = deferredRefCount;
+            EncyclopediaCount += deferredEncycCount;
+            _lazyReferenceLoader = loader;
+        }
+
+        private void EnsureReferenceCorpusLoaded()
+        {
+            if (_lazyReferenceLoader == null)
+                return;
+
+            lock (_searchIndexLock)
+            {
+                EnsureReferenceCorpusLoadedUnderLock();
+            }
+        }
+
+        private void EnsureReferenceCorpusLoadedUnderLock()
+        {
+            var loader = _lazyReferenceLoader;
+            if (loader == null)
+                return;
+
+            _lazyReferenceLoader = null;
+            List<DictionaryEntry> loaded = loader();
+            if (loaded != null && loaded.Count > 0)
+            {
+                _referenceCorpus.Capacity = Math.Max(_referenceCorpus.Capacity, _referenceCorpus.Count + loaded.Count);
+                _referenceCorpus.AddRange(loaded);
+            }
+            Interlocked.Exchange(ref _deferredReferenceCount, 0);
+        }
+
+        public void InsertEntry(DictionaryEntry entry, bool isPreNormalized = false) =>
+            InsertEntryCore(entry, isPreNormalized, reusableSylBuf: null, stringPool: null);
+
+        internal void InsertEntryBulkPreNormalized(
+            DictionaryEntry entry,
+            List<string> reusableSylBuf,
+            Dictionary<string, string> stringPool) =>
+            InsertEntryCore(entry, isPreNormalized: true, reusableSylBuf, stringPool);
+
+        private static string PoolString(string s, Dictionary<string, string>? pool)
+        {
+            if (pool == null || s.Length == 0)
+                return s;
+            if (pool.TryGetValue(s, out string? existing))
+                return existing;
+            pool[s] = s;
+            return s;
+        }
+
+        private void InsertEntryCore(
+            DictionaryEntry entry,
+            bool isPreNormalized,
+            List<string>? reusableSylBuf,
+            Dictionary<string, string>? stringPool)
         {
             if (entry == null || string.IsNullOrWhiteSpace(entry.Word))
                 return;
@@ -128,7 +360,10 @@ namespace MyanmarSpellChecker.Core.Nlp
             string normalizedWord = isPreNormalized
                 ? entry.Word
                 : UnicodeNormalizer.NormalizeCanonicalOrder(entry.Word.Trim());
+            if (stringPool != null)
+                normalizedWord = PoolString(normalizedWord, stringPool);
             entry.Word = normalizedWord;
+
             bool isCustomEntry = string.Equals(entry.PosTag, "CUSTOM", StringComparison.OrdinalIgnoreCase);
             if (!isCustomEntry)
             {
@@ -149,8 +384,22 @@ namespace MyanmarSpellChecker.Core.Nlp
             {
                 entry.PhoneticKey = BuildSkeleton(normalizedWord, ignoreTones: true, isPreNormalized: true);
             }
+            if (stringPool != null)
+            {
+                entry.PhoneticKey = PoolString(entry.PhoneticKey, stringPool);
+            }
 
-            List<string> syllables = MyanmarSyllableBreaker.BreakIntoSyllables(normalizedWord, isPreNormalized: true);
+            List<string> syllables;
+            if (reusableSylBuf != null && isPreNormalized)
+            {
+                MyanmarSyllableBreaker.BreakIntoSyllablesFast(normalizedWord, reusableSylBuf, stringPool);
+                syllables = reusableSylBuf;
+            }
+            else
+            {
+                syllables = MyanmarSyllableBreaker.BreakIntoSyllables(normalizedWord, isPreNormalized);
+            }
+
             if (syllables.Count == 0)
                 return;
             entry.SyllableCount = syllables.Count;
@@ -211,27 +460,13 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 2. Relaxed Phonetic/Orthographic Confusion Index (for Suggestions, Dictionary Homophone Search & Generative Repair)
-            if (!_phoneticIndex.TryGetValue(entry.PhoneticKey, out var phoneticList))
-            {
-                phoneticList = new List<DictionaryEntry>(2);
-                _phoneticIndex[entry.PhoneticKey] = phoneticList;
-            }
-            if (phoneticList.Count < 256 && !ContainsWordAndCue(phoneticList, entry.Word, entry.MeaningCue))
-            {
-                phoneticList.Add(entry);
-            }
+            AddToSingleOrListIndex(_phoneticIndex, entry.PhoneticKey, entry, 256);
 
             // 3. Strict Tone-Preserving Homophone Index (for 2+ Syllable Generative Compound Error Detection)
             string strictKey = BuildSkeleton(normalizedWord, ignoreTones: false, isPreNormalized: true);
-            if (!_strictHomophoneIndex.TryGetValue(strictKey, out var strictList))
-            {
-                strictList = new List<DictionaryEntry>(2);
-                _strictHomophoneIndex[strictKey] = strictList;
-            }
-            if (strictList.Count < 128 && !ContainsWordAndCue(strictList, entry.Word, entry.MeaningCue))
-            {
-                strictList.Add(entry);
-            }
+            if (stringPool != null)
+                strictKey = PoolString(strictKey, stringPool);
+            AddToSingleOrListIndex(_strictHomophoneIndex, strictKey, entry, 128);
 
             // 4. Generative Multi-Syllable Anchor Index (exact syllable + phonetic syllable anchors so even dual-syllable typos like တဂါး -> တံခါး resolve in O(1))
             if (!isCustomEntry && isBrandNewHeadword && syllables.Count >= 2 && syllables.Count <= 5)
@@ -289,18 +524,25 @@ namespace MyanmarSpellChecker.Core.Nlp
                 {
                     _validSyllables.Add(syl);
                 }
-                if (!current.Children.TryGetValue(syl, out TrieNode? next))
-                {
-                    next = new TrieNode();
-                    current.Children[syl] = next;
-                }
-                current = next;
+                current = current.GetOrAddChild(syl);
             }
 
-            current.Entries ??= new List<DictionaryEntry>(1);
-            if (!ContainsWordAndCue(current.Entries, entry.Word, entry.MeaningCue))
+            if (current.Entries == null)
             {
-                current.Entries.Add(entry);
+                current.Entries = exactList;
+            }
+            else if (!ReferenceEquals(current.Entries, exactList))
+            {
+                if (current.Entries.Count > 0 &&
+                    _exactWordIndex.TryGetValue(current.Entries[0].Word, out var ownerList) &&
+                    ReferenceEquals(current.Entries, ownerList))
+                {
+                    current.Entries = new List<DictionaryEntry>(current.Entries);
+                }
+                if (!ContainsWordAndCue(current.Entries, entry.Word, entry.MeaningCue))
+                {
+                    current.Entries.Add(entry);
+                }
             }
 
             if (isCustomEntry)
@@ -332,7 +574,60 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            Interlocked.Increment(ref _mutationVersion);
+            if (stringPool == null)
+            {
+                Interlocked.Increment(ref _mutationVersion);
+            }
+        }
+
+        private static void AddToSingleOrListIndex(
+            Dictionary<string, object> index,
+            string key,
+            DictionaryEntry entry,
+            int maxCap)
+        {
+            if (!index.TryGetValue(key, out object? existing))
+            {
+                index[key] = entry;
+                return;
+            }
+            if (existing is DictionaryEntry single)
+            {
+                if (single.Word == entry.Word && single.MeaningCue == entry.MeaningCue)
+                    return;
+                index[key] = new List<DictionaryEntry>(2) { single, entry };
+                return;
+            }
+            var list = (List<DictionaryEntry>)existing;
+            if (list.Count < maxCap && !ContainsWordAndCue(list, entry.Word, entry.MeaningCue))
+            {
+                list.Add(entry);
+            }
+        }
+
+        private static void RemoveCustomFromSingleOrListIndex(Dictionary<string, object> index, string key, string normWord)
+        {
+            if (!index.TryGetValue(key, out object? existing))
+                return;
+            if (existing is DictionaryEntry single)
+            {
+                if (single.Word == normWord && string.Equals(single.PosTag, "CUSTOM", StringComparison.OrdinalIgnoreCase))
+                    index.Remove(key);
+                return;
+            }
+            var list = (List<DictionaryEntry>)existing;
+            list.RemoveAll(e => e.Word == normWord && string.Equals(e.PosTag, "CUSTOM", StringComparison.OrdinalIgnoreCase));
+            if (list.Count == 0)
+                index.Remove(key);
+        }
+
+        private static List<DictionaryEntry> LookupSingleOrListIndex(Dictionary<string, object> index, string key)
+        {
+            if (!index.TryGetValue(key, out object? val))
+                return EmptyEntryList;
+            if (val is List<DictionaryEntry> list)
+                return list;
+            return new List<DictionaryEntry>(1) { (DictionaryEntry)val };
         }
 
         private string GetCachedSyllablePhoneticKey(string normSyllable)
@@ -380,22 +675,17 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             string pKey = ComputePhoneticKey(norm);
-            if (_phoneticIndex.TryGetValue(pKey, out var pList))
-            {
-                pList.RemoveAll(e => e.Word == norm && string.Equals(e.PosTag, "CUSTOM", StringComparison.OrdinalIgnoreCase));
-            }
+            RemoveCustomFromSingleOrListIndex(_phoneticIndex, pKey, norm);
 
             string sKey = ComputeStrictHomophoneKey(norm);
-            if (_strictHomophoneIndex.TryGetValue(sKey, out var sList))
-            {
-                sList.RemoveAll(e => e.Word == norm && string.Equals(e.PosTag, "CUSTOM", StringComparison.OrdinalIgnoreCase));
-            }
+            RemoveCustomFromSingleOrListIndex(_strictHomophoneIndex, sKey, norm);
 
             List<string> syllables = MyanmarSyllableBreaker.BreakIntoSyllables(norm);
             TrieNode? current = _root;
             for (int i = 0; i < syllables.Count && current != null; i++)
             {
-                current.Children.TryGetValue(syllables[i], out current);
+                if (!current.TryGetChild(syllables[i], out current))
+                    current = null;
             }
             if (current?.Entries != null)
             {
@@ -443,7 +733,20 @@ namespace MyanmarSpellChecker.Core.Nlp
             return false;
         }
 
-        public void InsertOrthographyRule(OrthographyRule rule, bool isPreNormalized = false)
+        public void InsertOrthographyRule(OrthographyRule rule, bool isPreNormalized = false) =>
+            InsertOrthographyRuleCore(rule, isPreNormalized, reusableSylBuf: null, stringPool: null);
+
+        internal void InsertOrthographyRuleBulkPreNormalized(
+            OrthographyRule rule,
+            List<string> reusableSylBuf,
+            Dictionary<string, string> stringPool) =>
+            InsertOrthographyRuleCore(rule, isPreNormalized: true, reusableSylBuf, stringPool);
+
+        private void InsertOrthographyRuleCore(
+            OrthographyRule rule,
+            bool isPreNormalized,
+            List<string>? reusableSylBuf,
+            Dictionary<string, string>? stringPool)
         {
             if (rule == null || string.IsNullOrWhiteSpace(rule.WrongForm))
                 return;
@@ -454,29 +757,42 @@ namespace MyanmarSpellChecker.Core.Nlp
             string correctNormalized = isPreNormalized
                 ? rule.CorrectForm
                 : UnicodeNormalizer.NormalizeCanonicalOrder(rule.CorrectForm.Trim());
+            if (stringPool != null)
+            {
+                wrongNormalized = PoolString(wrongNormalized, stringPool);
+                correctNormalized = PoolString(correctNormalized, stringPool);
+                if (!string.IsNullOrEmpty(rule.Category))
+                    rule.Category = PoolString(rule.Category, stringPool);
+            }
             rule.WrongForm = wrongNormalized;
             rule.CorrectForm = correctNormalized;
 
             _wrongFormIndex[wrongNormalized] = rule;
 
-            List<string> syllables = MyanmarSyllableBreaker.BreakIntoSyllables(wrongNormalized);
+            List<string> syllables;
+            if (reusableSylBuf != null && isPreNormalized)
+            {
+                MyanmarSyllableBreaker.BreakIntoSyllablesFast(wrongNormalized, reusableSylBuf, stringPool);
+                syllables = reusableSylBuf;
+            }
+            else
+            {
+                syllables = MyanmarSyllableBreaker.BreakIntoSyllables(wrongNormalized, isPreNormalized);
+            }
             if (syllables.Count == 0)
                 return;
 
             TrieNode current = _root;
             for (int i = 0; i < syllables.Count; i++)
             {
-                string syl = syllables[i];
-                if (!current.Children.TryGetValue(syl, out TrieNode? next))
-                {
-                    next = new TrieNode();
-                    current.Children[syl] = next;
-                }
-                current = next;
+                current = current.GetOrAddChild(syllables[i]);
             }
 
             current.WrongFormRule = rule;
-            Interlocked.Increment(ref _mutationVersion);
+            if (stringPool == null)
+            {
+                Interlocked.Increment(ref _mutationVersion);
+            }
         }
 
         public void InsertContextualRule(ContextualRule rule, bool isPreNormalized = false)
@@ -548,17 +864,33 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             string normLeft = isPreNormalized ? leftWord : UnicodeNormalizer.NormalizeCanonicalOrder(leftWord.Trim());
             string normRight = isPreNormalized ? rightWord : UnicodeNormalizer.NormalizeCanonicalOrder(rightWord.Trim());
-            if (!_wordBigramIndex.TryGetValue(normLeft, out var rightMap))
-            {
-                rightMap = new Dictionary<string, int>(StringComparer.Ordinal);
-                _wordBigramIndex[normLeft] = rightMap;
-            }
-            if (!rightMap.TryGetValue(normRight, out int prev) || count > prev)
+            var key = (normLeft, normRight);
+            if (!_wordBigramIndex.TryGetValue(key, out int prev) || count > prev)
             {
                 if (prev == 0)
                     BigramCount++;
-                rightMap[normRight] = count;
+                _wordBigramIndex[key] = count;
                 Interlocked.Increment(ref _mutationVersion);
+            }
+        }
+
+        internal void InsertWordBigramBulkPreNormalized(
+            string leftWord,
+            string rightWord,
+            int count,
+            Dictionary<string, string> stringPool)
+        {
+            if (count <= 0 || leftWord.Length == 0 || rightWord.Length == 0)
+                return;
+
+            string normLeft = PoolString(leftWord, stringPool);
+            string normRight = PoolString(rightWord, stringPool);
+            var key = (normLeft, normRight);
+            if (!_wordBigramIndex.TryGetValue(key, out int prev) || count > prev)
+            {
+                if (prev == 0)
+                    BigramCount++;
+                _wordBigramIndex[key] = count;
             }
         }
 
@@ -567,10 +899,8 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (string.IsNullOrEmpty(leftWord) || string.IsNullOrEmpty(rightWord))
                 return 0;
             string normLeft = UnicodeNormalizer.NormalizeCanonicalOrder(leftWord);
-            if (!_wordBigramIndex.TryGetValue(normLeft, out var rightMap))
-                return 0;
             string normRight = UnicodeNormalizer.NormalizeCanonicalOrder(rightWord);
-            return rightMap.TryGetValue(normRight, out int c) ? c : 0;
+            return _wordBigramIndex.TryGetValue((normLeft, normRight), out int c) ? c : 0;
         }
 
         public bool HasPosTag(string word, string tagFragment)
@@ -640,29 +970,17 @@ namespace MyanmarSpellChecker.Core.Nlp
             return _wrongFormIndex.TryGetValue(norm, out rule!);
         }
 
-        public List<DictionaryEntry> LookupByPhoneticKey(string word)
-        {
-            string key = ComputePhoneticKey(word);
-            if (_phoneticIndex.TryGetValue(key, out var list))
-                return list;
-            return EmptyEntryList;
-        }
+        public List<DictionaryEntry> LookupByPhoneticKey(string word) =>
+            LookupSingleOrListIndex(_phoneticIndex, ComputePhoneticKey(word));
 
         public List<DictionaryEntry> LookupByPhoneticKey(string word, out string phoneticKey)
         {
             phoneticKey = ComputePhoneticKey(word);
-            if (_phoneticIndex.TryGetValue(phoneticKey, out var list))
-                return list;
-            return EmptyEntryList;
+            return LookupSingleOrListIndex(_phoneticIndex, phoneticKey);
         }
 
-        public List<DictionaryEntry> LookupStrictHomophones(string word)
-        {
-            string key = ComputeStrictHomophoneKey(word);
-            if (_strictHomophoneIndex.TryGetValue(key, out var list))
-                return list;
-            return EmptyEntryList;
-        }
+        public List<DictionaryEntry> LookupStrictHomophones(string word) =>
+            LookupSingleOrListIndex(_strictHomophoneIndex, ComputeStrictHomophoneKey(word));
 
         /// <summary>
         /// Retrieves multi-syllable Thatpon headwords sharing at least one exact anchor syllable at the same position.
@@ -851,6 +1169,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             int seedCursor = Interlocked.Add(ref _featuredRotationCursor, 37) & int.MaxValue;
             int encycTarget = Math.Max(1, (count * 2) / 3);
+            EnsureReferenceCorpusLoaded();
             if (_referenceCorpus.Count > 0)
             {
                 int totalRef = _referenceCorpus.Count;
@@ -917,6 +1236,8 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         private void EnsureSearchAndSynonymIndexBuiltCore()
         {
+            EnsureReferenceCorpusLoadedUnderLock();
+
             _latinTokenIndex.Clear();
             _synonymIndex.Clear();
             _antonymIndex.Clear();
@@ -1415,7 +1736,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             var qUnits = new List<string>(8);
 
             // 1b. Sub-millisecond exact or prefix matches in Offline Reference Corpus (စကားပုံ / ဆိုရိုးစကား / စွယ်စုံဗဟုသုတ ENCYC)
-            if (_referenceCorpus.Count > 0 && norm.Length >= 2)
+            if (ReferenceCount > 0 && norm.Length >= 2)
             {
                 EnsureSearchAndSynonymIndexBuilt();
 
@@ -1445,7 +1766,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // Reserve up to 8 slots at the bottom of results for matching Proverbs / Sayings & Encyclopedic Knowledge articles
-            int lexicalCap = _referenceCorpus.Count > 0 ? Math.Max(8, maxResults - 8) : maxResults;
+            int lexicalCap = ReferenceCount > 0 ? Math.Max(8, maxResults - 8) : maxResults;
 
             // 2. Strict & Relaxed Phonetic homophone matches (e.g. 'ချည်' -> 'ချဉ် [အရသာ~]', 'ကဏန်း' -> 'ဂဏန်း')
             foreach (var e in LookupStrictHomophones(norm)
@@ -1480,7 +1801,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     {
                         if (s == querySyls.Count - 1)
                             parentBeforeLast = cur;
-                        if (cur.Children.TryGetValue(querySyls[s], out TrieNode? nextNode))
+                        if (cur.TryGetChild(querySyls[s], out TrieNode? nextNode))
                         {
                             cur = nextNode;
                             matchedDepth++;
@@ -1498,25 +1819,15 @@ namespace MyanmarSpellChecker.Core.Nlp
                     if (matchedDepth >= querySyls.Count - 1 && parentBeforeLast != null)
                     {
                         string lastSylPrefix = querySyls[querySyls.Count - 1];
-                        foreach (var childKvp in parentBeforeLast.Children)
-                        {
-                            if (childKvp.Key.Length > lastSylPrefix.Length &&
-                                childKvp.Key.StartsWith(lastSylPrefix, StringComparison.Ordinal))
-                            {
-                                stack.Push(childKvp.Value);
-                            }
-                        }
+                        parentBeforeLast.PushMatchingChildren(stack, lastSylPrefix, requireLongerThanPrefix: true);
                     }
 
                     if (stack.Count == 0 && norm.Length >= 3 && norm.Length <= 6 && norm[norm.Length - 1] == '\u103A' &&
-                        _root.Children.TryGetValue(norm.Substring(0, norm.Length - 2), out TrieNode? kinziBaseNode))
+                        _root.TryGetChild(norm.Substring(0, norm.Length - 2), out TrieNode? kinziBaseNode) &&
+                        kinziBaseNode != null)
                     {
                         string kinziLead = norm.Substring(norm.Length - 2);
-                        foreach (var childKvp in kinziBaseNode.Children)
-                        {
-                            if (childKvp.Key.StartsWith(kinziLead, StringComparison.Ordinal))
-                                stack.Push(childKvp.Value);
-                        }
+                        kinziBaseNode.PushMatchingChildren(stack, kinziLead, requireLongerThanPrefix: false);
                     }
 
                     while (stack.Count > 0 && prefixMatches.Count < 150)
@@ -1530,8 +1841,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                                     prefixMatches.Add(node.Entries[ei]);
                             }
                         }
-                        foreach (var child in node.Children.Values)
-                            stack.Push(child);
+                        node.PushMatchingChildren(stack, prefixFilter: null, requireLongerThanPrefix: false);
                     }
                 }
 
@@ -1658,7 +1968,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 5. Sub-millisecond Syllable-Indexed Proverbs, Sayings & Encyclopedic Knowledge matches
-            if (_referenceCorpus.Count > 0 && results.Count < maxResults)
+            if (ReferenceCount > 0 && results.Count < maxResults)
             {
                 int remainingSlots = Math.Max(4, maxResults - results.Count);
                 int halfSlots = Math.Max(2, remainingSlots / 2);
@@ -1685,7 +1995,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             int maxResults = 35)
         {
             var results = new List<DictionaryEntry>();
-            if (string.IsNullOrWhiteSpace(query) || _referenceCorpus.Count == 0 || maxResults <= 0)
+            if (string.IsNullOrWhiteSpace(query) || ReferenceCount == 0 || maxResults <= 0)
                 return results;
 
             EnsureSearchAndSynonymIndexBuilt();
@@ -1947,7 +2257,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             while (cursor < tokens.Count && tokens[cursor].Kind == TokenKind.MyanmarSyllable)
             {
                 string syl = tokens[cursor].NormalizedText;
-                if (!current.Children.TryGetValue(syl, out TrieNode? next))
+                if (!current.TryGetChild(syl, out TrieNode? next) || next == null)
                     break;
 
                 current = next;
@@ -1986,7 +2296,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     break;
 
                 string syl = tokens[cursor].NormalizedText;
-                if (!current.Children.TryGetValue(syl, out TrieNode? next))
+                if (!current.TryGetChild(syl, out TrieNode? next) || next == null)
                     break;
 
                 current = next;
@@ -2062,6 +2372,9 @@ namespace MyanmarSpellChecker.Core.Nlp
             return computed;
         }
 
+        private static bool IsSilentOiCodaConsonant(char c) =>
+            c == '\u101C' || c == '\u101F' || c == '\u101B' || c == '\u1003' || c == '\u1020';
+
         private static string BuildSkeleton(string text, bool ignoreTones, bool isPreNormalized = false)
         {
             if (string.IsNullOrWhiteSpace(text))
@@ -2083,62 +2396,119 @@ namespace MyanmarSpellChecker.Core.Nlp
                 s = GeminatedStackRegex.Replace(s, "$2");  // က္က->က, ဂ္ဂ->ဂ, စ္စ->စ, တ္တ->တ, ဋ္ဌ->ဌ, ပ္ပ->ပ, မ္မ->မ, လ္လ->လ
             }
 
-            // 1. Protect silent -ို(လ်/ဟ်/ရ်/ဃ်/ဠ်) and compound vowel ို (\u102D\u102F) / ော (\u1031\u102C/\u1031\u102B) before collapsing single vowels
-            if (s.IndexOf('\u102D') >= 0)
+            StringBuilder? sb = t_skeletonSb;
+            if (sb == null)
             {
-                s = SilentOiCodaRhymeRegex.Replace(s, "O");
-                s = s.Replace("\u102D\u102F", "O");
-                // 1b. Pali '-ိင်' rhyme (e.g. လိင်, ဒွိလိင်, ပုလ္လိင်, သိင်္ဂီ) pronounces identically to '-ိန် / -ိမ်' (/eɪɴ/) in Burmese!
-                s = s.Replace("\u102D\u1004\u103A", "\u102D\u1036");
+                sb = new StringBuilder(32);
+                t_skeletonSb = sb;
+            }
+            else
+            {
+                sb.Clear();
             }
 
-            bool hasEVowel = s.IndexOf('\u1031') >= 0;
-            if (hasEVowel)
+            int len = s.Length;
+            for (int i = 0; i < len; i++)
             {
-                s = s.Replace("\u1031\u102B", "A");
-                s = s.Replace("\u1031\u102C", "A");
-            }
+                char c = s[i];
 
-            // 2. Collapse palatal/open rhymes (-ည်, -ဉ်, -ီ, and open -ေ) -> \u102E (ီ)
-            s = s.Replace("\u100A\u103A", "\u102E"); // ည် -> ီ
-            s = s.Replace("\u1009\u103A", "\u102E"); // ဉ် -> ီ
-            if (hasEVowel && s.IndexOf('\u1031') >= 0)
-            {
-                s = OpenEVowelRhymeRegex.Replace(s, "\u102E"); // open ေ -> ီ (e.g. ရေရွယ်ချက် <-> ရည်ရွယ်ချက်)
-            }
-            if (ignoreTones)
-            {
-                s = s.Replace("\u101A\u103A", "\u102E"); // ယ် -> ီ
-                s = s.Replace("\u1032", "\u102E");       // ဲ -> ီ
-                s = s.Replace("\u102D", "\u102E");       // ိ -> ီ
-            }
+                // 1. Handle '\u102D' (-ိုလ်/-ိုဟ်/-ိုရ်/-ိုဃ်/-ိုဠ် -> O, -ို -> O, -ိင် -> -ိံ/-ီံ, standalone -ိ)
+                if (c == '\u102D')
+                {
+                    if (i + 1 < len && s[i + 1] == '\u102F')
+                    {
+                        if (i + 3 < len &&
+                            s[i + 3] == '\u103A' &&
+                            IsSilentOiCodaConsonant(s[i + 2]) &&
+                            (i + 4 >= len || (s[i + 4] != '\u1037' && s[i + 4] != '\u1038')))
+                        {
+                            sb.Append('O');
+                            i += 3;
+                        }
+                        else
+                        {
+                            sb.Append('O');
+                            i += 1;
+                        }
+                        continue;
+                    }
+                    if (i + 2 < len && s[i + 1] == '\u1004' && s[i + 2] == '\u103A')
+                    {
+                        sb.Append(ignoreTones ? '\u102E' : '\u102D');
+                        sb.Append('\u1036');
+                        i += 2;
+                        continue;
+                    }
+                    sb.Append(ignoreTones ? '\u102E' : '\u102D');
+                    continue;
+                }
 
-            // 3. Collapse true [ã] nasal rhymes (-န်, -မ်, -ဏ်, -ံ) -> \u1036 (ံ)
-            // Keep -င် (\u1004\u103A) separate so 'သင်' never collides with 'သံ'!
-            s = s.Replace("\u1014\u103A", "\u1036"); // န် -> ံ
-            s = s.Replace("\u1019\u103A", "\u1036"); // မ် -> ံ
-            s = s.Replace("\u100F\u103A", "\u1036"); // ဏ် -> ံ
+                // 2. Handle '\u1031' (-ော/-ေါ -> A, open -ေ -> ီ)
+                if (c == '\u1031')
+                {
+                    if (i + 1 < len && (s[i + 1] == '\u102B' || s[i + 1] == '\u102C'))
+                    {
+                        sb.Append('A');
+                        i += 1;
+                    }
+                    else
+                    {
+                        sb.Append('\u102E');
+                    }
+                    continue;
+                }
 
-            // 4. Collapse glottal/Pali stop codas: (-တ်, -ပ်, -က်, -ဂ်, -ဒ်, -ဗ်, -ဘ်, -သ် -> Q; in relaxed mode also -စ် -> Q)
-            // Keeps -စ် (\u1005\u103A) distinct in strict mode so 'သစ်' (new) never collides with 'သတ်'/'သက်'!
-            s = s.Replace("\u1000\u103A", "Q");
-            s = s.Replace("\u1010\u103A", "Q");
-            s = s.Replace("\u1015\u103A", "Q");
-            s = s.Replace("\u1002\u103A", "Q"); // ဂ် (မဂ်)
-            s = s.Replace("\u1012\u103A", "Q"); // ဒ် (ရလဒ်, ပြာသာဒ်, ဥပဒ်)
-            s = s.Replace("\u1017\u103A", "Q"); // ဗ်
-            s = s.Replace("\u1018\u103A", "Q"); // ဘ် (လာဘ်, ဆုလာဘ်)
-            s = s.Replace("\u101E\u103A", "Q"); // သ် (ဥပုသ်)
-            if (ignoreTones)
-            {
-                s = s.Replace("\u1005\u103A", "Q");
-            }
+                // 3. Handle 2-char C + '\u103A' (asat) palatal/nasal/stop codas in a single lookahead
+                if (i + 1 < len && s[i + 1] == '\u103A')
+                {
+                    switch (c)
+                    {
+                        case '\u100A': // ည် -> ီ
+                        case '\u1009': // ဉ် -> ီ
+                            sb.Append('\u102E');
+                            i += 1;
+                            continue;
+                        case '\u101A': // ယ် -> ီ (relaxed mode)
+                            if (ignoreTones)
+                            {
+                                sb.Append('\u102E');
+                                i += 1;
+                                continue;
+                            }
+                            break;
+                        case '\u1014': // န် -> ံ
+                        case '\u1019': // မ် -> ံ
+                        case '\u100F': // ဏ် -> ံ
+                            sb.Append('\u1036');
+                            i += 1;
+                            continue;
+                        case '\u1000': // က် -> Q
+                        case '\u1010': // တ် -> Q
+                        case '\u1015': // ပ် -> Q
+                        case '\u1002': // ဂ် -> Q
+                        case '\u1012': // ဒ် -> Q
+                        case '\u1017': // ဗ် -> Q
+                        case '\u1018': // ဘ် -> Q
+                        case '\u101E': // သ် -> Q
+                            sb.Append('Q');
+                            i += 1;
+                            continue;
+                        case '\u1005': // စ် -> Q (relaxed mode only; keeps သစ် distinct from သတ်/သက် in strict mode)
+                            if (ignoreTones)
+                            {
+                                sb.Append('Q');
+                                i += 1;
+                                continue;
+                            }
+                            break;
+                    }
+                }
 
-            var sb = new StringBuilder(s.Length);
-            foreach (char c in s)
-            {
                 switch (c)
                 {
+                    case '\u1032': // ဲ -> ီ in relaxed mode
+                        sb.Append(ignoreTones ? '\u102E' : c);
+                        break;
                     case '\u1001': // ခ
                     case '\u1002': // ဂ
                     case '\u1003': // ဃ
