@@ -79,6 +79,10 @@ if ($Unregister) {
     }
     Remove-Item -Path $wordAddInKey  -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -Path $excelAddInKey -Recurse -Force -ErrorAction SilentlyContinue
+    $localAppAppDir = Join-Path $env:LOCALAPPDATA "MyanmarSpellChecker\app"
+    if (Test-Path $localAppAppDir) {
+        Remove-Item -Path $localAppAppDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
     Write-Host "[+] Unregistered Word + Excel Add-ins successfully." -ForegroundColor Green
     exit 0
 }
@@ -90,14 +94,26 @@ if (-not $excelAddInDll -or -not (Test-Path $excelAddInDll)) {
     throw "ExcelAddIn DLL not found. Run 'dotnet build' first."
 }
 
-# Copy freshest pre-compiled mlc_thatpon.db into Word bin, Excel bin, artifacts\, and %LocalAppData%\MyanmarSpellChecker
+# Copy freshest FULL (>= 5 MB, 89,500+ headwords) mlc_thatpon.db into Word bin, Excel bin, artifacts\, and %LocalAppData%\MyanmarSpellChecker
+# Never allow a small (< 5 MB) 106-word seed fallback DB to overwrite the full dictionary!
 $dataDb = Join-Path $PSScriptRoot "..\data\mlc_thatpon.db"
 $releasePkgDb = Join-Path $PSScriptRoot "..\artifacts\release-package\mlc_thatpon.db"
 $legacyArtifactDb = Join-Path $PSScriptRoot "..\artifacts\mlc_thatpon.db"
-$candidateDbs = @($dataDb, $releasePkgDb, $legacyArtifactDb) | Where-Object { Test-Path $_ } | Sort-Object { (Get-Item $_).LastWriteTimeUtc } -Descending
+$candidateDbs = @($dataDb, $releasePkgDb, $legacyArtifactDb) |
+    Where-Object { Test-Path $_ } |
+    Sort-Object `
+        @{ Expression = { if ((Get-Item $_).Length -ge 5000000) { 1 } else { 0 } }; Descending = $true }, `
+        @{ Expression = { (Get-Item $_).LastWriteTimeUtc }; Descending = $true }, `
+        @{ Expression = { (Get-Item $_).Length }; Descending = $true }
 $artifactDb = if ($candidateDbs.Count -gt 0) { $candidateDbs[0] } else { $dataDb }
 
+if ((Test-Path $artifactDb) -and ((Get-Item $artifactDb).Length -lt 5000000) -and (Test-Path $dataDb) -and ((Get-Item $dataDb).Length -ge 5000000)) {
+    $artifactDb = $dataDb
+}
+
 if (Test-Path $artifactDb) {
+    $dbSizeMb = [Math]::Round(((Get-Item $artifactDb).Length / 1MB), 2)
+    Write-Host "[*] Syncing full dictionary database: $artifactDb ($dbSizeMb MB)" -ForegroundColor Cyan
     $srcFull = [System.IO.Path]::GetFullPath($artifactDb)
     $targetDirs = @(
         (Split-Path $legacyArtifactDb -Parent),

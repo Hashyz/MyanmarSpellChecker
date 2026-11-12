@@ -1363,5 +1363,38 @@ namespace MyanmarSpellChecker.Core.Tests
             var a2Op = Assert.Single(ops.Where(o => o.Row == 2 && o.Column == 1));
             Assert.Equal("ဝန်ကြီးဌာန", a2Op.UpdatedText);
         }
+
+        [Fact]
+        public void V43_SingleCharLatencyAndFullDatabaseIntegrity()
+        {
+            var dbFile = new System.IO.FileInfo(TestPaths.EncryptedDbPath);
+            Assert.True(dbFile.Exists && dbFile.Length >= 10_000_000,
+                $"Expected full tracked mlc_thatpon.db (>= 10 MB), got {(dbFile.Exists ? dbFile.Length : 0)} bytes.");
+
+            var repo = new EncryptedDictionaryRepository(dbFile.FullName);
+            var trie = repo.LoadIntoTrie(MyanmarSpellChecker.Core.Security.AntiTamperGuard.ReconstructProtectedFallbackKey());
+            Assert.True(trie.WordCount >= 85_000, $"Expected >= 85,000 headwords, got {trie.WordCount} (must never fall back to 106 seed words!).");
+
+            var engine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // Simulate background startup 1-sentence JIT warmup (pre-JITs both valid & typo suggestion paths without eager PrewarmSearchIndexes!)
+            _ = engine.CheckText("မြန်မာစာ ပီးပီ။");
+
+            // Benchmark single-character & incomplete-cluster keystrokes ('ေ', 'ြ', 'ျ', 'ါ', 'က', 'မ', 'ပ', 'ပီ', 'ပီး')
+            string[] liveKeystrokes = { "\u1031", "\u103C", "\u103B", "\u102B", "က", "မ", "ပ", "ပီ", "ပီး" };
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            foreach (string stroke in liveKeystrokes)
+            {
+                _ = engine.CheckText(stroke);
+            }
+            sw.Stop();
+
+            Assert.True(sw.Elapsed.TotalMilliseconds < 80.0,
+                $"Single-character keystroke batch took {sw.Elapsed.TotalMilliseconds:F2} ms (expected < 80 ms total across 9 keystrokes).");
+
+            // Lazy dictionary search still builds on demand and finds Kyaukse University Geology terms accurately
+            var geoHits = trie.SearchDictionary("ဘူမိဗေဒ", maxResults: 10);
+            Assert.NotEmpty(geoHits);
+        }
     }
 }

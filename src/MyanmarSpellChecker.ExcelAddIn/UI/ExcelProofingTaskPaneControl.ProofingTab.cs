@@ -12,15 +12,52 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 {
     public sealed partial class ExcelProofingTaskPaneControl
     {
+        private bool _hasRenderedProofingOnce;
+
+        private static string BuildExcelIssuesUiSignature(IReadOnlyList<SpreadsheetCellIssue> activeItems)
+        {
+            if (activeItems.Count == 0)
+                return "EMPTY";
+
+            var sb = new System.Text.StringBuilder(activeItems.Count * 28);
+            sb.Append(activeItems.Count);
+            int cap = Math.Min(activeItems.Count, 80);
+            for (int i = 0; i < cap; i++)
+            {
+                var it = activeItems[i];
+                sb.Append('|').Append(it.SheetName).Append(':').Append(it.Row).Append(',').Append(it.Column)
+                  .Append(':').Append(it.Issue.OriginalText).Append(':').Append((int)it.Issue.IssueType);
+            }
+            return sb.ToString();
+        }
+
         public void RenderIssues(IReadOnlyList<SpreadsheetCellIssue>? items)
         {
+            bool wasScanning = _isScanning;
             _isScanning = false;
-            _allItems = items != null ? items.ToList() : new List<SpreadsheetCellIssue>();
+
+            var prevActive = _allItems.Where(i => !i.IsResolved).ToList();
+            var nextList = items != null ? items.Where(i => !i.IsResolved).ToList() : new List<SpreadsheetCellIssue>();
+
+            bool unchanged = _hasRenderedProofingOnce &&
+                             !wasScanning &&
+                             _activeTab == TaskPaneWorkspaceTab.Proofing &&
+                             _cardsPanel.Controls.Count > 0 &&
+                             string.Equals(BuildExcelIssuesUiSignature(prevActive), BuildExcelIssuesUiSignature(nextList), StringComparison.Ordinal);
+
+            _allItems = nextList;
             _selectedItem = null;
             _stepperCursor = -1;
 
+            if (unchanged)
+            {
+                UpdateFilterPillStyles();
+                return;
+            }
+
             if (_activeTab == TaskPaneWorkspaceTab.Proofing)
             {
+                _hasRenderedProofingOnce = true;
                 RenderProofingCards();
             }
         }

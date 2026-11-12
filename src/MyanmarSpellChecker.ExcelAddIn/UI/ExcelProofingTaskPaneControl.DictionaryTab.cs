@@ -155,7 +155,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _cardsPanel.ResumeLayout(true);
         }
 
-        private void RenderDictionaryResults(string query, List<DictionaryEntry> entries, double elapsedMs)
+        private const int InitialDictionaryRenderLimit = 15;
+
+        private void RenderDictionaryResults(string query, List<DictionaryEntry> entries, double elapsedMs, int maxRender = InitialDictionaryRenderLimit)
         {
             _cardsPanel.SuspendLayout();
             DisposeAndClearCardsPanel();
@@ -185,9 +187,25 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 return;
             }
 
-            foreach (var entry in entries.Take(40))
+            int takeCount = Math.Min(entries.Count, maxRender);
+            for (int i = 0; i < takeCount; i++)
             {
-                _cardsPanel.Controls.Add(BuildDictionaryEntryCard(entry, cardWidth, innerWrap));
+                _cardsPanel.Controls.Add(BuildDictionaryEntryCard(entries[i], cardWidth, innerWrap));
+            }
+
+            if (entries.Count > takeCount)
+            {
+                int remaining = entries.Count - takeCount;
+                var moreBtn = CreatePillButton(
+                    $"▾ နောက်ထပ် ရလဒ် ({remaining}) ပုဒ် ဆက်လက်ပြသရန်",
+                    Color.FromArgb(235, 243, 255),
+                    Color.FromArgb(20, 74, 162),
+                    Color.FromArgb(190, 212, 246),
+                    _fontSmallBold);
+                moreBtn.Width = cardWidth;
+                moreBtn.Margin = new Padding(0, 2, 0, 8);
+                moreBtn.Click += (s, e) => RenderDictionaryResults(query, entries, elapsedMs, takeCount + 30);
+                _cardsPanel.Controls.Add(moreBtn);
             }
 
             _cardsPanel.ResumeLayout(true);

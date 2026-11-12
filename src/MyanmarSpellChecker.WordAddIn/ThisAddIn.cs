@@ -152,14 +152,17 @@ namespace MyanmarSpellChecker.WordAddIn
                 : (File.Exists(progDataLic) ? progDataLic : Path.Combine(_appDataFolder, "license.lic"));
 
             string installDb = !string.IsNullOrEmpty(installDir) ? Path.Combine(installDir, "mlc_thatpon.db") : string.Empty;
+            string repoDataDb = FindAncestorRepoDatabasePath(installDir);
             string progDataDb = Path.Combine(programDataDir, "mlc_thatpon.db");
             string localAppDb = Path.Combine(localAppDataDir, "mlc_thatpon.db");
 
-            // Always prefer a full compiled dictionary (>= 100 KB) and newest timestamp over any small seed fallback DB
-            var candidateDbs = new[] { installDb, progDataDb, localAppDb }
+            // Always prefer the full compiled dictionary (>= 5 MB, 89,500+ headwords) over any small 106-word seed fallback DB
+            var candidateDbs = new[] { installDb, repoDataDb, progDataDb, localAppDb }
                 .Where(p => !string.IsNullOrWhiteSpace(p) && File.Exists(p))
+                .Select(p => Path.GetFullPath(p))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Select(p => new FileInfo(p))
-                .OrderByDescending(fi => fi.Length >= 100_000 ? 1 : 0)
+                .OrderByDescending(fi => fi.Length >= 5_000_000 ? 2 : (fi.Length >= 100_000 ? 1 : 0))
                 .ThenByDescending(fi => fi.LastWriteTimeUtc)
                 .ThenByDescending(fi => fi.Length)
                 .ToList();
@@ -172,16 +175,29 @@ namespace MyanmarSpellChecker.WordAddIn
             _underlineManager = new SafeUnderlineManager(_wordApp!);
 
             string dbPathSnapshot = _databaseFilePath;
+            string localAppDbSnapshot = localAppDb;
             string licPathSnapshot = _licenseFilePath;
             string userDictSnapshot = _customDictFilePath;
             ProofingStyleMode initialMode = _pendingStyleMode;
 
-            // Decrypt 12.4 MB database, build 118,764-entry Trie, and pre-warm all inverted search indexes off Word's UI thread!
+            // Decrypt 12.4 MB database, build 89,500+ headword Trie, and pre-JIT proofing hot path off Word's UI thread!
             Task.Run(() =>
             {
                 AddInDiagnostics.SafeExecute("AsyncEngineWarmup", () =>
                 {
                     SuppressOfficeMissingBurmeseBannerRegistry();
+
+                    // Self-heal %LocalAppData%\MyanmarSpellChecker\mlc_thatpon.db if an older build created a tiny 106-word seed DB
+                    try
+                    {
+                        if (File.Exists(dbPathSnapshot) && new FileInfo(dbPathSnapshot).Length >= 5_000_000 &&
+                            !string.Equals(Path.GetFullPath(dbPathSnapshot), Path.GetFullPath(localAppDbSnapshot), StringComparison.OrdinalIgnoreCase) &&
+                            (!File.Exists(localAppDbSnapshot) || new FileInfo(localAppDbSnapshot).Length < 5_000_000))
+                        {
+                            File.Copy(dbPathSnapshot, localAppDbSnapshot, overwrite: true);
+                        }
+                    }
+                    catch { }
 
                     string activeDbKey = AntiTamperGuard.ReconstructProtectedFallbackKey();
                     if (File.Exists(licPathSnapshot))
@@ -204,7 +220,9 @@ namespace MyanmarSpellChecker.WordAddIn
                     var engine = new MyanmarProofingEngine(trie, initialMode);
                     engine.LoadCustomDictionaryFile(ministryCustomDictPath);
                     engine.LoadCustomDictionaryFile(userDictSnapshot);
-                    trie.PrewarmSearchIndexes();
+
+                    // Lightweight 1-sentence background JIT warmup (~70ms) pre-compiles both valid & suggestion paths off the UI thread!
+                    _ = engine.CheckText("မြန်မာစာ ပီးပီ။");
 
                     Control? marshaller = _uiMarshaller;
                     if (marshaller != null && marshaller.IsHandleCreated && !marshaller.IsDisposed)
@@ -218,6 +236,23 @@ namespace MyanmarSpellChecker.WordAddIn
                     }
                 });
             });
+        }
+
+        private static string FindAncestorRepoDatabasePath(string? startDir)
+        {
+            try
+            {
+                string? cur = startDir;
+                for (int depth = 0; depth < 6 && !string.IsNullOrEmpty(cur); depth++)
+                {
+                    string candidate = Path.Combine(cur, "data", "mlc_thatpon.db");
+                    if (File.Exists(candidate))
+                        return candidate;
+                    cur = Directory.GetParent(cur)?.FullName;
+                }
+            }
+            catch { }
+            return string.Empty;
         }
 
         private void AttachEngineOnStaThread(MyanmarProofingEngine engine)
@@ -247,7 +282,8 @@ namespace MyanmarSpellChecker.WordAddIn
                     // Use precomputed background QualityReport for full scans; invalidate lazily for incremental keystrokes!
                     ctrl.UpdateQualityReport(_documentScanner.GetCachedQualityReport(doc));
                 }
-                _contextMenuHandler?.RefreshAtCurrentSelectionIfOnIssue();
+                // Never auto-pop the floating Quick-Fix window during background/typing scans;
+                // Quick-Fix popup opens cleanly only when the user clicks or moves caret onto an underlined word.
             };
 
             _contextMenuHandler = new WordContextMenuHandler(

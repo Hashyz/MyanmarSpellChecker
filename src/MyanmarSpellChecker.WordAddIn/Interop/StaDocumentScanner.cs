@@ -92,7 +92,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             _staMarshaller = new Control();
             IntPtr _ = _staMarshaller.Handle;
 
-            _debounceTimer = new WinFormsTimer { Interval = 650 };
+            _debounceTimer = new WinFormsTimer { Interval = 950 };
             _debounceTimer.Tick += OnDebounceTimerTick;
 
             // Fast paste / bulk-change debounce (~220ms): underlines newly pasted paragraphs almost instantaneously.
@@ -104,7 +104,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             _underlineChunkTimer.Tick += OnUnderlineChunkTimerTick;
 
             // Live keystroke idle watcher: observes O(1) document end + active paragraph text without O(Doc) Paragraphs.Count.
-            _liveTypingWatchTimer = new WinFormsTimer { Interval = 650 };
+            _liveTypingWatchTimer = new WinFormsTimer { Interval = 950 };
             _liveTypingWatchTimer.Tick += OnLiveTypingWatchTick;
 
             TryInitializeWatchedDocumentBaseline();
@@ -494,8 +494,35 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             }
         }
 
+        private static bool IsIncompleteTypingCluster(string? text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return true;
+
+            string t = text!.Trim();
+            if (t.Length <= 1)
+                return true;
+
+            bool hasBase = false;
+            for (int i = 0; i < t.Length; i++)
+            {
+                char c = t[i];
+                if ((c >= '\u1000' && c <= '\u102A') || c == '\u103F' || (c >= '\u104C' && c <= '\u104F'))
+                {
+                    hasBase = true;
+                    break;
+                }
+            }
+            if (!hasBase)
+                return true;
+
+            char last = t[t.Length - 1];
+            // Still mid-stacking (\u1039), dangling visual E (\u1031), or bare medial (\u103B..\u103E) waiting for vowel/coda
+            return last == '\u1039' || last == '\u1031' || (last >= '\u103B' && last <= '\u103E');
+        }
+
         /// <summary>
-        /// Scans the currently edited paragraph (and recent preceding paragraphs across &lt;Enter&gt; newline transitions)
+        /// Scans the currently edited paragraph (and immediate preceding paragraph across &lt;Enter&gt; newline transitions)
         /// across Main Body, Table cells, or Headers/Footers, merging updated live Word.Range issues into the document cache.
         /// </summary>
         public void ScanActiveParagraphAsync()
@@ -508,6 +535,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     return;
 
                 int caretStart = sel.Range.Start;
+                bool isCollapsedCaret = caretStart == sel.Range.End;
                 Word.Range caretProbe = sel.Range.Duplicate;
                 caretProbe.SetRange(caretStart, caretStart);
                 Word.Paragraphs paras = caretProbe.Paragraphs;
@@ -515,21 +543,13 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     return;
 
                 Word.Paragraph activePara = paras[1];
-                var candidateParas = new List<Word.Paragraph>(6);
+                var candidateParas = new List<Word.Paragraph>(2);
                 try
                 {
-                    Word.Paragraph? cursor = activePara;
-                    var prevChain = new List<Word.Paragraph>(5);
-                    for (int step = 0; step < 5; step++)
+                    Word.Paragraph? prev = activePara.Previous();
+                    if (prev != null)
                     {
-                        cursor = cursor?.Previous();
-                        if (cursor == null)
-                            break;
-                        prevChain.Add(cursor);
-                    }
-                    for (int i = prevChain.Count - 1; i >= 0; i--)
-                    {
-                        candidateParas.Add(prevChain[i]);
+                        candidateParas.Add(prev);
                     }
                 }
                 catch { }
@@ -556,7 +576,6 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         continue;
 
                     // Skip re-scanning & re-underlining if this paragraph's text has not changed AND any expected wavy underlines are still live on screen
-                    // (Prevents polluting Word's Ctrl+Z Undo stack when user moves the cursor, while re-underlining if underlines were undone/cleared/pasted over)
                     if (updateMap.TryGetValue(startOffset, out string? prevText) &&
                         string.Equals(prevText, rawText, StringComparison.Ordinal))
                     {
@@ -592,7 +611,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                 Task.Run(() =>
                 {
-                    var analyzed = new List<(ParagraphSnapshot Snap, List<ProofingIssue> Issues)>(pendingSnapshots.Count);
+                    var analyzed = new List<(ParagraphSnapshot Snap, List<ProofingIssue> Issues, bool DeferredIncomplete)>(pendingSnapshots.Count);
                     foreach (var snap in pendingSnapshots)
                     {
                         if (generation != Volatile.Read(ref _scanGeneration))
@@ -601,7 +620,22 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         List<ProofingIssue> issues = snap.NeedsNlpCheck
                             ? _engine.CheckText(snap.RawText)
                             : new List<ProofingIssue>();
-                        analyzed.Add((snap, issues));
+
+                        bool deferredIncomplete = false;
+                        if (isCollapsedCaret && issues.Count > 0 && caretStart >= snap.StartOffset && caretStart <= snap.EndOffset)
+                        {
+                            int caretRel = Math.Max(0, Math.Min(snap.RawText.Length, caretStart - snap.StartOffset));
+                            int removed = issues.RemoveAll(iss =>
+                                caretRel >= iss.StartIndex &&
+                                caretRel <= iss.StartIndex + iss.Length &&
+                                IsIncompleteTypingCluster(iss.OriginalText));
+                            if (removed > 0)
+                            {
+                                deferredIncomplete = true;
+                            }
+                        }
+
+                        analyzed.Add((snap, issues, deferredIncomplete));
                     }
 
                     if (_staMarshaller.IsHandleCreated && !_staMarshaller.IsDisposed)
@@ -624,9 +658,60 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                                     _lastParagraphTextByStart[doc] = doneMap;
                                 }
 
+                                const int DriftWindow = 640;
+                                bool needsComWrite = false;
+                                foreach (var (snap, issues, _) in analyzed)
+                                {
+                                    if (issues.Count > 0)
+                                    {
+                                        needsComWrite = true;
+                                        break;
+                                    }
+
+                                    bool hasCachedNear = docList.Any(existing =>
+                                        !existing.IsResolved &&
+                                        existing.CachedEnd >= snap.StartOffset - DriftWindow &&
+                                        existing.CachedStart <= snap.EndOffset + DriftWindow);
+                                    if (hasCachedNear || _underlineManager.HasLiveWavyUnderlineInSpan(doc, snap.StartOffset, snap.EndOffset))
+                                    {
+                                        needsComWrite = true;
+                                        break;
+                                    }
+
+                                    try
+                                    {
+                                        Word.WdUnderline pu = snap.ParagraphRange.Font.Underline;
+                                        if (pu == Word.WdUnderline.wdUnderlineWavy || (int)pu == 9999999)
+                                        {
+                                            needsComWrite = true;
+                                            break;
+                                        }
+                                    }
+                                    catch { }
+                                }
+
+                                // Zero-COM-Write Fast Path: when typing clean text with no underlines to add or clear,
+                                // never toggle Word.ScreenUpdating, never open an UndoRecord, and never rebuild WinForms cards!
+                                if (!needsComWrite)
+                                {
+                                    foreach (var (snap, _, deferredIncomplete) in analyzed)
+                                    {
+                                        if (!deferredIncomplete)
+                                        {
+                                            doneMap[snap.StartOffset] = snap.RawText;
+                                        }
+                                        else
+                                        {
+                                            doneMap.Remove(snap.StartOffset);
+                                        }
+                                    }
+                                    _documentQualityCache.Remove(doc);
+                                    return;
+                                }
+
                                 _underlineManager.ExecuteInSharedProofingBatch(doc, () =>
                                 {
-                                    foreach (var (snap, issues) in analyzed)
+                                    foreach (var (snap, issues, deferredIncomplete) in analyzed)
                                     {
                                         List<DocumentProofingItem> bound = _underlineManager.BindAndUnderlineRangeIssues(
                                             doc,
@@ -635,9 +720,15 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                                             snap.ParagraphIndex,
                                             issues);
 
-                                        doneMap[snap.StartOffset] = snap.RawText;
+                                        if (!deferredIncomplete)
+                                        {
+                                            doneMap[snap.StartOffset] = snap.RawText;
+                                        }
+                                        else
+                                        {
+                                            doneMap.Remove(snap.StartOffset);
+                                        }
 
-                                        const int DriftWindow = 640;
                                         docList.RemoveAll(existing =>
                                         {
                                             if (existing.IsResolved)

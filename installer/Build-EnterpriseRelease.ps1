@@ -109,37 +109,50 @@ foreach ($t in $signTargets) {
     }
 }
 
-# 2. Compile Encrypted AES-256 + HMAC-SHA256 Dictionary (mlc_thatpon.db) from Master JSON & CSV
-Write-Host "[2/5] Compiling AES-256 + HMAC-SHA256 Encrypted 'မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း' Database..." -ForegroundColor Cyan
+# 2. Compile or Verify Encrypted AES-256 + HMAC-SHA256 Dictionary (mlc_thatpon.db)
+Write-Host "[2/5] Preparing AES-256 + HMAC-SHA256 Encrypted 'မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း' Database..." -ForegroundColor Cyan
 
 $masterJsonPath = Join-Path $repoRoot "data\mlc_thatpon_master.json"
+$sourceDataDb   = Join-Path $repoRoot "data\mlc_thatpon.db"
 $sampleCsvPath  = Join-Path $repoRoot "data\mlc_thatpon_sample_import.csv"
 $outDbPath      = Join-Path $releasePkgDir "mlc_thatpon.db"
+$password       = "MM-GOV-THATPON-SQLCIPHER-2026!"
 
 $coreLoadDir = if (-not (Test-FileLocked (Join-Path $excelBuildOutDir "MyanmarSpellChecker.Core.dll"))) { $excelBuildOutDir } else { $wordBuildOutDir }
 $coreAsm  = [System.Reflection.Assembly]::LoadFrom((Join-Path $coreLoadDir "MyanmarSpellChecker.Core.dll"))
 $repoType = $coreAsm.GetType("MyanmarSpellChecker.Core.Dictionary.EncryptedDictionaryRepository")
 $seedType = $coreAsm.GetType("MyanmarSpellChecker.Core.Dictionary.SeedDictionaryProvider")
 
-$masterModel = $repoType::ParseFromJsonFile($masterJsonPath)
-$seedEntries = $seedType::GetOfficialSeedEntries()
-$seedRules   = $seedType::GetOfficialOrthographyRules()
+if ((Test-Path $masterJsonPath) -and ((Get-Item $masterJsonPath).Length -gt 5000000)) {
+    $masterModel = $repoType::ParseFromJsonFile($masterJsonPath)
+    $seedEntries = $seedType::GetOfficialSeedEntries()
+    $seedRules   = $seedType::GetOfficialOrthographyRules()
 
-foreach ($se in $seedEntries) { $masterModel.Entries.Add($se) }
-foreach ($sr in $seedRules)   { $masterModel.OrthographyRules.Add($sr) }
+    foreach ($se in $seedEntries) { $masterModel.Entries.Add($se) }
+    foreach ($sr in $seedRules)   { $masterModel.OrthographyRules.Add($sr) }
 
-if (Test-Path $sampleCsvPath) {
-    $csvEntries = $repoType::ParseEntriesFromCsv($sampleCsvPath)
-    foreach ($ce in $csvEntries) { $masterModel.Entries.Add($ce) }
+    if (Test-Path $sampleCsvPath) {
+        $csvEntries = $repoType::ParseEntriesFromCsv($sampleCsvPath)
+        foreach ($ce in $csvEntries) { $masterModel.Entries.Add($ce) }
+    }
+
+    $repoInstance = New-Object MyanmarSpellChecker.Core.Dictionary.EncryptedDictionaryRepository($outDbPath)
+    $repoInstance.CompileEncryptedDatabase($password, $masterModel)
+} elseif ((Test-Path $sourceDataDb) -and ((Get-Item $sourceDataDb).Length -gt 5000000)) {
+    Write-Host "    [Note] Master JSON not present (fresh git clone); using tracked full encrypted data\mlc_thatpon.db..." -ForegroundColor Cyan
+    Copy-Item $sourceDataDb $outDbPath -Force
+    $repoInstance = New-Object MyanmarSpellChecker.Core.Dictionary.EncryptedDictionaryRepository($outDbPath)
+} else {
+    throw "Full dictionary source not found! Expected data\mlc_thatpon.db (>5 MB) or data\mlc_thatpon_master.json."
 }
 
-$password = "MM-GOV-THATPON-SQLCIPHER-2026!"
-$repoInstance = New-Object MyanmarSpellChecker.Core.Dictionary.EncryptedDictionaryRepository($outDbPath)
-$repoInstance.CompileEncryptedDatabase($password, $masterModel)
 $verifiedTrie = $repoInstance.LoadIntoTrie($password)
+if ($verifiedTrie.WordCount -lt 50000) {
+    throw "Refusing to package incomplete seed database ($($verifiedTrie.WordCount) words < 50,000 minimum)!"
+}
 
 Copy-Item $outDbPath (Join-Path $artifactsDir "mlc_thatpon.db") -Force
-Write-Host "[+] Encrypted Database compiled & verified: $outDbPath ($($verifiedTrie.WordCount) unique headwords, $($verifiedTrie.RuleCount) rules, $($verifiedTrie.ContextualRuleCount) context rules, $($verifiedTrie.BigramCount) bigrams)" -ForegroundColor Green
+Write-Host "[+] Encrypted Database verified: $outDbPath ($($verifiedTrie.WordCount) unique headwords, $($verifiedTrie.RuleCount) rules, $($verifiedTrie.ContextualRuleCount) context rules, $($verifiedTrie.BigramCount) bigrams)" -ForegroundColor Green
 
 # 3. Export Enterprise CA Certificate & Sync mlc_thatpon.db / license.lic + Sign Package DLLs
 Write-Host "[3/5] Verifying Release Package Signatures & Syncing Dictionary..." -ForegroundColor Cyan
@@ -234,6 +247,32 @@ exit /b 0
 '@
 
 Set-Content -Path (Join-Path $releasePkgDir "Install-MinistryGPO.cmd") -Value $installCmd -Encoding ASCII
+
+# Also bundle 1-Click Non-Technical User Installer (Easy-Setup.ps1 + Install-EasyUser.bat + Uninstall-EasyUser.bat)
+$easySetupSrc = Join-Path $PSScriptRoot "Easy-Setup.ps1"
+if (Test-Path $easySetupSrc) {
+    Copy-Item $easySetupSrc (Join-Path $releasePkgDir "Easy-Setup.ps1") -Force
+}
+
+$easyBat = @'
+@echo off
+REM ============================================================================
+REM 1-Click Friendly Setup (No Admin, No Git, No .NET SDK Needed!)
+REM Double-click this file to install for Microsoft Word & Microsoft Excel
+REM ============================================================================
+setlocal
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Easy-Setup.ps1"
+exit /b %ERRORLEVEL%
+'@
+Set-Content -Path (Join-Path $releasePkgDir "Install-EasyUser.bat") -Value $easyBat -Encoding ASCII
+
+$easyUninstBat = @'
+@echo off
+setlocal
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Easy-Setup.ps1" -Uninstall
+exit /b %ERRORLEVEL%
+'@
+Set-Content -Path (Join-Path $releasePkgDir "Uninstall-EasyUser.bat") -Value $easyUninstBat -Encoding ASCII
 
 Write-Host "[5/5] Unified Office Suite Release Package Ready at: $releasePkgDir" -ForegroundColor Green
 Get-ChildItem $releasePkgDir | Select-Object Name, Length

@@ -227,7 +227,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             _cardsPanel.ResumeLayout();
         }
 
-        private void RenderDictionarySearchResults(string query, List<DictionaryEntry> matches, double elapsedMs = 0.0)
+        private const int InitialDictionaryRenderLimit = 15;
+
+        private void RenderDictionarySearchResults(string query, List<DictionaryEntry> matches, double elapsedMs = 0.0, int maxRender = InitialDictionaryRenderLimit)
         {
             _cardsPanel.SuspendLayout();
             DisposeAndClearCardsPanel();
@@ -263,8 +265,10 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 return;
             }
 
-            foreach (var entry in matches)
+            int takeCount = Math.Min(matches.Count, maxRender);
+            for (int mi = 0; mi < takeCount; mi++)
             {
+                var entry = matches[mi];
                 bool isEncyc = entry.IsEncyclopediaEntry;
                 bool isProverb = entry.IsProverbOrSayingEntry;
                 bool isRefPhrase = entry.IsReferenceEntry;
@@ -628,6 +632,21 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 card.Controls.Add(dictActions, 0, dRow++);
 
                 _cardsPanel.Controls.Add(card);
+            }
+
+            if (matches.Count > takeCount)
+            {
+                int remaining = matches.Count - takeCount;
+                var moreBtn = CreatePillButton(
+                    $"▾ နောက်ထပ် ရလဒ် ({remaining}) ခု ဆက်လက်ပြသရန်",
+                    Color.FromArgb(235, 243, 255),
+                    Color.FromArgb(20, 74, 162),
+                    Color.FromArgb(190, 212, 246),
+                    _fontSmallBold);
+                moreBtn.Width = cardWidth;
+                moreBtn.Margin = new Padding(0, 2, 0, 8);
+                moreBtn.Click += (s, e) => RenderDictionarySearchResults(query, matches, elapsedMs, takeCount + 30);
+                _cardsPanel.Controls.Add(moreBtn);
             }
 
             _cardsPanel.ResumeLayout();

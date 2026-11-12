@@ -302,6 +302,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 }
 
                 // Remove stale cached issues inside the edited Areas
+                int removedCount = 0;
                 foreach (Excel.Range area in effective.Areas)
                 {
                     int rStart = area.Row;
@@ -309,7 +310,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                     int rEnd = rStart + area.Rows.Count - 1;
                     int cEnd = cStart + area.Columns.Count - 1;
 
-                    existingList.RemoveAll(item =>
+                    removedCount += existingList.RemoveAll(item =>
                         string.Equals(item.SheetName, sheetName, StringComparison.OrdinalIgnoreCase) &&
                         item.Row >= rStart && item.Row <= rEnd &&
                         item.Column >= cStart && item.Column <= cEnd);
@@ -327,8 +328,13 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 }
 
                 _qualityByWorkbook.Remove(wbName);
-                SyncVisualUnderlinesForWorkbook(wb, wbName, preserveSavedState: false);
-                ScanCompleted?.Invoke(existingList);
+                SyncVisualUnderlinesForEditedRange(wb, ws, wbName, sheetName, effective, freshIssues);
+
+                // Avoid tearing down and recreating WinForms Task Pane cards when a clean cell stays clean (0 -> 0 delta)
+                if (removedCount > 0 || freshIssues.Count > 0)
+                {
+                    ScanCompleted?.Invoke(existingList);
+                }
             }
             catch (COMException ex) when (IsTransientExcelBusyComError(ex))
             {
@@ -1723,6 +1729,127 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             }
 
             return restoredCount;
+        }
+
+        private void SyncVisualUnderlinesForEditedRange(
+            Excel.Workbook wb,
+            Excel.Worksheet ws,
+            string wbName,
+            string sheetName,
+            Excel.Range effective,
+            List<SpreadsheetCellIssue> freshIssues)
+        {
+            if (!IsVisualUnderlineEnabled)
+                return;
+
+            _markedCellsByWorkbook.TryGetValue(wbName, out var existingMarks);
+
+            // Collect any previously marked cells inside the edited areas that may need restoration/update
+            var staleKeysInEdit = new List<string>();
+            if (existingMarks != null && existingMarks.Count > 0)
+            {
+                foreach (Excel.Range area in effective.Areas)
+                {
+                    int rStart = area.Row;
+                    int cStart = area.Column;
+                    int rEnd = rStart + area.Rows.Count - 1;
+                    int cEnd = cStart + area.Columns.Count - 1;
+
+                    foreach (var kv in existingMarks)
+                    {
+                        if (string.Equals(kv.Value.SheetName, sheetName, StringComparison.OrdinalIgnoreCase) &&
+                            kv.Value.Row >= rStart && kv.Value.Row <= rEnd &&
+                            kv.Value.Column >= cStart && kv.Value.Column <= cEnd)
+                        {
+                            staleKeysInEdit.Add(kv.Key);
+                        }
+                    }
+                }
+            }
+
+            // Fast zero-COM-write exit when edited cell(s) have 0 fresh issues and had no prior underlines!
+            if (freshIssues.Count == 0 && staleKeysInEdit.Count == 0)
+                return;
+
+            if (existingMarks == null)
+            {
+                existingMarks = new Dictionary<string, MarkedCellBaseline>(StringComparer.OrdinalIgnoreCase);
+                _markedCellsByWorkbook[wbName] = existingMarks;
+            }
+
+            var freshByCellKey = new Dictionary<string, List<SpreadsheetCellIssue>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var issue in freshIssues)
+            {
+                if (issue.IsResolved)
+                    continue;
+                string key = MakeCellKey(issue.SheetName, issue.Row, issue.Column);
+                if (!freshByCellKey.TryGetValue(key, out var list))
+                {
+                    list = new List<SpreadsheetCellIssue>(2);
+                    freshByCellKey[key] = list;
+                }
+                list.Add(issue);
+            }
+
+            bool isProtected = false;
+            try { isProtected = ws.ProtectContents; } catch { }
+
+            WithExcelWriteGuard(() =>
+            {
+                // 1. Restore any previously marked cell in the edited area that now has 0 issues
+                foreach (string staleKey in staleKeysInEdit)
+                {
+                    if (freshByCellKey.ContainsKey(staleKey))
+                        continue;
+
+                    if (existingMarks.TryGetValue(staleKey, out var mark))
+                    {
+                        try
+                        {
+                            Excel.Range cell = (Excel.Range)ws.Cells[mark.Row, mark.Column];
+                            if (!(isProtected && IsCellLockedSafe(cell)))
+                            {
+                                RestoreCellBaselineFormatting(cell, mark);
+                            }
+                        }
+                        catch { }
+                        existingMarks.Remove(staleKey);
+                    }
+                }
+
+                // 2. Apply underlines only to the newly flagged edited cell(s)
+                foreach (var kv in freshByCellKey)
+                {
+                    string cellKey = kv.Key;
+                    List<SpreadsheetCellIssue> cellIssues = kv.Value;
+                    int row = cellIssues[0].Row;
+                    int col = cellIssues[0].Column;
+
+                    try
+                    {
+                        Excel.Range cell = (Excel.Range)ws.Cells[row, col];
+                        if ((isProtected && IsCellLockedSafe(cell)) || IsSingleCellFormula(cell))
+                            continue;
+
+                        string? liveText = cell.Value2 as string;
+                        if (string.IsNullOrEmpty(liveText))
+                            continue;
+
+                        if (!existingMarks.TryGetValue(cellKey, out var mark))
+                        {
+                            mark = CaptureCellBaseline(cell, sheetName, row, col);
+                            existingMarks[cellKey] = mark;
+                        }
+                        else
+                        {
+                            RestoreCellBaselineFormatting(cell, mark);
+                        }
+
+                        ApplyUnderlinesToSingleCell(cell, liveText!, cellIssues);
+                    }
+                    catch { }
+                }
+            });
         }
 
         private void SyncVisualUnderlinesForWorkbook(Excel.Workbook wb, string wbName, bool preserveSavedState)

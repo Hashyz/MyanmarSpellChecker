@@ -71,6 +71,22 @@ namespace MyanmarSpellChecker.Core.Nlp
             return GetSuggestionsInternal(misspelledWord, maxResults, allowCompositional: true);
         }
 
+        private static bool HasMyanmarBaseCharacter(string s)
+        {
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if ((c >= '\u1000' && c <= '\u102A') ||
+                    c == '\u103F' ||
+                    (c >= '\u1040' && c <= '\u1049') ||
+                    (c >= '\u104C' && c <= '\u104F'))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private List<SuggestionCandidate> GetSuggestionsInternal(string misspelledWord, int maxResults, bool allowCompositional)
         {
             var results = new List<SuggestionCandidate>();
@@ -101,6 +117,14 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             // 2. Check lookalike character fix (၀ -> ဝ, ၄င်း -> ၎င်း, ဥ် -> ဉ်, ဓါတ် -> ဓာတ်, ကင်းစီး င်္)
             string lookalikeFixed = UnicodeNormalizer.FixLookalikeCharacters(normalized);
+
+            // Fast short-circuit (~0.001ms): lone combining marks (e.g. dangling pre-base 'ေ' \u1031, bare 'ြ'/'ျ'/'ွ'/'ါ'/'း' mid-keystroke)
+            // have no consonant/vowel base yet, so never scan 25,000 dictionary words for them!
+            if (!hasExplicitWrongRule && results.Count == 0 && !HasMyanmarBaseCharacter(lookalikeFixed))
+            {
+                return results;
+            }
+
             if (lookalikeFixed != normalized && _trie.ContainsExactWord(lookalikeFixed))
             {
                 AddOrUpdateEnrichedCandidate(results, rawTrimmed, lookalikeFixed, 99.6);
@@ -187,21 +211,27 @@ namespace MyanmarSpellChecker.Core.Nlp
                 SynthesizeCompositionalCandidates(results, rawTrimmed, normalized, spanSyllables);
             }
 
-            // 7. Relaxed Fallback Search when an unusual OOV token still has zero matches
-            if (allowCompositional && results.Count == 0 && lookalikeFixed.Length >= 1 && lookalikeFixed.Length <= 12)
+            // 7. Relaxed Fallback Search when an unusual OOV token still has zero matches (skip single-codepoint fragments)
+            if (allowCompositional && results.Count == 0 && lookalikeFixed.Length >= 2 && lookalikeFixed.Length <= 12)
             {
                 int targetLen = lookalikeFixed.Length;
+                char f0 = lookalikeFixed[0];
+                char fLast = lookalikeFixed[targetLen - 1];
                 foreach (var entry in _trie.GetEntriesByLengthWindow(targetLen, maxLengthDelta: 3))
                 {
                     if (entry.Word == normalized || entry.Frequency < 2)
                         continue;
 
-                    double dist = ComputeWeightedMyanmarDistance(lookalikeFixed, entry.Word, 2.60);
+                    string ew = entry.Word;
+                    if (targetLen <= 2 && ew[0] != f0 && ew[ew.Length - 1] != fLast && GetSubstitutionCost(f0, ew[0]) > 0.65)
+                        continue;
+
+                    double dist = ComputeWeightedMyanmarDistance(lookalikeFixed, ew, 2.60);
                     if (dist <= 2.60)
                     {
                         double freqBonus = Math.Min(7.5, Math.Log10(entry.Frequency + 1) * 2.2);
                         double score = Math.Max(42.0, 84.0 - dist * 9.5 + freqBonus + (entry.IsOfficialThatpon ? 1.5 : 0.0));
-                        AddOrUpdateEnrichedCandidate(results, rawTrimmed, entry.Word, score);
+                        AddOrUpdateEnrichedCandidate(results, rawTrimmed, ew, score);
                     }
                 }
             }
@@ -266,6 +296,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return;
 
             string norm = UnicodeNormalizer.NormalizeCanonicalOrder(raw);
+            if (!HasMyanmarBaseCharacter(norm) && issue.Suggestions.Count == 0)
+                return;
 
             // 1. If an issue somehow arrived with 0 suggestions, synthesize candidates immediately
             if (issue.Suggestions.Count == 0)

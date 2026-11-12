@@ -193,7 +193,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             Font = _fontBody;
             Dock = DockStyle.Fill;
 
-            _searchDebounceTimer = new Timer { Interval = 140 };
+            _searchDebounceTimer = new Timer { Interval = 250 };
             _searchDebounceTimer.Tick += (s, e) =>
             {
                 _searchDebounceTimer.Stop();
@@ -937,19 +937,54 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             _toastTimer.Start();
         }
 
+        private bool _hasRenderedProofingOnce;
+
+        private static string BuildIssuesUiSignature(IReadOnlyList<DocumentProofingItem> activeItems)
+        {
+            if (activeItems.Count == 0)
+                return "EMPTY";
+
+            var sb = new System.Text.StringBuilder(activeItems.Count * 24);
+            sb.Append(activeItems.Count);
+            int cap = Math.Min(activeItems.Count, 80);
+            for (int i = 0; i < cap; i++)
+            {
+                var it = activeItems[i];
+                sb.Append('|').Append(it.CachedStart).Append(':').Append(it.Issue.OriginalText).Append(':').Append((int)it.Issue.IssueType);
+            }
+            return sb.ToString();
+        }
+
         public void RenderIssues(IReadOnlyList<DocumentProofingItem> items)
         {
+            bool wasScanning = _isScanning;
             _isScanning = false;
-            _visibleIssueCardLimit = ProofingCardBatchSize;
-            _allItems = items != null
+
+            var prevActive = _allItems.Where(i => !i.IsResolved).ToList();
+            var nextList = items != null
                 ? items.Where(i => !i.IsResolved).ToList()
                 : new List<DocumentProofingItem>();
 
+            bool unchanged = _hasRenderedProofingOnce &&
+                             !wasScanning &&
+                             _activeTab == TaskPaneWorkspaceTab.Proofing &&
+                             _cardsPanel.Controls.Count > 0 &&
+                             string.Equals(BuildIssuesUiSignature(prevActive), BuildIssuesUiSignature(nextList), StringComparison.Ordinal);
+
+            _allItems = nextList;
             UpdateWorkspaceTabStyles();
             UpdateFilterButtonStyles();
 
+            if (unchanged)
+            {
+                UpdateProofingSummaryText(GetActiveFilteredItems().Count);
+                return;
+            }
+
+            _visibleIssueCardLimit = ProofingCardBatchSize;
             if (_activeTab == TaskPaneWorkspaceTab.Proofing)
             {
+                _hasRenderedProofingOnce = true;
                 RefreshProofingCardsFull();
             }
         }

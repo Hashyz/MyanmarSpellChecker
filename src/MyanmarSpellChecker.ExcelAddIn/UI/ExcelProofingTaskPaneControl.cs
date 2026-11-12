@@ -204,7 +204,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             Font = _fontBody;
             Dock = DockStyle.Fill;
 
-            _searchDebounceTimer = new Timer { Interval = 140 };
+            _searchDebounceTimer = new Timer { Interval = 250 };
             _searchDebounceTimer.Tick += (s, e) =>
             {
                 _searchDebounceTimer.Stop();

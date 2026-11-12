@@ -44,20 +44,23 @@ This project is open-source software licensed under the **[GNU General Public Li
 
 ### Step 1 — Install & Register the Add-in (Word + Excel)
 
-1. **Clone the repository and build Release binaries:**
+#### Option A — 1-Click Friendly Setup (Recommended for All Users / Non-Technical Users)
+1. **Close Microsoft Word and Microsoft Excel** (save any open documents first).
+2. **Double-click `Install-MyanmarSpellChecker.bat`** in the project folder *(or if you downloaded the pre-built Release `.zip` package, extract the `.zip` and double-click **`Install-EasyUser.bat`** — **no PowerShell commands, no `.NET SDK`, and no Administrator password required!**)*.
+3. A friendly confirmation popup (`✓ အောင်မြင်စွာ ထည့်သွင်းပြီးပါပြီ!`) will appear once the **12.44 MB (`89,578` headwords / `118,664` entries)** offline dictionary and both Word + Excel Add-ins are installed into `%LocalAppData%\MyanmarSpellChecker\app`.
+4. **Open Microsoft Word or Microsoft Excel** — you will see the **`မြန်မာစာ စစ်ဆေးရေး`** Ribbon tab and the **4-Tab Myanmar Proofing Task Pane** docked on the right!
+
+#### Option B — Developer CLI Setup (From `git clone`)
+1. **Clone and build Release binaries** (`data\mlc_thatpon.db` is tracked directly in Git and automatically copied to `bin\Release\net48\`):
    ```powershell
    git clone https://github.com/Hashyz/MyanmarSpellChecker.git
    cd MyanmarSpellChecker
    dotnet build .\MyanmarSpellChecker.sln -c Release
-   ```
-2. **Close Microsoft Word and Microsoft Excel**, then run the Zero-Admin installer script (registers both Word and Excel COM Add-ins under your current Windows user and deploys `data\mlc_thatpon.db` automatically):
-   ```powershell
    powershell -NoProfile -ExecutionPolicy Bypass -File .\installer\Register-DevAddIn.ps1
    ```
-   *(Optional — for IT / Ministry-wide deployment across all users on a PC, run `Build-EnterpriseRelease.ps1` and execute `artifacts\release-package\Install-MinistryGPO.cmd` as Administrator.)*
-3. **Open Microsoft Word or Microsoft Excel** — you will see a new top Ribbon tab named **`မြန်မာစာ စစ်ဆေးရေး`** and the **4-Tab Myanmar Proofing Task Pane** docked on the right!
+   *(Optional — for IT / Ministry-wide deployment across all users on a PC, run `Build-EnterpriseRelease.ps1` and execute `artifacts\release-package\Install-MinistryGPO.cmd` as Administrator, or share the generated `artifacts\release-package` folder as a `.zip` with `Install-EasyUser.bat`.)*
 
-> **Tip (If the Ribbon Tab Does Not Appear):** In Word or Excel, go to **File ➔ Options ➔ Add-ins ➔ Manage: COM Add-ins ➔ Go...**, check **`Myanmar Official Spell & Grammar Suite`**, and click **OK**.
+> **Tip (If the Ribbon Tab Does Not Appear):** In Word or Excel, go to **File ➔ Options ➔ Add-ins ➔ Manage: COM Add-ins ➔ Go...**, check **`Myanmar Official Spell Checker`**, and click **OK**.
 
 ---
 
@@ -120,10 +123,11 @@ The Excel Add-in provides **In-Cell Color-Coded Underlines + Formula-Safe Cell-b
 ---
 
 ### Step 4 — Uninstalling or Updating
-```powershell
-# Unregister COM Add-ins from Word & Excel cleanly
-powershell -NoProfile -ExecutionPolicy Bypass -File .\installer\Register-DevAddIn.ps1 -Unregister
-```
+- **1-Click Friendly Uninstall:** Close Word & Excel and double-click **`Uninstall-MyanmarSpellChecker.bat`** (or `Uninstall-EasyUser.bat`).
+- **Developer CLI Uninstall:**
+  ```powershell
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\installer\Register-DevAddIn.ps1 -Unregister
+  ```
 
 ---
 

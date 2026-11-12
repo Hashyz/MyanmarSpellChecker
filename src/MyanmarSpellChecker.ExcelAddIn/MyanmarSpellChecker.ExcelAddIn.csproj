@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\MyanmarSpellChecker.Core\MyanmarSpellChecker.Core.csproj" />
+    <None Include="..\..\data\mlc_thatpon.db" Link="mlc_thatpon.db" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\data\mlc_thatpon.db')" />
   </ItemGroup>
 
   <ItemGroup>
