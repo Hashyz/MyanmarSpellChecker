@@ -531,7 +531,7 @@ namespace MyanmarSpellChecker.WordAddIn
             {
                 _lastCheckedLangDocPos = -1;
                 GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
-                _documentScanner?.ScanFullDocumentAsync();
+                _documentScanner?.ScheduleDeferredFullDocumentScan(320);
             });
         }
 
@@ -716,7 +716,6 @@ namespace MyanmarSpellChecker.WordAddIn
 
         private void WireTaskPaneControlEvents(ProofingTaskPaneControl ctrl)
         {
-            ctrl.RequestFullDocumentScan += () => _documentScanner?.ScanFullDocumentAsync();
             ctrl.RequestFullDocumentScan += TriggerManualDocumentScanWithHotReload;
             ctrl.RequestFixAllIssues += ExecuteFixAllInActiveDocument;
             ctrl.RequestClearUnderlines += () =>
@@ -1041,7 +1040,6 @@ namespace MyanmarSpellChecker.WordAddIn
             var cached = _documentScanner.GetCachedIssues(doc);
             var candidates = cached
                 .Where(i => !i.IsResolved &&
-                            i.TargetRange != null &&
                             i.Issue.Suggestions != null &&
                             i.Issue.Suggestions.Count > 0 &&
                             predicate(i))
@@ -1092,6 +1090,9 @@ namespace MyanmarSpellChecker.WordAddIn
 
         private static string TryExtractWordParagraphSnippet(DocumentProofingItem item)
         {
+            if (!string.IsNullOrWhiteSpace(item.ParagraphSnippet))
+                return item.ParagraphSnippet;
+
             try
             {
                 if (item.TargetRange != null && item.TargetRange.Paragraphs.Count > 0)
@@ -1099,7 +1100,10 @@ namespace MyanmarSpellChecker.WordAddIn
                     string raw = item.TargetRange.Paragraphs[1].Range.Text ?? string.Empty;
                     string cleaned = raw.Replace("\r", " ").Replace("\a", " ").Replace("\n", " ").Trim();
                     if (!string.IsNullOrEmpty(cleaned))
+                    {
+                        item.ParagraphSnippet = cleaned;
                         return cleaned;
+                    }
                 }
             }
             catch { }
@@ -1335,7 +1339,6 @@ namespace MyanmarSpellChecker.WordAddIn
             AddInDiagnostics.SafeExecute("OnRibbonScanDocument", () =>
             {
                 GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
-                _documentScanner?.ScanFullDocumentAsync();
                 TriggerManualDocumentScanWithHotReload();
             });
         }
@@ -1344,6 +1347,11 @@ namespace MyanmarSpellChecker.WordAddIn
         {
             if (_proofingEngine == null || _documentScanner == null)
                 return;
+
+            if (!string.IsNullOrEmpty(_customDictFilePath) && File.Exists(_customDictFilePath))
+            {
+                _proofingEngine.LoadCustomDictionaryFile(_customDictFilePath);
+            }
 
             string dbPath = _databaseFilePath;
             if (!string.IsNullOrWhiteSpace(dbPath) &&

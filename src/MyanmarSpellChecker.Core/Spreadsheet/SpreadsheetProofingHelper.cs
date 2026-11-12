@@ -8,6 +8,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
@@ -292,15 +294,17 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
             object? rawValue2Block,
             object? rawFormulaBlock,
             bool? blockHasFormula,
-            Dictionary<string, IReadOnlyList<ProofingIssue>>? sharedCellMemo = null)
+            Dictionary<string, IReadOnlyList<ProofingIssue>>? sharedCellMemo = null,
+            CancellationToken cancellationToken = default)
         {
             if (engine == null)
                 throw new ArgumentNullException(nameof(engine));
 
             var results = new List<SpreadsheetCellIssue>();
-            if (rowCount <= 0 || colCount <= 0 || blockHasFormula == true || rawValue2Block == null)
+            if (rowCount <= 0 || colCount <= 0 || blockHasFormula == true || rawValue2Block == null || cancellationToken.IsCancellationRequested)
                 return results;
 
+            const int MaxMemoEntries = 32768;
             var memo = sharedCellMemo ?? new Dictionary<string, IReadOnlyList<ProofingIssue>>(StringComparer.Ordinal);
 
             var valArray = rawValue2Block as object?[,];
@@ -311,8 +315,75 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
             int fmlRowLb = fmlArray?.GetLowerBound(0) ?? 0;
             int fmlColLb = fmlArray?.GetLowerBound(1) ?? 0;
 
+            // Multi-core distinct-string prewarm for large 2D blocks (>= 512 cells) so sheets with thousands of unique Myanmar rows finish in milliseconds
+            if (valArray != null && (long)rowCount * colCount >= 512 && Environment.ProcessorCount > 1)
+            {
+                HashSet<string>? distinctSet = null;
+                List<string>? unseenList = null;
+
+                for (int r = 0; r < rowCount; r++)
+                {
+                    if ((r & 63) == 0 && cancellationToken.IsCancellationRequested)
+                        return results;
+
+                    for (int c = 0; c < colCount; c++)
+                    {
+                        object? cellVal = valArray[valRowLb + r, valColLb + c];
+                        if (!(cellVal is string s) || s.Length == 0 || s.Length > 800 || memo.ContainsKey(s))
+                            continue;
+
+                        if (!ShouldInspectCellText(s, out string cellText))
+                            continue;
+
+                        object? cellFml = fmlArray != null ? fmlArray[fmlRowLb + r, fmlColLb + c] : null;
+                        if (IsFormulaCell(cellVal, cellFml, blockHasFormula))
+                            continue;
+
+                        distinctSet ??= new HashSet<string>(StringComparer.Ordinal);
+                        if (distinctSet.Add(cellText))
+                        {
+                            unseenList ??= new List<string>(128);
+                            unseenList.Add(cellText);
+                        }
+                    }
+                }
+
+                if (unseenList != null && unseenList.Count >= 32)
+                {
+                    var computed = new IReadOnlyList<ProofingIssue>[unseenList.Count];
+                    int maxDegree = Math.Min(Environment.ProcessorCount, 6);
+                    Parallel.For(
+                        0,
+                        unseenList.Count,
+                        new ParallelOptions { MaxDegreeOfParallelism = maxDegree },
+                        (idx, loopState) =>
+                        {
+                            if (cancellationToken.IsCancellationRequested)
+                            {
+                                loopState.Stop();
+                                return;
+                            }
+                            computed[idx] = engine.CheckText(unseenList[idx]);
+                        });
+
+                    if (cancellationToken.IsCancellationRequested)
+                        return results;
+
+                    for (int idx = 0; idx < unseenList.Count && memo.Count < MaxMemoEntries; idx++)
+                    {
+                        if (computed[idx] != null)
+                        {
+                            memo[unseenList[idx]] = computed[idx];
+                        }
+                    }
+                }
+            }
+
             for (int r = 0; r < rowCount; r++)
             {
+                if ((r & 63) == 0 && cancellationToken.IsCancellationRequested)
+                    return results;
+
                 for (int c = 0; c < colCount; c++)
                 {
                     object? cellVal = valArray != null
@@ -330,12 +401,12 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                         continue;
 
                     IReadOnlyList<ProofingIssue> cellIssues;
-                    if (cellText.Length <= 400)
+                    if (cellText.Length <= 800)
                     {
                         if (!memo.TryGetValue(cellText, out cellIssues!))
                         {
                             cellIssues = engine.CheckText(cellText);
-                            if (memo.Count < 8192)
+                            if (memo.Count < MaxMemoEntries)
                             {
                                 memo[cellText] = cellIssues;
                             }

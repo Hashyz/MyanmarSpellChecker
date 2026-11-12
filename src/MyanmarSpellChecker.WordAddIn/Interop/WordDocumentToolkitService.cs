@@ -109,32 +109,35 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 if (paraRange == null)
                     continue;
 
-                Word.Range? bodyRange = TrimTrailingParagraphAndCellMarkers(paraRange);
-                if (bodyRange == null || bodyRange.Start >= bodyRange.End)
-                    continue;
-
-                string rawText = bodyRange.Text ?? string.Empty;
+                string rawWithMarkers;
+                try { rawWithMarkers = paraRange.Text ?? string.Empty; } catch { continue; }
+                string rawText = TrimTrailingMarkersString(rawWithMarkers);
                 if (string.IsNullOrWhiteSpace(rawText))
                     continue;
 
                 string paraFont = string.Empty;
-                try { paraFont = bodyRange.Font.Name ?? string.Empty; } catch { }
+                try { paraFont = paraRange.Font.Name ?? string.Empty; } catch { }
 
                 if (!string.IsNullOrEmpty(paraFont))
                 {
-                    // Uniform font across the entire paragraph
+                    // Uniform font across the entire paragraph — check in pure C# BEFORE allocating Range.Duplicate!
                     bool isWinLegacy = LegacyMyanmarFontConverter.IsLegacyAsciiMyanmarFont(paraFont);
                     bool isZawgyi = !isWinLegacy && (LegacyMyanmarFontConverter.IsZawgyiFont(paraFont) || UnicodeNormalizer.IsZawgyiText(rawText));
                     if (!isWinLegacy && !isZawgyi)
                         continue;
 
-                    string converted = isWinLegacy
-                        ? LegacyMyanmarFontConverter.ConvertWinInnwaToUnicode(rawText)
-                        : LegacyMyanmarFontConverter.ConvertSegmentToPyidaungsu(rawText, paraFont, out _);
+                    Word.Range? bodyRange = TrimTrailingParagraphAndCellMarkers(paraRange);
+                    if (bodyRange == null || bodyRange.Start >= bodyRange.End)
+                        continue;
 
-                    if (!string.Equals(converted, rawText, StringComparison.Ordinal) || isWinLegacy || LegacyMyanmarFontConverter.IsZawgyiFont(paraFont))
+                    string bodyRaw = bodyRange.Text ?? string.Empty;
+                    string converted = isWinLegacy
+                        ? LegacyMyanmarFontConverter.ConvertWinInnwaToUnicode(bodyRaw)
+                        : LegacyMyanmarFontConverter.ConvertSegmentToPyidaungsu(bodyRaw, paraFont, out _);
+
+                    if (!string.Equals(converted, bodyRaw, StringComparison.Ordinal) || isWinLegacy || LegacyMyanmarFontConverter.IsZawgyiFont(paraFont))
                     {
-                        if (!string.Equals(converted, rawText, StringComparison.Ordinal))
+                        if (!string.Equals(converted, bodyRaw, StringComparison.Ordinal))
                         {
                             bodyRange.Text = converted;
                         }
@@ -146,9 +149,13 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 else
                 {
                     // Mixed fonts inside the paragraph (e.g. Calibri English + WinInnwa/Zawgyi Burmese).
-                    // Collect contiguous font-uniform character spans and apply conversions from END to START
-                    // so earlier range offsets never shift!
-                    changed += ConvertMixedFontParagraphSpansBackwards(bodyRange);
+                    // Collect contiguous font-uniform spans via Words first (falling back to Characters only on mixed-font words)
+                    // and apply conversions from END to START so earlier range offsets never shift!
+                    Word.Range? bodyRange = TrimTrailingParagraphAndCellMarkers(paraRange);
+                    if (bodyRange != null && bodyRange.Start < bodyRange.End)
+                    {
+                        changed += ConvertMixedFontParagraphSpansBackwards(bodyRange);
+                    }
                 }
             }
 
@@ -157,46 +164,116 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
         private static int ConvertMixedFontParagraphSpansBackwards(Word.Range bodyRange)
         {
-            Word.Characters? chars = null;
-            try { chars = bodyRange.Characters; } catch { return 0; }
-            if (chars == null)
-                return 0;
-
-            int charCount = chars.Count;
-            if (charCount <= 0)
-                return 0;
-
             var spans = new List<(int Start, int End, string FontName)>();
             int curStart = -1;
             int curEnd = -1;
             string curFont = string.Empty;
 
-            for (int c = 1; c <= charCount; c++)
+            void AppendUniformSpan(int s, int e, string fn)
             {
-                Word.Range? chRange = null;
-                try { chRange = chars[c]; } catch { continue; }
-                if (chRange == null)
-                    continue;
-
-                string fn = string.Empty;
-                try { fn = chRange.Font.Name ?? string.Empty; } catch { }
+                if (e <= s)
+                    return;
 
                 if (curStart < 0)
                 {
-                    curStart = chRange.Start;
-                    curEnd = chRange.End;
+                    curStart = s;
+                    curEnd = e;
                     curFont = fn;
                 }
-                else if (string.Equals(fn, curFont, StringComparison.OrdinalIgnoreCase) && chRange.Start == curEnd)
+                else if (string.Equals(fn, curFont, StringComparison.OrdinalIgnoreCase) && s == curEnd)
                 {
-                    curEnd = chRange.End;
+                    curEnd = e;
                 }
                 else
                 {
                     spans.Add((curStart, curEnd, curFont));
-                    curStart = chRange.Start;
-                    curEnd = chRange.End;
+                    curStart = s;
+                    curEnd = e;
                     curFont = fn;
+                }
+            }
+
+            bool collectedViaWords = false;
+            try
+            {
+                Word.Words? words = bodyRange.Words;
+                if (words != null)
+                {
+                    int bodyEnd = bodyRange.End;
+                    int wCount = words.Count;
+                    for (int w = 1; w <= wCount; w++)
+                    {
+                        Word.Range? wRange = null;
+                        try { wRange = words[w]; } catch { continue; }
+                        if (wRange == null)
+                            continue;
+
+                        int ws = wRange.Start;
+                        int we = Math.Min(wRange.End, bodyEnd);
+                        if (we <= ws)
+                            continue;
+
+                        string? wFont = null;
+                        try { wFont = wRange.Font.Name; } catch { wFont = string.Empty; }
+
+                        if (!string.IsNullOrEmpty(wFont))
+                        {
+                            AppendUniformSpan(ws, we, wFont!);
+                        }
+                        else
+                        {
+                            // Sub-word mixed font — inspect characters only inside this word
+                            Word.Characters? subChars = null;
+                            try { subChars = wRange.Characters; } catch { }
+                            if (subChars != null)
+                            {
+                                int scCount = subChars.Count;
+                                for (int c = 1; c <= scCount; c++)
+                                {
+                                    Word.Range? chRange = null;
+                                    try { chRange = subChars[c]; } catch { continue; }
+                                    if (chRange == null || chRange.Start >= bodyEnd)
+                                        continue;
+                                    string fn = string.Empty;
+                                    try { fn = chRange.Font.Name ?? string.Empty; } catch { }
+                                    AppendUniformSpan(chRange.Start, Math.Min(chRange.End, bodyEnd), fn);
+                                }
+                            }
+                        }
+                    }
+                    collectedViaWords = true;
+                }
+            }
+            catch
+            {
+                spans.Clear();
+                curStart = -1;
+                curEnd = -1;
+                curFont = string.Empty;
+                collectedViaWords = false;
+            }
+
+            if (!collectedViaWords)
+            {
+                Word.Characters? chars = null;
+                try { chars = bodyRange.Characters; } catch { return 0; }
+                if (chars == null)
+                    return 0;
+
+                int charCount = chars.Count;
+                if (charCount <= 0)
+                    return 0;
+
+                for (int c = 1; c <= charCount; c++)
+                {
+                    Word.Range? chRange = null;
+                    try { chRange = chars[c]; } catch { continue; }
+                    if (chRange == null)
+                        continue;
+
+                    string fn = string.Empty;
+                    try { fn = chRange.Font.Name ?? string.Empty; } catch { }
+                    AppendUniformSpan(chRange.Start, chRange.End, fn);
                 }
             }
 
@@ -276,19 +353,24 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     {
                         Word.Range? pRange = null;
                         try { pRange = paras[i].Range; } catch { continue; }
-                        Word.Range? body = TrimTrailingParagraphAndCellMarkers(pRange);
-                        if (body == null || body.Start >= body.End)
+                        if (pRange == null)
                             continue;
 
-                        string raw = body.Text ?? string.Empty;
+                        string rawWithMarkers;
+                        try { rawWithMarkers = pRange.Text ?? string.Empty; } catch { continue; }
+                        string raw = TrimTrailingMarkersString(rawWithMarkers);
                         if (string.IsNullOrEmpty(raw))
                             continue;
 
                         string formatted = MyanmarTypographyFormatter.ConvertNumeralsSmart(raw, toMyanmarDigits, out int digitsConverted);
                         if (digitsConverted > 0 && !string.Equals(formatted, raw, StringComparison.Ordinal))
                         {
-                            body.Text = formatted;
-                            totalDigitsChanged += digitsConverted;
+                            Word.Range? body = TrimTrailingParagraphAndCellMarkers(pRange);
+                            if (body != null && body.Start < body.End)
+                            {
+                                body.Text = formatted;
+                                totalDigitsChanged += digitsConverted;
+                            }
                         }
                     }
                 }
@@ -352,20 +434,25 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     {
                         Word.Range? pRange = null;
                         try { pRange = paras[i].Range; } catch { continue; }
-                        Word.Range? body = TrimTrailingParagraphAndCellMarkers(pRange);
-                        if (body == null || body.Start >= body.End)
+                        if (pRange == null)
                             continue;
 
-                        string raw = body.Text ?? string.Empty;
+                        string rawWithMarkers;
+                        try { rawWithMarkers = pRange.Text ?? string.Empty; } catch { continue; }
+                        string raw = TrimTrailingMarkersString(rawWithMarkers);
                         if (string.IsNullOrEmpty(raw))
                             continue;
 
                         string cleaned = MyanmarTypographyFormatter.FormatPunctuationAndCleanInvisible(raw, out int pFixes, out int zwFixes);
                         if ((pFixes > 0 || zwFixes > 0) && !string.Equals(cleaned, raw, StringComparison.Ordinal))
                         {
-                            body.Text = cleaned;
-                            totalPunctFixes += pFixes;
-                            totalZwRemoved += zwFixes;
+                            Word.Range? body = TrimTrailingParagraphAndCellMarkers(pRange);
+                            if (body != null && body.Start < body.End)
+                            {
+                                body.Text = cleaned;
+                                totalPunctFixes += pFixes;
+                                totalZwRemoved += zwFixes;
+                            }
                         }
                     }
                 }
@@ -566,19 +653,23 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     {
                         try
                         {
-                            Word.Range? cleanPara = TrimTrailingParagraphAndCellMarkers(paras[i].Range);
-                            if (cleanPara == null)
+                            Word.Range? pRange = paras[i].Range;
+                            if (pRange == null)
                                 continue;
 
-                            string raw = cleanPara.Text ?? string.Empty;
+                            string raw = TrimTrailingMarkersString(pRange.Text ?? string.Empty);
                             if (string.IsNullOrWhiteSpace(raw))
                                 continue;
 
                             var rw = MyanmarOfficialRewriter.ConvertToOfficialProse(raw);
                             if (rw.ReplacementCount > 0 && rw.RewrittenText != raw)
                             {
-                                cleanPara.Text = rw.RewrittenText;
-                                totalReplacements += rw.ReplacementCount;
+                                Word.Range? cleanPara = TrimTrailingParagraphAndCellMarkers(pRange);
+                                if (cleanPara != null && cleanPara.Start < cleanPara.End)
+                                {
+                                    cleanPara.Text = rw.RewrittenText;
+                                    totalReplacements += rw.ReplacementCount;
+                                }
                             }
                         }
                         catch
@@ -607,6 +698,24 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             }
 
             return totalReplacements;
+        }
+
+        private static string TrimTrailingMarkersString(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return string.Empty;
+
+            int len = text.Length;
+            while (len > 0)
+            {
+                char ch = text[len - 1];
+                if (ch == '\r' || ch == '\a' || ch == '\n' || ch == '\f' || ch == '\v')
+                    len--;
+                else
+                    break;
+            }
+
+            return len == text.Length ? text : (len == 0 ? string.Empty : text.Substring(0, len));
         }
 
         private static Word.Range? TrimTrailingParagraphAndCellMarkers(Word.Range? range)

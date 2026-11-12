@@ -981,7 +981,10 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 return;
             }
 
-            _visibleIssueCardLimit = ProofingCardBatchSize;
+            if (wasScanning || prevActive.Count == 0 || nextList.Count == 0)
+            {
+                ResetProofingPagination();
+            }
             if (_activeTab == TaskPaneWorkspaceTab.Proofing)
             {
                 _hasRenderedProofingOnce = true;

@@ -417,7 +417,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
                     _scannerToolkit.IsLiveAutoScanEnabled &&
                     _scannerToolkit.CurrentScope == SpreadsheetScanScope.ActiveSheet)
                 {
-                    _scannerToolkit.ScanScope(SpreadsheetScanScope.ActiveSheet);
+                    _scannerToolkit.ScheduleDeferredScanScope(SpreadsheetScanScope.ActiveSheet, 220);
                 }
             });
         }
@@ -442,7 +442,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
             AddInDiagnostics.SafeExecute("OnWorkbookOpen", () =>
             {
                 GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
-                _scannerToolkit?.ScanScope(SpreadsheetScanScope.ActiveSheet);
+                _scannerToolkit?.ScheduleDeferredScanScope(SpreadsheetScanScope.ActiveSheet, 280);
             });
         }
 
@@ -740,7 +740,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
                     return false;
 
                 if (_scannerToolkit != null)
-                    _scannerToolkit.ScanScope(_scannerToolkit.CurrentScope);
+                    _scannerToolkit.ScanScopeAsync(_scannerToolkit.CurrentScope);
                 return true;
             };
 
@@ -932,7 +932,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
                                         freshTrie.ReferenceCount,
                                         freshTrie.EncyclopediaCount);
                                 }
-                                _scannerToolkit.ScanScope(scope);
+                                _scannerToolkit.ScanScopeAsync(scope);
                             }));
                         }
                     }
@@ -941,7 +941,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
                         Control? marshaller = _uiMarshaller;
                         if (marshaller != null && marshaller.IsHandleCreated && !marshaller.IsDisposed)
                         {
-                            marshaller.BeginInvoke(new Action(() => _scannerToolkit?.ScanScope(scope)));
+                            marshaller.BeginInvoke(new Action(() => _scannerToolkit?.ScanScopeAsync(scope)));
                         }
                     }
                     finally
@@ -952,7 +952,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 return;
             }
 
-            _scannerToolkit.ScanScope(scope);
+            _scannerToolkit.ScanScopeAsync(scope);
         }
 
         private bool LoadSavedVisualUnderlineSetting()
@@ -1018,7 +1018,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 return;
 
             _proofingEngine.StyleMode = mode;
-            _scannerToolkit.ScanScope(_scannerToolkit.CurrentScope);
+            _scannerToolkit.ScanScopeAsync(_scannerToolkit.CurrentScope);
         }
 
         private static void SuppressOfficeMissingBurmeseBannerRegistry()

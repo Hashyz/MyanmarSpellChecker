@@ -624,7 +624,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             if (cacheKey != null)
             {
-                if (_paragraphCache.Count > 2048)
+                if (_paragraphCache.Count > 8192)
                 {
                     _paragraphCache.Clear();
                 }

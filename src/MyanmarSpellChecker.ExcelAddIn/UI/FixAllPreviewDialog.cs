@@ -63,6 +63,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private Button _btnConfirm = null!;
         private Button _btnJump = null!;
         private FixPreviewEntry<TPayload>? _selectedEntry;
+        private readonly Timer _searchDebounceTimer;
+        private bool _suppressSelectionChanged;
 
         public Dictionary<TPayload, string> ApprovedReplacements { get; } = new Dictionary<TPayload, string>();
 
@@ -82,9 +84,26 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _fontBadge = UiFontCache.GetMyanmar(8.75f, FontStyle.Bold);
             _fontMono = UiFontCache.GetMonospace(9.0f, FontStyle.Bold);
 
+            _searchDebounceTimer = new Timer { Interval = 150 };
+            _searchDebounceTimer.Tick += (s, e) =>
+            {
+                _searchDebounceTimer.Stop();
+                ApplySearchFilter();
+            };
+
             InitializeDialogUi(scopeDisplayTitle);
             PopulateGridRows();
             UpdateSummaryAndButtons();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _searchDebounceTimer.Stop();
+                _searchDebounceTimer.Dispose();
+            }
+            base.Dispose(disposing);
         }
 
         private void InitializeDialogUi(string scopeDisplayTitle)
@@ -251,7 +270,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Anchor = AnchorStyles.Left | AnchorStyles.Right,
                 Margin = new Padding(0, 2, 0, 2)
             };
-            _txtSearch.TextChanged += (s, e) => ApplySearchFilter();
+            _txtSearch.TextChanged += (s, e) =>
+            {
+                _searchDebounceTimer.Stop();
+                _searchDebounceTimer.Start();
+            };
 
             toolRow.Controls.Add(btnSafeOnly, 0, 0);
             toolRow.Controls.Add(btnCheckAll, 1, 0);
@@ -260,7 +283,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             toolRow.Controls.Add(_txtSearch, 4, 0);
             root.Controls.Add(toolRow, 0, 1);
 
-            // 2. Checklist DataGridView
+            // 2. Virtualized Checklist DataGridView (O(1) instant open & zero GDI bloat even on 10,000+ issues)
             int measuredLineHeight = TextRenderer.MeasureText("မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း", _fontBody).Height;
             int safeRowHeight = Math.Max(40, measuredLineHeight + 16);
             int safeHeaderHeight = Math.Max(38, measuredLineHeight + 14);
@@ -268,6 +291,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _grid = new DataGridView
             {
                 Dock = DockStyle.Fill,
+                VirtualMode = true,
                 AllowUserToAddRows = false,
                 AllowUserToDeleteRows = false,
                 AllowUserToResizeRows = false,
@@ -370,10 +394,16 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             _grid.Columns.AddRange(colCheck, colLoc, colOrig, colRep, colCert);
 
+            _grid.CellValueNeeded += OnGridCellValueNeeded;
+            _grid.CellFormatting += OnGridCellFormatting;
             _grid.CellClick += OnGridCellClick;
             _grid.CellDoubleClick += OnGridCellDoubleClick;
             _grid.KeyDown += OnGridKeyDown;
-            _grid.SelectionChanged += (s, e) => UpdateSelectedEntryInspector();
+            _grid.SelectionChanged += (s, e) =>
+            {
+                if (!_suppressSelectionChanged)
+                    UpdateSelectedEntryInspector();
+            };
 
             root.Controls.Add(_grid, 0, 2);
 
@@ -580,34 +610,27 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
         private void PopulateGridRows()
         {
+            _suppressSelectionChanged = true;
             _grid.SuspendLayout();
             try
             {
-                _grid.Rows.Clear();
-                for (int i = 0; i < _visibleEntries.Count; i++)
-                {
-                    var entry = _visibleEntries[i];
-                    int rowIdx = _grid.Rows.Add(
-                        FormatCheckGlyph(entry.IsChecked),
-                        entry.LocationLabel,
-                        entry.Issue.OriginalText,
-                        FormatReplacementCellText(entry),
-                        entry.Issue.CertaintyBadgeText);
+                _grid.CurrentCell = null;
+                _grid.RowCount = 0;
+                _grid.RowCount = _visibleEntries.Count;
 
-                    var gridRow = _grid.Rows[rowIdx];
-                    gridRow.Tag = entry;
-                    StyleGridRow(gridRow, entry);
+                if (_visibleEntries.Count > 0)
+                {
+                    _grid.Rows[0].Selected = true;
+                    try { _grid.CurrentCell = _grid.Rows[0].Cells[0]; } catch { }
                 }
             }
             finally
             {
                 _grid.ResumeLayout();
+                _suppressSelectionChanged = false;
             }
 
-            if (_grid.Rows.Count > 0)
-            {
-                _grid.Rows[0].Selected = true;
-            }
+            _grid.Invalidate();
             UpdateSelectedEntryInspector();
         }
 
@@ -621,90 +644,127 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             return $"➔  {entry.ChosenReplacement}";
         }
 
-        private static void StyleGridRow(DataGridViewRow gridRow, FixPreviewEntry<TPayload> entry)
+        private void OnGridCellValueNeeded(object? sender, DataGridViewCellValueEventArgs e)
         {
-            var checkCell = gridRow.Cells[0];
-            checkCell.Value = FormatCheckGlyph(entry.IsChecked);
-            checkCell.Style.ForeColor = entry.IsChecked
-                ? Color.FromArgb(16, 118, 64)
-                : Color.FromArgb(132, 144, 160);
+            if (e.RowIndex < 0 || e.RowIndex >= _visibleEntries.Count)
+                return;
 
-            var repCell = gridRow.Cells[3];
-            repCell.Value = FormatReplacementCellText(entry);
-            repCell.Style.ForeColor = entry.IsChecked
-                ? Color.FromArgb(16, 108, 56)
-                : Color.FromArgb(110, 122, 138);
+            var entry = _visibleEntries[e.RowIndex];
+            e.Value = e.ColumnIndex switch
+            {
+                0 => FormatCheckGlyph(entry.IsChecked),
+                1 => entry.LocationLabel,
+                2 => entry.Issue.OriginalText,
+                3 => FormatReplacementCellText(entry),
+                4 => entry.Issue.CertaintyBadgeText,
+                _ => string.Empty
+            };
+        }
 
-            var certCell = gridRow.Cells[4];
-            if (entry.Issue.IsContextualWarning)
+        private void OnGridCellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
+        {
+            if (e.RowIndex < 0 || e.RowIndex >= _visibleEntries.Count || e.CellStyle == null)
+                return;
+
+            var entry = _visibleEntries[e.RowIndex];
+            if (e.ColumnIndex == 0)
             {
-                certCell.Style.BackColor = Color.FromArgb(255, 246, 216);
-                certCell.Style.ForeColor = Color.FromArgb(142, 84, 6);
-                certCell.Style.SelectionBackColor = Color.FromArgb(248, 232, 184);
-                certCell.Style.SelectionForeColor = Color.FromArgb(122, 68, 4);
+                e.CellStyle.ForeColor = entry.IsChecked
+                    ? Color.FromArgb(16, 118, 64)
+                    : Color.FromArgb(132, 144, 160);
             }
-            else if (entry.IsHighCertaintyDefault)
+            else if (e.ColumnIndex == 3)
             {
-                certCell.Style.BackColor = Color.FromArgb(228, 247, 235);
-                certCell.Style.ForeColor = Color.FromArgb(16, 104, 52);
-                certCell.Style.SelectionBackColor = Color.FromArgb(204, 238, 218);
-                certCell.Style.SelectionForeColor = Color.FromArgb(12, 86, 42);
+                e.CellStyle.ForeColor = entry.IsChecked
+                    ? Color.FromArgb(16, 108, 56)
+                    : Color.FromArgb(110, 122, 138);
             }
-            else
+            else if (e.ColumnIndex == 4)
             {
-                certCell.Style.BackColor = Color.FromArgb(255, 242, 224);
-                certCell.Style.ForeColor = Color.FromArgb(148, 78, 12);
-                certCell.Style.SelectionBackColor = Color.FromArgb(248, 226, 196);
-                certCell.Style.SelectionForeColor = Color.FromArgb(126, 62, 8);
+                if (entry.Issue.IsContextualWarning)
+                {
+                    e.CellStyle.BackColor = Color.FromArgb(255, 246, 216);
+                    e.CellStyle.ForeColor = Color.FromArgb(142, 84, 6);
+                    e.CellStyle.SelectionBackColor = Color.FromArgb(248, 232, 184);
+                    e.CellStyle.SelectionForeColor = Color.FromArgb(122, 68, 4);
+                }
+                else if (entry.IsHighCertaintyDefault)
+                {
+                    e.CellStyle.BackColor = Color.FromArgb(228, 247, 235);
+                    e.CellStyle.ForeColor = Color.FromArgb(16, 104, 52);
+                    e.CellStyle.SelectionBackColor = Color.FromArgb(204, 238, 218);
+                    e.CellStyle.SelectionForeColor = Color.FromArgb(12, 86, 42);
+                }
+                else
+                {
+                    e.CellStyle.BackColor = Color.FromArgb(255, 242, 224);
+                    e.CellStyle.ForeColor = Color.FromArgb(148, 78, 12);
+                    e.CellStyle.SelectionBackColor = Color.FromArgb(248, 226, 196);
+                    e.CellStyle.SelectionForeColor = Color.FromArgb(126, 62, 8);
+                }
             }
         }
 
         private void RefreshCheckboxColumnValues()
         {
-            for (int i = 0; i < _grid.Rows.Count; i++)
-            {
-                if (_grid.Rows[i].Tag is FixPreviewEntry<TPayload> entry)
-                {
-                    StyleGridRow(_grid.Rows[i], entry);
-                }
-            }
+            _grid.Invalidate();
             UpdateSummaryAndButtons();
+        }
+
+        private int GetSelectedRowIndex()
+        {
+            if (_grid.SelectedRows.Count > 0)
+            {
+                int idx = _grid.SelectedRows[0].Index;
+                if (idx >= 0 && idx < _visibleEntries.Count)
+                    return idx;
+            }
+
+            int curIdx = _grid.CurrentCell?.RowIndex ?? -1;
+            return (curIdx >= 0 && curIdx < _visibleEntries.Count) ? curIdx : -1;
         }
 
         private void OnGridCellClick(object? sender, DataGridViewCellEventArgs e)
         {
-            if (e.RowIndex < 0 || e.RowIndex >= _grid.Rows.Count)
+            if (e.RowIndex < 0 || e.RowIndex >= _visibleEntries.Count)
                 return;
 
-            if (e.ColumnIndex == 0 && _grid.Rows[e.RowIndex].Tag is FixPreviewEntry<TPayload> entry)
+            if (e.ColumnIndex == 0)
             {
+                var entry = _visibleEntries[e.RowIndex];
                 entry.IsChecked = !entry.IsChecked;
-                StyleGridRow(_grid.Rows[e.RowIndex], entry);
+                _grid.InvalidateRow(e.RowIndex);
                 UpdateSummaryAndButtons();
             }
         }
 
         private void OnGridCellDoubleClick(object? sender, DataGridViewCellEventArgs e)
         {
-            if (e.RowIndex < 0 || e.RowIndex >= _grid.Rows.Count)
+            if (e.RowIndex < 0 || e.RowIndex >= _visibleEntries.Count)
                 return;
 
-            if (e.ColumnIndex != 0 && _grid.Rows[e.RowIndex].Tag is FixPreviewEntry<TPayload> entry)
+            if (e.ColumnIndex != 0)
             {
+                var entry = _visibleEntries[e.RowIndex];
                 entry.IsChecked = !entry.IsChecked;
-                StyleGridRow(_grid.Rows[e.RowIndex], entry);
+                _grid.InvalidateRow(e.RowIndex);
                 UpdateSummaryAndButtons();
             }
         }
 
         private void OnGridKeyDown(object? sender, KeyEventArgs e)
         {
-            if (e.KeyCode == Keys.Space && _grid.CurrentRow?.Tag is FixPreviewEntry<TPayload> entry)
+            if (e.KeyCode == Keys.Space)
             {
-                entry.IsChecked = !entry.IsChecked;
-                StyleGridRow(_grid.CurrentRow, entry);
-                UpdateSummaryAndButtons();
-                e.Handled = true;
+                int rowIdx = GetSelectedRowIndex();
+                if (rowIdx >= 0)
+                {
+                    var entry = _visibleEntries[rowIdx];
+                    entry.IsChecked = !entry.IsChecked;
+                    _grid.InvalidateRow(rowIdx);
+                    UpdateSummaryAndButtons();
+                    e.Handled = true;
+                }
             }
         }
 
@@ -714,7 +774,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             try
             {
                 _choicesPanel.Controls.Clear();
-                if (_grid.SelectedRows.Count == 0 || !(_grid.SelectedRows[0].Tag is FixPreviewEntry<TPayload> entry))
+                int selectedRowIdx = GetSelectedRowIndex();
+                if (selectedRowIdx < 0)
                 {
                     _selectedEntry = null;
                     _btnJump.Enabled = false;
@@ -723,6 +784,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     return;
                 }
 
+                FixPreviewEntry<TPayload> entry = _visibleEntries[selectedRowIdx];
                 _selectedEntry = entry;
                 _btnJump.Enabled = _onNavigateToItem != null;
 
@@ -777,10 +839,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                         {
                             entry.ChosenReplacement = pickedWord;
                             entry.IsChecked = true;
-                            if (_grid.SelectedRows.Count > 0)
-                            {
-                                StyleGridRow(_grid.SelectedRows[0], entry);
-                            }
+                            int rIdx = GetSelectedRowIndex();
+                            if (rIdx >= 0)
+                                _grid.InvalidateRow(rIdx);
+                            else
+                                _grid.Invalidate();
                             UpdateSummaryAndButtons();
                             UpdateSelectedEntryInspector();
                         };
