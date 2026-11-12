@@ -111,7 +111,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             var lblAuthorTitle = new Label
             {
-                Text = "ဖန်တီးသူနှင့် ပညာရေးမှတ်တမ်း (Creator & Academic Attribution)",
+                Text = "ဖန်တီးသူ၊ ဂုဏ်ပြုမှတ်တမ်းနှင့် ပူးပေါင်းပါဝင်သူများ (Creator, Dedication & Collaborators)",
                 Font = UiFontCache.GetMyanmar(9.5F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(16, 92, 50),
                 AutoSize = true,
@@ -124,10 +124,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             var lblAuthorBody = new Label
             {
-                Text = "• ဖန်တီးသူ (Author) : ထက်ရာဇာ — Htet Yar Zar (@Hashyz)\n" +
+                Text = "• ဖန်တီးသူ (Original Creator) : ထက်ရာဇာ — Htet Yar Zar (@Hashyz)\n" +
                        "• ပညာအရည်အချင်း : M.Sc. Part II Candidate in Geology (M.Sc. Part I Completed)\n" +
                        "• ဌာနနှင့် တက္ကသိုလ် : ဘူမိဗေဒဌာန၊ ကျောက်ဆည်တက္ကသိုလ် (Department of Geology, Kyaukse University)\n" +
-                       "• တည်နေရာဒေသ : ကျောက်ဆည်မြို့၊ မန္တလေးတိုင်းဒေသကြီး၊ မြန်မာနိုင်ငံ (Kyaukse, Myanmar)",
+                       "• တည်နေရာဒေသ : ကျောက်ဆည်မြို့၊ မန္တလေးတိုင်းဒေသကြီး၊ မြန်မာနိုင်ငံ (Kyaukse, Myanmar)\n" +
+                       "• မူလစိတ်ကူးလမ်းညွှန်ပေးသူ (Original Idea) : ဖခင် ဦးမိုးကျော်သူ (Father U Moe Kyaw Thu)\n" +
+                       "• ပူးပေါင်းပါဝင်သူများ (Collaborators) : ဟိန်းထက်ဇော် (Hein Htet Zaw)၊ သူရိန်ခန့် (Thu Reain Khant)",
                 Font = UiFontCache.GetMyanmar(9.0F, FontStyle.Regular),
                 ForeColor = Color.FromArgb(32, 52, 40),
                 BackColor = Color.FromArgb(242, 249, 245),

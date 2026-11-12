@@ -11,12 +11,14 @@ Built on the complete 462-page **"မြန်မာစာလုံးပေါ�
 
 ---
 
-## Author, Academic Affiliation & Origin Attribution
+## Author, Special Dedication & Collaborators
 
-- **Original Creator & Author:** **Htet Yar Zar (ထက်ရာဇာ)** ([@Hashyz](https://github.com/Hashyz))
+- **Original Creator & Lead Developer:** **Htet Yar Zar (ထက်ရာဇာ)** ([@Hashyz](https://github.com/Hashyz))
 - **Academic Credential:** **M.Sc. Part II Candidate in Geology (M.Sc. Part I Completed)** *(မဟာသိပ္ပံ ဒုတိယနှစ် [M.Sc. Part II] ဘူမိဗေဒ အထူးပြု — M.Sc. Part I အောင်မြင်ပြီး)*
 - **Department & University:** **Department of Geology, Kyaukse University** *(ဘူမိဗေဒဌာန၊ ကျောက်ဆည်တက္ကသိုလ်)*
 - **Location:** **Kyaukse, Mandalay Region, Myanmar** *(ကျောက်ဆည်မြို့၊ မန္တလေးတိုင်းဒေသကြီး၊ မြန်မာနိုင်ငံ)*
+- **Special Dedication — Original Idea & Inspiration (`မူလစိတ်ကူးလမ်းညွှန်ပေးသူ`):** **U Moe Kyaw Thu (ဦးမိုးကျော်သူ)** — *Beloved Father of Htet Yar Zar, who originally inspired and gave the idea to build this Myanmar Spell & Grammar Suite (ဤမြန်မာစာ စစ်ဆေးရေးစနစ် ဖန်တီးပြုစုရန် မူလစိတ်ကူးနှင့် လမ်းညွှန်မှုပေးခဲ့သူ ကျေးဇူးရှင် ဖခင်ကြီး ဦးမိုးကျော်သူ)*
+- **Project Collaborators (`ပူးပေါင်းပါဝင်သူများ`):** **Hein Htet Zaw (ဟိန်းထက်ဇော်)** & **Thu Reain Khant (သူရိန်ခန့်)**
 
 ---
 

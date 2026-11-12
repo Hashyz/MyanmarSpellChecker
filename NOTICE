@@ -19,6 +19,15 @@ Origin Location:
   Kyaukse, Mandalay Region, Myanmar
   (ကျောက်ဆည်မြို့၊ မန္တလေးတိုင်းဒေသကြီး၊ မြန်မာနိုင်ငံ)
 
+Special Dedication — Original Idea & Inspiration:
+  U Moe Kyaw Thu (ဦးမိုးကျော်သူ) — Father of Htet Yar Zar, who originally
+  envisioned and inspired the idea to create this project
+  (မူလစိတ်ကူးနှင့် လမ်းညွှန်မှုပေးခဲ့သူ ကျေးဇူးရှင် ဖခင်ကြီး ဦးမိုးကျော်သူ)
+
+Project Collaborators:
+  - Hein Htet Zaw (ဟိန်းထက်ဇော်)
+  - Thu Reain Khant (သူရိန်ခန့်)
+
 --------------------------------------------------------------------------------
 MANDATORY ATTRIBUTION & ANTI-MISREPRESENTATION TERMS (GNU GPLv3 SECTION 7)
 --------------------------------------------------------------------------------
@@ -30,12 +39,15 @@ with the following additional requirements:
 
 1. Preservation of Legal & Author Notices [GPLv3 Section 7(b)]:
    You MUST retain this NOTICE file, the copyright notices in source files,
-   the assembly metadata in Directory.Build.props, and the visible "Creator &
-   Academic Attribution" credits displayed in the Microsoft Word and Microsoft
-   Excel Add-in user interfaces and generated audit certificates, attributing
-   original authorship to:
+   the assembly metadata in Directory.Build.props, and the visible "Creator,
+   Dedication & Collaborator Attribution" credits displayed in the Microsoft
+   Word and Microsoft Excel Add-in user interfaces and generated audit
+   certificates, attributing original authorship to:
      Htet Yar Zar (ထက်ရာဇာ)
-     Department of Geology, Kyaukse University, Kyaukse, Myanmar.
+     Department of Geology, Kyaukse University, Kyaukse, Myanmar
+   together with the Special Dedication to Father U Moe Kyaw Thu (ဦးမိုးကျော်သူ)
+   and Collaborator credits to Hein Htet Zaw (ဟိန်းထက်ဇော်) and Thu Reain Khant
+   (သူရိန်ခန့်).
 
 2. Prohibition of Misrepresentation of Origin [GPLv3 Section 7(c)]:
    The origin of this software must NOT be misrepresented. You must NOT claim

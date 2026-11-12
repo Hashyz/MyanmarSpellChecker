@@ -1251,22 +1251,43 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.Contains("Kyaukse University", fvi.LegalCopyright ?? string.Empty);
             Assert.Contains("Htet Yar Zar", fvi.CompanyName ?? string.Empty);
 
-            // 2. Verify repo-root legal & citation files exist and preserve author, academic & location attribution
+            // 2. Verify repo-root legal, citation & README files preserve author, father dedication & collaborator credits
             string noticeText = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "NOTICE"));
             Assert.Contains("Htet Yar Zar", noticeText);
             Assert.Contains("ထက်ရာဇာ", noticeText);
             Assert.Contains("M.Sc. Part II Candidate in Geology", noticeText);
             Assert.Contains("Kyaukse University", noticeText);
             Assert.Contains("Kyaukse, Mandalay Region, Myanmar", noticeText);
+            Assert.Contains("U Moe Kyaw Thu", noticeText);
+            Assert.Contains("ဦးမိုးကျော်သူ", noticeText);
+            Assert.Contains("Hein Htet Zaw", noticeText);
+            Assert.Contains("ဟိန်းထက်ဇော်", noticeText);
+            Assert.Contains("Thu Reain Khant", noticeText);
+            Assert.Contains("သူရိန်ခန့်", noticeText);
 
             string citationText = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "CITATION.cff"));
             Assert.Contains("Htet Yar Zar", citationText);
             Assert.Contains("Kyaukse University", citationText);
+            Assert.Contains("U Moe Kyaw Thu", citationText);
+            Assert.Contains("Hein Htet Zaw", citationText);
+            Assert.Contains("Thu Reain Khant", citationText);
 
-            // 3. Verify Encrypted DB & Proofing Engine include Kyaukse University + Geology & Earth Sciences Lexicon
+            string readmeText = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "README.md"));
+            Assert.Contains("U Moe Kyaw Thu (ဦးမိုးကျော်သူ)", readmeText);
+            Assert.Contains("Hein Htet Zaw (ဟိန်းထက်ဇော်)", readmeText);
+            Assert.Contains("Thu Reain Khant (သူရိန်ခန့်)", readmeText);
+
+            // 3. Verify Encrypted DB & Proofing Engine include Kyaukse University + Geology Lexicon + Zero False Positives on Creator/Family/Collaborator Names
             var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
             var trie = repo.LoadIntoTrie(MyanmarSpellChecker.Core.Security.AntiTamperGuard.ReconstructProtectedFallbackKey());
             var engine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            string namesPassage =
+                "ဤမြန်မာစာ စစ်ဆေးရေးစနစ်ကို ဖခင် ဦးမိုးကျော်သူ၏ မူလစိတ်ကူးလမ်းညွှန်မှုဖြင့် ထက်ရာဇာက ဖန်တီးပြုစုခဲ့ပြီး " +
+                "ဟိန်းထက်ဇော်နှင့် သူရိန်ခန့်တို့က ပူးပေါင်းပါဝင်ဆောင်ရွက်ခဲ့ကြသည်။";
+            var nameIssues = engine.CheckText(namesPassage);
+            Assert.True(nameIssues.Count == 0,
+                $"Expected 0 false positives on Father & Collaborator Burmese names, got: [{string.Join("; ", nameIssues.Select(i => $"{i.OriginalText}->{i.Suggestions.FirstOrDefault()?.Replacement}"))}]");
 
             string geologyPassage =
                 "မန္တလေးတိုင်းဒေသကြီး ကျောက်ဆည်မြို့ရှိ ကျောက်ဆည်တက္ကသိုလ် ဘူမိဗေဒဌာနတွင် ကျောက်ပညာ၊ တွင်းထွက်ဗေဒ၊ အလွှာဗေဒ၊ " +

@@ -1,14 +1,16 @@
 cff-version: 1.2.0
-message: "If you use, fork, or reference this software or its curated linguistic and geological datasets, please cite the original author as below."
+message: "If you use, fork, or reference this software or its curated linguistic and geological datasets, please cite the original creator and collaborators as below. Dedicated to Father U Moe Kyaw Thu (ဦးမိုးကျော်သူ), who originally inspired the idea for this project."
 type: software
 title: "Myanmar Official Spell, Grammar, Contextual Meaning & Dictionary Suite for Microsoft Word and Microsoft Excel"
-abstract: "100% Offline, air-gapped Microsoft Word and Microsoft Excel COM Add-in Suite (.NET Framework 4.8) featuring Viterbi word-lattice Burmese orthography proofing, contextual homophone disambiguation, official style rewriting, formula-safe spreadsheet proofing, and a 118,600+ entry Myanmar-to-Myanmar dictionary & encyclopedia including specialized Geology & Earth Sciences terminology."
+abstract: "100% Offline, air-gapped Microsoft Word and Microsoft Excel COM Add-in Suite (.NET Framework 4.8) featuring Viterbi word-lattice Burmese orthography proofing, contextual homophone disambiguation, official style rewriting, formula-safe spreadsheet proofing, and a 118,600+ entry Myanmar-to-Myanmar dictionary & encyclopedia including specialized Geology & Earth Sciences terminology. Original idea inspired by Father U Moe Kyaw Thu (ဦးမိုးကျော်သူ)."
 authors:
   - name: "Htet Yar Zar (ထက်ရာဇာ)"
     affiliation: "M.Sc. Part II Candidate in Geology (M.Sc. Part I Completed), Department of Geology, Kyaukse University"
     city: "Kyaukse"
     region: "Mandalay Region"
     country: MM
+  - name: "Hein Htet Zaw (ဟိန်းထက်ဇော်)"
+  - name: "Thu Reain Khant (သူရိန်ခန့်)"
 version: "1.0.22"
 date-released: "2026-11-12"
 license: "GPL-3.0-or-later"
