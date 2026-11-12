@@ -241,7 +241,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 }
             };
 
-            // Row 0: Brand Header + License Pill
+            // Row 0: Brand Header + About/License Pill
             var brandRow = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
@@ -251,8 +251,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 RowCount = 1,
                 Margin = new Padding(0, 0, 0, 5)
             };
-            brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 76F));
-            brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 24F));
+            brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             brandRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             var titleStack = new TableLayoutPanel
@@ -276,7 +276,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 AutoSize = true,
                 Dock = DockStyle.Fill,
                 Margin = new Padding(0),
-                Padding = new Padding(1, 1, 1, 1)
+                Padding = new Padding(6, 1, 4, 2)
             };
 
             _lblLexiconStats = new Label
@@ -287,7 +287,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 AutoSize = true,
                 Dock = DockStyle.Fill,
                 Margin = new Padding(0),
-                Padding = new Padding(1, 0, 1, 1)
+                Padding = new Padding(6, 0, 4, 2)
             };
             const string authorCreditTip = "ဖန်တီးသူ - ထက်ရာဇာ (Htet Yar Zar) • M.Sc. Part II Candidate in Geology, ဘူမိဗေဒဌာန၊ ကျောက်ဆည်တက္ကသိုလ် (Kyaukse, Myanmar)";
             _toolTip.SetToolTip(lblTitle, authorCreditTip);
@@ -297,14 +297,17 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             titleStack.Controls.Add(_lblLexiconStats, 0, 1);
 
             var btnLic = CreatePillButton(
-                "လိုင်စင် ✓",
+                "အချက်အလက် ⓘ",
                 Color.FromArgb(240, 245, 255),
                 Color.FromArgb(22, 74, 158),
                 Color.FromArgb(196, 214, 245),
                 _fontSmallBold);
+            btnLic.Dock = DockStyle.None;
+            btnLic.Anchor = AnchorStyles.Right;
+            btnLic.Padding = new Padding(8, 3, 8, 3);
             btnLic.Margin = new Padding(4, 2, 0, 2);
             btnLic.Click += (s, e) => RequestLicenseDialog?.Invoke();
-            _toolTip.SetToolTip(btnLic, "Offline လိုင်စင် (.lic)၊ စက်အမှတ် နှင့် ဖန်တီးသူ (ထက်ရာဇာ — ကျောက်ဆည်တက္ကသိုလ်) အချက်အလက်");
+            _toolTip.SetToolTip(btnLic, "စနစ်အချက်အလက်၊ ဖန်တီးသူ (ထက်ရာဇာ — ကျောက်ဆည်တက္ကသိုလ်) နှင့် GNU GPL v3.0 Open-Source လိုင်စင်");
 
             brandRow.Controls.Add(titleStack, 0, 0);
             brandRow.Controls.Add(btnLic, 1, 0);
@@ -397,7 +400,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             styleGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
             styleGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            _btnStyleGeneral = CreatePillButton("အထွေထွေ စံ", Color.FromArgb(24, 90, 188), Color.White, Color.FromArgb(24, 90, 188), _fontSmallBold);
+            _btnStyleGeneral = CreatePillButton("အထွေထွေ စံသတ်ပုံ", Color.FromArgb(24, 90, 188), Color.White, Color.FromArgb(24, 90, 188), _fontSmallBold);
             _btnStyleGeneral.Click += (s, e) => ChangeStyleMode(ProofingStyleMode.GeneralStandard);
             _toolTip.SetToolTip(_btnStyleGeneral, "အများသုံး/လုပ်ငန်းသုံး စံသတ်ပုံစနစ် (ပါတယ်၊ တွေ စသည့် အပြောစကားများကို ခွင့်ပြုသည်)");
 

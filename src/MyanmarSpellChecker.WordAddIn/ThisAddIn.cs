@@ -1089,11 +1089,11 @@ namespace MyanmarSpellChecker.WordAddIn
                   onAction='OnRibbonManageCustomWords'
                   screentip='ကိုယ်ပိုင် / ရုံးသုံး မှတ်သားထားသော စာလုံးများကို ထည့်သွင်း/ဖျက်သိမ်းရန်' />
           <button id='BtnLicenseActivation'
-                  label='လိုင်စင် (.lic) အတည်ပြုရန်'
+                  label='ဖန်တီးသူနှင့် လိုင်စင် (GPLv3)'
                   size='normal'
-                  imageMso='FilePermissionRestrictMenu'
+                  imageMso='Info'
                   onAction='OnRibbonOpenLicense'
-                  screentip='Offline လိုင်စင်ဖိုင် (.lic) နှင့် စက်အမှတ် စစ်ဆေးရန်' />
+                  screentip='စနစ်အချက်အလက်၊ ဖန်တီးသူ ထက်ရာဇာ (ကျောက်ဆည်တက္ကသိုလ်) နှင့် GNU GPL v3.0 Open-Source လိုင်စင် ကြည့်ရှုရန်' />
         </group>
         <group id='GrpTypographyToolkit' label='ဖောင့်နှင့် ကိန်းဂဏန်း ကိရိယာ'>
           <button id='BtnConvertFonts'

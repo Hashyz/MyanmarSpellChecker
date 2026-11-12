@@ -129,8 +129,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\installer\Register-DevAddI
   - Authoritative **မြန်မာအဘိဓာန်** definitions, Burmese pronunciations, numeral classifiers, etymologies, synonyms, and antonyms.
   - **25,001 Offline Myanmar Encyclopedia (`စွယ်စုံဗဟုသုတကျမ်း`)** articles, **U Hoke Sein Pali-Myanmar** cognates, classical proverbs (`စကားပုံ` / `ဆိုရိုးစကား`), MOFA/GAD global countries, cities, and all **330 Myanmar townships**.
   - **6 Specialized Domains:** **Geology & Earth Sciences (`ဘူမိဗေဒနှင့် မြေကမ္ဘာသိပ္ပံ` — Kyaukse University)**, Legal & Judicial, Banking/Tax/Finance, Medical & Health, Pali & Religious Affairs, and IT/Cybersecurity + Global Currencies & Scientific Units.
-- **Zero Internet Calls & Signed Enterprise Security:**
-  - Pure `.NET Framework 4.8` FIPS-compliant `AES-256` + `PBKDF2-SHA256` + `HMAC-SHA256` binary dictionary (`mlc_thatpon.db`) and `RSA-2048` hardware-bound offline licensing (`.lic`).
+- **Zero Internet Calls & 100% Free Open-Source Runtime:**
+  - Pure `.NET Framework 4.8` FIPS-compliant `AES-256` + `PBKDF2-SHA256` + `HMAC-SHA256` binary dictionary (`mlc_thatpon.db`) — **100% free & active out-of-the-box under GNU GPL v3.0 (no `.lic` activation key required)**.
 
 ---
 
