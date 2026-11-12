@@ -118,10 +118,78 @@ namespace MyanmarSpellChecker.Core.Models
             IssueType == ProofingIssueType.ContextualMeaningWarning;
 
         /// <summary>
-        /// True when this issue has high-certainty suggestions safe for batch 'Fix All'.
+        /// True when this issue arises from an unrecognized OOV syllable/name or non-trivial fuzzy edit-distance guess
+        /// and should default to UNCHECKED (☐) in the Fix-All Preview Checklist so names and already-checked words stay safe.
+        /// </summary>
+        public bool RequiresReviewBeforeBatchFix { get; set; }
+
+        /// <summary>
+        /// True when this issue is a 100% deterministic orthography, lookalike, Zawgyi, numeral, punctuation, or formal-style rule
+        /// safe to pre-check (☑) in the Fix-All Preview Checklist; False (☐) for unknown words/names, fuzzy guesses, close ties, or context warnings.
+        /// </summary>
+        public bool IsHighCertaintyPrecheck
+        {
+            get
+            {
+                if (IsContextualWarning ||
+                    RequiresReviewBeforeBatchFix ||
+                    Suggestions == null ||
+                    Suggestions.Count == 0 ||
+                    string.IsNullOrEmpty(Suggestions[0].Replacement))
+                {
+                    return false;
+                }
+
+                if (IssueType == ProofingIssueType.LookalikeCharacterError ||
+                    IssueType == ProofingIssueType.ZawgyiEncodingError ||
+                    IssueType == ProofingIssueType.NumeralClassifierError ||
+                    IssueType == ProofingIssueType.OfficialStyleGrammarError ||
+                    IssueType == ProofingIssueType.PunctuationError)
+                {
+                    return true;
+                }
+
+                double topScore = Suggestions[0].Score;
+                if (topScore < 97.5)
+                    return false;
+
+                if (Suggestions.Count >= 2)
+                {
+                    string secondCue = Suggestions[1].MeaningCue ?? string.Empty;
+                    bool isRegisterVariant =
+                        secondCue.IndexOf("စကားပြောဟန်", StringComparison.Ordinal) >= 0 ||
+                        secondCue.IndexOf("စာပေဟန်", StringComparison.Ordinal) >= 0 ||
+                        secondCue.IndexOf("ရုံးသုံး", StringComparison.Ordinal) >= 0;
+
+                    if (!isRegisterVariant && (topScore - Suggestions[1].Score) < 2.5)
+                        return false;
+                }
+
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Human-readable Myanmar certainty label displayed in the Fix-All Preview Checklist Dialog.
+        /// </summary>
+        public string CertaintyBadgeText
+        {
+            get
+            {
+                if (IsContextualWarning)
+                    return "⚠ အနက်သံသယ (စိစစ်ရန်)";
+                if (IsHighCertaintyPrecheck)
+                    return "✓ သေချာ (စံသတ်ပုံ/သဒ္ဒါ)";
+                return "⚠ စိစစ်ရန် (အမည်/ခန့်မှန်းချက်)";
+            }
+        }
+
+        /// <summary>
+        /// True when this issue has high-certainty suggestions safe for headless batch 'Fix All'.
         /// </summary>
         public bool IsAutoFixSafe =>
             IssueType != ProofingIssueType.ContextualMeaningWarning &&
+            !RequiresReviewBeforeBatchFix &&
             Suggestions != null &&
             Suggestions.Count > 0;
     }

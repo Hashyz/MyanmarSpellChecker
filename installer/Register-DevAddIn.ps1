@@ -5,7 +5,13 @@ param(
 $ErrorActionPreference = "Stop"
 
 function Resolve-NewestAddInDll([string[]]$CandidatePaths) {
-    $existing = @($CandidatePaths | Where-Object { Test-Path $_ } | Sort-Object { (Get-Item $_).LastWriteTimeUtc } -Descending)
+    $existing = @($CandidatePaths | Where-Object {
+        (Test-Path $_) -and (Test-Path (Join-Path (Split-Path $_ -Parent) "MyanmarSpellChecker.Core.dll"))
+    } | Sort-Object {
+        $addInTime = (Get-Item $_).LastWriteTimeUtc
+        $coreTime  = (Get-Item (Join-Path (Split-Path $_ -Parent) "MyanmarSpellChecker.Core.dll")).LastWriteTimeUtc
+        if ($addInTime -lt $coreTime) { $addInTime } else { $coreTime }
+    } -Descending)
     if ($existing.Count -eq 0) { return $null }
     return [System.IO.Path]::GetFullPath($existing[0])
 }

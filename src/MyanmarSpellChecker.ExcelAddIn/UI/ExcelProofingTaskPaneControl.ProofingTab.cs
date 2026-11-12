@@ -113,26 +113,20 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
         private void UpdateFixAllButtonState(int spellingCount, int grammarCount, int contextCount)
         {
-            int autoSafeAll = _allItems.Count(i => !i.IsResolved && i.Issue.IsAutoFixSafe);
-            if (_currentFilter == IssueFilterMode.ContextOnly)
-            {
-                _btnFixAll.Enabled = false;
-                _btnFixAll.Text = "တစ်ခုချင်းရွေးပါ";
-                _btnFixAll.BackColor = Color.FromArgb(236, 232, 222);
-                _btnFixAll.ForeColor = Color.FromArgb(128, 98, 52);
-                return;
-            }
+            static bool HasChoices(SpreadsheetCellIssue i) =>
+                !i.IsResolved && i.Issue.Suggestions != null && i.Issue.Suggestions.Count > 0;
 
-            int targetSafeCount = _currentFilter switch
+            int reviewableCount = _currentFilter switch
             {
-                IssueFilterMode.SpellingOnly => _allItems.Count(i => !i.IsResolved && !i.Issue.IsGrammarOrStyle && i.Issue.IsAutoFixSafe),
-                IssueFilterMode.GrammarOnly => _allItems.Count(i => !i.IsResolved && i.Issue.IsGrammarOrStyle && i.Issue.IsAutoFixSafe),
-                _ => autoSafeAll
+                IssueFilterMode.SpellingOnly => _allItems.Count(i => HasChoices(i) && !i.Issue.IsGrammarOrStyle && !i.Issue.IsContextualWarning),
+                IssueFilterMode.GrammarOnly => _allItems.Count(i => HasChoices(i) && i.Issue.IsGrammarOrStyle),
+                IssueFilterMode.ContextOnly => _allItems.Count(i => HasChoices(i) && i.Issue.IsContextualWarning),
+                _ => _allItems.Count(HasChoices)
             };
 
-            _btnFixAll.Enabled = targetSafeCount > 0;
-            _btnFixAll.Text = targetSafeCount > 0 ? $"အားလုံးပြင် ({targetSafeCount})" : "အားလုံးပြင်";
-            _btnFixAll.BackColor = targetSafeCount > 0 ? Color.FromArgb(24, 90, 188) : Color.FromArgb(204, 214, 228);
+            _btnFixAll.Enabled = reviewableCount > 0;
+            _btnFixAll.Text = reviewableCount > 0 ? $"စိစစ်ပြင် ({reviewableCount})" : "စိစစ်ပြင်မည်";
+            _btnFixAll.BackColor = reviewableCount > 0 ? Color.FromArgb(24, 90, 188) : Color.FromArgb(204, 214, 228);
             _btnFixAll.ForeColor = Color.White;
         }
 

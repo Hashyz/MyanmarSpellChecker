@@ -575,6 +575,104 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         }
 
         /// <summary>
+        /// Replaces only the exact <see cref="DocumentProofingItem"/> spans approved (☑) by the user in the
+        /// Safe Fix-All Preview Checklist Dialog, wrapped inside a single Word UndoRecord so Ctrl+Z undoes the batch cleanly.
+        /// </summary>
+        public int ReplaceApprovedIssuesInDocument(
+            Word.Document doc,
+            IEnumerable<DocumentProofingItem> items,
+            IReadOnlyDictionary<DocumentProofingItem, string> approvedReplacements)
+        {
+            if (doc == null || items == null || approvedReplacements == null || approvedReplacements.Count == 0)
+                return 0;
+
+            int replacedCount = 0;
+            Word.UndoRecord? undoRecord = null;
+            bool startedOwnUndo = false;
+            bool prevScreenUpdating = true;
+
+            try
+            {
+                try { prevScreenUpdating = _app.ScreenUpdating; _app.ScreenUpdating = false; } catch { }
+                startedOwnUndo = TryBeginOwnUndoRecord("မြန်မာစာ စိစစ်ရွေးချယ်ထားသော အမှားများ ပြင်ဆင်ခြင်း", out undoRecord);
+
+                var ordered = items
+                    .Where(i => !i.IsResolved &&
+                                i.TargetRange != null &&
+                                approvedReplacements.TryGetValue(i, out string? rep) &&
+                                !string.IsNullOrEmpty(rep))
+                    .OrderByDescending(i =>
+                    {
+                        try { return i.TargetRange!.Start; }
+                        catch { return i.FallbackStartOffset; }
+                    })
+                    .ToList();
+
+                var touchedParagraphs = new List<Word.Range>();
+                var touchedParagraphStarts = new HashSet<int>();
+
+                foreach (var item in ordered)
+                {
+                    if (!approvedReplacements.TryGetValue(item, out string? chosenReplacement) || string.IsNullOrEmpty(chosenReplacement))
+                        continue;
+
+                    try
+                    {
+                        Word.Range r = item.TargetRange!;
+                        r.Font.Underline = item.OriginalUnderline;
+                        r.Font.UnderlineColor = item.OriginalUnderlineColor;
+                        r.Text = chosenReplacement;
+                        r.Font.Underline = item.OriginalUnderline;
+                        r.Font.UnderlineColor = item.OriginalUnderlineColor;
+                        item.IsResolved = true;
+                        _trackedRanges.RemoveAll(t => ReferenceEquals(t.Range, r));
+                        replacedCount++;
+
+                        try
+                        {
+                            if (r.Paragraphs.Count > 0)
+                            {
+                                Word.Range pRange = r.Paragraphs[1].Range;
+                                int pStart = pRange.Start;
+                                if (touchedParagraphStarts.Add(pStart))
+                                {
+                                    touchedParagraphs.Add(pRange);
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                    catch
+                    {
+                        // Continue with remaining items
+                    }
+                }
+
+                foreach (var pRange in touchedParagraphs)
+                {
+                    ScrubResidualWavyUnderlines(pRange);
+                }
+
+                foreach (var rem in items.Where(i => !i.IsResolved && i.TargetRange != null))
+                {
+                    try
+                    {
+                        rem.TargetRange!.Font.Underline = Word.WdUnderline.wdUnderlineWavy;
+                        rem.TargetRange!.Font.UnderlineColor = GetUnderlineColorForIssue(rem.Issue);
+                    }
+                    catch { }
+                }
+            }
+            finally
+            {
+                EndOwnUndoRecord(undoRecord, startedOwnUndo);
+                try { _app.ScreenUpdating = prevScreenUpdating; } catch { }
+            }
+
+            return replacedCount;
+        }
+
+        /// <summary>
         /// Strips all temporary Red/Blue wavy underlines and restores original user underlines (such as wdUnderlineSingle).
         /// </summary>
         public void StripAllProofingUnderlines(Word.Document doc, bool clearTrackingList = true)

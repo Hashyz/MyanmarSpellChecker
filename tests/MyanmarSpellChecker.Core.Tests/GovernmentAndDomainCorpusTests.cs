@@ -1312,5 +1312,56 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.Contains("Htet Yar Zar", certText);
             Assert.Contains("Kyaukse University", certText);
         }
+
+        [Fact]
+        public void V42_FixAllPreviewChecklist_SafePrecheckAndApprovedBatch()
+        {
+            var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
+            var trie = repo.LoadIntoTrie(MyanmarSpellChecker.Core.Security.AntiTamperGuard.ReconstructProtectedFallbackKey());
+            var engine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // 1. Deterministic 100% rules MUST be pre-checked (☑ IsHighCertaintyPrecheck == true)
+            var piiPii = Assert.Single(engine.CheckText("ပီးပီ"));
+            Assert.True(piiPii.IsHighCertaintyPrecheck);
+            Assert.Equal("ပြီးပြီ", piiPii.Suggestions[0].Replacement);
+
+            var lookalike = Assert.Single(engine.CheckText("၀န်ကြီးဌာန"));
+            Assert.True(lookalike.IsHighCertaintyPrecheck);
+
+            var styleRule = Assert.Single(engine.CheckText("ဆောင်ရွက်ပါတယ်။"));
+            Assert.True(styleRule.IsHighCertaintyPrecheck);
+
+            // 2. Unknown OOV syllable / rare name guess & Amber Context Warning MUST default to UNCHECKED (☐ IsHighCertaintyPrecheck == false)
+            var oovGuess = engine.CheckText("ဇွဲဖလန်း").FirstOrDefault();
+            Assert.NotNull(oovGuess);
+            Assert.False(oovGuess!.IsHighCertaintyPrecheck);
+
+            var amberCtx = engine.CheckText("ဥပဒေကို ချိုးဖဲ့သည်။").FirstOrDefault(i => i.IsContextualWarning);
+            Assert.NotNull(amberCtx);
+            Assert.False(amberCtx!.IsHighCertaintyPrecheck);
+
+            // 3. BuildApprovedReplacementsByCell applies ONLY user-checked (☑) items while leaving unchecked (☐) items untouched!
+            object[,] val2 = new object[2, 1];
+            object[,] fml = new object[2, 1];
+            val2[0, 0] = "ပီးပီ နှင့် ဇွဲဖလန်း"; fml[0, 0] = val2[0, 0];
+            val2[1, 0] = "၀န်ကြီးဌာန"; fml[1, 0] = val2[1, 0];
+
+            var cellIssues = SpreadsheetProofingHelper.ScanBlockValues(
+                engine, "Book1.xlsx", "Sheet1", 1, 1, 2, 1, val2, fml, blockHasFormula: false);
+
+            // Simulate default Preview Checklist state (☑ IsHighCertaintyPrecheck items only; ☐ OOV name 'ဖလန်း' stays unchecked!)
+            var approved = cellIssues
+                .Where(c => c.Issue.IsHighCertaintyPrecheck && c.Issue.Suggestions.Count > 0)
+                .ToDictionary(c => c, c => c.Issue.Suggestions[0].Replacement);
+
+            var ops = SpreadsheetProofingHelper.BuildApprovedReplacementsByCell(cellIssues, approved);
+            Assert.Equal(2, ops.Count);
+
+            var a1Op = Assert.Single(ops.Where(o => o.Row == 1 && o.Column == 1));
+            Assert.Equal("ပြီးပြီ နှင့် ဇွဲဖလန်း", a1Op.UpdatedText); // 'ပီးပီ -> ပြီးပြီ' fixed, while OOV name 'ဇွဲဖလန်း' was NOT ruined!
+
+            var a2Op = Assert.Single(ops.Where(o => o.Row == 2 && o.Column == 1));
+            Assert.Equal("ဝန်ကြီးဌာန", a2Op.UpdatedText);
+        }
     }
 }

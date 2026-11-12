@@ -66,19 +66,16 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             int grammarCount = _allItems.Count(i => !i.IsResolved && i.Issue.IsGrammarOrStyle);
             int contextCount = _allItems.Count(i => !i.IsResolved && i.Issue.IsContextualWarning);
 
-            int fixableCount = 0;
-            if (_currentFilter == IssueFilterMode.SpellingOnly)
+            static bool HasChoices(DocumentProofingItem i) =>
+                !i.IsResolved && i.Issue.Suggestions != null && i.Issue.Suggestions.Count > 0;
+
+            int fixableCount = _currentFilter switch
             {
-                fixableCount = _allItems.Count(i => !i.IsResolved && !i.Issue.IsGrammarOrStyle && i.Issue.IsAutoFixSafe);
-            }
-            else if (_currentFilter == IssueFilterMode.GrammarOnly)
-            {
-                fixableCount = _allItems.Count(i => !i.IsResolved && i.Issue.IsGrammarOrStyle && i.Issue.IsAutoFixSafe);
-            }
-            else if (_currentFilter == IssueFilterMode.All)
-            {
-                fixableCount = _allItems.Count(i => !i.IsResolved && i.Issue.IsAutoFixSafe);
-            }
+                IssueFilterMode.SpellingOnly => _allItems.Count(i => HasChoices(i) && !i.Issue.IsGrammarOrStyle && !i.Issue.IsContextualWarning),
+                IssueFilterMode.GrammarOnly => _allItems.Count(i => HasChoices(i) && i.Issue.IsGrammarOrStyle),
+                IssueFilterMode.ContextOnly => _allItems.Count(i => HasChoices(i) && i.Issue.IsContextualWarning),
+                _ => _allItems.Count(HasChoices)
+            };
 
             _btnFilterAll.Text = $"အားလုံး ({total})";
             _btnFilterSpelling.Text = $"သတ်ပုံ ({spellingCount})";
@@ -112,19 +109,19 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             _btnFixAll.Enabled = fixableCount > 0;
             if (_currentFilter == IssueFilterMode.ContextOnly)
             {
-                _btnFixAll.Text = "တစ်ခုချင်း စိစစ်ပါ";
+                _btnFixAll.Text = fixableCount > 0 ? $"စိစစ်ပြင် ({fixableCount})" : "စိစစ်ပြင်မည်";
             }
             else if (_currentFilter == IssueFilterMode.SpellingOnly)
             {
-                _btnFixAll.Text = fixableCount > 0 ? $"သတ်ပုံပြင် ({fixableCount})" : "သတ်ပုံပြင်မည်";
+                _btnFixAll.Text = fixableCount > 0 ? $"စိစစ်ပြင် ({fixableCount})" : "သတ်ပုံပြင်မည်";
             }
             else if (_currentFilter == IssueFilterMode.GrammarOnly)
             {
-                _btnFixAll.Text = fixableCount > 0 ? $"သဒ္ဒါပြင် ({fixableCount})" : "သဒ္ဒါပြင်မည်";
+                _btnFixAll.Text = fixableCount > 0 ? $"စိစစ်ပြင် ({fixableCount})" : "သဒ္ဒါပြင်မည်";
             }
             else
             {
-                _btnFixAll.Text = fixableCount > 0 ? $"အားလုံးပြင် ({fixableCount})" : "အားလုံးပြင်မည်";
+                _btnFixAll.Text = fixableCount > 0 ? $"စိစစ်ပြင် ({fixableCount})" : "စိစစ်ပြင်မည်";
             }
             _btnFixAll.BackColor = fixableCount > 0 ? Color.FromArgb(22, 132, 68) : Color.FromArgb(224, 230, 238);
             _btnFixAll.ForeColor = fixableCount > 0 ? Color.White : Color.FromArgb(120, 128, 140);

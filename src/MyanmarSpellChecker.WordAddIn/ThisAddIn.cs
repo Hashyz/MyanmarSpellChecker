@@ -922,52 +922,90 @@ namespace MyanmarSpellChecker.WordAddIn
                 return;
 
             var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
-            if (filterMode == IssueFilterMode.ContextOnly)
-            {
-                ctrl?.ShowToastBanner(
-                    "⚠ အနက်သံသယ (Context Check) သတိပြုချက်များကို မှားယွင်းပြင်ဆင်မှု မဖြစ်စေရန် တစ်ခုချင်း စိစစ်ရွေးချယ်ပါ။",
-                    isSuccess: false);
-                return;
-            }
 
             Func<DocumentProofingItem, bool> predicate = filterMode switch
             {
                 IssueFilterMode.SpellingOnly => i => !i.Issue.IsGrammarOrStyle && !i.Issue.IsContextualWarning,
                 IssueFilterMode.GrammarOnly => i => i.Issue.IsGrammarOrStyle,
-                _ => i => !i.Issue.IsContextualWarning
+                IssueFilterMode.ContextOnly => i => i.Issue.IsContextualWarning,
+                _ => _ => true
+            };
+
+            string scopeLabel = filterMode switch
+            {
+                IssueFilterMode.SpellingOnly => "သတ်ပုံအမှား",
+                IssueFilterMode.GrammarOnly => "သဒ္ဒါ/စာဟန်အမှား",
+                IssueFilterMode.ContextOnly => "အနက်သံသယ စိစစ်ချက်",
+                _ => "အမှားစုစုပေါင်း"
             };
 
             var cached = _documentScanner.GetCachedIssues(doc);
-            int remainingContextChecks = cached.Count(i => !i.IsResolved && i.Issue.IsContextualWarning);
-            int count = _underlineManager.ReplaceAllIssuesInDocument(doc, cached, predicate);
-            _documentScanner.InvalidateParagraphCache(doc);
+            var candidates = cached
+                .Where(i => !i.IsResolved &&
+                            i.TargetRange != null &&
+                            i.Issue.Suggestions != null &&
+                            i.Issue.Suggestions.Count > 0 &&
+                            predicate(i))
+                .ToList();
 
-            ctrl?.RenderIssues(_documentScanner.GetCachedIssues(doc));
-
-            if (count > 0)
-            {
-                string scopeLabel = filterMode switch
-                {
-                    IssueFilterMode.SpellingOnly => "သတ်ပုံအမှား",
-                    IssueFilterMode.GrammarOnly => "သဒ္ဒါ/စာဟန်အမှား",
-                    _ => "အမှားစုစုပေါင်း"
-                };
-                string ctxTail = (filterMode == IssueFilterMode.All && remainingContextChecks > 0)
-                    ? $" (အနက်သံသယ {remainingContextChecks} ခုကို တစ်ခုချင်း စိစစ်ရန် ချန်လှပ်ထားသည်)"
-                    : string.Empty;
-                ctrl?.ShowToastBanner(
-                    $"✓ {scopeLabel} ({count}) ခုကို တစ်ပြိုင်နက် ပြင်ဆင်ပြီးပါပြီ{ctxTail} (Ctrl+Z ဖြင့် မူလအတိုင်း ပြန်ပြင်နိုင်သည်)။");
-            }
-            else if (remainingContextChecks > 0 && filterMode == IssueFilterMode.All)
-            {
-                ctrl?.ShowToastBanner(
-                    $"⚠ အလိုအလျောက် ပြင်ဆင်နိုင်သော အမှား မကျန်ရှိပါ — အနက်သံသယ ({remainingContextChecks}) ခုကို တစ်ခုချင်း စိစစ်ပါ။",
-                    isSuccess: false);
-            }
-            else
+            if (candidates.Count == 0)
             {
                 ctrl?.ShowToastBanner("✓ ပြင်ဆင်ရန် အမှားအယွင်း မကျန်ရှိတော့ပါ။");
+                return;
             }
+
+            var previewEntries = candidates
+                .Select(item => new FixPreviewEntry<DocumentProofingItem>(
+                    item,
+                    $"{item.StoryName} • ပိုဒ် #{item.ParagraphIndex}",
+                    TryExtractWordParagraphSnippet(item),
+                    item.Issue))
+                .ToList();
+
+            using (var dlg = new FixAllPreviewDialog<DocumentProofingItem>(
+                previewEntries,
+                $"Word — {scopeLabel}",
+                target => _underlineManager.SelectAndScrollToIssue(target)))
+            {
+                IWin32Window? ownerWin = ctrl != null && ctrl.IsHandleCreated ? ctrl : null;
+                DialogResult result = ownerWin != null ? dlg.ShowDialog(ownerWin) : dlg.ShowDialog();
+                if (result != DialogResult.OK || dlg.ApprovedReplacements.Count == 0)
+                {
+                    return;
+                }
+
+                int skippedCount = candidates.Count - dlg.ApprovedReplacements.Count;
+                int count = _underlineManager.ReplaceApprovedIssuesInDocument(doc, cached, dlg.ApprovedReplacements);
+                _documentScanner.InvalidateParagraphCache(doc);
+
+                ctrl?.RenderIssues(_documentScanner.GetCachedIssues(doc));
+
+                if (count > 0)
+                {
+                    string skipTail = skippedCount > 0
+                        ? $" (ချန်လှပ်ထားသည် {skippedCount} ခု)"
+                        : string.Empty;
+                    ctrl?.ShowToastBanner(
+                        $"✓ စိစစ်အတည်ပြုထားသော ({count}) ခုကို တစ်ပြိုင်နက် ပြင်ဆင်ပြီးပါပြီ{skipTail} (Ctrl+Z ဖြင့် မူလအတိုင်း ပြန်ပြင်နိုင်သည်)။");
+                }
+            }
+        }
+
+        private static string TryExtractWordParagraphSnippet(DocumentProofingItem item)
+        {
+            try
+            {
+                if (item.TargetRange != null && item.TargetRange.Paragraphs.Count > 0)
+                {
+                    string raw = item.TargetRange.Paragraphs[1].Range.Text ?? string.Empty;
+                    string cleaned = raw.Replace("\r", " ").Replace("\a", " ").Replace("\n", " ").Trim();
+                    if (!string.IsNullOrEmpty(cleaned))
+                        return cleaned;
+                }
+            }
+            catch { }
+
+            return item.Issue.OriginalText ?? string.Empty;
         }
 
         private ProofingStyleMode LoadSavedStyleMode()

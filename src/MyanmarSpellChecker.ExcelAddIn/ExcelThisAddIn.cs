@@ -692,54 +692,78 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 return;
 
             var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
-            if (filterMode == IssueFilterMode.ContextOnly)
-            {
-                ctrl?.ShowToastBanner(
-                    "⚠ အနက်သံသယ (Context Check) သတိပြုချက်များကို မှားယွင်းပြင်ဆင်မှု မဖြစ်စေရန် တစ်ခုချင်း စိစစ်ရွေးချယ်ပါ။",
-                    isSuccess: false);
-                return;
-            }
 
             Func<SpreadsheetCellIssue, bool> predicate = filterMode switch
             {
                 IssueFilterMode.SpellingOnly => i => !i.Issue.IsGrammarOrStyle && !i.Issue.IsContextualWarning,
                 IssueFilterMode.GrammarOnly => i => i.Issue.IsGrammarOrStyle,
-                _ => i => !i.Issue.IsContextualWarning
+                IssueFilterMode.ContextOnly => i => i.Issue.IsContextualWarning,
+                _ => _ => true
             };
 
             string scopeLabel = filterMode switch
             {
                 IssueFilterMode.SpellingOnly => "သတ်ပုံအမှား",
                 IssueFilterMode.GrammarOnly => "သဒ္ဒါ/စာဟန်အမှား",
+                IssueFilterMode.ContextOnly => "အနက်သံသယ စိစစ်ချက်",
                 _ => "အမှားစုစုပေါင်း"
             };
 
             var cachedBefore = _scannerToolkit.GetCachedIssuesForActiveWorkbook();
-            int remainingContextChecks = cachedBefore.Count(i => !i.IsResolved && i.Issue.IsContextualWarning);
+            var candidates = cachedBefore
+                .Where(i => !i.IsResolved &&
+                            i.Issue.Suggestions != null &&
+                            i.Issue.Suggestions.Count > 0 &&
+                            predicate(i))
+                .ToList();
 
-            int fixedCount = _scannerToolkit.ApplyBatchFixAll(predicate, $"{scopeLabel} အားလုံးပြင်", out string busyWarn);
-            ctrl?.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
-
-            if (!string.IsNullOrEmpty(busyWarn))
+            if (candidates.Count == 0)
             {
-                ctrl?.ShowToastBanner(busyWarn, isSuccess: false);
+                ctrl?.ShowToastBanner("✓ ပြင်ဆင်ရန် အမှားအယွင်း မကျန်ရှိတော့ပါ။");
                 return;
             }
 
-            if (fixedCount > 0)
+            var previewEntries = candidates
+                .Select(item => new FixPreviewEntry<SpreadsheetCellIssue>(
+                    item,
+                    item.DisplayLocation,
+                    item.CellSnapshotText,
+                    item.Issue))
+                .ToList();
+
+            using (var dlg = new FixAllPreviewDialog<SpreadsheetCellIssue>(
+                previewEntries,
+                $"Excel — {scopeLabel}",
+                target => _scannerToolkit.SelectAndScrollToIssue(target)))
             {
-                string ctxTail = (filterMode == IssueFilterMode.All && remainingContextChecks > 0)
-                    ? $" (အနက်သံသယ {remainingContextChecks} ခုကို တစ်ခုချင်း စိစစ်ရန် ချန်လှပ်ထားသည်)"
-                    : string.Empty;
-                ctrl?.ShowToastBanner($"✓ {scopeLabel} ({fixedCount}) ခုကို Formula မပျက်စေဘဲ ပြင်ဆင်ပြီးပါပြီ{ctxTail} (↶ ပြန်ဆုတ်နိုင်သည်)။");
-            }
-            else if (remainingContextChecks > 0 && filterMode == IssueFilterMode.All)
-            {
-                ctrl?.ShowToastBanner($"⚠ အလိုအလျောက် ပြင်ဆင်နိုင်သော အမှား မကျန်ရှိပါ — အနက်သံသယ ({remainingContextChecks}) ခုကို တစ်ခုချင်း စိစစ်ပါ။", isSuccess: false);
-            }
-            else
-            {
-                ctrl?.ShowToastBanner("✓ ပြင်ဆင်ရန် အမှားအယွင်း မကျန်ရှိတော့ပါ။");
+                IWin32Window? ownerWin = ctrl != null && ctrl.IsHandleCreated ? ctrl : null;
+                DialogResult result = ownerWin != null ? dlg.ShowDialog(ownerWin) : dlg.ShowDialog();
+                if (result != DialogResult.OK || dlg.ApprovedReplacements.Count == 0)
+                {
+                    return;
+                }
+
+                int skippedCount = candidates.Count - dlg.ApprovedReplacements.Count;
+                int fixedCount = _scannerToolkit.ApplyApprovedFixes(
+                    dlg.ApprovedReplacements,
+                    $"{scopeLabel} စိစစ်ပြင်ဆင်မှု",
+                    out string busyWarn);
+
+                ctrl?.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
+
+                if (!string.IsNullOrEmpty(busyWarn))
+                {
+                    ctrl?.ShowToastBanner(busyWarn, isSuccess: false);
+                    return;
+                }
+
+                if (fixedCount > 0)
+                {
+                    string skipTail = skippedCount > 0
+                        ? $" (ချန်လှပ်ထားသည် {skippedCount} ခု)"
+                        : string.Empty;
+                    ctrl?.ShowToastBanner($"✓ စိစစ်အတည်ပြုထားသော ({fixedCount}) ခုကို Formula မပျက်စေဘဲ ပြင်ဆင်ပြီးပါပြီ{skipTail} (↶ ပြန်ဆုတ်နိုင်သည်)။");
+                }
             }
         }
 

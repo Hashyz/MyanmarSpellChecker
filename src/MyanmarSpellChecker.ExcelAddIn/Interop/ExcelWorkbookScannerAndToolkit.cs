@@ -528,6 +528,46 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             return totalFixedIssues;
         }
 
+        public int ApplyApprovedFixes(
+            IReadOnlyDictionary<SpreadsheetCellIssue, string> approvedReplacements,
+            string descriptionLabel,
+            out string busyWarning)
+        {
+            busyWarning = string.Empty;
+            if (approvedReplacements == null || approvedReplacements.Count == 0)
+                return 0;
+
+            if (!IsExcelReadyForInterop(_excelApp))
+            {
+                busyWarning = "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် ပြင်ဆင်၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။";
+                return 0;
+            }
+
+            Excel.Workbook? wb = null;
+            try { wb = _excelApp.ActiveWorkbook; } catch { }
+            if (wb == null)
+                return 0;
+
+            string wbName = SafeGetWorkbookName(wb);
+            if (!_issuesByWorkbook.TryGetValue(wbName, out var allItems) || allItems.Count == 0)
+                return 0;
+
+            var ops = SpreadsheetProofingHelper.BuildApprovedReplacementsByCell(
+                allItems,
+                approvedReplacements,
+                anchor => TryReadLivePlainCellString(wb, anchor.SheetName, anchor.Row, anchor.Column));
+
+            if (ops.Count == 0)
+                return 0;
+
+            int totalFixedIssues = ApplyCellWriteOperations(wb, wbName, ops, descriptionLabel, out busyWarning);
+            if (totalFixedIssues > 0)
+            {
+                SyncVisualUnderlinesForWorkbook(wb, wbName, preserveSavedState: false);
+            }
+            return totalFixedIssues;
+        }
+
         public int ApplySameWordBatchFix(string originalText, string replacementText, out string busyWarning)
         {
             busyWarning = string.Empty;

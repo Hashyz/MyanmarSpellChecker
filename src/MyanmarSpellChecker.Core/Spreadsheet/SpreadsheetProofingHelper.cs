@@ -524,6 +524,95 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
         }
 
         /// <summary>
+        /// Applies only the exact issues explicitly approved (☑) by the user in the Safe Fix-All Preview Checklist Dialog,
+        /// using each item's user-confirmed replacement string (even if the user opted in to an Amber warning or chose a secondary candidate),
+        /// while leaving all unchecked (☐) items untouched and shifting their offsets cleanly.
+        /// </summary>
+        public static List<CellWriteOperation> BuildApprovedReplacementsByCell(
+            IReadOnlyList<SpreadsheetCellIssue> allItems,
+            IReadOnlyDictionary<SpreadsheetCellIssue, string> approvedReplacements,
+            Func<SpreadsheetCellIssue, string?>? resolveLiveCellText = null)
+        {
+            var operations = new List<CellWriteOperation>();
+            if (allItems == null || allItems.Count == 0 || approvedReplacements == null || approvedReplacements.Count == 0)
+                return operations;
+
+            var byCell = allItems
+                .Where(i => !i.IsResolved)
+                .GroupBy(i => (
+                    Wb: i.WorkbookName ?? string.Empty,
+                    Sh: i.SheetName ?? string.Empty,
+                    i.Row,
+                    i.Column));
+
+            foreach (var cellGroup in byCell)
+            {
+                List<SpreadsheetCellIssue> cellItems = cellGroup.ToList();
+                var candidates = cellItems
+                    .Where(i =>
+                        !i.IsResolved &&
+                        approvedReplacements.TryGetValue(i, out string? rep) &&
+                        !string.IsNullOrEmpty(rep))
+                    .OrderByDescending(i => i.Issue.StartIndex)
+                    .ThenByDescending(i => i.Issue.Length)
+                    .ToList();
+
+                if (candidates.Count == 0)
+                    continue;
+
+                SpreadsheetCellIssue anchor = candidates[0];
+                string originalCellText = resolveLiveCellText?.Invoke(anchor) ?? anchor.CellSnapshotText;
+                if (string.IsNullOrEmpty(originalCellText))
+                    continue;
+
+                string working = originalCellText;
+                int lastReplacedStart = int.MaxValue;
+                int appliedInCell = 0;
+                var editsAsc = new List<(int OrigStart, int OrigLen, int Delta)>(candidates.Count);
+
+                foreach (var item in candidates)
+                {
+                    if (!approvedReplacements.TryGetValue(item, out string? chosenReplacement) || string.IsNullOrEmpty(chosenReplacement))
+                        continue;
+
+                    int st = item.Issue.StartIndex;
+                    int ln = item.Issue.Length;
+                    if (st < 0 || ln <= 0 || st + ln > working.Length || st + ln > lastReplacedStart)
+                        continue;
+
+                    string slice = working.Substring(st, ln);
+                    if (!StringsMatchCanonical(slice, item.Issue.OriginalText))
+                        continue;
+
+                    working = working.Substring(0, st) + chosenReplacement + working.Substring(st + ln);
+                    lastReplacedStart = st;
+                    appliedInCell++;
+                    item.IsResolved = true;
+                    editsAsc.Add((st, ln, chosenReplacement.Length - ln));
+                }
+
+                if (appliedInCell == 0 || string.Equals(working, originalCellText, StringComparison.Ordinal))
+                    continue;
+
+                editsAsc.Reverse();
+                ShiftRemainingCellSiblings(cellItems, working, editsAsc);
+
+                operations.Add(new CellWriteOperation
+                {
+                    WorkbookName = anchor.WorkbookName,
+                    SheetName = anchor.SheetName,
+                    Row = anchor.Row,
+                    Column = anchor.Column,
+                    PreviousText = originalCellText,
+                    UpdatedText = working,
+                    ChangesInCell = appliedInCell
+                });
+            }
+
+            return operations;
+        }
+
+        /// <summary>
         /// Replaces all occurrences of a specific flagged originalText -> replacementText across all cells in one batch.
         /// </summary>
         public static List<CellWriteOperation> BuildSameWordBatchReplacementsByCell(
@@ -947,6 +1036,7 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                 Message = src.Message,
                 GrammaticalReasoning = src.GrammaticalReasoning,
                 AuthoritativeSource = src.AuthoritativeSource,
+                RequiresReviewBeforeBatchFix = src.RequiresReviewBeforeBatchFix,
                 Suggestions = new List<SuggestionCandidate>(src.Suggestions.Count)
             };
 

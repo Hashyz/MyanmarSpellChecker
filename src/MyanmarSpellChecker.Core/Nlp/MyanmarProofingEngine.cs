@@ -645,6 +645,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     Message = src.Message,
                     GrammaticalReasoning = src.GrammaticalReasoning,
                     AuthoritativeSource = src.AuthoritativeSource,
+                    RequiresReviewBeforeBatchFix = src.RequiresReviewBeforeBatchFix,
                     Suggestions = clonedSuggestions
                 });
             }
@@ -2527,6 +2528,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 ? $"'{rawSyl}' သည် သတ်ပုံကျမ်းဝင် စာလုံးပေါင်းမဟုတ်ပါ — အနီးစပ်ဆုံး '{singleSuggestions[0].Replacement}' ({singleSuggestions[0].DiagnosticDetail})။"
                 : $"'{rawSyl}' သည် မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းတွင် မပါဝင်သော စာလုံးပေါင်းဖြစ်နေပါသည်။";
 
+            bool hasExplicitSingleRule = _trie.TryGetWrongFormRule(normSyl, out _);
             return new LatticeEdge
             {
                 Length = 1,
@@ -2538,6 +2540,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     OriginalText = rawSyl,
                     IssueType = ProofingIssueType.SpellingError,
                     Message = singleMessage,
+                    RequiresReviewBeforeBatchFix = !hasExplicitSingleRule,
                     Suggestions = singleSuggestions
                 }
             };
@@ -3307,6 +3310,10 @@ namespace MyanmarSpellChecker.Core.Nlp
                 EnsureTopSuggestionMetadata(suggestions, span.RawText, bestStrict.Word, bestStrict.MeaningCue, bestStrict.PosTag, bestStrict.IsOfficialThatpon);
                 string diffDetail = OrthographicDiffExplainer.ExplainDifference(span.RawText, bestStrict.Word);
 
+                bool strictNeedsHumanReview =
+                    IsProperNameDictionaryEntry(bestStrict) ||
+                    bestStrictDist > 0.45;
+
                 return new LatticeEdge
                 {
                     Length = windowLen,
@@ -3318,6 +3325,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                         OriginalText = span.RawText,
                         IssueType = ProofingIssueType.SpellingError,
                         Message = BuildDetailedSpellingMessage(span.RawText, bestStrict.Word, bestStrict.MeaningCue, diffDetail),
+                        RequiresReviewBeforeBatchFix = strictNeedsHumanReview,
                         Suggestions = suggestions
                     }
                 };
@@ -3331,6 +3339,9 @@ namespace MyanmarSpellChecker.Core.Nlp
             var fuzzySuggestions = _suggestionEngine.GetSuggestions(span.NormalizedText);
             EnsureTopSuggestionMetadata(fuzzySuggestions, span.RawText, bestFuzzy.Word, bestFuzzy.MeaningCue, bestFuzzy.PosTag, bestFuzzy.IsOfficialThatpon);
             string fuzzyDiff = OrthographicDiffExplainer.ExplainDifference(span.RawText, bestFuzzy.Word);
+            bool fuzzyNeedsHumanReview =
+                IsProperNameDictionaryEntry(bestFuzzy) ||
+                bestFuzzyDist > 0.36;
 
             return new LatticeEdge
             {
@@ -3343,6 +3354,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     OriginalText = span.RawText,
                     IssueType = ProofingIssueType.SpellingError,
                     Message = BuildDetailedSpellingMessage(span.RawText, bestFuzzy.Word, bestFuzzy.MeaningCue, fuzzyDiff),
+                    RequiresReviewBeforeBatchFix = fuzzyNeedsHumanReview,
                     Suggestions = fuzzySuggestions
                 }
             };
@@ -3802,6 +3814,25 @@ namespace MyanmarSpellChecker.Core.Nlp
             {
                 list.Add(issue);
             }
+        }
+
+        private static bool IsProperNameDictionaryEntry(DictionaryEntry entry)
+        {
+            if (entry == null)
+                return false;
+
+            if (string.Equals(entry.PosTag, "PROPN", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            string cue = entry.MeaningCue ?? string.Empty;
+            if (string.IsNullOrEmpty(cue))
+                return false;
+
+            return cue.IndexOf("ဒေသအမည်", StringComparison.Ordinal) >= 0 ||
+                   cue.IndexOf("မြို့နယ်", StringComparison.Ordinal) >= 0 ||
+                   cue.IndexOf("လူအမည်", StringComparison.Ordinal) >= 0 ||
+                   cue.IndexOf("ပုဂ္ဂိုလ်", StringComparison.Ordinal) >= 0 ||
+                   cue.IndexOf("နိုင်ငံအမည်", StringComparison.Ordinal) >= 0;
         }
     }
 }
