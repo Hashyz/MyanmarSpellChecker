@@ -16,6 +16,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         {
             UseMnemonic = false;
             UseCompatibleTextRendering = false;
+            AutoSize = true;
+            AutoSizeMode = AutoSizeMode.GrowAndShrink;
         }
 
         public override Size GetPreferredSize(Size proposedSize)

@@ -951,6 +951,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 if (Equals(child.Tag, WrapTag))
                 {
                     child.MaximumSize = new Size(wrapWidth, 0);
+                    if (child is WordWrapChoiceButton)
+                    {
+                        child.PerformLayout();
+                    }
                 }
                 if (child.HasChildren)
                 {

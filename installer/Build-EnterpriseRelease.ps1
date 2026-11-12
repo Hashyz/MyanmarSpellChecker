@@ -47,7 +47,8 @@ if (-not $wordBinLocked -and -not $excelBinLocked) {
         if ($LASTEXITCODE -ne 0) { throw "WordAddIn build failed." }
         $wordBuildOutDir = $wordReleaseBinDir
     } else {
-        $wordFallbackDir = if (-not (Test-FileLocked (Join-Path $releasePkgDir "MyanmarSpellChecker.WordAddIn.dll"))) { $releasePkgDir } else { Join-Path $artifactsDir "staged-word" }
+        $pkgWordLocked = (Test-FileLocked (Join-Path $releasePkgDir "MyanmarSpellChecker.WordAddIn.dll")) -or (Test-FileLocked (Join-Path $releasePkgDir "MyanmarSpellChecker.Core.dll"))
+        $wordFallbackDir = if (-not $pkgWordLocked) { $releasePkgDir } else { Join-Path $artifactsDir "staged-word" }
         New-Item -ItemType Directory -Path $wordFallbackDir -Force | Out-Null
         & dotnet build (Join-Path $repoRoot "src\MyanmarSpellChecker.WordAddIn\MyanmarSpellChecker.WordAddIn.csproj") -c Release -o $wordFallbackDir /p:DebugType=none /p:DebugSymbols=false /p:CopyRetryCount=1
         if ($LASTEXITCODE -ne 0) { throw "WordAddIn fallback build failed." }
@@ -59,7 +60,8 @@ if (-not $wordBinLocked -and -not $excelBinLocked) {
         if ($LASTEXITCODE -ne 0) { throw "ExcelAddIn build failed." }
         $excelBuildOutDir = $excelReleaseBinDir
     } else {
-        $excelFallbackDir = if (-not (Test-FileLocked (Join-Path $releasePkgDir "MyanmarSpellChecker.ExcelAddIn.dll"))) { $releasePkgDir } else { Join-Path $artifactsDir "staged-excel" }
+        $pkgExcelLocked = (Test-FileLocked (Join-Path $releasePkgDir "MyanmarSpellChecker.ExcelAddIn.dll")) -or (Test-FileLocked (Join-Path $releasePkgDir "MyanmarSpellChecker.Core.dll"))
+        $excelFallbackDir = if (-not $pkgExcelLocked) { $releasePkgDir } else { Join-Path $artifactsDir "staged-excel" }
         New-Item -ItemType Directory -Path $excelFallbackDir -Force | Out-Null
         & dotnet build (Join-Path $repoRoot "src\MyanmarSpellChecker.ExcelAddIn\MyanmarSpellChecker.ExcelAddIn.csproj") -c Release -o $excelFallbackDir /p:DebugType=none /p:DebugSymbols=false /p:CopyRetryCount=1
         if ($LASTEXITCODE -ne 0) { throw "ExcelAddIn fallback build failed." }

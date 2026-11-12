@@ -405,36 +405,67 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             if (issue.Suggestions != null && issue.Suggestions.Count > 0)
             {
                 int maxSug = Math.Min(issue.Suggestions.Count, 5);
+                if (maxSug > 1)
+                {
+                    var lblChoicesHeader = new Label
+                    {
+                        Text = $"ရွေးချယ်ပြင်ဆင်ရန် ({maxSug} မျိုး) —",
+                        Font = _fontBrandStats,
+                        ForeColor = issue.IsContextualWarning ? Color.FromArgb(148, 86, 8) : Color.FromArgb(16, 108, 56),
+                        AutoSize = true,
+                        MaximumSize = new Size(innerWrap, 0),
+                        Tag = WrapTag,
+                        Dock = DockStyle.Fill,
+                        Margin = new Padding(0, 0, 0, 3)
+                    };
+                    card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                    card.Controls.Add(lblChoicesHeader, 0, row++);
+                }
+
                 for (int sIdx = 0; sIdx < maxSug; sIdx++)
                 {
                     SuggestionCandidate sug = issue.Suggestions[sIdx];
+                    bool isPrimary = sIdx == 0;
                     string cuePart = !string.IsNullOrWhiteSpace(sug.MeaningCue)
                         ? $"  [{TruncateGloss(sug.MeaningCue, 56)}]"
                         : string.Empty;
 
-                    string prefixIcon = issue.IsContextualWarning ? "စိစစ်ရွေးမည် ➔ " : "✓ ပြင်မည် ➔ ";
+                    Color baseBg = issue.IsContextualWarning
+                        ? (isPrimary ? Color.FromArgb(255, 246, 224) : Color.FromArgb(255, 251, 240))
+                        : (issue.IsGrammarOrStyle
+                            ? (isPrimary ? Color.FromArgb(228, 241, 255) : Color.FromArgb(242, 248, 255))
+                            : (isPrimary ? Color.FromArgb(224, 246, 232) : Color.FromArgb(241, 250, 244)));
+
+                    Color hoverBg = issue.IsContextualWarning
+                        ? Color.FromArgb(252, 236, 198)
+                        : (issue.IsGrammarOrStyle ? Color.FromArgb(210, 230, 255) : Color.FromArgb(202, 238, 216));
+
+                    Color borderClr = issue.IsContextualWarning
+                        ? Color.FromArgb(235, 192, 112)
+                        : (issue.IsGrammarOrStyle
+                            ? (isPrimary ? Color.FromArgb(142, 186, 244) : Color.FromArgb(184, 210, 246))
+                            : (isPrimary ? Color.FromArgb(118, 198, 148) : Color.FromArgb(168, 218, 186)));
+
+                    string prefixIcon = issue.IsContextualWarning ? "စိစစ်ရွေးမည်  ➔  " : "✓ ပြင်မည်  ➔  ";
                     var btnChoice = new WordWrapChoiceButton
                     {
                         Text = $"{prefixIcon}{sug.Replacement}{cuePart}",
-                        Font = sIdx == 0 ? _fontSuggest : _fontBody,
+                        AutoSize = true,
+                        AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                        MaximumSize = new Size(innerWrap, 0),
+                        Tag = WrapTag,
+                        Dock = DockStyle.Fill,
+                        Font = isPrimary ? _fontSuggest : _fontBody,
                         FlatStyle = FlatStyle.Flat,
                         TextAlign = ContentAlignment.MiddleLeft,
-                        BackColor = sIdx == 0
-                            ? (issue.IsContextualWarning ? Color.FromArgb(255, 246, 224) : Color.FromArgb(232, 246, 237))
-                            : Color.FromArgb(247, 249, 252),
-                        ForeColor = sIdx == 0
-                            ? (issue.IsContextualWarning ? Color.FromArgb(148, 86, 8) : Color.FromArgb(16, 102, 52))
-                            : Color.FromArgb(36, 48, 66),
-                        MaximumSize = new Size(innerWrap, 0),
-                        Width = innerWrap,
-                        Tag = WrapTag,
+                        BackColor = baseBg,
+                        ForeColor = Color.FromArgb(18, 38, 62),
                         Padding = new Padding(8, 5, 8, 5),
-                        Margin = new Padding(0, 0, 0, 4),
+                        Margin = new Padding(0, 0, 0, 5),
                         Cursor = Cursors.Hand
                     };
-                    btnChoice.FlatAppearance.BorderColor = sIdx == 0
-                        ? (issue.IsContextualWarning ? Color.FromArgb(235, 192, 112) : Color.FromArgb(166, 218, 184))
-                        : Color.FromArgb(216, 224, 236);
+                    btnChoice.FlatAppearance.BorderColor = borderClr;
+                    btnChoice.FlatAppearance.MouseOverBackColor = hoverBg;
 
                     string chosenReplacement = sug.Replacement;
                     btnChoice.Click += (s, e) => RequestApplySuggestion?.Invoke(item, chosenReplacement);
@@ -447,13 +478,25 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 if (duplicateWordCount > 1 && !issue.IsContextualWarning)
                 {
                     string topRep = issue.Suggestions[0].Replacement;
-                    var btnBatchSame = CreateActionButton(
-                        $"⚡ တူညီအမှား ({duplicateWordCount}) ကွက်လုံး \"{topRep}\" ဖြင့် ပြင်မည်",
-                        Color.FromArgb(238, 244, 255),
-                        Color.FromArgb(20, 74, 158),
-                        Color.FromArgb(186, 208, 245),
-                        _fontSmallBold);
-                    btnBatchSame.Margin = new Padding(0, 0, 0, 5);
+                    var btnBatchSame = new WordWrapChoiceButton
+                    {
+                        Text = $"✓✓ တူညီသောအမှား ({duplicateWordCount}) ကွက်လုံး ပြင်မည်  ➔  {topRep}",
+                        AutoSize = true,
+                        AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                        MaximumSize = new Size(innerWrap, 0),
+                        Tag = WrapTag,
+                        Dock = DockStyle.Fill,
+                        TextAlign = ContentAlignment.MiddleLeft,
+                        Padding = new Padding(8, 5, 8, 5),
+                        Margin = new Padding(0, 0, 0, 6),
+                        BackColor = Color.FromArgb(20, 118, 86),
+                        ForeColor = Color.White,
+                        FlatStyle = FlatStyle.Flat,
+                        Font = _fontSmallBold,
+                        Cursor = Cursors.Hand
+                    };
+                    btnBatchSame.FlatAppearance.BorderColor = Color.FromArgb(14, 96, 70);
+                    btnBatchSame.FlatAppearance.MouseOverBackColor = Color.FromArgb(16, 102, 74);
                     btnBatchSame.Click += (s, e) => RequestApplyBatchSuggestion?.Invoke(issue.OriginalText, topRep);
                     card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
                     card.Controls.Add(btnBatchSame, 0, row++);
