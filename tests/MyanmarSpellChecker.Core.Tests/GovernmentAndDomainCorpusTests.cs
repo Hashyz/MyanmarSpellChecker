@@ -2835,5 +2835,95 @@ namespace MyanmarSpellChecker.Core.Tests
             var headerDup = Assert.Single(headerCommaIssues.Where(x => x.IssueType == ProofingIssueType.PunctuationError));
             Assert.Equal("။", headerDup.Suggestions[0].Replacement);
         }
+
+        [Fact]
+        public void V57_GovernmentNewsValidationAndPmiLearningGate()
+        {
+            string root = TestPaths.RepoRoot;
+            string dbPath = Path.Combine(root, "data", "mlc_thatpon.db");
+            Assert.True(File.Exists(dbPath));
+
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            MyanmarTrie trie = repo.LoadIntoTrie(AntiTamperGuard.ReconstructProtectedFallbackKey());
+            var engine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // 1. Zero False Positives across all 7 Official Myanmar Government News Outlet Groups
+            //    (MOI, IPRD 330-townships, MRTV, MDN, Myawady, Moezala Meteorology, Union/Regional Newsrooms)
+            string[] cleanGovNewsSentences =
+            {
+                "ထုတ်ကုန်မြှင့်တင်မျှတဆောင်ရွက်ရေး အစည်းအဝေးကို သပြေဘူတခန်းမ၌ ကျင်းပသည်။",
+                "သုံးလောကထွတ်ထား မြတ်စွာဘုရားရှင်အား ရည်မှန်း၍ အန္တိမအဂ္ဂိဈာပန သာဓုကီဠန ပူဇာသဘင်နှင့် ဝိဇ္ဇရိယဘုန်းတော်ကြီးကျောင်း ရေစက်ချပွဲ ကျင်းပသည်။",
+                "စက်မှုကုန်ထုတ်ပစ္စည်းများ၊ ဆီမီးကွန်ဒတ်တာ၊ လျှပ်စစ်ထရန်စဖော်မာနှင့် ရေနံချက်စက်ရုံ လုပ်ငန်းများကို စစ်ဆေးသည်။",
+                "ဗဟိုချက်လေဖိအား ၁၀၀၀ ဟက်တိုပါစကယ် ရှိသော ဆိုင်ကလုန်းမုန်တိုင်းနှင့် မြို့ပြအပူကျွန်းဖြစ်စဉ်ကြောင့် မိုးသက်လေပြင်း တိုက်ခတ်နိုင်သည်။",
+                "မြစ်ကမ်းထိန်းလုပ်ငန်း၊ တမံပေါင်လျော့ကျမှုနှင့် တာအိပဲ့ကျမှု အခြေအနေများကို မြေပြင်ကွင်းဆင်း စစ်ဆေးသည်။",
+                "တစ်ဧကလျှင် ငွေကျပ် ၆ သိန်း ကျော်ခန့်ရရှိရာ ဒေသခံတောင်သူများ သီးနှံဖျက်ပိုး ကာကွယ်ရေးကို ဆောင်ရွက်ကြသည်။",
+                "ရှမ်းယူနိုက်တက်အသင်းသည် ပိုမိုကောင်းမွန်သည့် ကစားပုံဖြင့် ချေပဂိုးနှင့် အနိုင်ဂိုးများ သွင်းယူခဲ့သည်။",
+                "နှစ်နိုင်ငံအစိုးရချင်း နားလည်မှုစာချွန်လွှာ လက်မှတ်ရေးထိုးပြီး ရင်းနှီးပွင့်လင်းစွာ အမြင်ချင်းဖလှယ် ဆွေးနွေးကြသည်။",
+                "ပြည်သူ့ဆေးရုံကြီးရှိ ကလေးကုသဆောင်၊ အထူးကြပ်မတ်ကုသဆောင်နှင့် အရေးပေါ်ကုသဆောင်တို့တွင် ကျန်းမာရေးစောင့်ရှောက်မှု ပေးလျက်ရှိသည်။",
+                "သက်ဆိုင်ရာလဝကမြို့နယ်ရုံးက လူဦးရေစာရင်း ကောက်ယူပြီး ကျောင်းစာအပြင် စာဖတ်ရှိန်မြှင့်တင်ရေး လူငယ်စကားဝိုင်း ကျင်းပသည်။",
+                "ရေလယ်တိုင်အမှတ်၊ မိုင်တိုင်အမှတ်နှင့် ကုန်တင်ယာဉ်အစီးရေ စာရင်းများကို စစ်ဆေးပြီး ဂြိုဟ်တုကို အာကာသတွင်းသို့ လွှတ်တင်သည်။",
+                "ရုရှားဖက်ဒရေးရှင်းနိုင်ငံ၊ ဟနွိုင်းမြို့၊ ဆီယမ်ရိမြို့နှင့် ပို့ဘလဲမြို့ သတင်းများကို ထုတ်လွှင့်ပြသပြီး ရင်တွင်းခံစားချက်များကို မေးမြန်းသည်။",
+                "သီတဂူဆရာတော် ဒေါက်တာဘဒ္ဒန္တဉာဏိဿရ ၏ ဓမ္မစကြာတရားတော်ကို နာယူပြီး မစ္စတာ ယိုရှိတာခဲ ရှိုဂို အား လက်ခံတွေ့ဆုံသည်။",
+                "ဘုန်းကြီး ကျောင်းလမ်းနှင့် မင်းရပ်တန်းလမ်းအနီး ဈေးကွက်ဝင်သီးနှံများ စိုက်ပျိုးကာ ဖလက်ရေထိန်းတံခါး ပြုပြင်သည်။"
+            };
+
+            foreach (string sentence in cleanGovNewsSentences)
+            {
+                var issues = engine.CheckText(sentence);
+                Assert.True(
+                    issues.Count == 0,
+                    $"Expected 0 issues on valid Government News sentence '{sentence}', but got: {string.Join("; ", issues.Select(i => $"{i.IssueType}:{i.OriginalText}->{i.Suggestions.FirstOrDefault()?.Replacement}"))}");
+            }
+
+            // 2. Real Journalistic Clerical Typos Caught & Repaired to 462-Page Thatpon / Official Standard
+            var newsroomClericalTypos = new (string WrongInput, string ExpectedCanonical)[]
+            {
+                ("လျော့ချ", "လျှော့ချ"),
+                ("နေ့လည်", "နေ့လယ်"),
+                ("ဆက်နွယ်", "ဆက်နွှယ်"),
+                ("ရှေ့ရှု", "ရှေးရှု"),
+                ("အသက်မွေးဝမ်းကြောင်း", "အသက်မွေးဝမ်းကျောင်း"),
+                ("ကျောင်းဝန်း", "ကျောင်းဝင်း"),
+                ("မုတ်သုန်လေ", "မုတ်သုံလေ"),
+                ("လျှပ်တစ်ပျက်", "လျှပ်တစ်ပြက်"),
+                ("ရုရှားဖက်ဒရေးရှင်", "ရုရှားဖက်ဒရေးရှင်း"),
+                ("ပျှမ်းမျှ", "ပျမ်းမျှ"),
+                ("ရေငုတ်", "ရေငုပ်"),
+                ("မချမ်းဘော့မြို့နယ်", "မချမ်းဘောမြို့နယ်"),
+                ("ဟနွိင်းမြို့", "ဟနွိုင်းမြို့"),
+                ("တစ်သျူး", "တစ်သျှူး"),
+                ("အဖွဲဝင်", "အဖွဲ့ဝင်")
+            };
+
+            foreach (var (wrongInput, expectedCanonical) in newsroomClericalTypos)
+            {
+                var issues = engine.CheckText(wrongInput);
+                Assert.NotEmpty(issues);
+                string normExpected = UnicodeNormalizer.NormalizeCanonicalOrder(expectedCanonical);
+                Assert.Contains(
+                    issues.SelectMany(issue => issue.Suggestions.Select(s =>
+                        wrongInput.Substring(0, issue.StartIndex) + s.Replacement + wrongInput.Substring(issue.StartIndex + issue.Length))),
+                    repaired => UnicodeNormalizer.NormalizeCanonicalOrder(repaired) == normExpected);
+            }
+
+            // 3. Homophone & Minimal-Pair Safety on Government News ('စေတီတော်မြက်ကြီး -> စေတီတော်မြတ်ကြီး' & 'စေတီတော် မြက်ကြီး -> မြတ်' + symmetric shields 'စာတို', 'ရေစုပ်ပန့်', 'ထုတ်ကုန်ပစ္စည်း', 'လေဘေးသင့်ပြည်သူ')
+            var unspacedPagodaIssues = engine.CheckText("ရှေးဟောင်းသမိုင်းဝင် စေတီတော်မြက်ကြီးအား ဖူးမြော်ကြည်ညိုသည်။");
+            Assert.NotEmpty(unspacedPagodaIssues);
+            Assert.Contains(
+                unspacedPagodaIssues.SelectMany(x => x.Suggestions),
+                s => s.Replacement.IndexOf("မြတ်", StringComparison.Ordinal) >= 0);
+
+            var spacedPagodaIssues = engine.CheckText("ရှေးဟောင်းသမိုင်းဝင် စေတီတော် မြက်ကြီးအား ဖူးမြော်ကြည်ညိုသည်။");
+            var pagodaIssue = Assert.Single(spacedPagodaIssues.Where(x =>
+                x.IssueType == ProofingIssueType.SpellingError ||
+                x.IssueType == ProofingIssueType.ContextualMeaningWarning));
+            Assert.Equal("မြက်", pagodaIssue.OriginalText);
+            Assert.Contains(
+                pagodaIssue.Suggestions,
+                s => s.Replacement.IndexOf("မြတ်", StringComparison.Ordinal) >= 0);
+
+            var symmetricCleanIssues = engine.CheckText("ဖုန်းစာတို ပေးပို့၍ လေဘေးသင့်ပြည်သူများအတွက် ရေစုပ်ပန့်၊ ထုတ်ကုန်ပစ္စည်းနှင့် အရေးပေါ်ဆန်ရိက္ခာများ ထောက်ပံ့သည်။");
+            Assert.Empty(symmetricCleanIssues);
+        }
     }
 }

@@ -1136,6 +1136,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             int grace = 0;
             bool awaitingNameStartAfterHonorific = false;
+            bool inForeignName = false;
             int foreignNameSpacesLeft = 0;
             int i = 0;
 
@@ -1151,6 +1152,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     {
                         grace = 4;
                         awaitingNameStartAfterHonorific = true;
+                        inForeignName = false;
                         foreignNameSpacesLeft = 0;
                         i += 3;
                         continue;
@@ -1172,20 +1174,23 @@ namespace MyanmarSpellChecker.Core.Nlp
                     }
                     grace = 0;
                     awaitingNameStartAfterHonorific = false;
+                    inForeignName = false;
                     foreignNameSpacesLeft = 0;
                     i++;
                     continue;
                 }
 
-                if (GrammaticalParticles.Contains(tok.NormalizedText) || ColloquialParticles.Contains(tok.NormalizedText))
+                if (GrammaticalParticles.Contains(tok.NormalizedText) || (!inForeignName && ColloquialParticles.Contains(tok.NormalizedText)))
                 {
                     grace = 0;
                     awaitingNameStartAfterHonorific = false;
+                    inForeignName = false;
                     foreignNameSpacesLeft = 0;
                 }
 
-                // Never start an honorific in the middle of an existing compound word (e.g. 'ကနဦး', 'ပထမဦးဆုံး', 'ဦးဆောင်ဦးရွက်'), unless preceded by a state title (e.g. 'သူရဦး...')!
-                bool precededByTitle = i > 0 && TitleSylBeforeHonorific.Contains(tokens[i - 1].NormalizedText);
+                // Never start an honorific in the middle of an existing compound word (e.g. 'ကနဦး', 'ပထမဦးဆုံး', 'ဦးဆောင်ဦးရွက်'), unless preceded by a state/academic title (e.g. 'သူရဦး...', 'ဒေါက်တာဘဒ္ဒန္တ...')!
+                bool precededByTitle = (i > 0 && TitleSylBeforeHonorific.Contains(tokens[i - 1].NormalizedText)) ||
+                                       (i >= 2 && tokens[i - 1].NormalizedText == "တာ" && tokens[i - 2].NormalizedText == "ဒေါက်");
                 bool canStartHonorific = (!insideKnownWord[i] || precededByTitle) &&
                                          (i == 0 ||
                                           tokens[i - 1].Kind != TokenKind.MyanmarSyllable ||
@@ -1270,8 +1275,9 @@ namespace MyanmarSpellChecker.Core.Nlp
                                 mask[i + k] = true;
                         }
                         bool isForeignTitle = matchedHonorificNorm == "မစ္စတာ" || matchedHonorificNorm == "မစ္စက်" || matchedHonorificNorm == "မစ္စ";
-                        grace = isForeignTitle ? 6 : 5;
+                        grace = isForeignTitle ? 8 : 5;
                         awaitingNameStartAfterHonorific = true;
+                        inForeignName = isForeignTitle;
                         foreignNameSpacesLeft = isForeignTitle ? 2 : 0;
                         i += matchedHonorificLen;
                         continue;
@@ -1315,6 +1321,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
                         grace = 0;
                         awaitingNameStartAfterHonorific = false;
+                        inForeignName = false;
                         foreignNameSpacesLeft = 0;
                     }
                     else
@@ -1322,6 +1329,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                         mask[i] = true;
                         awaitingNameStartAfterHonorific = false;
                         grace--;
+                        if (grace == 0)
+                            inForeignName = false;
                     }
                 }
 
@@ -1406,6 +1415,58 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
+            // Whole-Chunk Exact-Headword Atomicity Guard:
+            // Never split a standalone / whole-chunk exact multi-syllable Trie headword (e.g. 'လှာကဒေါင်ကျေးရွာ', 'ဒေါက်တာဘဒ္ဒန္တဉာဏိဿရ')
+            // into partially [masked] + [unmasked] halves.
+            var exactAtomicityBuf = new List<(int Length, List<DictionaryEntry>? Entries, OrthographyRule? WrongRule)>(8);
+            for (int st = 0; st < tokens.Count; st++)
+            {
+                if (tokens[st].Kind != TokenKind.MyanmarSyllable)
+                    continue;
+                if (st > 0 && tokens[st - 1].Kind == TokenKind.MyanmarSyllable)
+                    continue;
+
+                _trie.MatchSpansAt(tokens, st, Math.Min(12, tokens.Count - st), exactAtomicityBuf);
+                for (int s = 0; s < exactAtomicityBuf.Count; s++)
+                {
+                    var (len, entries, wrongRule) = exactAtomicityBuf[s];
+                    if (len < 2 || wrongRule != null || entries == null || entries.Count == 0)
+                        continue;
+
+                    int afterIdx = st + len;
+                    if (afterIdx < tokens.Count &&
+                        tokens[afterIdx].Kind == TokenKind.MyanmarSyllable &&
+                        !GrammaticalParticles.Contains(tokens[afterIdx].NormalizedText) &&
+                        !ColloquialParticles.Contains(tokens[afterIdx].NormalizedText))
+                    {
+                        continue;
+                    }
+
+                    bool contiguous = true;
+                    bool anyTrue = false;
+                    bool anyFalse = false;
+                    for (int k = 0; k < len; k++)
+                    {
+                        if (k > 0 && tokens[st + k].StartIndex != tokens[st + k - 1].StartIndex + tokens[st + k - 1].Length)
+                        {
+                            contiguous = false;
+                            break;
+                        }
+                        if (mask[st + k]) anyTrue = true;
+                        else anyFalse = true;
+                    }
+                    if (!contiguous || !anyTrue || !anyFalse)
+                        continue;
+
+                    var wholeSpan = GetTokenSpan(fullText, tokens, st, len);
+                    if (!UnicodeNormalizer.HasLookalikeError(wholeSpan.RawText, out _, out _))
+                    {
+                        for (int k = 0; k < len; k++)
+                            mask[st + k] = false;
+                    }
+                }
+            }
+
             return mask;
         }
 
@@ -1445,8 +1506,12 @@ namespace MyanmarSpellChecker.Core.Nlp
 
                 var span = GetTokenSpan(fullText, tokens, startIndex, len);
                 string fixedSpan = UnicodeNormalizer.FixLookalikeCharacters(span.NormalizedText);
-                if (_trie.ContainsExactWord(span.NormalizedText) ||
-                    _trie.ContainsExactWord(fixedSpan) ||
+                if ((_trie.TryGetExactEntries(span.NormalizedText, out var exactNormEntries) &&
+                     exactNormEntries != null &&
+                     exactNormEntries.Any(e => !e.IsProperNoun)) ||
+                    (_trie.TryGetExactEntries(fixedSpan, out var exactFixedEntries) &&
+                     exactFixedEntries != null &&
+                     exactFixedEntries.Any(e => !e.IsProperNoun)) ||
                     _trie.TryGetWrongFormRule(span.NormalizedText, out _))
                 {
                     return true;
@@ -1465,6 +1530,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 foreach (var e in candidates)
                 {
                     if (!e.IsOfficialThatpon ||
+                        e.IsProperNoun ||
                         !e.Word.StartsWith(honorificNorm, StringComparison.Ordinal) ||
                         !IsCompatibleCompoundLength(e, len))
                     {
@@ -2406,7 +2472,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             if (normSyl == "ဖြား" && nextSyl == "ယောင်း") return true;
             if (normSyl == "ပြောက်" && (nextSyl == "ကျား" || nextSyl == "စွန်း")) return true;
-            if (normSyl == "ထွတ်" && (prevSyl == "အ" || prevSyl == "ပြည်" || nextSyl == "မြတ်")) return true;
+            if (normSyl == "ထွတ်" && (prevSyl == "အ" || prevSyl == "ပြည်" || nextSyl == "မြတ်" || nextSyl == "ထား" || nextSyl == "ခေါင်" || nextSyl == "တင်")) return true;
             if (normSyl == "ပျ" && (prevSyl == "ရိုင်း" || nextSyl == "ပိုး")) return true;
             if (normSyl == "ကျာ" && nextSyl == "ပွတ်") return true;
             if (normSyl == "ပျောင်း" && (prevSyl == "ပျော့" || nextSyl == "နွဲ့" || nextSyl == "ညွတ်" || nextSyl == "ခွေ" || nextSyl == "နုံး" || nextSyl == "ညံ့")) return true;
@@ -3239,11 +3305,12 @@ namespace MyanmarSpellChecker.Core.Nlp
                     }
                 }
 
-                // Approximative particle 'ခန့်' after a numeral/classifier + exact 2-syllable verb (e.g. 'ကျပ်ခန့်ရရှိ' != 'ခွင့်ရရှိ')
+                // Approximative particle 'ခန့်' after a numeral/classifier/quantifier + exact 2-syllable verb (e.g. 'ကျပ်ခန့်ရရှိ' != 'ခွင့်ရရှိ', '၆ သိန်း ကျော်ခန့်ရရှိရာ')
                 if (firstSyl == NormalizedKhant && exactMultiWordMask[localOffset + 1, 2] &&
                     startIndex > runStart &&
                     (NumeralClassifiers.Contains(tokens[startIndex - 1].NormalizedText) ||
-                     PureNumerals.Contains(tokens[startIndex - 1].NormalizedText)))
+                     PureNumerals.Contains(tokens[startIndex - 1].NormalizedText) ||
+                     tokens[startIndex - 1].NormalizedText == "ကျော်"))
                 {
                     return null;
                 }
@@ -3365,7 +3432,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                  VerbalContextFollowers.Contains(lastSyl) ||
                  ProductiveVerbalAuxiliaries.Contains(lastSyl) ||
                  isExactContentStemPlusPostAdj ||
-                 lastSyl == "ပင်" || lastSyl == "ဆေး" || lastSyl == "မဲ့" || lastSyl == "ထက်" ||
+                 lastSyl == "ပုံ" || lastSyl == "ပင်" || lastSyl == "ဆေး" || lastSyl == "မဲ့" || lastSyl == "ထက်" ||
                  lastSyl == "ကား" || lastSyl == "သွင်" || lastSyl == "စွ" || lastSyl == "သောဝ်");
 
             if (isExactStemPlusValidSuffix)
