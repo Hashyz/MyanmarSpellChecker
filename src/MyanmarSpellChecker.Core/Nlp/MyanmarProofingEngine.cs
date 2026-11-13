@@ -143,8 +143,11 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         private static readonly HashSet<string> NumeralClassifiers = CreateNormalizedSet(
             "ယောက်", "ဦး", "ပါး", "ခု", "ကောင်", "စီး", "လုံး", "ချပ်", "စောင်", "ထည်", "ခါ", "ကြိမ်", "လုတ်",
-            "ရက်", "ရပ်", "လ", "နှစ်", "နာရီ", "မိနစ်", "မိုင်", "ပွဲ", "ဖွဲ့", "မျိုး", "ဆင့်", "ပိုင်း", "အုပ်", "ပင်", "ခန်း", "စုံ", "တွဲ", "ဆောင်"
+            "ရက်", "ရပ်", "လ", "နှစ်", "နာရီ", "မိနစ်", "မိုင်", "ပွဲ", "ဖွဲ့", "မျိုး", "ဆင့်", "ပိုင်း", "အုပ်", "ပင်", "ခန်း", "စုံ", "တွဲ", "ဆောင်",
+            "ကျပ်", "တန်", "တင်း", "ပိဿာ", "ဧက", "ပေ"
         );
+
+        private static readonly string NormalizedKhant = UnicodeNormalizer.NormalizeCanonicalOrder("ခန့်");
 
         // Clause-closing & subordinate/nominalized negative markers indicating 'မ' is the negative verb prefix (e.g. 'မလာနိုင်ဘူး', 'မရေးရတာ', 'မခံရစေရေး')
         private static readonly HashSet<string> NegativeClauseClosers = CreateNormalizedSet(
@@ -879,6 +882,13 @@ namespace MyanmarSpellChecker.Core.Nlp
                 if (isFormalColloquialSuffixRule &&
                     (ViolatesOfficialHeadwordProperSubspan(gi, exactLexiconMultiWordSpans) ||
                      OverlapsProtectedPersonName(gi, tokens, personNameProtected)))
+                {
+                    continue;
+                }
+
+                // Never let colloquial verb-suffix rule '[Verb] + အုန်း -> ဦး' corrupt personal names ending in '-အုန်း' (e.g. 'ဒေါ်တင်တင်အုန်း', 'ဦးခင်မောင်အုန်း')
+                if (gi.OriginalText.EndsWith("အုန်း", StringComparison.Ordinal) &&
+                    OverlapsProtectedPersonName(gi, tokens, personNameProtected))
                 {
                     continue;
                 }
@@ -2636,6 +2646,15 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return LatticeEdge.Clean(1, 1.65);
             }
 
+            // Valid dictionary syllable inside a personal name introduced by female honorific 'ဒေါ်' (e.g. 'ဒေါ်တင်တင်အုန်း' where 'အုန်း' has cue 'ခြိမ့်~-')
+            if (tokIdx > runStart &&
+                runEnd - runStart >= 3 &&
+                tokens[runStart].NormalizedText == "ဒေါ်" &&
+                _trie.ContainsExactWord(normSyl))
+            {
+                return LatticeEdge.Clean(1, 1.45);
+            }
+
             // Induced creaky tone on 1-syllable Nouns/Pronouns (e.g. လူ့, သူ့, ငါ့, ကိုယ့်, ရွာ့)
             if (IsValidInducedCreakyToneForm(normSyl, normSyl))
             {
@@ -3065,6 +3084,17 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return null;
             }
 
+            // Personal name shield after female honorific 'ဒေါ်' (e.g. 'ဒေါ်တင်တင်အုန်း' != 'တင်ဦး', excluding 'ဒေါ်လာ')
+            if (windowLen == 2 &&
+                startIndex > runStart &&
+                runEnd - runStart >= 3 &&
+                tokens[runStart].NormalizedText == "ဒေါ်" &&
+                _trie.ContainsExactWord(firstSyl) &&
+                _trie.ContainsExactWord(lastSyl))
+            {
+                return null;
+            }
+
             // Never start a compound repair window mid-Kinzi ('င်္' \u1004\u103A\u1039 belongs phonologically to the preceding open syllable, e.g. 'မဟာဥမင်္ဂဇာတ်', 'ဒီပင်္ကရာ')
             if (startIndex > runStart && firstSyl.StartsWith("\u1004\u103A\u1039", StringComparison.Ordinal))
             {
@@ -3167,7 +3197,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                      firstSyl == "ချိန်" ||
                      IsForeignOrPaliKilledCoda(firstSyl) ||
                      (localOffset >= 1 && IsEndOfExactMultiWordMinLen(exactMultiWordMask, localOffset, 2)) ||
-                     (_trie.IsStandaloneWord(firstSyl) && _trie.GetWordFrequency(firstSyl) >= 2)))
+                     (_trie.IsStandaloneWord(firstSyl) && _trie.GetWordFrequency(firstSyl) >= 2) ||
+                     (UnicodeNormalizer.HasLookalikeError(firstSyl, out string fixedFirstSyl, out _) && _trie.IsStandaloneWord(fixedFirstSyl))))
                 {
                     return null;
                 }
@@ -3190,20 +3221,31 @@ namespace MyanmarSpellChecker.Core.Nlp
                     return null;
                 }
 
-                // Productive '[Verb/CompoundEnd] + [Auxiliary/Copula/PureVerb] + [Nominalizer]'
-                // (e.g. 'စွမ်းဆောင်ရည်ရှိမှု' != 'ရရှိမှု', 'တန်းတူရှိမှု' != 'တည်ရှိမှု', 'ပုံပြင်ပြောခြင်း' != 'ပြန့်ပြောခြင်း', 'ရောင်းချနေမှု' != 'ကျနမှု')
+                // Productive '[Verb/CompoundEnd] + [Auxiliary/Copula/PureVerb] + [Nominalizer/Modal]'
+                // (e.g. 'စွမ်းဆောင်ရည်ရှိမှု' != 'ရရှိမှု', 'မြန်မာနိုင်ငံသားဖြစ်ရမည်' != 'သားဖြစ်လာ', 'ပုံပြင်ပြောခြင်း' != 'ပြန့်ပြောခြင်း')
+                bool isEndOfMultiWordAtFirst = localOffset >= 1 && IsEndOfExactMultiWordMinLen(exactMultiWordMask, localOffset, 2);
                 if (((midSyl == "နေ" || midSyl == "ပေး" || midSyl == "ထား" || midSyl == "ခဲ့" || midSyl == "ရ" ||
                       midSyl == "သွား" || midSyl == "လာ" || midSyl == "နိုင်" || midSyl == "တတ်" || midSyl == "စေ" ||
                       midSyl == "ပြီး" || midSyl == "ရှိ" || midSyl == "ဖြစ်") &&
-                     ((localOffset >= 1 && IsEndOfExactMultiWordMinLen(exactMultiWordMask, localOffset, 2)) ||
+                     (isEndOfMultiWordAtFirst ||
                       (_trie.IsStandaloneWord(firstSyl) && _trie.GetWordFrequency(firstSyl) >= 2))) ||
-                    (localOffset >= 1 && IsEndOfExactMultiWordMinLen(exactMultiWordMask, localOffset, 2) && IsPureVerbSyllable(midSyl)))
+                    (isEndOfMultiWordAtFirst && IsPureVerbSyllable(midSyl)))
                 {
                     if (lastSyl == "မှု" || lastSyl == "ခြင်း" || lastSyl == "ချက်" || lastSyl == "ရေး" ||
-                        lastSyl == "ရာ" || lastSyl == "သူ" || lastSyl == "ဖွယ်" || lastSyl == "နည်း")
+                        lastSyl == "ရာ" || lastSyl == "သူ" || lastSyl == "ဖွယ်" || lastSyl == "နည်း" ||
+                        (isEndOfMultiWordAtFirst && (lastSyl == "ရ" || lastSyl == "နိုင်" || lastSyl == "ပါ" || lastSyl == "မည်")))
                     {
                         return null;
                     }
+                }
+
+                // Approximative particle 'ခန့်' after a numeral/classifier + exact 2-syllable verb (e.g. 'ကျပ်ခန့်ရရှိ' != 'ခွင့်ရရှိ')
+                if (firstSyl == NormalizedKhant && exactMultiWordMask[localOffset + 1, 2] &&
+                    startIndex > runStart &&
+                    (NumeralClassifiers.Contains(tokens[startIndex - 1].NormalizedText) ||
+                     PureNumerals.Contains(tokens[startIndex - 1].NormalizedText)))
+                {
+                    return null;
                 }
 
                 // Ward/quarter names '[Syllable] + ရပ်ကွက်' (e.g. 'ရန်အောင်မြေရပ်ကွက်' != 'မြေလပ်ကွက်', 'ဆ/ကရပ်ကွက်' != 'ကရကွက်')
@@ -3232,6 +3274,16 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             // Transliterated foreign/Pali street names '[ForeignKilledCoda] + လမ်း' (e.g. 'ဘားနဒ်လမ်း' != 'နတ်လမ်း')
             if (windowLen == 2 && lastSyl == "လမ်း" && IsForeignOrPaliKilledCoda(firstSyl))
+            {
+                return null;
+            }
+
+            // Ward/quarter names after an exact >=3-syllable proper noun (e.g. 'ရွှေဂုံတိုင်ရပ်ကွက်' must never slice 'ဂုံတိုင်ရပ်ကွက် -> ဂုံဘိုရပ်ကွက်')
+            if (windowLen == 4 &&
+                tokens[startIndex + 2].NormalizedText == "ရပ်" &&
+                lastSyl == "ကွက်" &&
+                localOffset >= 1 &&
+                IsEndOfExactMultiWordMinLen(exactMultiWordMask, localOffset + 1, 3))
             {
                 return null;
             }

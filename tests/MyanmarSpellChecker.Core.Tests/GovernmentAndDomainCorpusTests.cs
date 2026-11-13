@@ -2745,5 +2745,95 @@ namespace MyanmarSpellChecker.Core.Tests
                 }
             }
         }
+
+        [Fact]
+        public void V56_WholeGovernmentPortalValidationAndLearningGate()
+        {
+            string root = TestPaths.RepoRoot;
+            string dbPath = Path.Combine(root, "data", "mlc_thatpon.db");
+            Assert.True(File.Exists(dbPath));
+
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            MyanmarTrie trie = repo.LoadIntoTrie(AntiTamperGuard.ReconstructProtectedFallbackKey());
+            var engine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // 1. Zero False Positives on authentic .gov.mm prose across 83 government & statutory portals
+            string[] cleanOfficialGovSentences =
+            {
+                "ကာကွယ်ရေးဦးစီးချုပ်ရုံး(ကြည်း၊ ရေ၊ လေ)မှ တာဝန်ရှိသူများ တက်ရောက်ကြသည်။",
+                "ကျား/မ စာရင်းနှင့် အရောင်း/အဝယ် စာချုပ်များ စိစစ်သည်။",
+                "သက်ဆိုင်ရာ အက်ဥပဒေအရ အရေးယူဆောင်ရွက်မည်။",
+                "ကုန်းတလဘောင်ကျေးရွာအုပ်စု၊ ရာဇပတလမ်းနှင့် ကျောက် တလုံးကြီးမြို့နယ်ခွဲတို့တွင် ဆောင်ရွက်သည်။",
+                "အရောင်းအိမ်ရာများ၊ အငှားအိမ်ရာများ၊ တန်ဖိုးနည်းအိမ်ရာနှင့် တန်ဖိုးသင့်အိမ်ရာများ တည်ဆောက်သည်။",
+                "ပင်လုံလမ်း၊ လေးထောင့်ကန်လမ်း၊ ရွှေဂုံတိုင်ရပ်ကွက်နှင့် အောက်ပုဇွန်တောင်လမ်းရှိ ခြံအမှတ်များ စစ်ဆေးသည်။",
+                "မြေခွန် မြေခ၊ သတင်းပို့ချက်၊ မြန်မာငွေကျပ်နှင့် ချေးငွေစာချုပ်များ စိစစ်သည်။",
+                "ယွန်းလုပ်ငန်း၊ ချည်စက်ရုံ၊ ပြည်ဝင်ခွင့်၊ လူကူးတံတား၊ ရဲလုပ်ငန်းနှင့် ကုန်တင်ကုန်ချ လုပ်ငန်းများ ဆောင်ရွက်သည်။",
+                "ဆည်ရေအမှတ်၊ စိုးရိမ်ရေမှတ်နှင့် ရေလွှဲဆည်တို့ကို စောင့်ကြည့်စစ်ဆေးသည်။",
+                "ပေါ်ဆန်းစပါး၊ ရွှေဘိုပေါ်ဆန်း၊ တီလားပီးယားနှင့် ငါးဖမ်းရေယာဉ်များ စစ်ဆေးသည်။",
+                "အမိုနီယမ်ဆာလဖိတ်၊ ဂျစ်ပ်ဆမ်၊ ရှီးလိုက်၊ ဒိုလိုမိုက်နှင့် အဖြိုက်နက် သတ္တုများ တူးဖော်သည်။",
+                "ပြည်ထောင်စုသမ္မတမြန်မာနိုင်ငံသားဖြစ်ရမည်။",
+                "စပါးတစ်တင်းလျှင် (၅၃၀၀၀)ကျပ်ခန့်ရရှိသောကြောင့် တောင်သူများ အဆင်ပြေသည်။",
+                "ရေဝက်၊ ပုံရိပ်ဖော်စက်၊ ဓာတ်ဆီပန့်၊ ပင်နီယံနှင့် အိတ်ဖွင့်တင်ဒါ ခေါ်ယူသည်။",
+                "ဆေးရုံသစ်လမ်း၊အောင်ဆန်း ပြည်သာယာရပ်ကွက်နှင့် ရာဇဓိရာဇ်လမ်း၊ မြရတနာလမ်း၊ ဘိုတဲရပ်ကွက်တို့ကို စစ်ဆေးသည်။",
+                "ဒေါ်တင်တင်အုန်းက သာသနာ့မြေဂရန်၊ နို့ချက်စက်ရုံ၊ ဇာမဏီနှင့် ကုန်စည်အသွင်းအထုတ် လုပ်ငန်းများကို တင်ပြသည်။"
+            };
+
+            foreach (string sentence in cleanOfficialGovSentences)
+            {
+                var issues = engine.CheckText(sentence);
+                Assert.True(
+                    issues.Count == 0,
+                    $"Expected 0 issues on valid .gov.mm sentence '{sentence}', but got: {string.Join("; ", issues.Select(i => $"{i.IssueType}:{i.OriginalText}->{i.Suggestions.FirstOrDefault()?.Replacement}"))}");
+            }
+
+            // 2. Real .gov.mm clerical typos must be caught and repaired to 462-page Thatpon standard
+            var govClericalTypos = new (string WrongInput, string ExpectedCanonical)[]
+            {
+                ("ညွှန်ကြားရေမှူး", "ညွှန်ကြားရေးမှူး"),
+                ("ဖွံဖြိုးတိုးတက်ရေး", "ဖွံ့ဖြိုးတိုးတက်ရေး"),
+                ("ရင်းနှီးမြှပ်နှံမှု", "ရင်းနှီးမြှုပ်နှံမှု"),
+                ("စိမ်းလန်းစိုပြေ", "စိမ်းလန်းစိုပြည်"),
+                ("အစားသောက်", "အစားအသောက်"),
+                ("အကောင်ထည်ဖော်", "အကောင်အထည်ဖော်"),
+                ("ထိမ်းသိမ်း", "ထိန်းသိမ်း"),
+                ("မဟာဗျုဟာ", "မဟာဗျူဟာ"),
+                ("ရေလွဲဆည်", "ရေလွှဲဆည်"),
+                ("ငါးဖမ်ရေယာဉ်", "ငါးဖမ်းရေယာဉ်"),
+                ("ထိန်ချန်", "ထိမ်ချန်"),
+                ("အနှံအပြား", "အနှံ့အပြား"),
+                ("ရေတခါး", "ရေတံခါး"),
+                ("စီမံခန့်ခွဲမူ", "စီမံခန့်ခွဲမှု")
+            };
+
+            foreach (var (wrongInput, expectedCanonical) in govClericalTypos)
+            {
+                var issues = engine.CheckText(wrongInput);
+                Assert.NotEmpty(issues);
+                string normExpected = UnicodeNormalizer.NormalizeCanonicalOrder(expectedCanonical);
+                Assert.Contains(
+                    issues.SelectMany(issue => issue.Suggestions.Select(s =>
+                        wrongInput.Substring(0, issue.StartIndex) + s.Replacement + wrongInput.Substring(issue.StartIndex + issue.Length))),
+                    repaired => UnicodeNormalizer.NormalizeCanonicalOrder(repaired) == normExpected);
+            }
+
+            // 3. Lookalike postposition safety: 'စျေးအတွင်း' must repair 'စျေး -> ဈေး' and NEVER mutate into 'စည်းအတွင်း'
+            var marketIssues = engine.CheckText("စျေးအတွင်း ရောင်းချသည်။");
+            Assert.NotEmpty(marketIssues);
+            Assert.DoesNotContain(
+                marketIssues.SelectMany(x => x.Suggestions),
+                s => s.Replacement.IndexOf("စည်းအတွင်း", StringComparison.Ordinal) >= 0);
+            Assert.Contains(
+                marketIssues.SelectMany(x => x.Suggestions),
+                s => s.Replacement.IndexOf("ဈေး", StringComparison.Ordinal) >= 0);
+
+            // 4. Context-aware duplicate comma ('၊၊') suggestion ranking
+            var parenCommaIssues = engine.CheckText("အမှတ်(၃၀၆၂၊၃၀၆၃၊၊၃၁၁၆)");
+            var parenDup = Assert.Single(parenCommaIssues.Where(x => x.IssueType == ProofingIssueType.PunctuationError));
+            Assert.Equal("၊", parenDup.Suggestions[0].Replacement);
+
+            var headerCommaIssues = engine.CheckText("၂၊၊ ပြည်ထောင်စုဝန်ကြီးဌာန");
+            var headerDup = Assert.Single(headerCommaIssues.Where(x => x.IssueType == ProofingIssueType.PunctuationError));
+            Assert.Equal("။", headerDup.Suggestions[0].Replacement);
+        }
     }
 }

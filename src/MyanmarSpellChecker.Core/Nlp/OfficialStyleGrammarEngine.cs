@@ -19,7 +19,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         // 1b. 'တ' + Numeral Classifier where 'တစ်' is required by မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း (အမှာစာ စာ-၇..၈ နှင့် တစ်ဆက်တည်း/တစ်သမတ်တည်း)
         private static readonly Regex TaNumeralClassifierPattern = new Regex(
-            @"(?<!ရုတ်|သမ္မ|ပဏ္ဍိ|ပဏ္ဏိ|ဇီဝိ|ပရဟိ|လောပိ|မုဒိ|သုခိ|ရွှေ(?=တချောင်း)|ကျောက်(?=တလုံး)|ဂီ|\u101E\u102F|အနန္|စနစ်|သာကေ|ဟင်္သာ|[\u1039])တ(?<Classifier>ခု|ဦး|ယောက်|ဖက်|ကြိမ်|ခါ|ဖန်|ရက်|လ|နှစ်|ပတ်|နေ့|ညလုံး|နေကုန်|နာရီ|မိနစ်|စက္ကန့်|အောင့်|စောင်|တွဲ|ဖွဲ့|စု(?!တစည်း)|ချက်|ချိန်|နေရာ|နိုင်ငံလုံး|ပြည်လုံး|သက်လုံး|လျှောက်လုံး|ခဏ|ဆင့်|ပိုင်း|မျိုး|စုံ|ထပ်|လမ်း|မြို့နယ်|ခရိုင်|တိုင်း|ပြိုင်နက်|ပြိုင်တည်း|ဆက်တည်း|သမတ်တည်း|ယောက်တည်း|ဦးချင်း|ဖက်သတ်|ကောင်|စီး|ချောင်း|လုံး|ပြား|ရွက်|အုပ်|ထည်|ပွဲ|ခန်း|ဆောင်|သံတည်း|သဘောတည်း|ပါတည်း|ပေါင်းတည်း|ထောက်|လှည့်|ဝက်)(?![\u102B-\u103E]|[\u1000-\u1021]\u103B?[\u1039\u103A])",
+            @"(?<!ရုတ်|သမ္မ|ပဏ္ဍိ|ပဏ္ဏိ|ဇီဝိ|ပရဟိ|လောပိ|မုဒိ|သုခိ|ရွှေ(?=တချောင်း)|ကျောက်\s*(?=တလုံး)|ရာဇပ(?=တလမ်း)|ဂီ|\u101E\u102F|အနန္|စနစ်|သာကေ|ဟင်္သာ|[\u1039])တ(?<Classifier>ခု|ဦး|ယောက်|ဖက်|ကြိမ်|ခါ|ဖန်|ရက်|လ(?!ဘောင်|ပေါင်|မိုင်း|ပိုင်း)|နှစ်|ပတ်|နေ့|ညလုံး|နေကုန်|နာရီ|မိနစ်|စက္ကန့်|အောင့်|စောင်|တွဲ|ဖွဲ့|စု(?!တစည်း)|ချက်|ချိန်|နေရာ|နိုင်ငံလုံး|ပြည်လုံး|သက်လုံး|လျှောက်လုံး|ခဏ|ဆင့်|ပိုင်း|မျိုး|စုံ|ထပ်|လမ်း|မြို့နယ်|ခရိုင်|တိုင်း|ပြိုင်နက်|ပြိုင်တည်း|ဆက်တည်း|သမတ်တည်း|ယောက်တည်း|ဦးချင်း|ဖက်သတ်|ကောင်|စီး|ချောင်း|လုံး|ပြား|ရွက်|အုပ်|ထည်|ပွဲ|ခန်း|ဆောင်|သံတည်း|သဘောတည်း|ပါတည်း|ပေါင်းတည်း|ထောက်|လှည့်|ဝက်)(?![\u102B-\u103E]|[\u1000-\u1021]\u103B?[\u1039\u103A])",
             RegexOptions.Compiled);
 
         // Hypercorrected 'တစ်' before non-numeral adverbs/pronouns where 'တ' must be used (အမှာစာ စာ-၈ အာဂုံပစ္စည်း 'တ'; note: တစ်ဆက်တည်း, တစ်သမတ်တည်း & တစ်သီးတစ်ခြား officially use 'တစ်' in the 462p book!)
@@ -2830,7 +2830,15 @@ namespace MyanmarSpellChecker.Core.Nlp
                 {
                     int lookStart = Math.Max(0, m.Index - 24);
                     string beforePunc = text.Substring(lookStart, m.Index - lookStart);
-                    bool preferPaukMaGyi = SentenceOrItemBeforeDoublePaukKaleRegex.IsMatch(beforePunc);
+                    int afterIdx = m.Index + m.Length;
+                    string afterPunc = afterIdx < text.Length
+                        ? text.Substring(afterIdx, Math.Min(16, text.Length - afterIdx))
+                        : string.Empty;
+                    bool insideUnclosedParens = beforePunc.LastIndexOf('(') > beforePunc.LastIndexOf(')');
+                    bool followedByDigit = Regex.IsMatch(afterPunc, @"^\s*[\u1040-\u10490-9]");
+                    bool precededByCommaListDigit = Regex.IsMatch(beforePunc, @"[\u104A,]\s*[\u1040-\u10490-9]+\s*$");
+                    bool preferPaukMaGyi = !insideUnclosedParens && !followedByDigit && !precededByCommaListDigit &&
+                        SentenceOrItemBeforeDoublePaukKaleRegex.IsMatch(beforePunc);
                     if (preferPaukMaGyi)
                     {
                         puncSuggestions.Add(new SuggestionCandidate

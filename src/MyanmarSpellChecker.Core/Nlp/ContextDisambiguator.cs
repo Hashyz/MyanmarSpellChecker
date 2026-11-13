@@ -1756,7 +1756,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     for (int r = 0; r < ctxRules.Count; r++)
                     {
                         ContextualRule cr = ctxRules[r];
-                        if (MatchesContextTrigger(wordTokens, i, cr, out string matchedEvidence))
+                        if (MatchesContextTrigger(text, wordTokens, i, cr, out string matchedEvidence))
                         {
                             trie.TryGetExactEntries(cr.CorrectForm, out var targetEntries);
                             string cue = targetEntries != null && targetEntries.Count > 0 && !string.IsNullOrWhiteSpace(targetEntries[0].MeaningCue)
@@ -1819,13 +1819,30 @@ namespace MyanmarSpellChecker.Core.Nlp
                     if (wFreq >= 550)
                         continue;
 
-                    string prevW = (i > 0 && wordTokens[i - 1].ClauseId == tok.ClauseId) ? wordTokens[i - 1].NormText : string.Empty;
-                    string nextW = (i + 1 < wordTokens.Count && wordTokens[i + 1].ClauseId == tok.ClauseId) ? wordTokens[i + 1].NormText : string.Empty;
+                    bool hasLeftPunct = i > 0 && wordTokens[i - 1].ClauseId == tok.ClauseId &&
+                        HasInterveningNonSpacePunctuation(text, wordTokens[i - 1], tok);
+                    bool hasRightPunct = i + 1 < wordTokens.Count && wordTokens[i + 1].ClauseId == tok.ClauseId &&
+                        HasInterveningNonSpacePunctuation(text, tok, wordTokens[i + 1]);
+
+                    string prevW = (i > 0 && wordTokens[i - 1].ClauseId == tok.ClauseId && !hasLeftPunct)
+                        ? wordTokens[i - 1].NormText
+                        : string.Empty;
+                    string nextW = (i + 1 < wordTokens.Count && wordTokens[i + 1].ClauseId == tok.ClauseId && !hasRightPunct)
+                        ? wordTokens[i + 1].NormText
+                        : string.Empty;
+
+                    // Never statistically replace a syllable/word that forms an exact dictionary compound with its immediate neighbor (e.g. 'အက်' + 'ဥပဒေ' = 'အက်ဥပဒေ')
+                    if ((!string.IsNullOrEmpty(prevW) && trie.ContainsExactWord(prevW + tok.NormText)) ||
+                        (!string.IsNullOrEmpty(nextW) && trie.ContainsExactWord(tok.NormText + nextW)))
+                    {
+                        continue;
+                    }
 
                     // Particle-skipping SOV neighbor lookup (e.g. 'ကြိုး + ကို + ချဉ်' -> contentPrev = 'ကြိုး')
                     string contentPrevW = prevW;
                     if (!string.IsNullOrEmpty(prevW) && GenericSyntacticParticles.Contains(prevW) &&
                         i >= 2 && wordTokens[i - 2].ClauseId == tok.ClauseId &&
+                        !HasInterveningNonSpacePunctuation(text, wordTokens[i - 2], wordTokens[i - 1]) &&
                         !GenericSyntacticParticles.Contains(wordTokens[i - 2].NormText))
                     {
                         contentPrevW = wordTokens[i - 2].NormText;
@@ -1834,6 +1851,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     string contentNextW = nextW;
                     if (!string.IsNullOrEmpty(nextW) && GenericSyntacticParticles.Contains(nextW) &&
                         i + 2 < wordTokens.Count && wordTokens[i + 2].ClauseId == tok.ClauseId &&
+                        !HasInterveningNonSpacePunctuation(text, wordTokens[i + 1], wordTokens[i + 2]) &&
                         !GenericSyntacticParticles.Contains(wordTokens[i + 2].NormText))
                     {
                         contentNextW = wordTokens[i + 2].NormText;
@@ -1949,6 +1967,23 @@ namespace MyanmarSpellChecker.Core.Nlp
             return issues;
         }
 
+        private static bool HasInterveningNonSpacePunctuation(string text, ClauseWordToken left, ClauseWordToken right)
+        {
+            if (string.IsNullOrEmpty(text))
+                return false;
+            int start = Math.Max(0, left.StartIndex + left.Length);
+            int end = Math.Min(text.Length, right.StartIndex);
+            for (int k = start; k < end; k++)
+            {
+                char ch = text[k];
+                if (!char.IsWhiteSpace(ch) && ch != '\u200B' && ch != '\u200C' && ch != '\u200D' && ch != '\uFEFF')
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private static List<ClauseWordToken> TokenizeIntoClauseWords(
             string text,
             MyanmarTrie trie,
@@ -2056,7 +2091,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             return result;
         }
 
-        private static bool MatchesContextTrigger(List<ClauseWordToken> tokens, int targetIdx, ContextualRule rule, out string matchedEvidence)
+        private static bool MatchesContextTrigger(string text, List<ClauseWordToken> tokens, int targetIdx, ContextualRule rule, out string matchedEvidence)
         {
             matchedEvidence = string.Empty;
             ClauseWordToken target = tokens[targetIdx];
@@ -2120,6 +2155,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                 {
                     if (tokens[j].ClauseId != target.ClauseId)
                         break;
+                    if (win == 1 && !skipParticles && HasInterveningNonSpacePunctuation(text, tokens[j], target))
+                        break;
                     string candNorm = tokens[j].NormText;
                     if (skipParticles && GenericSyntacticParticles.Contains(candNorm))
                         continue;
@@ -2138,6 +2175,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                 for (int j = targetIdx + 1; j < tokens.Count && steps < win; j++)
                 {
                     if (tokens[j].ClauseId != target.ClauseId)
+                        break;
+                    if (win == 1 && !skipParticles && HasInterveningNonSpacePunctuation(text, target, tokens[j]))
                         break;
                     string candNorm = tokens[j].NormText;
                     if (skipParticles && GenericSyntacticParticles.Contains(candNorm))
@@ -2162,8 +2201,10 @@ namespace MyanmarSpellChecker.Core.Nlp
                 if (tokenNorm == trig)
                     return true;
 
-                // Allow multi-syllable triggers (>= 4 chars) to match compound heads/tails (e.g., ကုန်ဈေးနှုန်း ends with ဈေးနှုန်း)
+                // Allow genuine multi-syllable triggers (>= 2 syllables) to match compound heads/tails
+                // (e.g., ကုန်ဈေးနှုန်း ends with ဈေးနှုန်း), never 1-syllable triggers like 'ဆန်း' inside 'အောင်ဆန်း'
                 if (trig.Length >= 4 &&
+                    MyanmarSyllableBreaker.CountMyanmarSyllables(trig) >= 2 &&
                     (tokenNorm.StartsWith(trig, StringComparison.Ordinal) || tokenNorm.EndsWith(trig, StringComparison.Ordinal)))
                 {
                     return true;
