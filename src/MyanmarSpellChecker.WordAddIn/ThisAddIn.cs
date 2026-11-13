@@ -63,6 +63,8 @@ namespace MyanmarSpellChecker.WordAddIn
         // Per-Window Task Pane map (keyed by Word.Window.Hwnd) for Multi-Document SDI support
         private readonly Dictionary<int, (Office.CustomTaskPane Pane, ProofingTaskPaneControl Control)> _windowTaskPanes =
             new Dictionary<int, (Office.CustomTaskPane Pane, ProofingTaskPaneControl Control)>();
+        private readonly HashSet<int> _settledPaneWidthHwnds = new HashSet<int>();
+        private readonly Dictionary<int, Timer> _paneWidthTimers = new Dictionary<int, Timer>();
 
         private string _appDataFolder = string.Empty;
         private string _uiLanguageConfigPath = string.Empty;
@@ -548,6 +550,13 @@ namespace MyanmarSpellChecker.WordAddIn
                 // Synchronize Task Pane for the newly activated document window
                 _documentScanner?.RefreshEcoActiveStateForActiveDocument();
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
+                int winHwnd = 0;
+                try { winHwnd = wn?.Hwnd ?? _wordApp?.ActiveWindow?.Hwnd ?? 0; } catch { }
+                if (winHwnd != 0 && _windowTaskPanes.TryGetValue(winHwnd, out var paneEntry) && !_settledPaneWidthHwnds.Contains(winHwnd))
+                {
+                    ScheduleStartupPaneWidthEnforcement(winHwnd, paneEntry.Pane, paneEntry.Control, forceIfNarrow: false);
+                }
+
                 if (ctrl != null && _documentScanner != null)
                 {
                     ctrl.SetEcoModeState(EcoPerformanceGovernor.CurrentPreference, _documentScanner.IsEcoActive);
@@ -564,6 +573,7 @@ namespace MyanmarSpellChecker.WordAddIn
             {
                 _lastCheckedLangDocPos = -1;
                 GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+                EnforceActiveWindowStartupPaneWidth(forceIfNarrow: true);
                 _documentScanner?.ScheduleDeferredFullDocumentScan(320);
             });
         }
@@ -574,6 +584,7 @@ namespace MyanmarSpellChecker.WordAddIn
             {
                 _lastCheckedLangDocPos = -1;
                 GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+                EnforceActiveWindowStartupPaneWidth(forceIfNarrow: true);
             });
         }
 
@@ -630,12 +641,53 @@ namespace MyanmarSpellChecker.WordAddIn
                 foreach (int staleHwnd in staleKeys)
                 {
                     _windowTaskPanes.Remove(staleHwnd);
+                    _settledPaneWidthHwnds.Remove(staleHwnd);
+                    StopAndRemovePaneWidthTimer(staleHwnd);
                 }
             }
             catch
             {
                 // Ignore transient COM enumeration states
             }
+        }
+
+        private void StopAndRemovePaneWidthTimer(int hwnd)
+        {
+            if (_paneWidthTimers.TryGetValue(hwnd, out var timer))
+            {
+                _paneWidthTimers.Remove(hwnd);
+                try
+                {
+                    timer.Stop();
+                    timer.Dispose();
+                }
+                catch { }
+            }
+        }
+
+        private bool HasOpenDocument()
+        {
+            try
+            {
+                return _wordApp != null && _wordApp.Documents != null && _wordApp.Documents.Count > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void EnforceActiveWindowStartupPaneWidth(bool forceIfNarrow)
+        {
+            try
+            {
+                int hwnd = _wordApp?.ActiveWindow?.Hwnd ?? 0;
+                if (hwnd != 0 && _windowTaskPanes.TryGetValue(hwnd, out var entry))
+                {
+                    ScheduleStartupPaneWidthEnforcement(hwnd, entry.Pane, entry.Control, forceIfNarrow);
+                }
+            }
+            catch { }
         }
 
         public void CTPFactoryAvailable(Office.ICTPFactory ctpFactoryInst)
@@ -674,7 +726,13 @@ namespace MyanmarSpellChecker.WordAddIn
                 if (_windowTaskPanes.TryGetValue(hwnd, out var existing))
                 {
                     if (autoShow)
+                    {
                         existing.Pane.Visible = true;
+                    }
+                    if (autoShow || !_settledPaneWidthHwnds.Contains(hwnd))
+                    {
+                        ScheduleStartupPaneWidthEnforcement(hwnd, existing.Pane, existing.Control, forceIfNarrow: false);
+                    }
                     return existing.Control;
                 }
 
@@ -705,30 +763,30 @@ namespace MyanmarSpellChecker.WordAddIn
                 WireTaskPaneControlEvents(ctrl);
 
                 pane.DockPosition = Office.MsoCTPDockPosition.msoCTPDockPositionRight;
-                bool initialWidthApplied = false;
                 pane.VisibleStateChange += ctp =>
                 {
                     try
                     {
-                        if (!initialWidthApplied && ctp.Visible)
+                        if (ctp.Visible && !_settledPaneWidthHwnds.Contains(hwnd))
                         {
-                            initialWidthApplied = true;
-                            EnsureComfortableStartupPaneWidth(ctp, ctrl);
+                            ScheduleStartupPaneWidthEnforcement(hwnd, ctp, ctrl, forceIfNarrow: false);
                         }
                         _ribbonUi?.InvalidateControl("BtnToggleTaskPane");
                     }
                     catch { }
                 };
 
-                EnsureComfortableStartupPaneWidth(pane, ctrl);
+                _windowTaskPanes[hwnd] = (pane, ctrl);
                 if (autoShow)
                 {
                     pane.Visible = true;
-                    initialWidthApplied = true;
-                    EnsureComfortableStartupPaneWidth(pane, ctrl);
+                    ScheduleStartupPaneWidthEnforcement(hwnd, pane, ctrl, forceIfNarrow: true);
+                }
+                else
+                {
+                    EnsureComfortableStartupPaneWidth(hwnd, pane, ctrl, forceIfNarrow: false);
                 }
 
-                _windowTaskPanes[hwnd] = (pane, ctrl);
                 _ribbonUi?.InvalidateControl("BtnToggleTaskPane");
                 return ctrl;
             }
@@ -738,43 +796,96 @@ namespace MyanmarSpellChecker.WordAddIn
             }
         }
 
-        private static void EnsureComfortableStartupPaneWidth(Office.CustomTaskPane pane, Control ctrl)
+        private void ScheduleStartupPaneWidthEnforcement(
+            int winHwnd,
+            Office.CustomTaskPane pane,
+            ProofingTaskPaneControl ctrl,
+            bool forceIfNarrow)
         {
-            try
+            EnsureComfortableStartupPaneWidth(winHwnd, pane, ctrl, forceIfNarrow);
+            if (_settledPaneWidthHwnds.Contains(winHwnd) && !forceIfNarrow)
+                return;
+
+            StopAndRemovePaneWidthTimer(winHwnd);
+            int ticks = 0;
+            var timer = new Timer { Interval = 160 };
+            timer.Tick += (s, e) =>
             {
-                float dpiScale = 1.0f;
+                ticks++;
                 try
                 {
-                    if (ctrl.DeviceDpi > 0)
-                        dpiScale = Math.Max(1.0f, ctrl.DeviceDpi / 96.0f);
+                    EnsureComfortableStartupPaneWidth(winHwnd, pane, ctrl, forceIfNarrow);
                 }
                 catch { }
 
-                int screenWorkWidth = 1920;
-                try { screenWorkWidth = Screen.FromControl(ctrl).WorkingArea.Width; } catch { }
+                if (_settledPaneWidthHwnds.Contains(winHwnd) || ticks >= 3)
+                {
+                    StopAndRemovePaneWidthTimer(winHwnd);
+                }
+            };
+            _paneWidthTimers[winHwnd] = timer;
+            timer.Start();
+        }
 
-                int targetWidth = Math.Min((int)Math.Round(430 * dpiScale), Math.Max(360, (int)(screenWorkWidth * 0.42)));
+        private void EnsureComfortableStartupPaneWidth(
+            int winHwnd,
+            Office.CustomTaskPane pane,
+            ProofingTaskPaneControl ctrl,
+            bool forceIfNarrow)
+        {
+            try
+            {
+                if (!pane.Visible)
+                    return;
+
+                IntPtr hostPtr = new IntPtr(winHwnd);
+                int dpi = Math.Max(UiFontCache.GetWindowDpi(hostPtr), UiFontCache.GetEffectiveDpi(ctrl));
+                float dpiScale = Math.Max(1.0f, dpi / 96.0f);
+                int hostPhysicalWidth = UiFontCache.GetWindowWidthPx(hostPtr);
+
+                int desiredWidth = (int)Math.Round(420 * dpiScale);
+                int maxSafeWidth = Math.Max((int)Math.Round(320 * dpiScale), (int)(hostPhysicalWidth * 0.42));
+                int targetWidth = Math.Min(desiredWidth, maxSafeWidth);
                 int minStartupWidth = Math.Min((int)Math.Round(360 * dpiScale), targetWidth);
 
-                if (pane.Width < minStartupWidth)
+                if (forceIfNarrow || !_settledPaneWidthHwnds.Contains(winHwnd))
                 {
-                    pane.Width = targetWidth;
-                }
-
-                if (pane.Visible && ctrl.IsHandleCreated && !ctrl.IsDisposed)
-                {
-                    ctrl.BeginInvoke(new Action(() =>
+                    if (pane.Width < minStartupWidth)
                     {
                         try
                         {
-                            if (pane.Visible && pane.Width < minStartupWidth)
-                            {
-                                pane.Width = targetWidth;
-                            }
-                            ctrl.PerformLayout();
+                            pane.Width = targetWidth;
+                        }
+                        catch
+                        {
+                            try { pane.Width = Math.Max(320, (int)(hostPhysicalWidth * 0.36)); } catch { }
+                        }
+                    }
+
+                    // Self-calibrating guard for legacy Office hosts that interpret pane.Width in 96-DPI logical units
+                    if (ctrl.IsHandleCreated && ctrl.Width > pane.Width * 1.35 && pane.Width > 520)
+                    {
+                        try
+                        {
+                            pane.Width = Math.Max(360, (int)Math.Round(targetWidth / dpiScale));
                         }
                         catch { }
-                    }));
+                    }
+
+                    if (!ctrl.IsDisposed)
+                    {
+                        ctrl.RefreshDpiMetricsAndLayout();
+                    }
+
+                    if (HasOpenDocument() &&
+                        pane.Visible &&
+                        ctrl.IsHandleCreated &&
+                        ctrl.Visible &&
+                        pane.Width >= minStartupWidth &&
+                        ctrl.Width >= (int)(minStartupWidth * 0.72))
+                    {
+                        _settledPaneWidthHwnds.Add(winHwnd);
+                    }
                 }
             }
             catch { }
@@ -861,8 +972,8 @@ namespace MyanmarSpellChecker.WordAddIn
 
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
                 ctrl?.ShowToastBanner(UiLocalizer.Pick(
-                    "🌐 UI language switched to English (Default). Click 🌐 EN anytime to switch back to Myanmar.",
-                    "🌐 UI ဘာသာစကားကို မြန်မာဘာသာ (Myanmar) သို့ ပြောင်းလဲပြီးပါပြီ။ 🌐 မြန်မာ ခလုတ်ကိုနှိပ်၍ အင်္ဂလိပ်သို့ ပြန်ပြောင်းနိုင်ပါသည်။"));
+                    "✓ UI language switched to English (Default). Click [A/က EN] anytime to switch back to Myanmar.",
+                    "✓ UI ဘာသာစကားကို မြန်မာဘာသာ (Myanmar) သို့ ပြောင်းလဲပြီးပါပြီ။ [A/က မြန်မာ] ခလုတ်ကိုနှိပ်၍ အင်္ဂလိပ်သို့ ပြန်ပြောင်းနိုင်ပါသည်။"));
             });
         }
 
@@ -1813,6 +1924,10 @@ namespace MyanmarSpellChecker.WordAddIn
                 if (_windowTaskPanes.TryGetValue(hwnd, out var entry))
                 {
                     entry.Pane.Visible = pressed;
+                    if (pressed)
+                    {
+                        ScheduleStartupPaneWidthEnforcement(hwnd, entry.Pane, entry.Control, forceIfNarrow: true);
+                    }
                 }
                 else if (pressed)
                 {
@@ -1921,6 +2036,12 @@ namespace MyanmarSpellChecker.WordAddIn
                 _startupTaskPaneTimer?.Stop();
                 _startupTaskPaneTimer?.Dispose();
                 _startupTaskPaneTimer = null;
+
+                foreach (int h in _paneWidthTimers.Keys.ToList())
+                {
+                    StopAndRemovePaneWidthTimer(h);
+                }
+                _settledPaneWidthHwnds.Clear();
 
                 if (_wordApp != null)
                 {

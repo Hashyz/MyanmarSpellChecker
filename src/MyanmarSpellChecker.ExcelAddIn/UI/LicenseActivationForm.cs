@@ -240,6 +240,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             cardPanel.Controls.Add(btnRow, 0, r++);
 
             Controls.Add(cardPanel);
+            UiFontCache.DisableMnemonicsRecursive(this);
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)

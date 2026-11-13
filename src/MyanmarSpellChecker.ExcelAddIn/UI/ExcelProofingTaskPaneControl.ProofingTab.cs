@@ -408,8 +408,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 var lblOkBody = new Label
                 {
                     Text = UiLocalizer.Pick(
-                        "• Scan the Active Sheet, Selected Cells, or Entire Workbook anytime.\n• Text cells show temporary red (spelling), blue (grammar), or amber (meaning) underlines that auto-strip before Save (Ctrl+S) and Print (Ctrl+P).\n• Excel formulas (=SUM, =IF, =VLOOKUP) and numeric calculations are 100% protected and untouched.",
-                        "• လက်ရှိ Sheet၊ ရွေးထားသော အကွက်များ သို့မဟုတ် Workbook တစ်ခုလုံးကို ရွေးချယ်စစ်ဆေးနိုင်ပါသည်။\n• အမှားတွေ့ရှိသော စာသားကွက်များတွင် သတ်ပုံ (အနီမျဉ်း)၊ သဒ္ဒါ (အပြာမျဉ်းနှစ်ထပ်)၊ အနက်သံသယ (လိမ္မော်မျဉ်း) ပြသပေးပြီး Save (Ctrl+S) / Print (Ctrl+P) လုပ်ချိန်၌ အလိုအလျောက် ဖယ်ရှားပေးပါသည်။\n• Excel Formula အကွက်များ (=SUM, =IF, =VLOOKUP) နှင့် ကိန်းဂဏန်းတွက်ချက်မှုများကို 100% အလိုအလျောက် ကာကွယ်ချန်လှပ်ထားပါသည်။"),
+                        "• Scan the Active Sheet, Selected Cells, or Entire Workbook anytime.\n• Flagged cells display screen-only red (spelling), blue (grammar), or amber (meaning) wavy underlines — cell text color & saved .xlsx files are never altered.\n• Excel formulas (=SUM, =IF, =VLOOKUP) and numeric calculations are 100% protected and untouched.",
+                        "• လက်ရှိ Sheet၊ ရွေးထားသော အကွက်များ သို့မဟုတ် Workbook တစ်ခုလုံးကို ရွေးချယ်စစ်ဆေးနိုင်ပါသည်။\n• အမှားတွေ့ရှိသော အကွက်များတွင် ဖန်သားပြင်ပေါ်၌သာ အနီ/အပြာ/လိမ္မော် မျဉ်းလှိုင်းများ ပြသပြီး Cell စာသားအရောင်နှင့် .xlsx ဖိုင်ကို လုံးဝ မပြောင်းလဲပါ။\n• Excel Formula အကွက်များ (=SUM, =IF, =VLOOKUP) နှင့် ကိန်းဂဏန်းတွက်ချက်မှုများကို 100% အလိုအလျောက် ကာကွယ်ချန်လှပ်ထားပါသည်။"),
                     Font = _fontSmall,
                     ForeColor = Color.FromArgb(62, 74, 92),
                     AutoSize = true,
@@ -571,7 +571,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             lblCat.Click += (s, e) => JumpToCell();
 
             var btnCellLoc = CreatePillButton(
-                $"📍 {item.DisplayLocation}  #{displayIndex}",
+                $"▸ {item.DisplayLocation}  #{displayIndex}",
                 Color.FromArgb(235, 246, 239),
                 Color.FromArgb(16, 98, 52),
                 Color.FromArgb(186, 222, 198),

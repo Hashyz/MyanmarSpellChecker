@@ -65,6 +65,8 @@ namespace MyanmarSpellChecker.ExcelAddIn
         // Per-Window Task Pane map (keyed by Excel.Window.Hwnd) for Multi-Workbook SDI support
         private readonly Dictionary<int, (Office.CustomTaskPane Pane, ExcelProofingTaskPaneControl Control)> _windowTaskPanes =
             new Dictionary<int, (Office.CustomTaskPane Pane, ExcelProofingTaskPaneControl Control)>();
+        private readonly HashSet<int> _settledPaneWidthHwnds = new HashSet<int>();
+        private readonly Dictionary<int, Timer> _paneWidthTimers = new Dictionary<int, Timer>();
 
         private string _appDataFolder = string.Empty;
         private string _uiLanguageConfigPath = string.Empty;
@@ -533,6 +535,13 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 _scannerToolkit?.RefreshEcoActiveState();
                 _scannerToolkit?.RefreshVisualUnderlinesForActiveWorkbook();
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
+                int winHwnd = 0;
+                try { winHwnd = wn?.Hwnd ?? _excelApp?.ActiveWindow?.Hwnd ?? 0; } catch { }
+                if (winHwnd != 0 && _windowTaskPanes.TryGetValue(winHwnd, out var paneEntry) && !_settledPaneWidthHwnds.Contains(winHwnd))
+                {
+                    ScheduleStartupPaneWidthEnforcement(winHwnd, paneEntry.Pane, paneEntry.Control, forceIfNarrow: false);
+                }
+
                 if (ctrl != null && _scannerToolkit != null)
                 {
                     ctrl.SetEcoModeState(EcoPerformanceGovernor.CurrentPreference, _scannerToolkit.IsEcoActive);
@@ -550,6 +559,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
             AddInDiagnostics.SafeExecute("OnWorkbookOpen", () =>
             {
                 GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+                EnforceActiveWindowStartupPaneWidth(forceIfNarrow: true);
                 _scannerToolkit?.ScheduleDeferredScanScope(SpreadsheetScanScope.ActiveSheet, 280);
             });
         }
@@ -559,6 +569,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
             AddInDiagnostics.SafeExecute("OnNewWorkbook", () =>
             {
                 GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+                EnforceActiveWindowStartupPaneWidth(forceIfNarrow: true);
             });
         }
 
@@ -606,7 +617,50 @@ namespace MyanmarSpellChecker.ExcelAddIn
 
                 var stale = _windowTaskPanes.Keys.Where(h => !liveHwnds.Contains(h)).ToList();
                 foreach (int h in stale)
+                {
                     _windowTaskPanes.Remove(h);
+                    _settledPaneWidthHwnds.Remove(h);
+                    StopAndRemovePaneWidthTimer(h);
+                }
+            }
+            catch { }
+        }
+
+        private void StopAndRemovePaneWidthTimer(int hwnd)
+        {
+            if (_paneWidthTimers.TryGetValue(hwnd, out var timer))
+            {
+                _paneWidthTimers.Remove(hwnd);
+                try
+                {
+                    timer.Stop();
+                    timer.Dispose();
+                }
+                catch { }
+            }
+        }
+
+        private bool HasOpenWorkbook()
+        {
+            try
+            {
+                return _excelApp != null && _excelApp.Workbooks != null && _excelApp.Workbooks.Count > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void EnforceActiveWindowStartupPaneWidth(bool forceIfNarrow)
+        {
+            try
+            {
+                int hwnd = _excelApp?.ActiveWindow?.Hwnd ?? 0;
+                if (hwnd != 0 && _windowTaskPanes.TryGetValue(hwnd, out var entry))
+                {
+                    ScheduleStartupPaneWidthEnforcement(hwnd, entry.Pane, entry.Control, forceIfNarrow);
+                }
             }
             catch { }
         }
@@ -644,7 +698,13 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 if (_windowTaskPanes.TryGetValue(hwnd, out var existing))
                 {
                     if (autoShow)
+                    {
                         existing.Pane.Visible = true;
+                    }
+                    if (autoShow || !_settledPaneWidthHwnds.Contains(hwnd))
+                    {
+                        ScheduleStartupPaneWidthEnforcement(hwnd, existing.Pane, existing.Control, forceIfNarrow: false);
+                    }
                     return existing.Control;
                 }
 
@@ -682,30 +742,30 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 WireTaskPaneEvents(ctrl);
 
                 pane.DockPosition = Office.MsoCTPDockPosition.msoCTPDockPositionRight;
-                bool initialWidthApplied = false;
                 pane.VisibleStateChange += ctp =>
                 {
                     try
                     {
-                        if (!initialWidthApplied && ctp.Visible)
+                        if (ctp.Visible && !_settledPaneWidthHwnds.Contains(hwnd))
                         {
-                            initialWidthApplied = true;
-                            EnsureComfortableStartupPaneWidth(ctp, ctrl);
+                            ScheduleStartupPaneWidthEnforcement(hwnd, ctp, ctrl, forceIfNarrow: false);
                         }
                         _ribbonUi?.InvalidateControl("BtnToggleTaskPane");
                     }
                     catch { }
                 };
 
-                EnsureComfortableStartupPaneWidth(pane, ctrl);
+                _windowTaskPanes[hwnd] = (pane, ctrl);
                 if (autoShow)
                 {
                     pane.Visible = true;
-                    initialWidthApplied = true;
-                    EnsureComfortableStartupPaneWidth(pane, ctrl);
+                    ScheduleStartupPaneWidthEnforcement(hwnd, pane, ctrl, forceIfNarrow: true);
+                }
+                else
+                {
+                    EnsureComfortableStartupPaneWidth(hwnd, pane, ctrl, forceIfNarrow: false);
                 }
 
-                _windowTaskPanes[hwnd] = (pane, ctrl);
                 _ribbonUi?.InvalidateControl("BtnToggleTaskPane");
                 return ctrl;
             }
@@ -716,43 +776,95 @@ namespace MyanmarSpellChecker.ExcelAddIn
             }
         }
 
-        private static void EnsureComfortableStartupPaneWidth(Office.CustomTaskPane pane, Control ctrl)
+        private void ScheduleStartupPaneWidthEnforcement(
+            int winHwnd,
+            Office.CustomTaskPane pane,
+            ExcelProofingTaskPaneControl ctrl,
+            bool forceIfNarrow)
         {
-            try
+            EnsureComfortableStartupPaneWidth(winHwnd, pane, ctrl, forceIfNarrow);
+            if (_settledPaneWidthHwnds.Contains(winHwnd) && !forceIfNarrow)
+                return;
+
+            StopAndRemovePaneWidthTimer(winHwnd);
+            int ticks = 0;
+            var timer = new Timer { Interval = 160 };
+            timer.Tick += (s, e) =>
             {
-                float dpiScale = 1.0f;
+                ticks++;
                 try
                 {
-                    if (ctrl.DeviceDpi > 0)
-                        dpiScale = Math.Max(1.0f, ctrl.DeviceDpi / 96.0f);
+                    EnsureComfortableStartupPaneWidth(winHwnd, pane, ctrl, forceIfNarrow);
                 }
                 catch { }
 
-                int screenWorkWidth = 1920;
-                try { screenWorkWidth = Screen.FromControl(ctrl).WorkingArea.Width; } catch { }
+                if (_settledPaneWidthHwnds.Contains(winHwnd) || ticks >= 3)
+                {
+                    StopAndRemovePaneWidthTimer(winHwnd);
+                }
+            };
+            _paneWidthTimers[winHwnd] = timer;
+            timer.Start();
+        }
 
-                int targetWidth = Math.Min((int)Math.Round(430 * dpiScale), Math.Max(360, (int)(screenWorkWidth * 0.42)));
+        private void EnsureComfortableStartupPaneWidth(
+            int winHwnd,
+            Office.CustomTaskPane pane,
+            ExcelProofingTaskPaneControl ctrl,
+            bool forceIfNarrow)
+        {
+            try
+            {
+                if (!pane.Visible)
+                    return;
+
+                IntPtr hostPtr = new IntPtr(winHwnd);
+                int dpi = Math.Max(UiFontCache.GetWindowDpi(hostPtr), UiFontCache.GetEffectiveDpi(ctrl));
+                float dpiScale = Math.Max(1.0f, dpi / 96.0f);
+                int hostPhysicalWidth = UiFontCache.GetWindowWidthPx(hostPtr);
+
+                int desiredWidth = (int)Math.Round(420 * dpiScale);
+                int maxSafeWidth = Math.Max((int)Math.Round(320 * dpiScale), (int)(hostPhysicalWidth * 0.42));
+                int targetWidth = Math.Min(desiredWidth, maxSafeWidth);
                 int minStartupWidth = Math.Min((int)Math.Round(360 * dpiScale), targetWidth);
 
-                if (pane.Width < minStartupWidth)
+                if (forceIfNarrow || !_settledPaneWidthHwnds.Contains(winHwnd))
                 {
-                    pane.Width = targetWidth;
-                }
-
-                if (pane.Visible && ctrl.IsHandleCreated && !ctrl.IsDisposed)
-                {
-                    ctrl.BeginInvoke(new Action(() =>
+                    if (pane.Width < minStartupWidth)
                     {
                         try
                         {
-                            if (pane.Visible && pane.Width < minStartupWidth)
-                            {
-                                pane.Width = targetWidth;
-                            }
-                            ctrl.PerformLayout();
+                            pane.Width = targetWidth;
+                        }
+                        catch
+                        {
+                            try { pane.Width = Math.Max(320, (int)(hostPhysicalWidth * 0.36)); } catch { }
+                        }
+                    }
+
+                    if (ctrl.IsHandleCreated && ctrl.Width > pane.Width * 1.35 && pane.Width > 520)
+                    {
+                        try
+                        {
+                            pane.Width = Math.Max(360, (int)Math.Round(targetWidth / dpiScale));
                         }
                         catch { }
-                    }));
+                    }
+
+                    if (!ctrl.IsDisposed)
+                    {
+                        ctrl.RefreshDpiMetricsAndLayout();
+                    }
+
+                    if (HasOpenWorkbook() &&
+                        pane.Visible &&
+                        ctrl.IsHandleCreated &&
+                        ctrl.Visible &&
+                        pane.Width >= minStartupWidth &&
+                        ctrl.Width >= (int)(minStartupWidth * 0.72))
+                    {
+                        _settledPaneWidthHwnds.Add(winHwnd);
+                    }
                 }
             }
             catch { }
@@ -807,8 +919,8 @@ namespace MyanmarSpellChecker.ExcelAddIn
 
             var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
             ctrl?.ShowToastBanner(UiLocalizer.Pick(
-                "🌐 Interface language switched to English.",
-                "🌐 စနစ်မျက်နှာပြင်ဘာသာစကားကို မြန်မာဘာသာသို့ ပြောင်းလဲပြီးပါပြီ။"));
+                "✓ Interface language switched to English. Click [A/က EN] anytime to switch back to Myanmar.",
+                "✓ စနစ်မျက်နှာပြင်ဘာသာစကားကို မြန်မာဘာသာသို့ ပြောင်းလဲပြီးပါပြီ။ [A/က မြန်မာ] ခလုတ်ကိုနှိပ်၍ အင်္ဂလိပ်သို့ ပြန်ပြောင်းနိုင်ပါသည်။"));
         }
 
         private void CycleEcoModeFromUi()
@@ -1738,6 +1850,10 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 if (_windowTaskPanes.TryGetValue(hwnd, out var entry))
                 {
                     entry.Pane.Visible = pressed;
+                    if (pressed)
+                    {
+                        ScheduleStartupPaneWidthEnforcement(hwnd, entry.Pane, entry.Control, forceIfNarrow: true);
+                    }
                 }
                 else if (pressed)
                 {
@@ -1859,6 +1975,12 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 _startupTaskPaneTimer?.Stop();
                 _startupTaskPaneTimer?.Dispose();
                 _startupTaskPaneTimer = null;
+
+                foreach (int h in _paneWidthTimers.Keys.ToList())
+                {
+                    StopAndRemovePaneWidthTimer(h);
+                }
+                _settledPaneWidthHwnds.Clear();
 
                 if (_excelApp != null)
                 {

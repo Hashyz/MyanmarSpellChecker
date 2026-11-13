@@ -479,7 +479,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             };
 
             _btnJump = CreateToolbarButton(
-                UiLocalizer.Pick("📍 Jump to Cell", "📍 အကွက်သို့ ကြည့်မည်"),
+                UiLocalizer.Pick("▸ Jump to Cell", "▸ အကွက်သို့ ကြည့်မည်"),
                 Color.FromArgb(238, 245, 255), Color.FromArgb(24, 82, 152), Color.FromArgb(172, 202, 240));
             _btnJump.Visible = _onNavigateToItem != null;
             _btnJump.Enabled = false;
@@ -597,6 +597,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             root.Controls.Add(footerBar, 0, 4);
 
             Controls.Add(root);
+            UiFontCache.DisableMnemonicsRecursive(this);
         }
 
         private Button CreateToolbarButton(string text, Color bg, Color fg, Color border)

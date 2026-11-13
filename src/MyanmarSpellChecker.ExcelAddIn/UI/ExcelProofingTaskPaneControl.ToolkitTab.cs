@@ -50,8 +50,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             card.Controls.Add(new Label
             {
                 Text = UiLocalizer.Pick(
-                    $"📊 Excel Myanmar Quality Score — {rep.OverallScore}% ({rep.LocalizedGradeLabel})",
-                    $"📊 Excel မြန်မာစာ အရည်အသွေး — {rep.OverallScore}% ({rep.LocalizedGradeLabel})"),
+                    $"★ Excel Myanmar Quality Score — {rep.OverallScore}% ({rep.LocalizedGradeLabel})",
+                    $"★ Excel မြန်မာစာ အရည်အသွေး — {rep.OverallScore}% ({rep.LocalizedGradeLabel})"),
                 Font = _fontBodyBold,
                 ForeColor = stripe,
                 AutoSize = true,
@@ -100,7 +100,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             };
 
             var btnExport = CreateActionButton(
-                UiLocalizer.Pick("📄 Export Audit Excel", "📄 အစီရင်ခံစာ Excel ထုတ်မည်"),
+                UiLocalizer.Pick("↓ Export Audit Excel", "↓ အစီရင်ခံစာ Excel ထုတ်မည်"),
                 Color.FromArgb(16, 124, 65),
                 Color.White,
                 Color.FromArgb(14, 102, 53),
@@ -124,8 +124,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             card.Controls.Add(new Label
             {
                 Text = UiLocalizer.Pick(
-                    "🛠 Batch Cell Text Converters (Formula-Safe + Undo)",
-                    "🛠 ဇယားကွက် စာသားပြောင်းလဲရေး ကိရိယာများ (Formula-Safe + Undo)"),
+                    "⚙ Batch Cell Text Converters (Formula-Safe + Undo)",
+                    "⚙ ဇယားကွက် စာသားပြောင်းလဲရေး ကိရိယာများ (Formula-Safe + Undo)"),
                 Font = _fontBodyBold,
                 ForeColor = Color.FromArgb(18, 48, 104),
                 AutoSize = true,
@@ -253,8 +253,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             card.Controls.Add(new Label
             {
                 Text = UiLocalizer.Pick(
-                    "💰 Kyat Lakh / Million Financial Words Converter",
-                    "💰 ကျပ်ငွေ (သိန်း/သန်း) ဘဏ္ဍာရေး စာသားပြောင်းစက်"),
+                    "Ks Kyat Lakh / Million Financial Words Converter",
+                    "Ks ကျပ်ငွေ (သိန်း/သန်း) ဘဏ္ဍာရေး စာသားပြောင်းစက်"),
                 Font = _fontBodyBold,
                 ForeColor = Color.FromArgb(16, 96, 50),
                 AutoSize = true,
@@ -422,8 +422,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             card.Controls.Add(new Label
             {
                 Text = UiLocalizer.Pick(
-                    "📅 Myanmar Traditional & Official Date Calendar (Offline)",
-                    "📅 မြန်မာသက္ကရာဇ် နှင့် ရုံးစာ ရက်စွဲပြက္ခဒိန် (Offline)"),
+                    "§ Myanmar Traditional & Official Date Calendar (Offline)",
+                    "§ မြန်မာသက္ကရာဇ် နှင့် ရုံးစာ ရက်စွဲပြက္ခဒိန် (Offline)"),
                 Font = _fontBodyBold,
                 ForeColor = Color.FromArgb(148, 86, 8),
                 AutoSize = true,

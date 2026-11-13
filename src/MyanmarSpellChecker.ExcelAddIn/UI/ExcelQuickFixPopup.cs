@@ -525,6 +525,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             root.Controls.Add(footerGrid, 0, row++);
 
             Controls.Add(root);
+            UiFontCache.DisableMnemonicsRecursive(this);
 
             Deactivate += (s, e) => ClosePopupSafely();
             KeyPreview = true;

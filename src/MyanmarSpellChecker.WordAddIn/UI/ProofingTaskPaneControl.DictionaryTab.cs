@@ -178,8 +178,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             var btnExploreRandom = CreatePillButton(
                 UiLocalizer.Pick(
-                    "🎲 Explore Random Knowledge & Lexicon",
-                    "🎲 ဗဟုသုတ နှင့် အဘိဓာန် ကျပန်းဖတ်ရှုရန် (Explore Knowledge)"),
+                    "✦ Explore Random Knowledge & Lexicon",
+                    "✦ ဗဟုသုတ နှင့် အဘိဓာန် ကျပန်းဖတ်ရှုရန် (Explore Knowledge)"),
                 Color.FromArgb(232, 248, 246),
                 Color.FromArgb(12, 96, 92),
                 Color.FromArgb(168, 222, 214),
@@ -220,7 +220,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             {
                 string sample = starterWords[i];
                 var chip = CreatePillButton(
-                    $"🔍 {sample}",
+                    $"▸ {sample}",
                     Color.FromArgb(240, 245, 255),
                     Color.FromArgb(22, 72, 155),
                     Color.FromArgb(196, 214, 245),

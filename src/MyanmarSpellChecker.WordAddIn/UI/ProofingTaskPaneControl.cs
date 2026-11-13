@@ -159,6 +159,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         private int _stepperCursor = -1;
         private int _lastAppliedCardWidth = -1;
         private int _lastAppliedControlCount = -1;
+        private int _lastAppliedEffectiveDpi;
         private bool _isScanning;
         private WordScanOutcomeMetadata? _lastScanOutcome;
         private TaskPaneWorkspaceTab _activeTab = TaskPaneWorkspaceTab.Proofing;
@@ -292,8 +293,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 ForeColor = Color.FromArgb(18, 48, 102),
                 AutoSize = false,
                 AutoEllipsis = true,
+                UseMnemonic = false,
                 Dock = DockStyle.Top,
-                Height = 23,
+                Height = MeasureSingleLineLabelHeight(_fontBrandTitle, 6),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
                 Padding = new Padding(2, 0, 2, 0)
@@ -306,64 +308,68 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 ForeColor = Color.FromArgb(88, 100, 118),
                 AutoSize = false,
                 AutoEllipsis = true,
+                UseMnemonic = false,
                 Dock = DockStyle.Top,
-                Height = 19,
+                Height = MeasureSingleLineLabelHeight(_fontBrandStats, 5),
                 TextAlign = ContentAlignment.MiddleLeft,
-                Margin = new Padding(0, 0, 0, 2),
+                Margin = new Padding(0, 0, 0, 3),
                 Padding = new Padding(2, 0, 2, 0)
             };
 
-            var brandPillsFlow = new FlowLayoutPanel
+            // Deterministic 1-row 3-column grid (avoids WinForms FlowLayoutPanel-in-TableLayoutPanel wrapped-height phantom gap!)
+            var brandPillsGrid = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                WrapContents = true,
-                FlowDirection = FlowDirection.LeftToRight,
+                ColumnCount = 3,
+                RowCount = 1,
                 Margin = new Padding(0),
                 Padding = new Padding(0)
             };
+            brandPillsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 29F));
+            brandPillsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 43F));
+            brandPillsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 28F));
+            brandPillsGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            _btnLangToggle = CreatePillButton(
+            int initBrandPillH = MeasureSingleLineButtonHeight(_fontSmallBold, 10);
+            _btnLangToggle = CreateToolbarSlotButton(
                 UiLocalizer.FormatLanguageBadge(),
                 Color.FromArgb(236, 245, 255),
                 Color.FromArgb(18, 68, 152),
                 Color.FromArgb(188, 210, 244),
-                _fontSmallBold);
-            _btnLangToggle.Dock = DockStyle.None;
-            _btnLangToggle.Padding = new Padding(6, 2, 6, 2);
-            _btnLangToggle.Margin = new Padding(0, 1, 4, 1);
+                _fontSmallBold,
+                initBrandPillH);
+            _btnLangToggle.Margin = new Padding(0, 1, 3, 1);
             _btnLangToggle.Click += (s, e) => RequestToggleLanguage?.Invoke();
 
-            _btnEcoMode = CreatePillButton(
+            _btnEcoMode = CreateToolbarSlotButton(
                 EcoPerformanceGovernor.FormatBadgeLabel(EcoModePreference.Auto, false),
                 Color.FromArgb(238, 244, 254),
                 Color.FromArgb(24, 78, 162),
                 Color.FromArgb(196, 214, 245),
-                _fontSmallBold);
-            _btnEcoMode.Dock = DockStyle.None;
-            _btnEcoMode.Padding = new Padding(6, 2, 6, 2);
-            _btnEcoMode.Margin = new Padding(0, 1, 4, 1);
+                _fontSmallBold,
+                initBrandPillH);
+            _btnEcoMode.Margin = new Padding(1, 1, 3, 1);
             _btnEcoMode.Click += (s, e) => RequestCycleEcoMode?.Invoke();
 
-            _btnAboutLic = CreatePillButton(
+            _btnAboutLic = CreateToolbarSlotButton(
                 UiLocalizer.Pick("ⓘ About", "အချက်အလက် ⓘ"),
                 Color.FromArgb(240, 245, 255),
                 Color.FromArgb(22, 74, 158),
                 Color.FromArgb(196, 214, 245),
-                _fontSmallBold);
-            _btnAboutLic.Dock = DockStyle.None;
-            _btnAboutLic.Padding = new Padding(7, 2, 7, 2);
-            _btnAboutLic.Margin = new Padding(0, 1, 0, 1);
+                _fontSmallBold,
+                initBrandPillH);
+            _btnAboutLic.Margin = new Padding(1, 1, 0, 1);
             _btnAboutLic.Click += (s, e) => RequestLicenseDialog?.Invoke();
 
-            brandPillsFlow.Controls.Add(_btnLangToggle);
-            brandPillsFlow.Controls.Add(_btnEcoMode);
-            brandPillsFlow.Controls.Add(_btnAboutLic);
+            brandPillsGrid.Controls.Add(_btnLangToggle, 0, 0);
+            brandPillsGrid.Controls.Add(_btnEcoMode, 1, 0);
+            brandPillsGrid.Controls.Add(_btnAboutLic, 2, 0);
 
             brandRow.Controls.Add(_lblBrandTitle, 0, 0);
             brandRow.Controls.Add(_lblLexiconStats, 0, 1);
-            brandRow.Controls.Add(brandPillsFlow, 0, 2);
+            brandRow.Controls.Add(brandPillsGrid, 0, 2);
 
             // Row 1: 4-Tab Segmented Workspace Switcher (Proofing | Dictionary | Toolkit | Custom Words)
             var tabStrip = new TableLayoutPanel
@@ -383,16 +389,17 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             tabStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 24F));
             tabStrip.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            _btnTabProofing = CreateToolbarSlotButton("စစ်ဆေး (0)", Color.FromArgb(22, 76, 162), Color.White, Color.FromArgb(22, 76, 162), _fontTabActive, 28);
+            int initTabBtnH = MeasureSingleLineButtonHeight(_fontTabActive, 12);
+            _btnTabProofing = CreateToolbarSlotButton("စစ်ဆေး (0)", Color.FromArgb(22, 76, 162), Color.White, Color.FromArgb(22, 76, 162), _fontTabActive, initTabBtnH);
             _btnTabProofing.Click += (s, e) => SwitchWorkspaceTab(TaskPaneWorkspaceTab.Proofing);
 
-            _btnTabDictionary = CreateToolbarSlotButton("အဘိဓာန်", Color.FromArgb(236, 240, 247), Color.FromArgb(55, 65, 82), Color.FromArgb(236, 240, 247), _fontTabNormal, 28);
+            _btnTabDictionary = CreateToolbarSlotButton("အဘိဓာန်", Color.FromArgb(236, 240, 247), Color.FromArgb(55, 65, 82), Color.FromArgb(236, 240, 247), _fontTabNormal, initTabBtnH);
             _btnTabDictionary.Click += (s, e) => SwitchWorkspaceTab(TaskPaneWorkspaceTab.Dictionary);
 
-            _btnTabToolkit = CreateToolbarSlotButton("ကိရိယာ", Color.FromArgb(236, 240, 247), Color.FromArgb(55, 65, 82), Color.FromArgb(236, 240, 247), _fontTabNormal, 28);
+            _btnTabToolkit = CreateToolbarSlotButton("ကိရိယာ", Color.FromArgb(236, 240, 247), Color.FromArgb(55, 65, 82), Color.FromArgb(236, 240, 247), _fontTabNormal, initTabBtnH);
             _btnTabToolkit.Click += (s, e) => SwitchWorkspaceTab(TaskPaneWorkspaceTab.Toolkit);
 
-            _btnTabCustom = CreateToolbarSlotButton("မှတ်သား", Color.FromArgb(236, 240, 247), Color.FromArgb(55, 65, 82), Color.FromArgb(236, 240, 247), _fontTabNormal, 28);
+            _btnTabCustom = CreateToolbarSlotButton("မှတ်သား", Color.FromArgb(236, 240, 247), Color.FromArgb(55, 65, 82), Color.FromArgb(236, 240, 247), _fontTabNormal, initTabBtnH);
             _btnTabCustom.Click += (s, e) => SwitchWorkspaceTab(TaskPaneWorkspaceTab.CustomWords);
 
             tabStrip.Controls.Add(_btnTabProofing, 0, 0);
@@ -417,6 +424,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Font = _fontSmallBold,
                 ForeColor = Color.FromArgb(18, 112, 50),
                 AutoSize = true,
+                UseMnemonic = false,
                 Dock = DockStyle.Fill,
                 Tag = WrapTag
             };
@@ -453,11 +461,12 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             styleGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
             styleGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            _btnStyleGeneral = CreateToolbarSlotButton("အထွေထွေ စံသတ်ပုံ", Color.FromArgb(24, 90, 188), Color.White, Color.FromArgb(24, 90, 188), _fontSmallBold, 27);
+            int initStyleBtnH = MeasureSingleLineButtonHeight(_fontSmallBold, 11);
+            _btnStyleGeneral = CreateToolbarSlotButton("အထွေထွေ စံသတ်ပုံ", Color.FromArgb(24, 90, 188), Color.White, Color.FromArgb(24, 90, 188), _fontSmallBold, initStyleBtnH);
             _btnStyleGeneral.Click += (s, e) => ChangeStyleMode(ProofingStyleMode.GeneralStandard);
             _toolTip.SetToolTip(_btnStyleGeneral, "အများသုံး/လုပ်ငန်းသုံး စံသတ်ပုံစနစ် (ပါတယ်၊ တွေ စသည့် အပြောစကားများကို ခွင့်ပြုသည်)");
 
-            _btnStyleFormal = CreateToolbarSlotButton("စာပေ / ရုံးသုံး", Color.FromArgb(240, 243, 249), Color.FromArgb(50, 60, 76), Color.FromArgb(214, 220, 232), _fontSmall, 27);
+            _btnStyleFormal = CreateToolbarSlotButton("စာပေ / ရုံးသုံး", Color.FromArgb(240, 243, 249), Color.FromArgb(50, 60, 76), Color.FromArgb(214, 220, 232), _fontSmall, initStyleBtnH);
             _btnStyleFormal.Click += (s, e) => ChangeStyleMode(ProofingStyleMode.FormalOfficial);
             _toolTip.SetToolTip(_btnStyleFormal, "အစိုးရရုံးသုံးနှင့် စာပေအရေးအသားစနစ် (ပါတယ် ➔ ပါသည်၊ တွေ ➔ များ ပါ စစ်ဆေးသည်)");
 
@@ -471,8 +480,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 ForeColor = Color.FromArgb(95, 106, 124),
                 AutoSize = false,
                 AutoEllipsis = true,
+                UseMnemonic = false,
                 Dock = DockStyle.Top,
-                Height = 19,
+                Height = MeasureSingleLineLabelHeight(_fontBrandStats, 5),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0, 0, 0, 4),
                 Padding = new Padding(2, 0, 2, 0)
@@ -493,7 +503,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             actionStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 26F));
             actionStrip.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            _btnScanAll = CreateToolbarSlotButton("စာတမ်းစစ်မည်", Color.FromArgb(24, 90, 188), Color.White, Color.FromArgb(20, 76, 162), _fontSmallBold, 30);
+            int initActionBtnH = MeasureSingleLineButtonHeight(_fontSmallBold, 13);
+            _btnScanAll = CreateToolbarSlotButton("စာတမ်းစစ်မည်", Color.FromArgb(24, 90, 188), Color.White, Color.FromArgb(20, 76, 162), _fontSmallBold, initActionBtnH);
             _btnScanAll.Click += (s, e) =>
             {
                 SetScanningState(true);
@@ -501,13 +512,13 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             };
             _toolTip.SetToolTip(_btnScanAll, "စာကိုယ်၊ ဇယားကွက်နှင့် ခေါင်းစီး/အောက်ခြေ အားလုံးကို စစ်ဆေးရန်");
 
-            _btnFixAll = CreateToolbarSlotButton("အားလုံးပြင်မည်", Color.FromArgb(22, 132, 68), Color.White, Color.FromArgb(18, 114, 58), _fontSmallBold, 30);
+            _btnFixAll = CreateToolbarSlotButton("အားလုံးပြင်မည်", Color.FromArgb(22, 132, 68), Color.White, Color.FromArgb(18, 114, 58), _fontSmallBold, initActionBtnH);
             _btnFixAll.Click += (s, e) => RequestFixAllIssues?.Invoke(_currentFilter);
             _toolTip.SetToolTip(_btnFixAll, "ရွေးချယ်ထားသော စစ်ထုတ်မှုအလိုက် အမှားများကို တစ်ပြိုင်နက် ပြင်ဆင်ရန် — အနက်သံသယ သတိပြုချက်များကို အလိုအလျောက် မပြင်ဘဲ ချန်ထားပေးသည် (Ctrl+Z တစ်ချက်တည်းဖြင့် ပြန်ပြင်နိုင်သည်)");
 
             _btnClearLines = CreateToolbarSlotButton(
                 UiLocalizer.Pick("Clear Marks", "မျဉ်းရှင်း"),
-                Color.FromArgb(242, 244, 248), Color.FromArgb(55, 65, 80), Color.FromArgb(215, 220, 230), _fontSmall, 30);
+                Color.FromArgb(242, 244, 248), Color.FromArgb(55, 65, 80), Color.FromArgb(215, 220, 230), _fontSmall, initActionBtnH);
             _btnClearLines.Click += (s, e) => RequestClearUnderlines?.Invoke();
 
             actionStrip.Controls.Add(_btnScanAll, 0, 0);
@@ -532,24 +543,25 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             filterAndStepRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 9F));
             filterAndStepRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            _btnFilterAll = CreateToolbarSlotButton("အားလုံး (0)", Color.FromArgb(30, 65, 130), Color.White, Color.FromArgb(30, 65, 130), _fontSmall, 26);
+            int initFilterBtnH = MeasureSingleLineButtonHeight(_fontSmall, 10);
+            _btnFilterAll = CreateToolbarSlotButton("အားလုံး (0)", Color.FromArgb(30, 65, 130), Color.White, Color.FromArgb(30, 65, 130), _fontSmall, initFilterBtnH);
             _btnFilterAll.Click += (s, e) => SetFilterMode(IssueFilterMode.All);
 
-            _btnFilterSpelling = CreateToolbarSlotButton("သတ်ပုံ (0)", Color.FromArgb(253, 237, 236), Color.FromArgb(168, 28, 28), Color.FromArgb(242, 202, 200), _fontSmall, 26);
+            _btnFilterSpelling = CreateToolbarSlotButton("သတ်ပုံ (0)", Color.FromArgb(253, 237, 236), Color.FromArgb(168, 28, 28), Color.FromArgb(242, 202, 200), _fontSmall, initFilterBtnH);
             _btnFilterSpelling.Click += (s, e) => SetFilterMode(IssueFilterMode.SpellingOnly);
 
-            _btnFilterGrammar = CreateToolbarSlotButton("သဒ္ဒါ (0)", Color.FromArgb(234, 243, 255), Color.FromArgb(22, 78, 168), Color.FromArgb(196, 218, 248), _fontSmall, 26);
+            _btnFilterGrammar = CreateToolbarSlotButton("သဒ္ဒါ (0)", Color.FromArgb(234, 243, 255), Color.FromArgb(22, 78, 168), Color.FromArgb(196, 218, 248), _fontSmall, initFilterBtnH);
             _btnFilterGrammar.Click += (s, e) => SetFilterMode(IssueFilterMode.GrammarOnly);
 
-            _btnFilterContext = CreateToolbarSlotButton("အနက် (0)", Color.FromArgb(255, 246, 226), Color.FromArgb(168, 98, 6), Color.FromArgb(245, 214, 152), _fontSmall, 26);
+            _btnFilterContext = CreateToolbarSlotButton("အနက် (0)", Color.FromArgb(255, 246, 226), Color.FromArgb(168, 98, 6), Color.FromArgb(245, 214, 152), _fontSmall, initFilterBtnH);
             _btnFilterContext.Click += (s, e) => SetFilterMode(IssueFilterMode.ContextOnly);
             _toolTip.SetToolTip(_btnFilterContext, "အနက်သံသယ စိစစ်ရန် (ဝါကျအနက်နှင့် တိုက်ဆိုင်စစ်ဆေးရမည့် စကားစပ်သတိပြုချက်များ)");
 
-            _btnPrevIssue = CreateToolbarSlotButton("↑", Color.FromArgb(242, 244, 248), Color.FromArgb(45, 55, 72), Color.FromArgb(215, 220, 230), _fontSmallBold, 26);
+            _btnPrevIssue = CreateToolbarSlotButton("↑", Color.FromArgb(242, 244, 248), Color.FromArgb(45, 55, 72), Color.FromArgb(215, 220, 230), _fontSmallBold, initFilterBtnH);
             _btnPrevIssue.Click += (s, e) => StepThroughIssues(-1);
             _toolTip.SetToolTip(_btnPrevIssue, "ရှေ့အမှားသို့ သွားရန်");
 
-            _btnNextIssue = CreateToolbarSlotButton("↓", Color.FromArgb(242, 244, 248), Color.FromArgb(45, 55, 72), Color.FromArgb(215, 220, 230), _fontSmallBold, 26);
+            _btnNextIssue = CreateToolbarSlotButton("↓", Color.FromArgb(242, 244, 248), Color.FromArgb(45, 55, 72), Color.FromArgb(215, 220, 230), _fontSmallBold, initFilterBtnH);
             _btnNextIssue.Click += (s, e) => StepThroughIssues(+1);
             _toolTip.SetToolTip(_btnNextIssue, "နောက်အမှားသို့ သွားရန်");
 
@@ -583,7 +595,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 ForeColor = Color.FromArgb(20, 74, 162),
                 AutoSize = false,
                 AutoEllipsis = true,
-                MinimumSize = new Size(0, 22),
+                UseMnemonic = false,
+                MinimumSize = new Size(0, MeasureSingleLineLabelHeight(_fontSmallBold, 6)),
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0, 1, 6, 1)
@@ -612,8 +625,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 ForeColor = Color.FromArgb(22, 120, 58),
                 AutoSize = false,
                 AutoEllipsis = true,
+                UseMnemonic = false,
                 Dock = DockStyle.Top,
-                Height = 22,
+                Height = MeasureSingleLineLabelHeight(_fontSmallBold, 6),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
                 Padding = new Padding(2, 0, 2, 0)
@@ -670,9 +684,10 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 _searchDebounceTimer.Start();
             };
 
+            int initAuxBtnH = MeasureSingleLineButtonHeight(_fontSmall, 11);
             _btnLookupSelection = CreateToolbarSlotButton(
                 UiLocalizer.Pick("Selection", "စာတမ်းမှယူ"),
-                Color.FromArgb(234, 243, 255), Color.FromArgb(20, 74, 158), Color.FromArgb(190, 212, 246), _fontSmall, 28);
+                Color.FromArgb(234, 243, 255), Color.FromArgb(20, 74, 158), Color.FromArgb(190, 212, 246), _fontSmall, initAuxBtnH);
             _btnLookupSelection.Click += (s, e) =>
             {
                 string selText = (RequestGetSelectedDocumentText?.Invoke() ?? string.Empty).Trim();
@@ -690,7 +705,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             _btnClearSearch = CreateToolbarSlotButton(
                 UiLocalizer.Pick("Clear", "ရှင်းမည်"),
-                Color.FromArgb(242, 244, 248), Color.FromArgb(50, 60, 76), Color.FromArgb(215, 220, 230), _fontSmall, 28);
+                Color.FromArgb(242, 244, 248), Color.FromArgb(50, 60, 76), Color.FromArgb(215, 220, 230), _fontSmall, initAuxBtnH);
             _btnClearSearch.Click += (s, e) =>
             {
                 _txtDictionarySearch.Text = string.Empty;
@@ -702,53 +717,86 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             searchInputGrid.Controls.Add(_btnLookupSelection, 1, 0);
             searchInputGrid.Controls.Add(_btnClearSearch, 2, 0);
 
-            var dictCatRow = new FlowLayoutPanel
+            // Deterministic 2-row Dictionary Category Grid (eliminates FlowLayoutPanel-in-TableLayoutPanel phantom height!)
+            var dictCatGrid = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                WrapContents = true,
-                FlowDirection = FlowDirection.LeftToRight,
+                ColumnCount = 1,
+                RowCount = 2,
                 Margin = new Padding(0, 0, 0, 4),
                 Padding = new Padding(0)
             };
+            dictCatGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            dictCatGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            dictCatGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            _btnDictCatAll = CreatePillButton("အားလုံး", Color.FromArgb(24, 90, 188), Color.White, Color.FromArgb(24, 90, 188), _fontSmall);
-            _btnDictCatAll.Dock = DockStyle.None;
+            var dictCatRowTop = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 4,
+                RowCount = 1,
+                Margin = new Padding(0, 0, 0, 2),
+                Padding = new Padding(0)
+            };
+            dictCatRowTop.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 19F));
+            dictCatRowTop.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
+            dictCatRowTop.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 27F));
+            dictCatRowTop.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 29F));
+            dictCatRowTop.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            var dictCatRowBottom = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 3,
+                RowCount = 1,
+                Margin = new Padding(0),
+                Padding = new Padding(0)
+            };
+            dictCatRowBottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32F));
+            dictCatRowBottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36F));
+            dictCatRowBottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32F));
+            dictCatRowBottom.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            _btnDictCatAll = CreateToolbarSlotButton("အားလုံး", Color.FromArgb(24, 90, 188), Color.White, Color.FromArgb(24, 90, 188), _fontSmall, initFilterBtnH);
             _btnDictCatAll.Click += (s, e) => SetDictionaryCategory(DictionaryCategoryFilter.All);
 
-            _btnDictCatThatpon = CreatePillButton("သတ်ပုံကျမ်း", Color.FromArgb(240, 243, 249), Color.FromArgb(45, 55, 72), Color.FromArgb(214, 220, 232), _fontSmall);
-            _btnDictCatThatpon.Dock = DockStyle.None;
+            _btnDictCatThatpon = CreateToolbarSlotButton("သတ်ပုံကျမ်း", Color.FromArgb(240, 243, 249), Color.FromArgb(45, 55, 72), Color.FromArgb(214, 220, 232), _fontSmall, initFilterBtnH);
             _btnDictCatThatpon.Click += (s, e) => SetDictionaryCategory(DictionaryCategoryFilter.OfficialThatpon);
 
-            _btnDictCatAbidan = CreatePillButton("အဘိဓာန်", Color.FromArgb(240, 243, 249), Color.FromArgb(45, 55, 72), Color.FromArgb(214, 220, 232), _fontSmall);
-            _btnDictCatAbidan.Dock = DockStyle.None;
+            _btnDictCatAbidan = CreateToolbarSlotButton("အဘိဓာန်", Color.FromArgb(240, 243, 249), Color.FromArgb(45, 55, 72), Color.FromArgb(214, 220, 232), _fontSmall, initFilterBtnH);
             _btnDictCatAbidan.Click += (s, e) => SetDictionaryCategory(DictionaryCategoryFilter.AbidanMeaning);
 
-            _btnDictCatEncyc = CreatePillButton("စွယ်စုံဗဟုသုတ", Color.FromArgb(240, 243, 249), Color.FromArgb(45, 55, 72), Color.FromArgb(214, 220, 232), _fontSmall);
-            _btnDictCatEncyc.Dock = DockStyle.None;
+            _btnDictCatEncyc = CreateToolbarSlotButton("စွယ်စုံဗဟုသုတ", Color.FromArgb(240, 243, 249), Color.FromArgb(45, 55, 72), Color.FromArgb(214, 220, 232), _fontSmall, initFilterBtnH);
             _btnDictCatEncyc.Click += (s, e) => SetDictionaryCategory(DictionaryCategoryFilter.EncyclopediaKnowledge);
 
-            _btnDictCatDomain = CreatePillButton("ပညာရပ်", Color.FromArgb(240, 243, 249), Color.FromArgb(45, 55, 72), Color.FromArgb(214, 220, 232), _fontSmall);
-            _btnDictCatDomain.Dock = DockStyle.None;
+            _btnDictCatDomain = CreateToolbarSlotButton("ပညာရပ်", Color.FromArgb(240, 243, 249), Color.FromArgb(45, 55, 72), Color.FromArgb(214, 220, 232), _fontSmall, initFilterBtnH);
             _btnDictCatDomain.Click += (s, e) => SetDictionaryCategory(DictionaryCategoryFilter.SpecializedDomains);
 
-            _btnDictCatPropn = CreatePillButton("နိုင်ငံ/မြို့", Color.FromArgb(240, 243, 249), Color.FromArgb(45, 55, 72), Color.FromArgb(214, 220, 232), _fontSmall);
-            _btnDictCatPropn.Dock = DockStyle.None;
+            _btnDictCatPropn = CreateToolbarSlotButton("နိုင်ငံ/မြို့", Color.FromArgb(240, 243, 249), Color.FromArgb(45, 55, 72), Color.FromArgb(214, 220, 232), _fontSmall, initFilterBtnH);
             _btnDictCatPropn.Click += (s, e) => SetDictionaryCategory(DictionaryCategoryFilter.ProperNounsAndPlaces);
 
-            _btnDictCatProverb = CreatePillButton("စကားပုံ", Color.FromArgb(240, 243, 249), Color.FromArgb(45, 55, 72), Color.FromArgb(214, 220, 232), _fontSmall);
-            _btnDictCatProverb.Dock = DockStyle.None;
+            _btnDictCatProverb = CreateToolbarSlotButton("စကားပုံ", Color.FromArgb(240, 243, 249), Color.FromArgb(45, 55, 72), Color.FromArgb(214, 220, 232), _fontSmall, initFilterBtnH);
             _btnDictCatProverb.Click += (s, e) => SetDictionaryCategory(DictionaryCategoryFilter.ProverbsAndSayings);
 
-            dictCatRow.Controls.Add(_btnDictCatAll);
-            dictCatRow.Controls.Add(_btnDictCatThatpon);
-            dictCatRow.Controls.Add(_btnDictCatAbidan);
-            dictCatRow.Controls.Add(_btnDictCatEncyc);
-            dictCatRow.Controls.Add(_btnDictCatDomain);
-            dictCatRow.Controls.Add(_btnDictCatPropn);
-            dictCatRow.Controls.Add(_btnDictCatProverb);
+            dictCatRowTop.Controls.Add(_btnDictCatAll, 0, 0);
+            dictCatRowTop.Controls.Add(_btnDictCatThatpon, 1, 0);
+            dictCatRowTop.Controls.Add(_btnDictCatAbidan, 2, 0);
+            dictCatRowTop.Controls.Add(_btnDictCatEncyc, 3, 0);
 
+            dictCatRowBottom.Controls.Add(_btnDictCatDomain, 0, 0);
+            dictCatRowBottom.Controls.Add(_btnDictCatPropn, 1, 0);
+            dictCatRowBottom.Controls.Add(_btnDictCatProverb, 2, 0);
+
+            dictCatGrid.Controls.Add(dictCatRowTop, 0, 0);
+            dictCatGrid.Controls.Add(dictCatRowBottom, 0, 1);
+
+            int initSubSummaryH = MeasureSingleLineLabelHeight(_fontSmallBold, 5);
             _lblDictSummary = new Label
             {
                 Text = "သတ်ပုံကျမ်း၊ ပညာရပ် (၅) ရပ်၊ နိုင်ငံ/မြို့နှင့် စကားပုံများ အသင့်ရှာဖွေနိုင်သည်",
@@ -756,15 +804,16 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 ForeColor = Color.FromArgb(24, 82, 172),
                 AutoSize = false,
                 AutoEllipsis = true,
+                UseMnemonic = false,
                 Dock = DockStyle.Top,
-                Height = 20,
+                Height = initSubSummaryH,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
                 Padding = new Padding(2, 0, 2, 0)
             };
 
             _dictionaryToolbar.Controls.Add(searchInputGrid, 0, 0);
-            _dictionaryToolbar.Controls.Add(dictCatRow, 0, 1);
+            _dictionaryToolbar.Controls.Add(dictCatGrid, 0, 1);
             _dictionaryToolbar.Controls.Add(_lblDictSummary, 0, 2);
 
             // ================= SUB-TOOLBAR B2: FLAGSHIP DOCUMENT TOOLKIT & OFFICIAL SUITE =================
@@ -789,8 +838,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 ForeColor = Color.FromArgb(20, 62, 138),
                 AutoSize = false,
                 AutoEllipsis = true,
+                UseMnemonic = false,
                 Dock = DockStyle.Top,
-                Height = 20,
+                Height = initSubSummaryH,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
                 Padding = new Padding(2, 0, 2, 0)
@@ -844,7 +894,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             _btnAddCustomWord = CreateToolbarSlotButton(
                 UiLocalizer.Pick("+ Add Word", "+ မှတ်သားမည်"),
-                Color.FromArgb(24, 90, 188), Color.FromArgb(255, 255, 255), Color.FromArgb(20, 76, 162), _fontSmallBold, 28);
+                Color.FromArgb(24, 90, 188), Color.FromArgb(255, 255, 255), Color.FromArgb(20, 76, 162), _fontSmallBold, initAuxBtnH);
             _btnAddCustomWord.Click += (s, e) => AddManualCustomWordFromInput();
 
             addCustomGrid.Controls.Add(_txtNewCustomWord, 0, 0);
@@ -857,8 +907,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 ForeColor = Color.FromArgb(35, 65, 118),
                 AutoSize = false,
                 AutoEllipsis = true,
+                UseMnemonic = false,
                 Dock = DockStyle.Top,
-                Height = 20,
+                Height = initSubSummaryH,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
                 Padding = new Padding(2, 0, 2, 0)
@@ -885,12 +936,21 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Padding = new Padding(10, 8, 10, 12),
                 BackColor = Color.FromArgb(243, 245, 249)
             };
+            _cardsPanel.ControlAdded += (s, e) =>
+            {
+                if (e.Control != null)
+                {
+                    UiFontCache.DisableMnemonicsRecursive(e.Control);
+                }
+            };
             _cardsPanel.SizeChanged += (s, e) => ResizeCardsToFitPanel();
 
             rootLayout.Controls.Add(headerShell, 0, 0);
             rootLayout.Controls.Add(_cardsPanel, 0, 1);
 
             Controls.Add(rootLayout);
+            UiFontCache.DisableMnemonicsRecursive(this);
+            ApplyDpiLayoutMetrics();
             ApplyStaticChromeLabelsAndTooltips();
             SetEcoModeState(EcoPerformanceGovernor.CurrentPreference, EcoPerformanceGovernor.Hardware.IsLowSpecHardware);
             UpdateWorkspaceTabStyles();
@@ -1477,14 +1537,109 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             return card;
         }
 
-        private static Button CreateToolbarSlotButton(string text, Color backColor, Color foreColor, Color borderColor, Font font, int height = 28)
+        private int MeasureSingleLineLabelHeight(Font font, int extraLogicalPad = 6) =>
+            UiFontCache.MeasureSingleLineLabelHeight(this, font, extraLogicalPad);
+
+        private int MeasureSingleLineButtonHeight(Font font, int extraLogicalPad = 12) =>
+            UiFontCache.MeasureSingleLineButtonHeight(this, font, extraLogicalPad);
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            ApplyDpiLayoutMetrics();
+            ResizeCardsToFitPanel();
+        }
+
+        public void RefreshDpiMetricsAndLayout()
+        {
+            ApplyDpiLayoutMetrics();
+            _lastAppliedCardWidth = -1;
+            ResizeCardsToFitPanel();
+            PerformLayout();
+        }
+
+        protected override void OnDpiChangedAfterParent(EventArgs e)
+        {
+            base.OnDpiChangedAfterParent(e);
+            RefreshDpiMetricsAndLayout();
+        }
+
+        private void ApplyDpiLayoutMetrics()
+        {
+            if (_lblBrandTitle == null)
+                return;
+
+            _lastAppliedEffectiveDpi = UiFontCache.GetEffectiveDpi(this);
+            SuspendLayout();
+            try
+            {
+                _lblBrandTitle.Height = MeasureSingleLineLabelHeight(_fontBrandTitle, 6);
+                _lblLexiconStats.Height = MeasureSingleLineLabelHeight(_fontBrandStats, 5);
+
+                int brandPillH = MeasureSingleLineButtonHeight(_fontSmallBold, 10);
+                _btnLangToggle.Height = brandPillH;
+                _btnEcoMode.Height = brandPillH;
+                _btnAboutLic.Height = brandPillH;
+
+                int tabBtnH = MeasureSingleLineButtonHeight(_fontTabActive, 12);
+                _btnTabProofing.Height = tabBtnH;
+                _btnTabDictionary.Height = tabBtnH;
+                _btnTabToolkit.Height = tabBtnH;
+                _btnTabCustom.Height = tabBtnH;
+
+                int styleBtnH = MeasureSingleLineButtonHeight(_fontSmallBold, 11);
+                _btnStyleGeneral.Height = styleBtnH;
+                _btnStyleFormal.Height = styleBtnH;
+                _lblStyleHint.Height = MeasureSingleLineLabelHeight(_fontBrandStats, 5);
+
+                int actionBtnH = MeasureSingleLineButtonHeight(_fontSmallBold, 13);
+                _btnScanAll.Height = actionBtnH;
+                _btnFixAll.Height = actionBtnH;
+                _btnClearLines.Height = actionBtnH;
+
+                int filterBtnH = MeasureSingleLineButtonHeight(_fontSmall, 10);
+                _btnFilterAll.Height = filterBtnH;
+                _btnFilterSpelling.Height = filterBtnH;
+                _btnFilterGrammar.Height = filterBtnH;
+                _btnFilterContext.Height = filterBtnH;
+                _btnPrevIssue.Height = filterBtnH;
+                _btnNextIssue.Height = filterBtnH;
+
+                _lblScanProgress.MinimumSize = new Size(0, MeasureSingleLineLabelHeight(_fontSmallBold, 6));
+                _lblSummary.Height = MeasureSingleLineLabelHeight(_fontSmallBold, 6);
+
+                int auxBtnH = MeasureSingleLineButtonHeight(_fontSmall, 11);
+                _btnLookupSelection.Height = auxBtnH;
+                _btnClearSearch.Height = auxBtnH;
+                _btnAddCustomWord.Height = auxBtnH;
+
+                _btnDictCatAll.Height = filterBtnH;
+                _btnDictCatThatpon.Height = filterBtnH;
+                _btnDictCatAbidan.Height = filterBtnH;
+                _btnDictCatEncyc.Height = filterBtnH;
+                _btnDictCatDomain.Height = filterBtnH;
+                _btnDictCatPropn.Height = filterBtnH;
+                _btnDictCatProverb.Height = filterBtnH;
+
+                int subSummaryH = MeasureSingleLineLabelHeight(_fontSmallBold, 5);
+                _lblDictSummary.Height = subSummaryH;
+                _lblToolkitSummary.Height = subSummaryH;
+                _lblCustomSummary.Height = subSummaryH;
+            }
+            finally
+            {
+                ResumeLayout(true);
+            }
+        }
+
+        private static Button CreateToolbarSlotButton(string text, Color backColor, Color foreColor, Color borderColor, Font font, int slotHeight)
         {
             var btn = new Button
             {
                 Text = text,
                 AutoSize = false,
                 AutoEllipsis = true,
-                Height = height,
+                Height = slotHeight,
                 Dock = DockStyle.Fill,
                 BackColor = backColor,
                 ForeColor = foreColor,
@@ -1508,13 +1663,14 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Text = text,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                AutoEllipsis = true,
                 Dock = DockStyle.Fill,
                 BackColor = backColor,
                 ForeColor = foreColor,
                 FlatStyle = FlatStyle.Flat,
                 Font = font,
                 Margin = new Padding(2, 2, 2, 2),
-                Padding = new Padding(3, 4, 3, 4),
+                Padding = new Padding(4, 4, 4, 4),
                 TextAlign = ContentAlignment.MiddleCenter,
                 Cursor = Cursors.Hand,
                 UseMnemonic = false
@@ -1534,6 +1690,13 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
         private void ResizeCardsToFitPanel()
         {
+            int currentDpi = UiFontCache.GetEffectiveDpi(this);
+            if (currentDpi != _lastAppliedEffectiveDpi)
+            {
+                ApplyDpiLayoutMetrics();
+                _lastAppliedCardWidth = -1;
+            }
+
             int targetWidth = GetTargetCardWidth();
             int ctrlCount = _cardsPanel.Controls.Count;
             if (targetWidth == _lastAppliedCardWidth && ctrlCount == _lastAppliedControlCount)

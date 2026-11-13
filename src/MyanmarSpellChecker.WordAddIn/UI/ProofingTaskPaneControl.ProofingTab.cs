@@ -443,8 +443,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             var lblInfo = new Label
             {
                 Text = UiLocalizer.Pick(
-                    $"💡 This document appears to use conversational prose (story/article) — switch to General Standard if you want to hide {colloqCount} blue formal-style marks.",
-                    $"💡 ဤစာမူသည် အပြောစကားဟန် (ဝတ္ထု / ဆောင်းပါး) ဖြစ်နေပုံရပါသည် — ရုံးသုံးဟန် မျဉ်းပြာ ({colloqCount}) ခု မပြလိုပါက အထွေထွေ စံ သို့ ပြောင်းနိုင်ပါသည်။"),
+                    $"ⓘ This document appears to use conversational prose (story/article) — switch to General Standard if you want to hide {colloqCount} blue formal-style marks.",
+                    $"ⓘ ဤစာမူသည် အပြောစကားဟန် (ဝတ္ထု / ဆောင်းပါး) ဖြစ်နေပုံရပါသည် — ရုံးသုံးဟန် မျဉ်းပြာ ({colloqCount}) ခု မပြလိုပါက အထွေထွေ စံ သို့ ပြောင်းနိုင်ပါသည်။"),
                 Font = _fontSmallBold,
                 ForeColor = Color.FromArgb(24, 58, 112),
                 BackColor = Color.FromArgb(236, 245, 255),

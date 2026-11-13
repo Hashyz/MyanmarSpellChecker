@@ -313,7 +313,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Text = _rewriterInputSample,
                 Font = _fontSmall,
                 Multiline = true,
-                Height = 56,
+                Height = Math.Max(56, MeasureSingleLineLabelHeight(_fontSmall, 2) * 3),
                 ScrollBars = ScrollBars.Vertical,
                 Dock = DockStyle.Fill,
                 Margin = new Padding(2, 2, 2, 5)

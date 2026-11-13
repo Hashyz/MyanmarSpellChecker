@@ -2028,7 +2028,7 @@ namespace MyanmarSpellChecker.Core.Tests
                 UiLocalizer.CurrentLanguage = UiLanguage.English;
                 Assert.True(UiLocalizer.IsEnglish);
                 Assert.Equal("Scan Document", UiLocalizer.Pick("Scan Document", "စာတမ်းစစ်မည်"));
-                Assert.Equal("🌐 EN", UiLocalizer.FormatLanguageBadge());
+                Assert.Equal("A/က EN", UiLocalizer.FormatLanguageBadge());
                 Assert.Contains("မြန်မာ", UiLocalizer.FormatLanguageTooltip());
 
                 // 2. Domain UI badges & labels switch cleanly between English and Myanmar
@@ -2055,7 +2055,7 @@ namespace MyanmarSpellChecker.Core.Tests
                 Assert.Equal(UiLanguage.Myanmar, toggled);
                 Assert.False(UiLocalizer.IsEnglish);
                 Assert.Equal("စာတမ်းစစ်မည်", UiLocalizer.Pick("Scan Document", "စာတမ်းစစ်မည်"));
-                Assert.Equal("🌐 မြန်မာ", UiLocalizer.FormatLanguageBadge());
+                Assert.Equal("A/က မြန်မာ", UiLocalizer.FormatLanguageBadge());
                 Assert.Contains("English", UiLocalizer.FormatLanguageTooltip());
                 Assert.Equal("✓ သေချာ (စံသတ်ပုံ/သဒ္ဒါ)", sampleIssue.CertaintyBadgeText);
                 Assert.Equal("A+ စံချိန်မီ အထူးကောင်းမွန်", qualityReport.LocalizedGradeLabel);
@@ -2212,8 +2212,8 @@ namespace MyanmarSpellChecker.Core.Tests
                 Path.Combine(excelSrcDir, "UI", "ExcelProofingTaskPaneControl.cs"));
             string wordAddInSource = File.ReadAllText(
                 Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "ThisAddIn.cs"));
-            Assert.Contains("brandPillsFlow", wordTaskPaneSource, StringComparison.Ordinal);
-            Assert.Contains("brandPillsFlow", excelTaskPaneSource, StringComparison.Ordinal);
+            Assert.Contains("brandPillsGrid", wordTaskPaneSource, StringComparison.Ordinal);
+            Assert.Contains("brandPillsGrid", excelTaskPaneSource, StringComparison.Ordinal);
             Assert.Contains("EnsureComfortableStartupPaneWidth", wordAddInSource, StringComparison.Ordinal);
             Assert.Contains("EnsureComfortableStartupPaneWidth", excelAddInSource, StringComparison.Ordinal);
 
@@ -2274,6 +2274,76 @@ namespace MyanmarSpellChecker.Core.Tests
                 Assert.True(
                     bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF,
                     $"Installer script {Path.GetFileName(ps1)} is missing UTF-8 BOM required for Windows PowerShell 5.1 Myanmar strings!");
+            }
+        }
+
+        [Fact]
+        public void V52_HighDpiTaskPaneLayout_ShouldAvoidHardcodedHeightsFlowGapsMnemonicsAndSurrogateTofu()
+        {
+            string repoRoot = TestPaths.RepoRoot;
+            UiLanguage origLang = UiLocalizer.CurrentLanguage;
+            try
+            {
+                UiLocalizer.CurrentLanguage = UiLanguage.English;
+                Assert.DoesNotContain(UiLocalizer.FormatLanguageBadge(), char.IsSurrogate);
+
+                UiLocalizer.CurrentLanguage = UiLanguage.Myanmar;
+                Assert.DoesNotContain(UiLocalizer.FormatLanguageBadge(), char.IsSurrogate);
+            }
+            finally
+            {
+                UiLocalizer.CurrentLanguage = origLang;
+            }
+
+            // 1. Zero supplementary-plane surrogate characters in Word/Excel Add-in C# sources (prevents GDI Pyidaungsu [▯] Tofu boxes)
+            string wordDir = Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn");
+            string excelDir = Path.Combine(repoRoot, "src", "MyanmarSpellChecker.ExcelAddIn");
+            foreach (string dir in new[] { wordDir, excelDir })
+            {
+                foreach (string csPath in Directory.GetFiles(dir, "*.cs", SearchOption.AllDirectories))
+                {
+                    if (csPath.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar) ||
+                        csPath.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar))
+                    {
+                        continue;
+                    }
+
+                    string text = File.ReadAllText(csPath);
+                    Assert.False(
+                        text.Any(char.IsSurrogate),
+                        $"Supplementary-plane surrogate emoji found in {Path.GetFileName(csPath)} — GDI Pyidaungsu renders surrogates as [▯] Tofu!");
+                }
+            }
+
+            // 2. Deterministic TableLayoutPanel grids + dynamic DPI font-metric heights (zero hardcoded 96-DPI heights & zero FlowLayoutPanel vertical gap)
+            string wordPane = File.ReadAllText(Path.Combine(wordDir, "UI", "ProofingTaskPaneControl.cs"));
+            string excelPane = File.ReadAllText(Path.Combine(excelDir, "UI", "ExcelProofingTaskPaneControl.cs"));
+            foreach ((string name, string src) in new[] { ("ProofingTaskPaneControl.cs", wordPane), ("ExcelProofingTaskPaneControl.cs", excelPane) })
+            {
+                Assert.DoesNotContain("brandPillsFlow", src, StringComparison.Ordinal);
+                Assert.DoesNotContain("dictCatRow = new FlowLayoutPanel", src, StringComparison.Ordinal);
+                Assert.DoesNotContain("dictChipFlow = new FlowLayoutPanel", src, StringComparison.Ordinal);
+                Assert.Contains("brandPillsGrid", src, StringComparison.Ordinal);
+                Assert.Contains("dictCatGrid", src, StringComparison.Ordinal);
+                Assert.Contains("ApplyDpiLayoutMetrics", src, StringComparison.Ordinal);
+                Assert.Contains("RefreshDpiMetricsAndLayout", src, StringComparison.Ordinal);
+                Assert.Contains("UiFontCache.DisableMnemonicsRecursive(this)", src, StringComparison.Ordinal);
+
+                foreach (int badPx in new[] { 19, 20, 22, 23, 26, 27, 28, 30 })
+                {
+                    Assert.DoesNotContain($"Height = {badPx}", src, StringComparison.Ordinal);
+                }
+            }
+
+            // 3. Per-window High-DPI startup Task Pane width enforcement across Office 365 Backstage -> document open
+            string wordAddIn = File.ReadAllText(Path.Combine(wordDir, "ThisAddIn.cs"));
+            string excelAddIn = File.ReadAllText(Path.Combine(excelDir, "ExcelThisAddIn.cs"));
+            foreach (string addInSrc in new[] { wordAddIn, excelAddIn })
+            {
+                Assert.Contains("ScheduleStartupPaneWidthEnforcement", addInSrc, StringComparison.Ordinal);
+                Assert.Contains("UiFontCache.GetWindowDpi", addInSrc, StringComparison.Ordinal);
+                Assert.Contains("UiFontCache.GetWindowWidthPx", addInSrc, StringComparison.Ordinal);
+                Assert.Contains("_settledPaneWidthHwnds", addInSrc, StringComparison.Ordinal);
             }
         }
     }

@@ -48,7 +48,7 @@ namespace MyanmarSpellChecker.Core.Localization
         }
 
         public static string FormatLanguageBadge() =>
-            IsEnglish ? "🌐 EN" : "🌐 မြန်မာ";
+            IsEnglish ? "A/က EN" : "A/က မြန်မာ";
 
         public static string FormatLanguageTooltip() =>
             IsEnglish

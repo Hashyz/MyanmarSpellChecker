@@ -162,6 +162,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private int _stepperCursor = -1;
         private int _lastAppliedCardWidth = -1;
         private int _lastAppliedControlCount = -1;
+        private int _lastAppliedEffectiveDpi;
         private bool _isScanning;
         private ExcelScanOutcomeMetadata? _lastScanOutcome;
         private int _undoAvailableCount;
@@ -300,8 +301,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 ForeColor = Color.FromArgb(16, 92, 50),
                 AutoSize = false,
                 AutoEllipsis = true,
+                UseMnemonic = false,
                 Dock = DockStyle.Top,
-                Height = 23,
+                Height = MeasureSingleLineLabelHeight(_fontBrandTitle, 6),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
                 Padding = new Padding(2, 0, 2, 0)
@@ -314,64 +316,68 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 ForeColor = Color.FromArgb(88, 100, 118),
                 AutoSize = false,
                 AutoEllipsis = true,
+                UseMnemonic = false,
                 Dock = DockStyle.Top,
-                Height = 19,
+                Height = MeasureSingleLineLabelHeight(_fontBrandStats, 5),
                 TextAlign = ContentAlignment.MiddleLeft,
-                Margin = new Padding(0, 0, 0, 2),
+                Margin = new Padding(0, 0, 0, 3),
                 Padding = new Padding(2, 0, 2, 0)
             };
 
-            var brandPillsFlow = new FlowLayoutPanel
+            // Deterministic 1-row 3-column grid (eliminates WinForms FlowLayoutPanel-in-TableLayoutPanel wrapped-height phantom gap!)
+            var brandPillsGrid = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                WrapContents = true,
-                FlowDirection = FlowDirection.LeftToRight,
+                ColumnCount = 3,
+                RowCount = 1,
                 Margin = new Padding(0),
                 Padding = new Padding(0)
             };
+            brandPillsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 29F));
+            brandPillsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 43F));
+            brandPillsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 28F));
+            brandPillsGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            _btnLangToggle = CreatePillButton(
+            int initBrandPillH = MeasureSingleLineButtonHeight(_fontSmallBold, 10);
+            _btnLangToggle = CreateActionButton(
                 UiLocalizer.FormatLanguageBadge(),
                 Color.FromArgb(234, 243, 255),
                 Color.FromArgb(18, 72, 162),
                 Color.FromArgb(182, 206, 245),
                 _fontSmallBold);
-            _btnLangToggle.Dock = DockStyle.None;
-            _btnLangToggle.Padding = new Padding(6, 2, 6, 2);
-            _btnLangToggle.Margin = new Padding(0, 1, 4, 1);
+            _btnLangToggle.Height = initBrandPillH;
+            _btnLangToggle.Margin = new Padding(0, 1, 3, 1);
             _btnLangToggle.Click += (s, e) => RequestToggleLanguage?.Invoke();
 
-            _btnEcoMode = CreatePillButton(
+            _btnEcoMode = CreateActionButton(
                 EcoPerformanceGovernor.FormatBadgeLabel(EcoModePreference.Auto, false),
                 Color.FromArgb(236, 248, 241),
                 Color.FromArgb(16, 104, 54),
                 Color.FromArgb(178, 218, 194),
                 _fontSmallBold);
-            _btnEcoMode.Dock = DockStyle.None;
-            _btnEcoMode.Padding = new Padding(6, 2, 6, 2);
-            _btnEcoMode.Margin = new Padding(0, 1, 4, 1);
+            _btnEcoMode.Height = initBrandPillH;
+            _btnEcoMode.Margin = new Padding(1, 1, 3, 1);
             _btnEcoMode.Click += (s, e) => RequestCycleEcoMode?.Invoke();
 
-            _btnAboutLic = CreatePillButton(
-                UiLocalizer.Pick("About ⓘ", "အချက်အလက် ⓘ"),
+            _btnAboutLic = CreateActionButton(
+                UiLocalizer.Pick("ⓘ About", "အချက်အလက် ⓘ"),
                 Color.FromArgb(236, 248, 241),
                 Color.FromArgb(16, 104, 54),
                 Color.FromArgb(178, 218, 194),
                 _fontSmallBold);
-            _btnAboutLic.Dock = DockStyle.None;
-            _btnAboutLic.Padding = new Padding(8, 2, 8, 2);
-            _btnAboutLic.Margin = new Padding(0, 1, 0, 1);
+            _btnAboutLic.Height = initBrandPillH;
+            _btnAboutLic.Margin = new Padding(1, 1, 0, 1);
             _btnAboutLic.Click += (s, e) => RequestLicenseDialog?.Invoke();
 
-            brandPillsFlow.Controls.Add(_btnLangToggle);
-            brandPillsFlow.Controls.Add(_btnEcoMode);
-            brandPillsFlow.Controls.Add(_btnAboutLic);
+            brandPillsGrid.Controls.Add(_btnLangToggle, 0, 0);
+            brandPillsGrid.Controls.Add(_btnEcoMode, 1, 0);
+            brandPillsGrid.Controls.Add(_btnAboutLic, 2, 0);
 
             brandRow.Controls.Add(_lblBrandTitle, 0, 0);
             brandRow.Controls.Add(_lblLexiconStats, 0, 1);
-            brandRow.Controls.Add(brandPillsFlow, 0, 2);
+            brandRow.Controls.Add(brandPillsGrid, 0, 2);
 
             // Row 1: 4-Tab Segmented Workspace Switcher
             var tabStrip = new TableLayoutPanel
@@ -450,8 +456,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 ForeColor = Color.FromArgb(84, 96, 114),
                 AutoSize = false,
                 AutoEllipsis = true,
+                UseMnemonic = false,
                 Dock = DockStyle.Top,
-                Height = 19,
+                Height = MeasureSingleLineLabelHeight(_fontBrandStats, 5),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(1, 0, 1, 4)
             };
@@ -546,8 +553,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _btnFilterContext = CreateFilterPill("အနက် (0)");
             _btnPrevIssue = CreateFilterPill("↑");
             _btnNextIssue = CreateFilterPill("↓");
-            _btnPrevIssue.Padding = new Padding(1, 3, 1, 3);
-            _btnNextIssue.Padding = new Padding(1, 3, 1, 3);
+            _btnPrevIssue.Padding = new Padding(1, 0, 1, 0);
+            _btnNextIssue.Padding = new Padding(1, 0, 1, 0);
 
             _btnFilterAll.Click += (s, e) => SetIssueFilter(IssueFilterMode.All);
             _btnFilterSpelling.Click += (s, e) => SetIssueFilter(IssueFilterMode.SpellingOnly);
@@ -586,7 +593,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 ForeColor = Color.FromArgb(16, 98, 52),
                 AutoSize = false,
                 AutoEllipsis = true,
-                MinimumSize = new Size(0, 22),
+                UseMnemonic = false,
+                MinimumSize = new Size(0, MeasureSingleLineLabelHeight(_fontSmallBold, 6)),
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0, 1, 6, 1)
@@ -615,8 +623,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 ForeColor = Color.FromArgb(16, 98, 52),
                 AutoSize = false,
                 AutoEllipsis = true,
+                UseMnemonic = false,
                 Dock = DockStyle.Top,
-                Height = 22,
+                Height = MeasureSingleLineLabelHeight(_fontSmallBold, 6),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(1, 0, 1, 0)
             };
@@ -674,7 +683,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _btnClearDictSearch = CreateActionButton(
                 UiLocalizer.Pick("Clear", "ရှင်း"),
                 Color.FromArgb(242, 244, 248), Color.FromArgb(65, 75, 92), Color.FromArgb(214, 220, 232), _fontSmall);
-            _btnClearDictSearch.Height = 28;
+            _btnClearDictSearch.Height = MeasureSingleLineButtonHeight(_fontSmall, 11);
             _btnClearDictSearch.Click += (s, e) =>
             {
                 _txtDictionarySearch.Clear();
@@ -683,14 +692,52 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             searchBoxGrid.Controls.Add(_txtDictionarySearch, 0, 0);
             searchBoxGrid.Controls.Add(_btnClearDictSearch, 1, 0);
 
-            var dictChipFlow = new FlowLayoutPanel
+            // Deterministic 2-row Dictionary Category Grid (eliminates FlowLayoutPanel-in-TableLayoutPanel phantom height!)
+            var dictCatGrid = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                WrapContents = true,
-                Margin = new Padding(0, 0, 0, 4)
+                ColumnCount = 1,
+                RowCount = 2,
+                Margin = new Padding(0, 0, 0, 4),
+                Padding = new Padding(0)
             };
+            dictCatGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            dictCatGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            dictCatGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            var dictCatRowTop = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 4,
+                RowCount = 1,
+                Margin = new Padding(0, 0, 0, 2),
+                Padding = new Padding(0)
+            };
+            dictCatRowTop.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 19F));
+            dictCatRowTop.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 26F));
+            dictCatRowTop.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 26F));
+            dictCatRowTop.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 29F));
+            dictCatRowTop.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            var dictCatRowBottom = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 3,
+                RowCount = 1,
+                Margin = new Padding(0),
+                Padding = new Padding(0)
+            };
+            dictCatRowBottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32F));
+            dictCatRowBottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36F));
+            dictCatRowBottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32F));
+            dictCatRowBottom.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
             _btnDictCatAll = CreateChipButton("အားလုံး");
             _btnDictCatThatpon = CreateChipButton("သတ်ပုံကျမ်း");
             _btnDictCatAbidan = CreateChipButton("အဘိဓာန်");
@@ -707,12 +754,19 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _btnDictCatPropn.Click += (s, e) => SetDictionaryCategory(DictionaryCategoryFilter.ProperNounsAndPlaces);
             _btnDictCatProverb.Click += (s, e) => SetDictionaryCategory(DictionaryCategoryFilter.ProverbsAndSayings);
 
-            dictChipFlow.Controls.AddRange(new Control[]
-            {
-                _btnDictCatAll, _btnDictCatThatpon, _btnDictCatAbidan, _btnDictCatEncyc,
-                _btnDictCatDomain, _btnDictCatPropn, _btnDictCatProverb
-            });
+            dictCatRowTop.Controls.Add(_btnDictCatAll, 0, 0);
+            dictCatRowTop.Controls.Add(_btnDictCatThatpon, 1, 0);
+            dictCatRowTop.Controls.Add(_btnDictCatAbidan, 2, 0);
+            dictCatRowTop.Controls.Add(_btnDictCatEncyc, 3, 0);
 
+            dictCatRowBottom.Controls.Add(_btnDictCatDomain, 0, 0);
+            dictCatRowBottom.Controls.Add(_btnDictCatPropn, 1, 0);
+            dictCatRowBottom.Controls.Add(_btnDictCatProverb, 2, 0);
+
+            dictCatGrid.Controls.Add(dictCatRowTop, 0, 0);
+            dictCatGrid.Controls.Add(dictCatRowBottom, 0, 1);
+
+            int initSubSummaryH = MeasureSingleLineLabelHeight(_fontSmallBold, 5);
             _lblDictSummary = new Label
             {
                 Text = "မြန်မာ-မြန်မာ အဘိဓာန်ကြီး၊ စွယ်စုံဗဟုသုတ (၂၅,၀၀၀+) နှင့် စကားပုံများ ရှာဖွေနိုင်သည်",
@@ -720,13 +774,14 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 ForeColor = Color.FromArgb(24, 82, 172),
                 AutoSize = false,
                 AutoEllipsis = true,
+                UseMnemonic = false,
                 Dock = DockStyle.Top,
-                Height = 20,
+                Height = initSubSummaryH,
                 TextAlign = ContentAlignment.MiddleLeft
             };
 
             _dictionaryToolbar.Controls.Add(searchBoxGrid, 0, 0);
-            _dictionaryToolbar.Controls.Add(dictChipFlow, 0, 1);
+            _dictionaryToolbar.Controls.Add(dictCatGrid, 0, 1);
             _dictionaryToolbar.Controls.Add(_lblDictSummary, 0, 2);
 
             // ================= TAB 3 TOOLBAR: EXCEL SPREADSHEET TOOLKIT =================
@@ -750,8 +805,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 ForeColor = Color.FromArgb(16, 108, 56),
                 AutoSize = false,
                 AutoEllipsis = true,
+                UseMnemonic = false,
                 Dock = DockStyle.Top,
-                Height = 20,
+                Height = initSubSummaryH,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(1, 0, 1, 0)
             };
@@ -815,8 +871,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 ForeColor = Color.FromArgb(72, 84, 102),
                 AutoSize = false,
                 AutoEllipsis = true,
+                UseMnemonic = false,
                 Dock = DockStyle.Top,
-                Height = 20,
+                Height = initSubSummaryH,
                 TextAlign = ContentAlignment.MiddleLeft
             };
             _customToolbar.Controls.Add(addWordRow, 0, 0);
@@ -836,6 +893,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _lblToast = new Label
             {
                 AutoSize = true,
+                UseMnemonic = false,
                 Font = _fontSmallBold,
                 ForeColor = Color.FromArgb(16, 102, 52),
                 Dock = DockStyle.Fill
@@ -859,12 +917,21 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 BackColor = Color.FromArgb(243, 245, 249),
                 Padding = new Padding(8, 8, 10, 18)
             };
+            _cardsPanel.ControlAdded += (s, e) =>
+            {
+                if (e.Control != null)
+                {
+                    UiFontCache.DisableMnemonicsRecursive(e.Control);
+                }
+            };
             _cardsPanel.SizeChanged += (s, e) => ReflowCardWidthsIfNeeded();
 
             rootLayout.Controls.Add(headerShell, 0, 0);
             rootLayout.Controls.Add(_cardsPanel, 0, 1);
             Controls.Add(rootLayout);
 
+            UiFontCache.DisableMnemonicsRecursive(this);
+            ApplyDpiLayoutMetrics();
             ApplyStaticChromeLabelsAndTooltips();
             UpdateCueBanners();
             SetEcoModeState(EcoPerformanceGovernor.CurrentPreference, EcoPerformanceGovernor.Hardware.IsLowSpecHardware);
@@ -1252,6 +1319,13 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
         private void ReflowCardWidthsIfNeeded()
         {
+            int currentDpi = UiFontCache.GetEffectiveDpi(this);
+            if (currentDpi != _lastAppliedEffectiveDpi)
+            {
+                ApplyDpiLayoutMetrics();
+                _lastAppliedCardWidth = -1;
+            }
+
             int targetWidth = GetTargetCardWidth();
             if (targetWidth == _lastAppliedCardWidth && _cardsPanel.Controls.Count == _lastAppliedControlCount)
                 return;
@@ -1334,6 +1408,105 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             return card;
         }
 
+        private int MeasureSingleLineLabelHeight(Font font, int extraLogicalPad = 6) =>
+            UiFontCache.MeasureSingleLineLabelHeight(this, font, extraLogicalPad);
+
+        private int MeasureSingleLineButtonHeight(Font font, int extraLogicalPad = 12) =>
+            UiFontCache.MeasureSingleLineButtonHeight(this, font, extraLogicalPad);
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            ApplyDpiLayoutMetrics();
+            ReflowCardWidthsIfNeeded();
+        }
+
+        public void RefreshDpiMetricsAndLayout()
+        {
+            ApplyDpiLayoutMetrics();
+            _lastAppliedCardWidth = -1;
+            ReflowCardWidthsIfNeeded();
+            PerformLayout();
+        }
+
+        protected override void OnDpiChangedAfterParent(EventArgs e)
+        {
+            base.OnDpiChangedAfterParent(e);
+            RefreshDpiMetricsAndLayout();
+        }
+
+        private void ApplyDpiLayoutMetrics()
+        {
+            if (_lblBrandTitle == null)
+                return;
+
+            _lastAppliedEffectiveDpi = UiFontCache.GetEffectiveDpi(this);
+            SuspendLayout();
+            try
+            {
+                _lblBrandTitle.Height = MeasureSingleLineLabelHeight(_fontBrandTitle, 6);
+                _lblLexiconStats.Height = MeasureSingleLineLabelHeight(_fontBrandStats, 5);
+
+                int brandPillH = MeasureSingleLineButtonHeight(_fontSmallBold, 10);
+                _btnLangToggle.Height = brandPillH;
+                _btnEcoMode.Height = brandPillH;
+                _btnAboutLic.Height = brandPillH;
+
+                int tabBtnH = MeasureSingleLineButtonHeight(_fontTabActive, 12);
+                _btnTabProofing.Height = tabBtnH;
+                _btnTabDictionary.Height = tabBtnH;
+                _btnTabToolkit.Height = tabBtnH;
+                _btnTabCustom.Height = tabBtnH;
+
+                int segBtnH = MeasureSingleLineButtonHeight(_fontSmallBold, 11);
+                _btnStyleGeneral.Height = segBtnH;
+                _btnStyleFormal.Height = segBtnH;
+                _lblStyleHint.Height = MeasureSingleLineLabelHeight(_fontBrandStats, 5);
+                _btnScopeSheet.Height = segBtnH;
+                _btnScopeSelection.Height = segBtnH;
+                _btnScopeWorkbook.Height = segBtnH;
+
+                int actionBtnH = MeasureSingleLineButtonHeight(_fontSmallBold, 13);
+                _btnScanNow.Height = actionBtnH;
+                _btnFixAll.Height = actionBtnH;
+                _btnUndoLast.Height = actionBtnH;
+                _btnClearUnderlines.Height = actionBtnH;
+
+                int filterBtnH = MeasureSingleLineButtonHeight(_fontBrandStats, 10);
+                _btnFilterAll.Height = filterBtnH;
+                _btnFilterSpelling.Height = filterBtnH;
+                _btnFilterGrammar.Height = filterBtnH;
+                _btnFilterContext.Height = filterBtnH;
+                _btnPrevIssue.Height = filterBtnH;
+                _btnNextIssue.Height = filterBtnH;
+
+                _lblScanProgress.MinimumSize = new Size(0, MeasureSingleLineLabelHeight(_fontSmallBold, 6));
+                _lblSummary.Height = MeasureSingleLineLabelHeight(_fontSmallBold, 6);
+
+                int auxBtnH = MeasureSingleLineButtonHeight(_fontSmall, 11);
+                _btnClearDictSearch.Height = auxBtnH;
+                _btnAddCustomWord.Height = auxBtnH;
+
+                int chipBtnH = MeasureSingleLineButtonHeight(_fontSmall, 10);
+                _btnDictCatAll.Height = chipBtnH;
+                _btnDictCatThatpon.Height = chipBtnH;
+                _btnDictCatAbidan.Height = chipBtnH;
+                _btnDictCatEncyc.Height = chipBtnH;
+                _btnDictCatDomain.Height = chipBtnH;
+                _btnDictCatPropn.Height = chipBtnH;
+                _btnDictCatProverb.Height = chipBtnH;
+
+                int subSummaryH = MeasureSingleLineLabelHeight(_fontSmallBold, 5);
+                _lblDictSummary.Height = subSummaryH;
+                _lblToolkitSummary.Height = subSummaryH;
+                _lblCustomSummary.Height = subSummaryH;
+            }
+            finally
+            {
+                ResumeLayout(true);
+            }
+        }
+
         private Button CreateTabSegmentButton(string text)
         {
             var btn = new Button
@@ -1341,7 +1514,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Text = text,
                 AutoSize = false,
                 AutoEllipsis = true,
-                Height = 28,
+                Height = MeasureSingleLineButtonHeight(_fontTabActive, 12),
                 Dock = DockStyle.Fill,
                 FlatStyle = FlatStyle.Flat,
                 Margin = new Padding(1),
@@ -1361,7 +1534,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Text = text,
                 AutoSize = false,
                 AutoEllipsis = true,
-                Height = 30,
+                Height = MeasureSingleLineButtonHeight(font, 13),
                 Dock = DockStyle.Fill,
                 BackColor = back,
                 ForeColor = fore,
@@ -1383,7 +1556,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Text = text,
                 AutoSize = false,
                 AutoEllipsis = true,
-                Height = 26,
+                Height = MeasureSingleLineButtonHeight(_fontBrandStats, 10),
                 Dock = DockStyle.Fill,
                 FlatStyle = FlatStyle.Flat,
                 Font = _fontBrandStats,
@@ -1403,6 +1576,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Text = text,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                AutoEllipsis = true,
                 FlatStyle = FlatStyle.Flat,
                 BackColor = back,
                 ForeColor = fore,
@@ -1421,12 +1595,15 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             var btn = new Button
             {
                 Text = text,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                AutoSize = false,
+                AutoEllipsis = true,
+                Height = MeasureSingleLineButtonHeight(_fontSmall, 10),
+                Dock = DockStyle.Fill,
                 FlatStyle = FlatStyle.Flat,
                 Font = _fontSmall,
-                Padding = new Padding(5, 2, 5, 2),
-                Margin = new Padding(0, 0, 4, 4),
+                Padding = new Padding(2, 0, 2, 0),
+                Margin = new Padding(2, 1, 2, 1),
+                TextAlign = ContentAlignment.MiddleCenter,
                 Cursor = Cursors.Hand,
                 UseMnemonic = false
             };
