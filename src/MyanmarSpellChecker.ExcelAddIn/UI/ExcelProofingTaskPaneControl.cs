@@ -6,7 +6,9 @@ using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Official;
+using MyanmarSpellChecker.Core.Performance;
 using MyanmarSpellChecker.Core.Spreadsheet;
+using MyanmarSpellChecker.ExcelAddIn.Interop;
 
 namespace MyanmarSpellChecker.ExcelAddIn.UI
 {
@@ -85,6 +87,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
         // Top Navigation & Brand Controls
         private readonly Label _lblLexiconStats;
+        private readonly Button _btnEcoMode;
         private readonly Button _btnTabProofing;
         private readonly Button _btnTabDictionary;
         private readonly Button _btnTabToolkit;
@@ -113,6 +116,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private readonly Button _btnFilterContext;
         private readonly Button _btnPrevIssue;
         private readonly Button _btnNextIssue;
+        private readonly TableLayoutPanel _pnlScanProgress;
+        private readonly Label _lblScanProgress;
+        private readonly Button _btnStopScan;
         private readonly Label _lblSummary;
         private readonly Panel _pnlToast;
         private readonly Label _lblToast;
@@ -151,6 +157,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private int _lastAppliedCardWidth = -1;
         private int _lastAppliedControlCount = -1;
         private bool _isScanning;
+        private ExcelScanOutcomeMetadata? _lastScanOutcome;
         private int _undoAvailableCount;
         private string _undoLatestLabel = string.Empty;
         private TaskPaneWorkspaceTab _activeTab = TaskPaneWorkspaceTab.Proofing;
@@ -161,6 +168,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
         // Events wired by ExcelThisAddIn
         public event Action<SpreadsheetScanScope>? RequestScanScope;
+        public event Action? RequestCancelScan;
+        public event Action? RequestCycleEcoMode;
         public event Action<IssueFilterMode>? RequestFixAllIssues;
         public event Action? RequestUndoLastAction;
         public event Action? RequestClearUnderlines;
@@ -251,17 +260,18 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 }
             };
 
-            // Row 0: Brand Header + About/License Pill
+            // Row 0: Brand Header + Eco Pill + About/License Pill
             var brandRow = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 2,
+                ColumnCount = 3,
                 RowCount = 1,
                 Margin = new Padding(0, 0, 0, 5)
             };
             brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             brandRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
@@ -306,6 +316,18 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             titleStack.Controls.Add(lblTitle, 0, 0);
             titleStack.Controls.Add(_lblLexiconStats, 0, 1);
 
+            _btnEcoMode = CreatePillButton(
+                EcoPerformanceGovernor.FormatBadgeLabel(EcoModePreference.Auto, false),
+                Color.FromArgb(236, 248, 241),
+                Color.FromArgb(16, 104, 54),
+                Color.FromArgb(178, 218, 194),
+                _fontSmallBold);
+            _btnEcoMode.Dock = DockStyle.None;
+            _btnEcoMode.Anchor = AnchorStyles.Right;
+            _btnEcoMode.Padding = new Padding(6, 3, 6, 3);
+            _btnEcoMode.Margin = new Padding(2, 2, 2, 2);
+            _btnEcoMode.Click += (s, e) => RequestCycleEcoMode?.Invoke();
+
             var btnLic = CreatePillButton(
                 "အချက်အလက် ⓘ",
                 Color.FromArgb(236, 248, 241),
@@ -315,12 +337,13 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             btnLic.Dock = DockStyle.None;
             btnLic.Anchor = AnchorStyles.Right;
             btnLic.Padding = new Padding(8, 3, 8, 3);
-            btnLic.Margin = new Padding(4, 2, 0, 2);
+            btnLic.Margin = new Padding(2, 2, 0, 2);
             btnLic.Click += (s, e) => RequestLicenseDialog?.Invoke();
             _toolTip.SetToolTip(btnLic, "စနစ်အချက်အလက်၊ ဖန်တီးသူ (ထက်ရာဇာ — ကျောက်ဆည်တက္ကသိုလ်) နှင့် GNU GPL v3.0 Open-Source လိုင်စင်");
 
             brandRow.Controls.Add(titleStack, 0, 0);
-            brandRow.Controls.Add(btnLic, 1, 0);
+            brandRow.Controls.Add(_btnEcoMode, 1, 0);
+            brandRow.Controls.Add(btnLic, 2, 0);
 
             // Row 1: 4-Tab Segmented Workspace Switcher
             var tabStrip = new TableLayoutPanel
@@ -362,11 +385,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 ColumnCount = 1,
-                RowCount = 6,
+                RowCount = 7,
                 Margin = new Padding(0)
             };
             _proofingToolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            for (int i = 0; i < 6; i++)
+            for (int i = 0; i < 7; i++)
                 _proofingToolbar.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             // Style mode toggle row
@@ -509,6 +532,49 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             filterRow.Controls.Add(_btnPrevIssue, 4, 0);
             filterRow.Controls.Add(_btnNextIssue, 5, 0);
 
+            _pnlScanProgress = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 2,
+                RowCount = 1,
+                BackColor = Color.FromArgb(232, 245, 238),
+                Padding = new Padding(7, 4, 6, 4),
+                Margin = new Padding(0, 0, 0, 4),
+                Visible = false
+            };
+            _pnlScanProgress.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            _pnlScanProgress.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            _pnlScanProgress.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            _lblScanProgress = new Label
+            {
+                Text = "⏳ စစ်ဆေးနေသည်...",
+                Font = _fontSmallBold,
+                ForeColor = Color.FromArgb(16, 98, 52),
+                AutoSize = true,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = new Padding(0, 2, 6, 2)
+            };
+
+            _btnStopScan = CreatePillButton(
+                "■ ရပ်မည်",
+                Color.FromArgb(254, 235, 235),
+                Color.FromArgb(178, 28, 28),
+                Color.FromArgb(238, 182, 182),
+                _fontSmallBold);
+            _btnStopScan.Dock = DockStyle.None;
+            _btnStopScan.Anchor = AnchorStyles.Right;
+            _btnStopScan.Padding = new Padding(8, 2, 8, 2);
+            _btnStopScan.Margin = new Padding(0);
+            _btnStopScan.Click += (s, e) => RequestCancelScan?.Invoke();
+            _toolTip.SetToolTip(_btnStopScan, "လက်ရှိ Sheet/Workbook စစ်ဆေးနေမှုကို ချက်ချင်းရပ်တန့်ရန် (စက်မလေးစေရန်)");
+
+            _pnlScanProgress.Controls.Add(_lblScanProgress, 0, 0);
+            _pnlScanProgress.Controls.Add(_btnStopScan, 1, 0);
+
             _lblSummary = new Label
             {
                 Text = "Sheet စစ်မည် ကိုနှိပ်၍ မြန်မာစာ အကွက်များကို Formula မပျက်စေဘဲ စစ်ဆေးပါ",
@@ -524,7 +590,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _proofingToolbar.Controls.Add(scopeRow, 0, 2);
             _proofingToolbar.Controls.Add(actionRow, 0, 3);
             _proofingToolbar.Controls.Add(filterRow, 0, 4);
-            _proofingToolbar.Controls.Add(_lblSummary, 0, 5);
+            _proofingToolbar.Controls.Add(_pnlScanProgress, 0, 5);
+            _proofingToolbar.Controls.Add(_lblSummary, 0, 6);
 
             // ================= TAB 2 TOOLBAR: DICTIONARY & ENCYCLOPEDIA =================
             _dictionaryToolbar = new TableLayoutPanel
@@ -751,6 +818,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             rootLayout.Controls.Add(_cardsPanel, 0, 1);
             Controls.Add(rootLayout);
 
+            SetEcoModeState(EcoPerformanceGovernor.CurrentPreference, EcoPerformanceGovernor.Hardware.IsLowSpecHardware);
             UpdateTabButtonStyles();
             UpdateStyleModeButtons();
             UpdateScopeButtons();
@@ -802,13 +870,62 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     : "ပြန်ဆုတ်ရန် မှတ်တမ်း မရှိသေးပါ");
         }
 
+        public void SetEcoModeState(EcoModePreference preference, bool currentlyActive)
+        {
+            _btnEcoMode.Text = EcoPerformanceGovernor.FormatBadgeLabel(preference, currentlyActive);
+            if (currentlyActive)
+            {
+                _btnEcoMode.BackColor = Color.FromArgb(226, 247, 234);
+                _btnEcoMode.ForeColor = Color.FromArgb(16, 112, 52);
+                _btnEcoMode.FlatAppearance.BorderColor = Color.FromArgb(164, 220, 186);
+            }
+            else if (preference == EcoModePreference.Off)
+            {
+                _btnEcoMode.BackColor = Color.FromArgb(244, 245, 248);
+                _btnEcoMode.ForeColor = Color.FromArgb(98, 108, 124);
+                _btnEcoMode.FlatAppearance.BorderColor = Color.FromArgb(214, 220, 230);
+            }
+            else
+            {
+                _btnEcoMode.BackColor = Color.FromArgb(236, 248, 241);
+                _btnEcoMode.ForeColor = Color.FromArgb(16, 104, 54);
+                _btnEcoMode.FlatAppearance.BorderColor = Color.FromArgb(178, 218, 194);
+            }
+            _toolTip.SetToolTip(_btnEcoMode, EcoPerformanceGovernor.FormatTooltip(preference, currentlyActive));
+        }
+
+        public void UpdateScanProgress(int percent, string message)
+        {
+            int clamped = Math.Max(0, Math.Min(100, percent));
+            _isScanning = true;
+            _lblScanProgress.Text = string.IsNullOrWhiteSpace(message)
+                ? $"⏳ စစ်ဆေးနေသည်... ({clamped}%)"
+                : $"{message} ({clamped}%)";
+            _pnlScanProgress.Visible = true;
+        }
+
+        public void SetScanOutcomeMetadata(ExcelScanOutcomeMetadata? metadata)
+        {
+            _lastScanOutcome = metadata;
+            if (!_isScanning && _activeTab == TaskPaneWorkspaceTab.Proofing)
+            {
+                UpdateExcelProofingSummaryText(GetFilteredUnresolvedIssues());
+            }
+        }
+
         public void SetScanningState(bool scanning)
         {
             _isScanning = scanning;
             if (scanning)
             {
+                _lblScanProgress.Text = "⏳ Excel အကွက်များကို စတင်စစ်ဆေးနေပါသည်...";
+                _pnlScanProgress.Visible = true;
                 _lblSummary.Text = "⏳ Excel အကွက်များကို အမြန်စစ်ဆေးနေပါသည်...";
                 _lblSummary.ForeColor = Color.FromArgb(24, 90, 188);
+            }
+            else
+            {
+                _pnlScanProgress.Visible = false;
             }
         }
 

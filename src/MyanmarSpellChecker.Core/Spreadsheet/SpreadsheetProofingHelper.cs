@@ -13,6 +13,7 @@ using System.Threading.Tasks;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
+using MyanmarSpellChecker.Core.Performance;
 using MyanmarSpellChecker.Core.Typography;
 
 namespace MyanmarSpellChecker.Core.Spreadsheet
@@ -295,17 +296,25 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
             object? rawFormulaBlock,
             bool? blockHasFormula,
             Dictionary<string, IReadOnlyList<ProofingIssue>>? sharedCellMemo = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            int maxIssuesToCollect = int.MaxValue,
+            EcoRuntimeBudgets? explicitBudgets = null)
         {
             if (engine == null)
                 throw new ArgumentNullException(nameof(engine));
 
             var results = new List<SpreadsheetCellIssue>();
-            if (rowCount <= 0 || colCount <= 0 || blockHasFormula == true || rawValue2Block == null || cancellationToken.IsCancellationRequested)
+            if (rowCount <= 0 || colCount <= 0 || maxIssuesToCollect <= 0 || blockHasFormula == true || rawValue2Block == null || cancellationToken.IsCancellationRequested)
                 return results;
 
-            const int MaxMemoEntries = 32768;
+            long blockCells = (long)rowCount * colCount;
+            EcoRuntimeBudgets budgets = explicitBudgets ?? EcoPerformanceGovernor.ComputeBudgets(EcoPerformanceGovernor.IsLargeExcelScope(blockCells));
+            int maxMemoEntries = Math.Max(1024, budgets.MaxSpreadsheetCellCacheEntries);
             var memo = sharedCellMemo ?? new Dictionary<string, IReadOnlyList<ProofingIssue>>(StringComparer.Ordinal);
+            if (memo.Count > maxMemoEntries)
+            {
+                memo.Clear();
+            }
 
             var valArray = rawValue2Block as object?[,];
             var fmlArray = rawFormulaBlock as object?[,];
@@ -315,8 +324,8 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
             int fmlRowLb = fmlArray?.GetLowerBound(0) ?? 0;
             int fmlColLb = fmlArray?.GetLowerBound(1) ?? 0;
 
-            // Multi-core distinct-string prewarm for large 2D blocks (>= 512 cells) so sheets with thousands of unique Myanmar rows finish in milliseconds
-            if (valArray != null && (long)rowCount * colCount >= 512 && Environment.ProcessorCount > 1)
+            // Multi-core distinct-string prewarm for large 2D blocks when hardware governor permits >= 2 workers
+            if (valArray != null && blockCells >= 512 && budgets.MaxBackgroundWorkers > 1)
             {
                 HashSet<string>? distinctSet = null;
                 List<string>? unseenList = null;
@@ -351,7 +360,7 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                 if (unseenList != null && unseenList.Count >= 32)
                 {
                     var computed = new IReadOnlyList<ProofingIssue>[unseenList.Count];
-                    int maxDegree = Math.Min(Environment.ProcessorCount, 6);
+                    int maxDegree = budgets.MaxBackgroundWorkers;
                     Parallel.For(
                         0,
                         unseenList.Count,
@@ -369,7 +378,7 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                     if (cancellationToken.IsCancellationRequested)
                         return results;
 
-                    for (int idx = 0; idx < unseenList.Count && memo.Count < MaxMemoEntries; idx++)
+                    for (int idx = 0; idx < unseenList.Count && memo.Count < maxMemoEntries; idx++)
                     {
                         if (computed[idx] != null)
                         {
@@ -379,9 +388,10 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                 }
             }
 
+            int nlpEvaluations = 0;
             for (int r = 0; r < rowCount; r++)
             {
-                if ((r & 63) == 0 && cancellationToken.IsCancellationRequested)
+                if ((r & 31) == 0 && cancellationToken.IsCancellationRequested)
                     return results;
 
                 for (int c = 0; c < colCount; c++)
@@ -405,8 +415,10 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                     {
                         if (!memo.TryGetValue(cellText, out cellIssues!))
                         {
+                            nlpEvaluations++;
+                            EcoPerformanceGovernor.MaybeMicroYield(nlpEvaluations, budgets.MicroYieldEveryItems);
                             cellIssues = engine.CheckText(cellText);
-                            if (memo.Count < MaxMemoEntries)
+                            if (memo.Count < maxMemoEntries)
                             {
                                 memo[cellText] = cellIssues;
                             }
@@ -414,6 +426,8 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                     }
                     else
                     {
+                        nlpEvaluations++;
+                        EcoPerformanceGovernor.MaybeMicroYield(nlpEvaluations, budgets.MicroYieldEveryItems);
                         cellIssues = engine.CheckText(cellText);
                     }
 
@@ -435,6 +449,9 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                             Issue = CloneIssue(cellIssues[k]),
                             IsResolved = false
                         });
+
+                        if (results.Count >= maxIssuesToCollect)
+                            return results;
                     }
                 }
             }

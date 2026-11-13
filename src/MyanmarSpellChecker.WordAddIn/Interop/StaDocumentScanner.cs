@@ -9,11 +9,22 @@ using System.Windows.Forms;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
+using MyanmarSpellChecker.Core.Performance;
 using Word = Microsoft.Office.Interop.Word;
 using WinFormsTimer = System.Windows.Forms.Timer;
 
 namespace MyanmarSpellChecker.WordAddIn.Interop
 {
+    public sealed class WordScanOutcomeMetadata
+    {
+        public bool IsEcoActive { get; set; }
+        public bool WasPartialAutoScan { get; set; }
+        public bool WasIssueCapReached { get; set; }
+        public bool WasCancelled { get; set; }
+        public int ScannedParagraphCount { get; set; }
+        public int TotalDocumentChars { get; set; }
+    }
+
     /// <summary>
     /// Coordinates STA-safe, non-blocking extraction of Word text across Main Body, Word Tables, and Headers/Footers (StoryRanges),
     /// runs multi-core NLP &amp; DocumentQualityAnalyzer asynchronously on background threads with generation cancellation,
@@ -72,6 +83,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             public Dictionary<int, string> DoneMap { get; set; } = null!;
             public Dictionary<Word.WdStoryType, Word.Range> StoryBaseRanges { get; } = new Dictionary<Word.WdStoryType, Word.Range>();
             public bool DocHadZeroUnderlinesAtStart { get; set; }
+            public int VisualUnderlineCap { get; set; } = SafeUnderlineManager.MaxLiveWavyUnderlinesPerDocument;
+            public WordScanOutcomeMetadata OutcomeMetadata { get; set; } = new WordScanOutcomeMetadata();
             public int NextOrderCursor { get; set; }
         }
 
@@ -109,11 +122,17 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             new Dictionary<Word.Document, Dictionary<int, string>>();
         private readonly Dictionary<Word.Document, DocumentQualityReport> _documentQualityCache =
             new Dictionary<Word.Document, DocumentQualityReport>();
+        private readonly Dictionary<Word.Document, WordScanOutcomeMetadata> _documentScanMeta =
+            new Dictionary<Word.Document, WordScanOutcomeMetadata>();
+        private bool _lastEcoActive;
 
         public bool IsLiveAutoScanEnabled { get; set; } = true;
         public bool HasPendingTypingChanges => _hasPendingTypingChanges;
+        public bool IsEcoActive => _lastEcoActive;
 
         public event Action<Word.Document>? ScanStarted;
+        public event Action<int, string>? ScanProgressChanged;
+        public event Action<bool>? EcoActiveChanged;
         public event Action<Word.Document, IReadOnlyList<DocumentProofingItem>>? ScanCompleted;
         public event Action? UserTypingDetected;
 
@@ -187,6 +206,65 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             return null;
         }
 
+        public WordScanOutcomeMetadata? GetLastScanMetadata(Word.Document? doc)
+        {
+            if (doc != null && _documentScanMeta.TryGetValue(doc, out var meta))
+            {
+                return meta;
+            }
+            return null;
+        }
+
+        public void RefreshEcoActiveStateForActiveDocument()
+        {
+            try
+            {
+                Word.Document? doc = _app.ActiveDocument;
+                int charLen = doc != null ? doc.Content.End : 0;
+                var budgets = EcoPerformanceGovernor.ComputeBudgets(EcoPerformanceGovernor.IsLargeWordDocument(0, charLen));
+                UpdateEcoActiveState(budgets.IsEcoActive);
+            }
+            catch
+            {
+                var budgets = EcoPerformanceGovernor.ComputeBudgets(isLargeFile: false);
+                UpdateEcoActiveState(budgets.IsEcoActive);
+            }
+        }
+
+        private void UpdateEcoActiveState(bool ecoActive)
+        {
+            if (_lastEcoActive != ecoActive)
+            {
+                _lastEcoActive = ecoActive;
+                EcoActiveChanged?.Invoke(ecoActive);
+            }
+            int targetInterval = ecoActive ? 1350 : 950;
+            if (_liveTypingWatchTimer.Interval != targetInterval)
+            {
+                _liveTypingWatchTimer.Interval = targetInterval;
+            }
+        }
+
+        public void CancelUserScan()
+        {
+            Interlocked.Increment(ref _scanGeneration);
+            CancelActiveJobs();
+            try
+            {
+                Word.Document? doc = _app.ActiveDocument;
+                if (doc != null)
+                {
+                    _documentScanMeta[doc] = new WordScanOutcomeMetadata
+                    {
+                        IsEcoActive = _lastEcoActive,
+                        WasCancelled = true
+                    };
+                    ScanCompleted?.Invoke(doc, GetCachedIssues(doc));
+                }
+            }
+            catch { }
+        }
+
         public void ClearCachedIssues(Word.Document? doc)
         {
             Interlocked.Increment(ref _scanGeneration);
@@ -196,6 +274,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 _documentIssuesCache.Remove(doc);
                 _lastParagraphTextByStart.Remove(doc);
                 _documentQualityCache.Remove(doc);
+                _documentScanMeta.Remove(doc);
                 ScanCompleted?.Invoke(doc, Array.Empty<DocumentProofingItem>());
             }
         }
@@ -236,9 +315,18 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 _hadMultiCharSelection = false;
             }
 
+            bool wasLarge = _documentScanMeta.TryGetValue(doc, out var meta) &&
+                            (meta.TotalDocumentChars >= EcoPerformanceGovernor.LargeWordCharacterThreshold || meta.IsEcoActive);
+
             _documentIssuesCache.Remove(doc);
             _lastParagraphTextByStart.Remove(doc);
             _documentQualityCache.Remove(doc);
+            _documentScanMeta.Remove(doc);
+
+            if (wasLarge || _documentIssuesCache.Count == 0)
+            {
+                _engine.TrimMemoryCaches();
+            }
         }
 
         private void CancelActiveJobs()
@@ -259,7 +347,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         private void OnDeferredFullScanTimerTick(object? sender, EventArgs e)
         {
             _deferredFullScanTimer.Stop();
-            ScanFullDocumentAsync();
+            ScanFullDocumentAsync(allowSmartPartialAutoScan: true);
         }
 
         private void RecordDirtySpan(int startOffset, int endOffset)
@@ -474,7 +562,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     return;
             }
 
-            ScanFullDocumentAsync();
+            ScanFullDocumentAsync(allowSmartPartialAutoScan: true);
         }
 
         public void ScheduleActiveParagraphScan()
@@ -1079,10 +1167,12 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
         /// <summary>
         /// Scans Main Body, Tables, and Headers/Footers (StoryRanges) across the entire active document
-        /// using non-blocking whole-story / time-sliced STA extraction, multi-core background NLP,
+        /// using non-blocking whole-story / time-sliced STA extraction, hardware-throttled background NLP,
         /// and wall-clock-budgeted chunked underlining so Word never freezes on 50–500+ page documents.
+        /// When <paramref name="allowSmartPartialAutoScan"/> is true (e.g. automatic DocumentOpen trigger),
+        /// huge documents only quick-scan the active/visible paragraph window so weak ("potato") PCs stay at ~0% idle load.
         /// </summary>
-        public void ScanFullDocumentAsync()
+        public void ScanFullDocumentAsync(bool allowSmartPartialAutoScan = false)
         {
             try
             {
@@ -1094,10 +1184,27 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 int generation = Interlocked.Increment(ref _scanGeneration);
                 CancelActiveJobs();
                 ResetDirtySpan();
-                ScanStarted?.Invoke(doc);
 
+                int docCharLen = 0;
+                try { docCharLen = doc.Content.End; } catch { }
                 int caretOffset = 0;
                 try { caretOffset = _app.Selection?.Start ?? 0; } catch { }
+
+                bool isLargeDoc = EcoPerformanceGovernor.IsLargeWordDocument(0, docCharLen);
+                EcoRuntimeBudgets openBudgets = EcoPerformanceGovernor.ComputeBudgets(isLargeDoc);
+                UpdateEcoActiveState(openBudgets.IsEcoActive);
+
+                ScanStarted?.Invoke(doc);
+
+                // Smart Partial Auto-Scan on Open: protect weak PCs & huge books from unrequested 500-page background work!
+                if (allowSmartPartialAutoScan &&
+                    (isLargeDoc || (openBudgets.IsEcoActive && docCharLen >= 16_000)))
+                {
+                    if (TryStartSmartPartialViewportScan(doc, generation, Math.Max(0, caretOffset), docCharLen, openBudgets))
+                        return;
+                }
+
+                ScanProgressChanged?.Invoke(5, "⏳ စာသားဖတ်ယူနေသည်...");
 
                 var snapshotJob = new PendingSnapshotCollectionJob
                 {
@@ -1109,7 +1216,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                 if (ProcessSnapshotCollectionSlice(snapshotJob, MaxSnapshotChunkWallMs + 2))
                 {
-                    LaunchBackgroundNlpAndUnderline(snapshotJob.Document, snapshotJob.Generation, snapshotJob.Snapshots, snapshotJob.CaretFocusOffset);
+                    LaunchBackgroundNlpAndUnderline(snapshotJob.Document, snapshotJob.Generation, snapshotJob.Snapshots, snapshotJob.CaretFocusOffset, wasPartialAutoScan: false, docCharLen);
                 }
                 else
                 {
@@ -1120,6 +1227,77 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             catch
             {
                 // Ignore
+            }
+        }
+
+        private bool TryStartSmartPartialViewportScan(
+            Word.Document doc,
+            int generation,
+            int caretOffset,
+            int docCharLen,
+            EcoRuntimeBudgets budgets)
+        {
+            try
+            {
+                int halfSpanBefore = 6_000;
+                int spanAfter = Math.Max(12_000, budgets.MaxAutoOpenWordChars - halfSpanBefore);
+                int winStart = Math.Max(0, caretOffset - halfSpanBefore);
+                int winEnd = Math.Min(docCharLen, winStart + budgets.MaxAutoOpenWordChars);
+                if (winEnd - winStart < budgets.MaxAutoOpenWordChars && winStart > 0)
+                {
+                    winStart = Math.Max(0, winEnd - budgets.MaxAutoOpenWordChars);
+                }
+
+                Word.Range windowRange = doc.Range(winStart, winEnd);
+                Word.Paragraphs paras = windowRange.Paragraphs;
+                int pCount = paras.Count;
+                if (pCount <= 0)
+                    return false;
+
+                try
+                {
+                    windowRange.Start = paras[1].Range.Start;
+                    windowRange.End = paras[pCount].Range.End;
+                }
+                catch { }
+
+                var partialSnapshots = new List<ParagraphSnapshot>(Math.Min(pCount, budgets.MaxAutoOpenWordParagraphs));
+                if (!TryCollectPlainStoryFast(windowRange, Word.WdStoryType.wdMainTextStory, partialSnapshots))
+                {
+                    int limit = Math.Min(pCount, budgets.MaxAutoOpenWordParagraphs);
+                    for (int i = 1; i <= limit; i++)
+                    {
+                        Word.Range? pr = null;
+                        try { pr = paras[i].Range; } catch { continue; }
+                        if (pr == null) continue;
+                        string raw = pr.Text ?? string.Empty;
+                        if (string.IsNullOrWhiteSpace(raw)) continue;
+                        bool inTbl = raw.IndexOf('\a') >= 0;
+                        string clean = CleanWordControlChars(raw);
+                        partialSnapshots.Add(new ParagraphSnapshot
+                        {
+                            StoryType = Word.WdStoryType.wdMainTextStory,
+                            StoryName = GetFriendlyStoryName(Word.WdStoryType.wdMainTextStory, inTbl),
+                            ParagraphIndex = i,
+                            ParagraphRange = pr,
+                            StartOffset = pr.Start,
+                            EndOffset = pr.End,
+                            RawText = clean,
+                            NeedsNlpCheck = ContainsMyanmarOrZawgyiCandidate(clean)
+                        });
+                    }
+                }
+                else if (partialSnapshots.Count > budgets.MaxAutoOpenWordParagraphs)
+                {
+                    partialSnapshots.RemoveRange(budgets.MaxAutoOpenWordParagraphs, partialSnapshots.Count - budgets.MaxAutoOpenWordParagraphs);
+                }
+
+                LaunchBackgroundNlpAndUnderline(doc, generation, partialSnapshots, caretOffset, wasPartialAutoScan: true, docCharLen);
+                return true;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -1139,7 +1317,14 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 {
                     _snapshotChunkTimer.Stop();
                     _activeSnapshotJob = null;
-                    LaunchBackgroundNlpAndUnderline(job.Document, job.Generation, job.Snapshots, job.CaretFocusOffset);
+                    int docChars = 0;
+                    try { docChars = job.Document.Content.End; } catch { }
+                    LaunchBackgroundNlpAndUnderline(job.Document, job.Generation, job.Snapshots, job.CaretFocusOffset, wasPartialAutoScan: false, docChars);
+                }
+                else if (job.CurrentParagraphCount > 0)
+                {
+                    int pct = Math.Min(18, 4 + (job.NextParagraphOneBased * 14) / Math.Max(1, job.CurrentParagraphCount));
+                    ScanProgressChanged?.Invoke(pct, $"⏳ စာပိုဒ်များ ဖတ်ယူနေသည်... ({job.Snapshots.Count:N0})");
                 }
             }
             catch
@@ -1400,11 +1585,31 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             });
         }
 
+        private void PostProgressFromBackground(int generation, int percent, string statusText)
+        {
+            if (generation != Volatile.Read(ref _scanGeneration) || !_staMarshaller.IsHandleCreated || _staMarshaller.IsDisposed)
+                return;
+
+            try
+            {
+                _staMarshaller.BeginInvoke(new Action(() =>
+                {
+                    if (generation == Volatile.Read(ref _scanGeneration))
+                    {
+                        ScanProgressChanged?.Invoke(percent, statusText);
+                    }
+                }));
+            }
+            catch { }
+        }
+
         private void LaunchBackgroundNlpAndUnderline(
             Word.Document doc,
             int generation,
             List<ParagraphSnapshot> snapshots,
-            int caretFocusOffset)
+            int caretFocusOffset,
+            bool wasPartialAutoScan,
+            int totalDocChars)
         {
             Task.Run(() =>
             {
@@ -1412,56 +1617,133 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     return;
 
                 int count = snapshots.Count;
+                bool isLargeFile = EcoPerformanceGovernor.IsLargeWordDocument(count, totalDocChars);
+                EcoRuntimeBudgets budgets = EcoPerformanceGovernor.ComputeBudgets(isLargeFile);
+                int maxIssueCap = budgets.MaxIssuesPerFullScan;
+                bool wasIssueCapReached = false;
                 var issuesPerParagraph = new List<ProofingIssue>[count];
 
-                // Multi-core parallel NLP evaluation on large documents (>= 48 paragraphs)
-                if (count >= 48 && Environment.ProcessorCount > 1)
+                EcoPerformanceGovernor.ExecuteWithGentlePriority(budgets.UseLowPriorityThreads, () =>
                 {
-                    int maxDegree = Math.Min(Environment.ProcessorCount, 6);
-                    Parallel.For(
-                        0,
-                        count,
-                        new ParallelOptions { MaxDegreeOfParallelism = maxDegree },
-                        (idx, loopState) =>
+                    long lastProgressTick = Environment.TickCount;
+                    int runningIssues = 0;
+
+                    if (count >= 48 && budgets.MaxBackgroundWorkers > 1 && !wasPartialAutoScan)
+                    {
+                        int completedCount = 0;
+                        Parallel.For(
+                            0,
+                            count,
+                            new ParallelOptions { MaxDegreeOfParallelism = budgets.MaxBackgroundWorkers },
+                            (idx, loopState) =>
+                            {
+                                if (generation != Volatile.Read(ref _scanGeneration))
+                                {
+                                    loopState.Stop();
+                                    return;
+                                }
+                                if (Volatile.Read(ref runningIssues) >= maxIssueCap)
+                                {
+                                    wasIssueCapReached = true;
+                                    loopState.Stop();
+                                    return;
+                                }
+
+                                var snap = snapshots[idx];
+                                var found = snap.NeedsNlpCheck
+                                    ? _engine.CheckText(snap.RawText)
+                                    : new List<ProofingIssue>(0);
+                                issuesPerParagraph[idx] = found;
+
+                                if (found.Count > 0)
+                                {
+                                    int totalNow = Interlocked.Add(ref runningIssues, found.Count);
+                                    if (totalNow >= maxIssueCap)
+                                    {
+                                        wasIssueCapReached = true;
+                                    }
+                                }
+
+                                int done = Interlocked.Increment(ref completedCount);
+                                long nowTick = Environment.TickCount;
+                                long prevTick = Interlocked.Read(ref lastProgressTick);
+                                if (nowTick - prevTick >= 120 && Interlocked.CompareExchange(ref lastProgressTick, nowTick, prevTick) == prevTick)
+                                {
+                                    int pct = 18 + (done * 60) / Math.Max(1, count);
+                                    PostProgressFromBackground(generation, Math.Min(78, pct), $"⏳ စာလုံးပေါင်း စစ်ဆေးနေသည်... {Math.Min(99, (done * 100) / Math.Max(1, count))}%");
+                                }
+                            });
+                    }
+                    else
+                    {
+                        int nlpChecked = 0;
+                        for (int idx = 0; idx < count; idx++)
                         {
                             if (generation != Volatile.Read(ref _scanGeneration))
-                            {
-                                loopState.Stop();
                                 return;
+
+                            if (runningIssues >= maxIssueCap)
+                            {
+                                wasIssueCapReached = true;
+                                break;
                             }
 
                             var snap = snapshots[idx];
-                            issuesPerParagraph[idx] = snap.NeedsNlpCheck
-                                ? _engine.CheckText(snap.RawText)
-                                : new List<ProofingIssue>(0);
-                        });
-                }
-                else
-                {
-                    for (int idx = 0; idx < count; idx++)
-                    {
-                        if (generation != Volatile.Read(ref _scanGeneration))
-                            return;
+                            if (snap.NeedsNlpCheck)
+                            {
+                                nlpChecked++;
+                                EcoPerformanceGovernor.MaybeMicroYield(nlpChecked, budgets.MicroYieldEveryItems);
+                                var found = _engine.CheckText(snap.RawText);
+                                issuesPerParagraph[idx] = found;
+                                runningIssues += found.Count;
+                            }
+                            else
+                            {
+                                issuesPerParagraph[idx] = new List<ProofingIssue>(0);
+                            }
 
-                        var snap = snapshots[idx];
-                        issuesPerParagraph[idx] = snap.NeedsNlpCheck
-                            ? _engine.CheckText(snap.RawText)
-                            : new List<ProofingIssue>(0);
+                            long nowTick = Environment.TickCount;
+                            if (!wasPartialAutoScan && count >= 32 && nowTick - lastProgressTick >= 120)
+                            {
+                                lastProgressTick = nowTick;
+                                int pct = 18 + ((idx + 1) * 60) / Math.Max(1, count);
+                                PostProgressFromBackground(generation, Math.Min(78, pct), $"⏳ စာလုံးပေါင်း စစ်ဆေးနေသည်... {((idx + 1) * 100) / Math.Max(1, count)}%");
+                            }
+                        }
                     }
-                }
+                });
 
                 if (generation != Volatile.Read(ref _scanGeneration))
                     return;
 
                 var analyzed = new List<(ParagraphSnapshot Snap, List<ProofingIssue> Issues)>(count);
                 var allIssuesFlat = new List<ProofingIssue>(Math.Min(1024, count * 2));
-                var plainTextBuilder = new StringBuilder(Math.Min(512_000, count * 64));
+                // Bound quality-analyzer text builder on massive documents so weak PCs never allocate giant strings on LOH
+                int maxQualityTextChars = budgets.IsEcoActive ? 120_000 : 380_000;
+                var plainTextBuilder = new StringBuilder(Math.Min(maxQualityTextChars, count * 64));
+                int collectedCapRemaining = maxIssueCap;
 
                 for (int i = 0; i < count; i++)
                 {
                     var snap = snapshots[i];
-                    var issues = issuesPerParagraph[i] ?? new List<ProofingIssue>(0);
-                    plainTextBuilder.AppendLine(snap.RawText);
+                    var rawIssues = issuesPerParagraph[i] ?? new List<ProofingIssue>(0);
+                    List<ProofingIssue> issues;
+                    if (rawIssues.Count > collectedCapRemaining)
+                    {
+                        issues = rawIssues.GetRange(0, Math.Max(0, collectedCapRemaining));
+                        collectedCapRemaining = 0;
+                        wasIssueCapReached = true;
+                    }
+                    else
+                    {
+                        issues = rawIssues;
+                        collectedCapRemaining -= rawIssues.Count;
+                    }
+
+                    if (plainTextBuilder.Length < maxQualityTextChars)
+                    {
+                        plainTextBuilder.AppendLine(snap.RawText);
+                    }
                     if (issues.Count > 0)
                         allIssuesFlat.AddRange(issues);
                     analyzed.Add((snap, issues));
@@ -1475,12 +1757,14 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     allIssuesFlat,
                     _engine);
 
+                int underlineCap = budgets.WordVisualUnderlineCap;
+
                 // Prioritize paragraphs closest to the user's viewport/caret first so visible errors get underlined immediately!
                 int[] order = new int[count];
                 for (int i = 0; i < count; i++)
                     order[i] = i;
 
-                if (count > SafeUnderlineManager.MaxLiveWavyUnderlinesPerDocument / 2 && caretFocusOffset > 0)
+                if (count > underlineCap / 2 && caretFocusOffset > 0)
                 {
                     Array.Sort(order, (a, b) =>
                     {
@@ -1493,12 +1777,24 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     });
                 }
 
+                var outcomeMeta = new WordScanOutcomeMetadata
+                {
+                    IsEcoActive = budgets.IsEcoActive,
+                    WasPartialAutoScan = wasPartialAutoScan,
+                    WasIssueCapReached = wasIssueCapReached,
+                    WasCancelled = false,
+                    ScannedParagraphCount = count,
+                    TotalDocumentChars = totalDocChars
+                };
+
                 if (_staMarshaller.IsHandleCreated && !_staMarshaller.IsDisposed)
                 {
                     _staMarshaller.BeginInvoke(new Action(() =>
                     {
                         if (generation != Volatile.Read(ref _scanGeneration))
                             return;
+
+                        UpdateEcoActiveState(budgets.IsEcoActive);
 
                         bool docHadZeroUnderlines = false;
                         try
@@ -1521,18 +1817,21 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                             QualityReport = qualityReport,
                             DoneMap = new Dictionary<int, string>(count),
                             DocHadZeroUnderlinesAtStart = docHadZeroUnderlines,
+                            VisualUnderlineCap = underlineCap,
+                            OutcomeMetadata = outcomeMeta,
                             NextOrderCursor = 0
                         };
 
                         if (analyzed.Count <= ImmediateUnderlineParagraphThreshold)
                         {
-                            ProcessUnderlineJobChunk(job, analyzed.Count, budgetMs: 25);
+                            ProcessUnderlineJobChunk(job, analyzed.Count, budgetMs: 22);
                             FinalizeCompletedUnderlineJob(job);
                         }
                         else
                         {
                             _activeUnderlineJob = job;
-                            ProcessUnderlineJobChunk(job, UnderlineParagraphsPerChunk, MaxUnderlineChunkWallMs);
+                            int sliceMs = budgets.IsEcoActive ? 7 : MaxUnderlineChunkWallMs;
+                            ProcessUnderlineJobChunk(job, UnderlineParagraphsPerChunk, sliceMs);
                             if (job.NextOrderCursor >= job.ProcessingOrder.Length)
                             {
                                 CancelActiveJobs();
@@ -1540,6 +1839,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                             }
                             else
                             {
+                                ScanProgressChanged?.Invoke(84, "⏳ မျဉ်းတားမှတ်သားနေသည်...");
                                 _underlineChunkTimer.Start();
                             }
                         }
@@ -1560,12 +1860,18 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
             try
             {
-                ProcessUnderlineJobChunk(job, UnderlineParagraphsPerChunk, MaxUnderlineChunkWallMs);
+                int sliceMs = job.OutcomeMetadata.IsEcoActive ? 7 : MaxUnderlineChunkWallMs;
+                ProcessUnderlineJobChunk(job, UnderlineParagraphsPerChunk, sliceMs);
                 if (job.NextOrderCursor >= job.ProcessingOrder.Length)
                 {
                     _underlineChunkTimer.Stop();
                     _activeUnderlineJob = null;
                     FinalizeCompletedUnderlineJob(job);
+                }
+                else
+                {
+                    int pct = 80 + (job.NextOrderCursor * 19) / Math.Max(1, job.ProcessingOrder.Length);
+                    ScanProgressChanged?.Invoke(Math.Min(99, pct), $"⏳ မျဉ်းတားမှတ်သားနေသည်... {Math.Min(99, pct)}%");
                 }
             }
             catch
@@ -1582,6 +1888,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
             var sw = Stopwatch.StartNew();
             int comTouched = 0;
+            int underlineCap = Math.Max(10, job.VisualUnderlineCap);
 
             _underlineManager.ExecuteInSharedProofingBatch(job.Document, () =>
             {
@@ -1605,10 +1912,10 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         }
                     }
 
-                    // Fast zero-COM unbound creation once document hits the 450 live wavy underline cap!
+                    // Fast zero-COM unbound creation once document hits the live wavy underline cap (80 in Eco Mode, 450 standard)!
                     if (issues.Count > 0 &&
                         job.DocHadZeroUnderlinesAtStart &&
-                        _underlineManager.GetTrackedCountForDocument(job.Document) >= SafeUnderlineManager.MaxLiveWavyUnderlinesPerDocument)
+                        _underlineManager.GetTrackedCountForDocument(job.Document) >= underlineCap)
                     {
                         job.BoundByParagraph[paraIdx] = SafeUnderlineManager.CreateUnboundProofingItems(
                             snap.StoryName,
@@ -1627,7 +1934,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         Word.Range? paraRange = snap.ParagraphRange ?? TrySliceStoryRange(job, snap.StoryType, snap.StartOffset, snap.EndOffset);
                         if (paraRange != null)
                         {
-                            bool canUnderline = _underlineManager.GetTrackedCountForDocument(job.Document) < SafeUnderlineManager.MaxLiveWavyUnderlinesPerDocument;
+                            bool canUnderline = _underlineManager.GetTrackedCountForDocument(job.Document) < underlineCap;
                             var bound = _underlineManager.BindAndUnderlineRangeIssues(
                                 job.Document,
                                 paraRange,
@@ -1638,7 +1945,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                                 applyVisualUnderline: canUnderline,
                                 preloadedCleanText: snap.RawText,
                                 storyType: snap.StoryType,
-                                knownDocHasNoUnderlines: job.DocHadZeroUnderlinesAtStart ? true : (bool?)null);
+                                knownDocHasNoUnderlines: job.DocHadZeroUnderlinesAtStart ? true : (bool?)null,
+                                maxLiveUnderlines: underlineCap);
 
                             if (bound.Count > 0)
                             {
@@ -1709,6 +2017,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             _lastParagraphTextByStart[job.Document] = job.DoneMap;
             _documentIssuesCache[job.Document] = orderedBound;
             _documentQualityCache[job.Document] = job.QualityReport;
+            _documentScanMeta[job.Document] = job.OutcomeMetadata;
             ScanCompleted?.Invoke(job.Document, orderedBound);
         }
 

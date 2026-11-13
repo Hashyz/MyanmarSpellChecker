@@ -16,6 +16,7 @@ using MyanmarSpellChecker.Core.Dictionary;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
+using MyanmarSpellChecker.Core.Performance;
 using MyanmarSpellChecker.Core.Security;
 using MyanmarSpellChecker.Core.Spreadsheet;
 using MyanmarSpellChecker.ExcelAddIn.Interop;
@@ -64,6 +65,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
 
         private string _appDataFolder = string.Empty;
         private string _styleModeConfigPath = string.Empty;
+        private string _ecoModeConfigPath = string.Empty;
         private string _visualUnderlineConfigPath = string.Empty;
         private string _customDictFilePath = string.Empty;
         private string _licenseFilePath = string.Empty;
@@ -192,6 +194,8 @@ namespace MyanmarSpellChecker.ExcelAddIn
             AddInDiagnostics.ConfigureLogDirectory(localAppDataDir);
 
             _styleModeConfigPath = Path.Combine(localAppDataDir, "style_mode.txt");
+            _ecoModeConfigPath = Path.Combine(localAppDataDir, "eco_mode.txt");
+            EcoPerformanceGovernor.CurrentPreference = EcoPerformanceGovernor.LoadSavedPreference(_ecoModeConfigPath);
             _visualUnderlineConfigPath = Path.Combine(localAppDataDir, "excel_underlines.txt");
             _customDictFilePath = Path.Combine(localAppDataDir, "custom_dictionary.txt");
             string ministryCustomDictPath = Path.Combine(programDataDir, "ministry_custom_dictionary.txt");
@@ -335,12 +339,23 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
                 ctrl?.SetScanningState(true);
             };
+            _scannerToolkit.ScanProgressChanged += (pct, msg) =>
+            {
+                var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
+                ctrl?.UpdateScanProgress(pct, msg);
+            };
+            _scannerToolkit.EcoActiveChanged += ecoActive => SyncEcoStateAcrossTaskPanes(ecoActive);
             _scannerToolkit.ScanCompleted += items =>
             {
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
-                ctrl?.RenderIssues(items);
+                if (ctrl != null)
+                {
+                    ctrl.SetScanOutcomeMetadata(_scannerToolkit.GetLastScanMetadataForActiveWorkbook());
+                    ctrl.RenderIssues(items);
+                }
             };
             _scannerToolkit.UndoStateChanged += SyncUndoStateAcrossTaskPanes;
+            _scannerToolkit.RefreshEcoActiveState();
 
             foreach (var kvp in _windowTaskPanes.Values)
             {
@@ -351,17 +366,18 @@ namespace MyanmarSpellChecker.ExcelAddIn
                     _proofingEngine.Trie.ReferenceCount,
                     _proofingEngine.Trie.EncyclopediaCount);
                 kvp.Control.SetStyleMode(_proofingEngine.StyleMode);
+                kvp.Control.SetEcoModeState(EcoPerformanceGovernor.CurrentPreference, _scannerToolkit.IsEcoActive);
                 kvp.Control.RefreshActiveTabAfterEngineReady();
             }
 
             _ribbonUi?.Invalidate();
 
-            // Perform initial read-only scan if a workbook is already open
+            // Perform non-blocking smart partial scan if a workbook is already open (never blocks startup on huge sheets!)
             try
             {
                 if (_excelApp.ActiveWorkbook != null && ExcelWorkbookScannerAndToolkit.IsExcelReadyForInterop(_excelApp))
                 {
-                    _scannerToolkit.ScanScope(SpreadsheetScanScope.ActiveSheet);
+                    _scannerToolkit.ScheduleDeferredScanScope(SpreadsheetScanScope.ActiveSheet, 250, allowSmartPartialAutoScan: true);
                 }
             }
             catch { }
@@ -427,9 +443,12 @@ namespace MyanmarSpellChecker.ExcelAddIn
             AddInDiagnostics.SafeExecute("OnWindowActivate", () =>
             {
                 PruneClosedWindowTaskPanes();
+                _scannerToolkit?.RefreshEcoActiveState();
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
                 if (ctrl != null && _scannerToolkit != null)
                 {
+                    ctrl.SetEcoModeState(EcoPerformanceGovernor.CurrentPreference, _scannerToolkit.IsEcoActive);
+                    ctrl.SetScanOutcomeMetadata(_scannerToolkit.GetLastScanMetadataForActiveWorkbook());
                     ctrl.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
                     ctrl.SetUndoState(_scannerToolkit.UndoManager.UndoCount, _scannerToolkit.UndoManager.LatestDescription);
                 }
@@ -565,6 +584,9 @@ namespace MyanmarSpellChecker.ExcelAddIn
                     ctrl.SetScanScope(_scannerToolkit.CurrentScope);
                     ctrl.SetUndoState(_scannerToolkit.UndoManager.UndoCount, _scannerToolkit.UndoManager.LatestDescription);
                 }
+                ctrl.SetEcoModeState(
+                    EcoPerformanceGovernor.CurrentPreference,
+                    _scannerToolkit?.IsEcoActive ?? EcoPerformanceGovernor.Hardware.IsLowSpecHardware);
 
                 WireTaskPaneEvents(ctrl);
 
@@ -615,9 +637,47 @@ namespace MyanmarSpellChecker.ExcelAddIn
             _startupTaskPaneTimer.Start();
         }
 
+        private void SyncEcoStateAcrossTaskPanes(bool ecoActive)
+        {
+            foreach (var kv in _windowTaskPanes.Values)
+            {
+                try { kv.Control.SetEcoModeState(EcoPerformanceGovernor.CurrentPreference, ecoActive); } catch { }
+            }
+        }
+
+        private void CycleEcoModeFromUi()
+        {
+            EcoModePreference next = EcoPerformanceGovernor.CyclePreference(EcoPerformanceGovernor.CurrentPreference);
+            EcoPerformanceGovernor.CurrentPreference = next;
+            EcoPerformanceGovernor.SavePreference(_ecoModeConfigPath, next);
+
+            _scannerToolkit?.RefreshEcoActiveState();
+            bool ecoActive = _scannerToolkit?.IsEcoActive ?? EcoPerformanceGovernor.ComputeBudgets(isLargeFile: false).IsEcoActive;
+            if (ecoActive)
+            {
+                _proofingEngine?.TrimMemoryCaches();
+            }
+
+            SyncEcoStateAcrossTaskPanes(ecoActive);
+
+            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+            string toast = next switch
+            {
+                EcoModePreference.AlwaysOn =>
+                    "⚡ ပေါ့ပါးစနစ် (Eco Mode) ကို အမြဲဖွင့်ထားပါပြီ — CPU နှင့် RAM အနည်းဆုံးဖြင့် စက်မလေးစေဘဲ စစ်ဆေးပေးပါမည်။",
+                EcoModePreference.Off =>
+                    "⚡ ပေါ့ပါးစနစ်ကို ပိတ်ထားပါပြီ — စွမ်းဆောင်ရည်အပြည့်ဖြင့် စစ်ဆေးပါမည်။",
+                _ =>
+                    "⚡ ပေါ့ပါးစနစ် (Auto) အသင့်ရှိပါပြီ — စက်အားနည်းလျှင် သို့မဟုတ် အကွက်များလျှင် အလိုအလျောက် ပေါ့ပါးစွာ စစ်ဆေးပေးပါမည်။"
+            };
+            ctrl?.ShowToastBanner(toast);
+        }
+
         private void WireTaskPaneEvents(ExcelProofingTaskPaneControl ctrl)
         {
             ctrl.RequestScanScope += scope => TriggerScanWithDbHotReload(scope);
+            ctrl.RequestCancelScan += () => _scannerToolkit?.CancelUserScan();
+            ctrl.RequestCycleEcoMode += CycleEcoModeFromUi;
             ctrl.RequestFixAllIssues += ExecuteFixAllInActiveScope;
             ctrl.RequestUndoLastAction += ExecuteUndoLastAction;
             ctrl.RequestClearUnderlines += () => ExecuteClearExcelUnderlines();
@@ -748,25 +808,33 @@ namespace MyanmarSpellChecker.ExcelAddIn
             ctrl.RequestConvertLegacyFonts += selectionOnly =>
             {
                 if (_scannerToolkit == null) return;
-                var res = _scannerToolkit.ConvertLegacyFontsInScope(selectionOnly);
+                ExcelToolkitOutcome res;
+                try { res = _scannerToolkit.ConvertLegacyFontsInScope(selectionOnly); }
+                finally { ctrl.SetScanningState(false); }
                 ctrl.ShowToastBanner(res.UserMessage, res.Success);
             };
             ctrl.RequestFormatNumerals += (toMyanmar, selectionOnly) =>
             {
                 if (_scannerToolkit == null) return;
-                var res = _scannerToolkit.FormatNumeralsInScope(toMyanmar, selectionOnly);
+                ExcelToolkitOutcome res;
+                try { res = _scannerToolkit.FormatNumeralsInScope(toMyanmar, selectionOnly); }
+                finally { ctrl.SetScanningState(false); }
                 ctrl.ShowToastBanner(res.UserMessage, res.Success);
             };
             ctrl.RequestRewriteToOfficialStyle += selectionOnly =>
             {
                 if (_scannerToolkit == null) return;
-                var res = _scannerToolkit.RewriteOfficialProseInScope(selectionOnly);
+                ExcelToolkitOutcome res;
+                try { res = _scannerToolkit.RewriteOfficialProseInScope(selectionOnly); }
+                finally { ctrl.SetScanningState(false); }
                 ctrl.ShowToastBanner(res.UserMessage, res.Success);
             };
             ctrl.RequestFormatPunctuation += selectionOnly =>
             {
                 if (_scannerToolkit == null) return;
-                var res = _scannerToolkit.FormatPunctuationInScope(selectionOnly);
+                ExcelToolkitOutcome res;
+                try { res = _scannerToolkit.FormatPunctuationInScope(selectionOnly); }
+                finally { ctrl.SetScanningState(false); }
                 ctrl.ShowToastBanner(res.UserMessage, res.Success);
             };
             ctrl.RequestRefreshQualityReport += () =>
@@ -842,10 +910,19 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 }
 
                 int skippedCount = candidates.Count - dlg.ApprovedReplacements.Count;
-                int fixedCount = _scannerToolkit.ApplyApprovedFixes(
-                    dlg.ApprovedReplacements,
-                    $"{scopeLabel} စိစစ်ပြင်ဆင်မှု",
-                    out string busyWarn);
+                int fixedCount;
+                string busyWarn;
+                try
+                {
+                    fixedCount = _scannerToolkit.ApplyApprovedFixes(
+                        dlg.ApprovedReplacements,
+                        $"{scopeLabel} စိစစ်ပြင်ဆင်မှု",
+                        out busyWarn);
+                }
+                finally
+                {
+                    ctrl?.SetScanningState(false);
+                }
 
                 ctrl?.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
 

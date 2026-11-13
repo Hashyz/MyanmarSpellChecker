@@ -219,6 +219,37 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             if (_isScanning)
                 return;
 
+            if (_lastScanOutcome != null && _lastScanOutcome.WasCancelled)
+            {
+                _lblSummary.Text = activeCount > 0
+                    ? $"⏹ စစ်ဆေးမှုကို ရပ်တန့်ထားသည် — တွေ့ရှိပြီးသား ({activeCount}) ခု"
+                    : "⏹ စစ်ဆေးမှုကို ရပ်တန့်ထားသည် — ထပ်စစ်ရန် [စာတမ်းစစ်မည်] ကိုနှိပ်ပါ";
+                _lblSummary.ForeColor = Color.FromArgb(158, 86, 6);
+                return;
+            }
+
+            if (_lastScanOutcome != null && _lastScanOutcome.WasIssueCapReached && activeCount > 0)
+            {
+                _lblSummary.Text = $"⚡ စက်မလေးစေရန် အမှားအများဆုံး ({activeCount:N0}) ခုအထိသာ ကန့်သတ်ပြသထားသည်";
+                _lblSummary.ForeColor = Color.FromArgb(168, 82, 8);
+                return;
+            }
+
+            if (_lastScanOutcome != null && _lastScanOutcome.WasPartialAutoScan)
+            {
+                if (activeCount == 0)
+                {
+                    _lblSummary.Text = $"⚡ အနီးဝန်းကျင် စာပိုဒ် ({_lastScanOutcome.ScannedParagraphCount}) ခု အမှားကင်းသည် — တစ်ဖိုင်လုံးစစ်ရန် [စာတမ်းစစ်မည်] နှိပ်ပါ";
+                    _lblSummary.ForeColor = Color.FromArgb(20, 118, 62);
+                }
+                else
+                {
+                    _lblSummary.Text = $"⚡ အနီးဝန်းကျင်၌ ({activeCount}) ခု တွေ့သည် — တစ်ဖိုင်လုံးစစ်ရန် [စာတမ်းစစ်မည်] နှိပ်ပါ";
+                    _lblSummary.ForeColor = Color.FromArgb(182, 42, 24);
+                }
+                return;
+            }
+
             if (activeCount == 0)
             {
                 string modeLabel = _currentStyleMode == ProofingStyleMode.GeneralStandard

@@ -7,6 +7,7 @@ using MyanmarSpellChecker.Core.Dictionary;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
+using MyanmarSpellChecker.Core.Performance;
 using MyanmarSpellChecker.Core.Security;
 using MyanmarSpellChecker.Core.Spreadsheet;
 using MyanmarSpellChecker.Core.Tests.Infrastructure;
@@ -1817,6 +1818,169 @@ namespace MyanmarSpellChecker.Core.Tests
                 swCancel.Stop();
                 Assert.Empty(cancelledHits);
                 Assert.True(swCancel.Elapsed.TotalMilliseconds < 25.0);
+            }
+        }
+
+        [Fact]
+        public void V48_PotatoPcEcoModeAndStreamingResourceGuardVerification()
+        {
+            EcoModePreference savedPref = EcoPerformanceGovernor.CurrentPreference;
+            string tempDir = Path.Combine(Path.GetTempPath(), "MyanmarSpellChecker_V48_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                // 1. Simulated Potato PC (Dual-Core Celeron, 4 GB RAM, 32-bit Office)
+                var potatoHw = new HardwareResourceProfile
+                {
+                    LogicalCores = 2,
+                    TotalPhysicalRamMb = 4096,
+                    AvailablePhysicalRamMb = 900,
+                    Is32BitOfficeProcess = true,
+                    IsLowSpecHardware = true
+                };
+
+                var potatoAuto = EcoPerformanceGovernor.ComputeBudgets(
+                    isLargeFile: false,
+                    overridePreference: EcoModePreference.Auto,
+                    overrideHardware: potatoHw);
+
+                Assert.True(potatoAuto.IsEcoActive);
+                Assert.True(potatoAuto.ActivatedByHardware);
+                Assert.Equal(1, potatoAuto.MaxBackgroundWorkers);
+                Assert.True(potatoAuto.UseLowPriorityThreads);
+                Assert.Equal(20, potatoAuto.MicroYieldEveryItems);
+                Assert.Equal(80, potatoAuto.WordVisualUnderlineCap);
+                Assert.Equal(25, potatoAuto.ExcelVisualUnderlineCap);
+                Assert.Equal(2048, potatoAuto.MaxParagraphCacheEntries);
+                Assert.Equal(8192, potatoAuto.MaxSpreadsheetCellCacheEntries);
+                Assert.Equal(2500, potatoAuto.MaxIssuesPerFullScan);
+
+                // 2. Simulated High-Spec Workstation (16 Cores, 32 GB RAM, 64-bit Office)
+                var desktopHw = new HardwareResourceProfile
+                {
+                    LogicalCores = 16,
+                    TotalPhysicalRamMb = 32_768,
+                    AvailablePhysicalRamMb = 22_000,
+                    Is32BitOfficeProcess = false,
+                    IsLowSpecHardware = false
+                };
+
+                var desktopSmall = EcoPerformanceGovernor.ComputeBudgets(
+                    isLargeFile: false,
+                    overridePreference: EcoModePreference.Auto,
+                    overrideHardware: desktopHw);
+
+                Assert.False(desktopSmall.IsEcoActive);
+                Assert.Equal(4, desktopSmall.MaxBackgroundWorkers);
+                Assert.Equal(450, desktopSmall.WordVisualUnderlineCap);
+                Assert.Equal(120, desktopSmall.ExcelVisualUnderlineCap);
+                Assert.Equal(8192, desktopSmall.MaxParagraphCacheEntries);
+                Assert.Equal(32_768, desktopSmall.MaxSpreadsheetCellCacheEntries);
+
+                // High-spec machine opening a huge 600-paragraph Word doc or 50,000-cell Excel sheet auto-activates Eco Mode!
+                Assert.True(EcoPerformanceGovernor.IsLargeWordDocument(600, 120_000));
+                Assert.True(EcoPerformanceGovernor.IsLargeExcelScope(50_000));
+
+                var desktopLarge = EcoPerformanceGovernor.ComputeBudgets(
+                    isLargeFile: true,
+                    overridePreference: EcoModePreference.Auto,
+                    overrideHardware: desktopHw);
+
+                Assert.True(desktopLarge.IsEcoActive);
+                Assert.True(desktopLarge.ActivatedByFileSize);
+                Assert.Equal(1, desktopLarge.MaxBackgroundWorkers);
+                Assert.Equal(80, desktopLarge.WordVisualUnderlineCap);
+                Assert.Equal(25, desktopLarge.ExcelVisualUnderlineCap);
+
+                // Manual overrides: AlwaysOn vs Off
+                var forcedOn = EcoPerformanceGovernor.ComputeBudgets(false, EcoModePreference.AlwaysOn, desktopHw);
+                Assert.True(forcedOn.IsEcoActive);
+                Assert.Equal(1, forcedOn.MaxBackgroundWorkers);
+
+                var forcedOff = EcoPerformanceGovernor.ComputeBudgets(true, EcoModePreference.Off, desktopHw);
+                Assert.False(forcedOff.IsEcoActive);
+                Assert.Equal(4, forcedOff.MaxBackgroundWorkers);
+
+                // 3. Preference cycle + shared Word/Excel persistence round-trip
+                Assert.Equal(EcoModePreference.AlwaysOn, EcoPerformanceGovernor.CyclePreference(EcoModePreference.Auto));
+                Assert.Equal(EcoModePreference.Off, EcoPerformanceGovernor.CyclePreference(EcoModePreference.AlwaysOn));
+                Assert.Equal(EcoModePreference.Auto, EcoPerformanceGovernor.CyclePreference(EcoModePreference.Off));
+
+                string cfgFile = Path.Combine(tempDir, "eco_mode.txt");
+                EcoPerformanceGovernor.SavePreference(cfgFile, EcoModePreference.AlwaysOn);
+                Assert.Equal(EcoModePreference.AlwaysOn, EcoPerformanceGovernor.LoadSavedPreference(cfgFile));
+                EcoPerformanceGovernor.SavePreference(cfgFile, EcoModePreference.Off);
+                Assert.Equal(EcoModePreference.Off, EcoPerformanceGovernor.LoadSavedPreference(cfgFile));
+                EcoPerformanceGovernor.SavePreference(cfgFile, EcoModePreference.Auto);
+                Assert.Equal(EcoModePreference.Auto, EcoPerformanceGovernor.LoadSavedPreference(cfgFile));
+
+                Assert.Contains("Auto✓", EcoPerformanceGovernor.FormatBadgeLabel(EcoModePreference.Auto, true));
+                Assert.Contains("ဖွင့်", EcoPerformanceGovernor.FormatBadgeLabel(EcoModePreference.AlwaysOn, true));
+                Assert.Contains("ပိတ်", EcoPerformanceGovernor.FormatBadgeLabel(EcoModePreference.Off, false));
+                Assert.False(string.IsNullOrWhiteSpace(EcoPerformanceGovernor.FormatTooltip(EcoModePreference.Auto, true)));
+
+                // 4. Zero-allocation < 25 ms fast skip on 5,000 non-Myanmar (English/numeric/code) paragraphs
+                string dbPath = Path.Combine(TestPaths.RepoRoot, "data", "mlc_thatpon.db");
+                var repo = new EncryptedDictionaryRepository(dbPath);
+                MyanmarTrie trie = repo.LoadIntoTrie(AntiTamperGuard.ReconstructProtectedFallbackKey());
+                var engine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+                var swAscii = System.Diagnostics.Stopwatch.StartNew();
+                int nonMmIssues = 0;
+                for (int i = 0; i < 5000; i++)
+                {
+                    nonMmIssues += engine.CheckText("FY-2026 Budget Summary Row #10482 | Total USD 1,450,200.00 | https://gov.mm/report").Count;
+                }
+                swAscii.Stop();
+                Assert.Equal(0, nonMmIssues);
+                Assert.True(swAscii.Elapsed.TotalMilliseconds < 25.0,
+                    $"5,000 English/numeric fast-skip calls took {swAscii.Elapsed.TotalMilliseconds:F2} ms (expected < 25 ms).");
+
+                // 5. Potato PC 2,500-issue safe cap + single-worker gentle priority + TrimMemoryCaches
+                const int rows = 4000;
+                var val2 = new object?[rows, 2];
+                for (int r = 0; r < rows; r++)
+                {
+                    val2[r, 0] = $"အတန်း #{r + 1} — တာ၀န်ခံမှ စစ်ဆေးပီးပီ ဆောင်ရွတ်ဆဲ။";
+                    val2[r, 1] = 100.0 + r;
+                }
+
+                List<SpreadsheetCellIssue>? cappedIssues = null;
+                EcoPerformanceGovernor.ExecuteWithGentlePriority(useLowPriority: true, () =>
+                {
+                    cappedIssues = SpreadsheetProofingHelper.ScanBlockValues(
+                        engine,
+                        "PotatoPcWorkbook.xlsx",
+                        "Sheet1",
+                        1,
+                        1,
+                        rows,
+                        2,
+                        val2,
+                        null,
+                        false,
+                        new Dictionary<string, IReadOnlyList<ProofingIssue>>(StringComparer.Ordinal),
+                        default,
+                        maxIssuesToCollect: potatoAuto.MaxIssuesPerFullScan,
+                        explicitBudgets: potatoAuto);
+                });
+
+                Assert.NotNull(cappedIssues);
+                Assert.Equal(2500, cappedIssues!.Count);
+
+                // TrimMemoryCaches frees paragraph/segment caches cleanly without breaking subsequent checks
+                engine.TrimMemoryCaches();
+                var postTrimCheck = engine.CheckText("စစ်ဆေးပီးပီ။");
+                Assert.Contains(postTrimCheck, x => x.OriginalText == "ပီးပီ");
+            }
+            finally
+            {
+                EcoPerformanceGovernor.CurrentPreference = savedPref;
+                try
+                {
+                    if (Directory.Exists(tempDir))
+                        Directory.Delete(tempDir, recursive: true);
+                }
+                catch { }
             }
         }
     }

@@ -12,6 +12,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using MyanmarSpellChecker.Core.Models;
+using MyanmarSpellChecker.Core.Performance;
 
 namespace MyanmarSpellChecker.Core.Nlp
 {
@@ -592,8 +593,32 @@ namespace MyanmarSpellChecker.Core.Nlp
             return loaded;
         }
 
+        public void TrimMemoryCaches()
+        {
+            _paragraphCache.Clear();
+            _suggestionEngine.ClearCache();
+        }
+
+        private static bool HasAnyMyanmarCodePoint(string text)
+        {
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                if ((c >= '\u1000' && c <= '\u109F') ||
+                    (c >= '\uAA60' && c <= '\uAA7F') ||
+                    (c >= '\uA9E0' && c <= '\uA9FF'))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         public List<ProofingIssue> CheckText(string text)
         {
+            if (string.IsNullOrWhiteSpace(text) || !HasAnyMyanmarCodePoint(text))
+                return new List<ProofingIssue>(0);
+
             _lexiconRwLock.EnterReadLock();
             try
             {
@@ -624,7 +649,8 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             if (cacheKey != null)
             {
-                if (_paragraphCache.Count > 8192)
+                int maxCache = EcoPerformanceGovernor.ComputeBudgets(isLargeFile: false).MaxParagraphCacheEntries;
+                if (_paragraphCache.Count > maxCache)
                 {
                     _paragraphCache.Clear();
                 }

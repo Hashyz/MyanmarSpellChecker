@@ -157,7 +157,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             bool applyVisualUnderline = true,
             string? preloadedCleanText = null,
             Word.WdStoryType storyType = Word.WdStoryType.wdMainTextStory,
-            bool? knownDocHasNoUnderlines = null)
+            bool? knownDocHasNoUnderlines = null,
+            int maxLiveUnderlines = MaxLiveWavyUnderlinesPerDocument)
         {
             var boundItems = new List<DocumentProofingItem>(issues.Count);
             if (doc == null || containerRange == null)
@@ -250,12 +251,14 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                 int currentDocTracked = GetTrackedCountForDocument(doc);
 
+                int effectiveUnderlineCap = Math.Max(10, maxLiveUnderlines);
+
                 // 2. Bind each issue to an exact live Word.Range (immune to hidden HYPERLINK/citation field-code offset shifts!),
                 //    snapshot original underline, and apply Red or Blue wavy underline.
                 List<VisibleCharSpan>? lazyCharMap = null;
                 foreach (var issue in issues)
                 {
-                    if (currentDocTracked >= MaxLiveWavyUnderlinesPerDocument)
+                    if (currentDocTracked >= effectiveUnderlineCap)
                     {
                         int estStart = containerStart + Math.Max(0, issue.StartIndex);
                         boundItems.Add(new DocumentProofingItem
@@ -728,7 +731,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         public int ReplaceAllIssuesInDocument(
             Word.Document doc,
             IReadOnlyList<DocumentProofingItem> items,
-            Func<DocumentProofingItem, bool>? filterPredicate = null)
+            Func<DocumentProofingItem, bool>? filterPredicate = null,
+            Action<int, string>? onProgress = null,
+            Func<bool>? isCancelled = null)
         {
             if (doc == null || items == null || items.Count == 0)
                 return 0;
@@ -754,9 +759,14 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                 var resolvedRanges = new HashSet<Word.Range>();
                 var touchedMainIntervals = new List<(int Start, int End)>(Math.Min(ordered.Count, 256));
+                var pumpWatch = System.Diagnostics.Stopwatch.StartNew();
 
-                foreach (var item in ordered)
+                for (int idx = 0; idx < ordered.Count; idx++)
                 {
+                    if (isCancelled != null && isCancelled())
+                        break;
+
+                    var item = ordered[idx];
                     try
                     {
                         Word.Range? r = EnsureTargetRangeResolved(doc, item);
@@ -781,6 +791,14 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     catch
                     {
                         // Continue with remaining items
+                    }
+
+                    if (pumpWatch.ElapsedMilliseconds >= 110)
+                    {
+                        pumpWatch.Restart();
+                        int pct = ((idx + 1) * 95) / Math.Max(1, ordered.Count);
+                        onProgress?.Invoke(pct, $"⏳ ပြင်ဆင်နေသည်... {idx + 1:N0}/{ordered.Count:N0}");
+                        Application.DoEvents();
                     }
                 }
 
@@ -817,7 +835,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         public int ReplaceApprovedIssuesInDocument(
             Word.Document doc,
             IEnumerable<DocumentProofingItem> items,
-            IReadOnlyDictionary<DocumentProofingItem, string> approvedReplacements)
+            IReadOnlyDictionary<DocumentProofingItem, string> approvedReplacements,
+            Action<int, string>? onProgress = null,
+            Func<bool>? isCancelled = null)
         {
             if (doc == null || items == null || approvedReplacements == null || approvedReplacements.Count == 0)
                 return 0;
@@ -842,9 +862,14 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                 var resolvedRanges = new HashSet<Word.Range>();
                 var touchedMainIntervals = new List<(int Start, int End)>(Math.Min(ordered.Count, 256));
+                var pumpWatch = System.Diagnostics.Stopwatch.StartNew();
 
-                foreach (var item in ordered)
+                for (int idx = 0; idx < ordered.Count; idx++)
                 {
+                    if (isCancelled != null && isCancelled())
+                        break;
+
+                    var item = ordered[idx];
                     if (!approvedReplacements.TryGetValue(item, out string? chosenReplacement) || string.IsNullOrEmpty(chosenReplacement))
                         continue;
 
@@ -871,6 +896,14 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     catch
                     {
                         // Continue with remaining items
+                    }
+
+                    if (pumpWatch.ElapsedMilliseconds >= 110)
+                    {
+                        pumpWatch.Restart();
+                        int pct = ((idx + 1) * 95) / Math.Max(1, ordered.Count);
+                        onProgress?.Invoke(pct, $"⏳ ပြင်ဆင်နေသည်... {idx + 1:N0}/{ordered.Count:N0}");
+                        Application.DoEvents();
                     }
                 }
 

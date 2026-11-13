@@ -16,6 +16,7 @@ using MyanmarSpellChecker.Core.Dictionary;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
+using MyanmarSpellChecker.Core.Performance;
 using MyanmarSpellChecker.Core.Security;
 using MyanmarSpellChecker.WordAddIn.Interop;
 using MyanmarSpellChecker.WordAddIn.UI;
@@ -64,12 +65,14 @@ namespace MyanmarSpellChecker.WordAddIn
 
         private string _appDataFolder = string.Empty;
         private string _styleModeConfigPath = string.Empty;
+        private string _ecoModeConfigPath = string.Empty;
         private string _customDictFilePath = string.Empty;
         private string _licenseFilePath = string.Empty;
         private string _databaseFilePath = string.Empty;
         private string _activeDatabaseKey = string.Empty;
         private DateTime _loadedDbLastWriteUtc = DateTime.MinValue;
         private int _dbHotReloadInProgress;
+        private volatile bool _bulkWriteCancelRequested;
 
         static ThisAddIn()
         {
@@ -194,6 +197,8 @@ namespace MyanmarSpellChecker.WordAddIn
             AddInDiagnostics.ConfigureLogDirectory(localAppDataDir);
 
             _styleModeConfigPath = Path.Combine(localAppDataDir, "style_mode.txt");
+            _ecoModeConfigPath = Path.Combine(localAppDataDir, "eco_mode.txt");
+            EcoPerformanceGovernor.CurrentPreference = EcoPerformanceGovernor.LoadSavedPreference(_ecoModeConfigPath);
             _customDictFilePath = Path.Combine(localAppDataDir, "custom_dictionary.txt");
             string ministryCustomDictPath = Path.Combine(programDataDir, "ministry_custom_dictionary.txt");
 
@@ -336,11 +341,18 @@ namespace MyanmarSpellChecker.WordAddIn
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
                 ctrl?.SetScanningState(true);
             };
+            _documentScanner.ScanProgressChanged += (pct, msg) =>
+            {
+                var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
+                ctrl?.UpdateScanProgress(pct, msg);
+            };
+            _documentScanner.EcoActiveChanged += ecoActive => SyncEcoStateAcrossTaskPanes(ecoActive);
             _documentScanner.ScanCompleted += (doc, items) =>
             {
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
                 if (ctrl != null)
                 {
+                    ctrl.SetScanOutcomeMetadata(_documentScanner.GetLastScanMetadata(doc));
                     ctrl.RenderIssues(items);
                     // Use precomputed background QualityReport for full scans; invalidate lazily for incremental keystrokes!
                     ctrl.UpdateQualityReport(_documentScanner.GetCachedQualityReport(doc));
@@ -348,6 +360,7 @@ namespace MyanmarSpellChecker.WordAddIn
                 // Never auto-pop the floating Quick-Fix window during background/typing scans;
                 // Quick-Fix popup opens cleanly only when the user clicks or moves caret onto an underlined word.
             };
+            _documentScanner.RefreshEcoActiveStateForActiveDocument();
 
             _contextMenuHandler = new WordContextMenuHandler(
                 _wordApp,
@@ -383,18 +396,20 @@ namespace MyanmarSpellChecker.WordAddIn
                     _proofingEngine.Trie.ReferenceCount,
                     _proofingEngine.Trie.EncyclopediaCount);
                 kvp.Control.SetStyleMode(_proofingEngine.StyleMode);
+                kvp.Control.SetEcoModeState(EcoPerformanceGovernor.CurrentPreference, _documentScanner.IsEcoActive);
                 kvp.Control.RefreshActiveTabAfterEngineReady();
             }
 
             _ribbonUi?.Invalidate();
 
-            // If a non-empty document is already open when background loading finishes, kick off initial scan seamlessly
+            // If a non-empty document is already open when background loading finishes, kick off smart initial scan seamlessly
+            // (huge 50+ page docs auto-scan only the nearby viewport so weak PCs never stall on startup!)
             try
             {
                 Word.Document? activeDoc = _wordApp.ActiveDocument;
                 if (activeDoc != null && activeDoc.Content.End > 1)
                 {
-                    _documentScanner.ScanFullDocumentAsync();
+                    _documentScanner.ScanFullDocumentAsync(allowSmartPartialAutoScan: true);
                 }
             }
             catch { }
@@ -516,9 +531,12 @@ namespace MyanmarSpellChecker.WordAddIn
                 PruneClosedWindowTaskPanes();
 
                 // Synchronize Task Pane for the newly activated document window
+                _documentScanner?.RefreshEcoActiveStateForActiveDocument();
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
                 if (ctrl != null && _documentScanner != null)
                 {
+                    ctrl.SetEcoModeState(EcoPerformanceGovernor.CurrentPreference, _documentScanner.IsEcoActive);
+                    ctrl.SetScanOutcomeMetadata(_documentScanner.GetLastScanMetadata(doc));
                     ctrl.RenderIssues(_documentScanner.GetCachedIssues(doc));
                 }
                 _ribbonUi?.InvalidateControl("BtnToggleTaskPane");
@@ -666,6 +684,9 @@ namespace MyanmarSpellChecker.WordAddIn
                     ctrl.SetEngineWarmupState();
                     ctrl.SetStyleMode(_pendingStyleMode);
                 }
+                ctrl.SetEcoModeState(
+                    EcoPerformanceGovernor.CurrentPreference,
+                    _documentScanner?.IsEcoActive ?? EcoPerformanceGovernor.Hardware.IsLowSpecHardware);
                 WireTaskPaneControlEvents(ctrl);
 
                 pane.DockPosition = Office.MsoCTPDockPosition.msoCTPDockPositionRight;
@@ -714,9 +735,51 @@ namespace MyanmarSpellChecker.WordAddIn
             _startupTaskPaneTimer.Start();
         }
 
+        private void SyncEcoStateAcrossTaskPanes(bool ecoActive)
+        {
+            foreach (var kvp in _windowTaskPanes.Values)
+            {
+                try { kvp.Control.SetEcoModeState(EcoPerformanceGovernor.CurrentPreference, ecoActive); } catch { }
+            }
+        }
+
+        private void CycleEcoModeFromUi()
+        {
+            EcoModePreference next = EcoPerformanceGovernor.CyclePreference(EcoPerformanceGovernor.CurrentPreference);
+            EcoPerformanceGovernor.CurrentPreference = next;
+            EcoPerformanceGovernor.SavePreference(_ecoModeConfigPath, next);
+
+            _documentScanner?.RefreshEcoActiveStateForActiveDocument();
+            bool ecoActive = _documentScanner?.IsEcoActive ?? EcoPerformanceGovernor.ComputeBudgets(isLargeFile: false).IsEcoActive;
+            if (ecoActive)
+            {
+                _proofingEngine?.TrimMemoryCaches();
+            }
+
+            SyncEcoStateAcrossTaskPanes(ecoActive);
+
+            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+            string toast = next switch
+            {
+                EcoModePreference.AlwaysOn =>
+                    "⚡ ပေါ့ပါးစနစ် (Eco Mode) ကို အမြဲဖွင့်ထားပါပြီ — CPU နှင့် RAM အနည်းဆုံးဖြင့် စက်မလေးစေဘဲ စစ်ဆေးပေးပါမည်။",
+                EcoModePreference.Off =>
+                    "⚡ ပေါ့ပါးစနစ်ကို ပိတ်ထားပါပြီ — စွမ်းဆောင်ရည်အပြည့်ဖြင့် စစ်ဆေးပါမည်။",
+                _ =>
+                    "⚡ ပေါ့ပါးစနစ် (Auto) အသင့်ရှိပါပြီ — စက်အားနည်းလျှင် သို့မဟုတ် စာရွက်များလျှင် အလိုအလျောက် ပေါ့ပါးစွာ စစ်ဆေးပေးပါမည်။"
+            };
+            ctrl?.ShowToastBanner(toast);
+        }
+
         private void WireTaskPaneControlEvents(ProofingTaskPaneControl ctrl)
         {
             ctrl.RequestFullDocumentScan += TriggerManualDocumentScanWithHotReload;
+            ctrl.RequestCancelScan += () =>
+            {
+                _bulkWriteCancelRequested = true;
+                _documentScanner?.CancelUserScan();
+            };
+            ctrl.RequestCycleEcoMode += CycleEcoModeFromUi;
             ctrl.RequestFixAllIssues += ExecuteFixAllInActiveDocument;
             ctrl.RequestClearUnderlines += () =>
             {
@@ -920,14 +983,29 @@ namespace MyanmarSpellChecker.WordAddIn
             Word.Document? doc = _wordApp.ActiveDocument;
             if (doc != null) _underlineManager?.StripAllProofingUnderlines(doc);
 
-            ToolkitActionSummary res = _toolkitService.ConvertLegacyFontsInDocument(_wordApp, doc, selectionOnly);
+            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+            _bulkWriteCancelRequested = false;
+            ToolkitActionSummary res;
+            try
+            {
+                res = _toolkitService.ConvertLegacyFontsInDocument(
+                    _wordApp,
+                    doc,
+                    selectionOnly,
+                    (pct, msg) => ctrl?.UpdateScanProgress(pct, msg),
+                    () => _bulkWriteCancelRequested);
+            }
+            finally
+            {
+                ctrl?.SetScanningState(false);
+            }
+
             if (doc != null && _documentScanner != null)
             {
                 _documentScanner.InvalidateParagraphCache(doc);
-                _documentScanner.ScanFullDocumentAsync();
+                _documentScanner.ScanFullDocumentAsync(allowSmartPartialAutoScan: true);
             }
 
-            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
             ctrl?.ShowToastBanner(res.UserMessage, res.Success);
         }
 
@@ -937,14 +1015,30 @@ namespace MyanmarSpellChecker.WordAddIn
             Word.Document? doc = _wordApp.ActiveDocument;
             if (doc != null) _underlineManager?.StripAllProofingUnderlines(doc);
 
-            ToolkitActionSummary res = _toolkitService.FormatNumeralsInDocument(_wordApp, doc, toMyanmarDigits, selectionOnly);
+            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+            _bulkWriteCancelRequested = false;
+            ToolkitActionSummary res;
+            try
+            {
+                res = _toolkitService.FormatNumeralsInDocument(
+                    _wordApp,
+                    doc,
+                    toMyanmarDigits,
+                    selectionOnly,
+                    (pct, msg) => ctrl?.UpdateScanProgress(pct, msg),
+                    () => _bulkWriteCancelRequested);
+            }
+            finally
+            {
+                ctrl?.SetScanningState(false);
+            }
+
             if (doc != null && _documentScanner != null)
             {
                 _documentScanner.InvalidateParagraphCache(doc);
-                _documentScanner.ScanFullDocumentAsync();
+                _documentScanner.ScanFullDocumentAsync(allowSmartPartialAutoScan: true);
             }
 
-            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
             ctrl?.ShowToastBanner(res.UserMessage, res.Success);
         }
 
@@ -954,14 +1048,29 @@ namespace MyanmarSpellChecker.WordAddIn
             Word.Document? doc = _wordApp.ActiveDocument;
             if (doc != null) _underlineManager?.StripAllProofingUnderlines(doc);
 
-            ToolkitActionSummary res = _toolkitService.FormatOfficialPunctuationInDocument(_wordApp, doc, selectionOnly);
+            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+            _bulkWriteCancelRequested = false;
+            ToolkitActionSummary res;
+            try
+            {
+                res = _toolkitService.FormatOfficialPunctuationInDocument(
+                    _wordApp,
+                    doc,
+                    selectionOnly,
+                    (pct, msg) => ctrl?.UpdateScanProgress(pct, msg),
+                    () => _bulkWriteCancelRequested);
+            }
+            finally
+            {
+                ctrl?.SetScanningState(false);
+            }
+
             if (doc != null && _documentScanner != null)
             {
                 _documentScanner.InvalidateParagraphCache(doc);
-                _documentScanner.ScanFullDocumentAsync();
+                _documentScanner.ScanFullDocumentAsync(allowSmartPartialAutoScan: true);
             }
 
-            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
             ctrl?.ShowToastBanner(res.UserMessage, res.Success);
         }
 
@@ -971,14 +1080,29 @@ namespace MyanmarSpellChecker.WordAddIn
             Word.Document? doc = _wordApp.ActiveDocument;
             if (doc != null) _underlineManager?.StripAllProofingUnderlines(doc);
 
-            int changed = _toolkitService.RewriteProseToOfficialStyle(_wordApp, doc, selectionOnly);
+            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+            _bulkWriteCancelRequested = false;
+            int changed;
+            try
+            {
+                changed = _toolkitService.RewriteProseToOfficialStyle(
+                    _wordApp,
+                    doc,
+                    selectionOnly,
+                    (pct, msg) => ctrl?.UpdateScanProgress(pct, msg),
+                    () => _bulkWriteCancelRequested);
+            }
+            finally
+            {
+                ctrl?.SetScanningState(false);
+            }
+
             if (doc != null && _documentScanner != null)
             {
                 _documentScanner.InvalidateParagraphCache(doc);
-                _documentScanner.ScanFullDocumentAsync();
+                _documentScanner.ScanFullDocumentAsync(allowSmartPartialAutoScan: true);
             }
 
-            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
             string msg = changed > 0
                 ? $"✓ စကားပြောဟန် အသုံးအနှုန်း ({changed}) နေရာကို ရုံးသုံး/စာပေဟန်သို့ တစ်ချက်တည်းဖြင့် ပြောင်းလဲပြီးပါပြီ (Ctrl+Z ဖြင့် ပြန်ပြင်နိုင်သည်)။"
                 : "✓ ပြောင်းလဲရန် စကားပြောဟန် အသုံးအနှုန်း မတွေ့ရှိပါ (ရုံးသုံးစာပေဟန် အသင့်ဖြစ်ပြီးဖြစ်သည်)။";
@@ -1072,7 +1196,21 @@ namespace MyanmarSpellChecker.WordAddIn
                 }
 
                 int skippedCount = candidates.Count - dlg.ApprovedReplacements.Count;
-                int count = _underlineManager.ReplaceApprovedIssuesInDocument(doc, cached, dlg.ApprovedReplacements);
+                _bulkWriteCancelRequested = false;
+                int count;
+                try
+                {
+                    count = _underlineManager.ReplaceApprovedIssuesInDocument(
+                        doc,
+                        cached,
+                        dlg.ApprovedReplacements,
+                        (pct, msg) => ctrl?.UpdateScanProgress(pct, msg),
+                        () => _bulkWriteCancelRequested);
+                }
+                finally
+                {
+                    ctrl?.SetScanningState(false);
+                }
                 _documentScanner.InvalidateParagraphCache(doc);
 
                 ctrl?.RenderIssues(_documentScanner.GetCachedIssues(doc));

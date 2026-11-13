@@ -39,6 +39,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         {
             bool wasScanning = _isScanning;
             _isScanning = false;
+            _pnlScanProgress.Visible = false;
 
             var prevActive = _allItems.Where(i => !i.IsResolved).ToList();
             var nextList = items != null ? items.Where(i => !i.IsResolved).ToList() : new List<SpreadsheetCellIssue>();
@@ -56,6 +57,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             if (unchanged)
             {
                 UpdateFilterPillStyles();
+                UpdateExcelProofingSummaryText(GetFilteredUnresolvedIssues());
                 return;
             }
 
@@ -248,6 +250,60 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             return counts;
         }
 
+        private void UpdateExcelProofingSummaryText(IReadOnlyList<SpreadsheetCellIssue> filtered)
+        {
+            if (_isScanning)
+                return;
+
+            int activeCount = filtered.Count;
+            if (_lastScanOutcome != null && _lastScanOutcome.WasCancelled)
+            {
+                _lblSummary.Text = activeCount > 0
+                    ? $"⏹ စစ်ဆေးမှုကို ရပ်တန့်ထားသည် — တွေ့ရှိပြီးသား ({activeCount}) ခု"
+                    : "⏹ စစ်ဆေးမှုကို ရပ်တန့်ထားသည် — ထပ်စစ်ရန် [စစ်မည်] ကိုနှိပ်ပါ";
+                _lblSummary.ForeColor = Color.FromArgb(158, 86, 6);
+                return;
+            }
+
+            if (_lastScanOutcome != null && _lastScanOutcome.WasIssueCapReached && activeCount > 0)
+            {
+                _lblSummary.Text = $"⚡ စက်မလေးစေရန် အမှားအများဆုံး ({activeCount:N0}) ခုအထိသာ ကန့်သတ်ပြသထားသည်";
+                _lblSummary.ForeColor = Color.FromArgb(168, 82, 8);
+                return;
+            }
+
+            if (_lastScanOutcome != null && _lastScanOutcome.WasPartialAutoScan)
+            {
+                if (activeCount == 0)
+                {
+                    _lblSummary.Text = $"⚡ အနီးဝန်းကျင် အကွက် ({_lastScanOutcome.ScannedCellCount:N0}) ခု အမှားကင်းသည် — တစ်ခုလုံးစစ်ရန် [စစ်မည်] နှိပ်ပါ";
+                    _lblSummary.ForeColor = Color.FromArgb(16, 108, 56);
+                }
+                else
+                {
+                    _lblSummary.Text = $"⚡ အနီးဝန်းကျင်၌ ({activeCount}) ခု တွေ့သည် — ဇယားတစ်ခုလုံးစစ်ရန် [စစ်မည်] နှိပ်ပါ";
+                    _lblSummary.ForeColor = Color.FromArgb(182, 32, 32);
+                }
+                return;
+            }
+
+            if (activeCount == 0)
+            {
+                int totalUnresolved = _allItems.Count(i => !i.IsResolved);
+                _lblSummary.Text = totalUnresolved == 0
+                    ? "✓ စစ်ဆေးပြီးသော မြန်မာစာ အကွက်များတွင် အမှားအယွင်း မတွေ့ရှိပါ"
+                    : $"ဤအမျိုးအစားတွင် တွေ့ရှိချက် မရှိပါ (အခြားအမျိုးအစား၌ {totalUnresolved} ခု ရှိသည်)";
+                _lblSummary.ForeColor = Color.FromArgb(16, 108, 56);
+            }
+            else
+            {
+                _lblSummary.Text = $"တွေ့ရှိချက် ({activeCount}) ခု — ကတ်ကိုနှိပ်၍ သက်ဆိုင်ရာ အကွက် (Cell) သို့ တိုက်ရိုက်သွားနိုင်သည်";
+                _lblSummary.ForeColor = filtered.Any(x => !x.Issue.IsGrammarOrStyle && !x.Issue.IsContextualWarning)
+                    ? Color.FromArgb(182, 32, 32)
+                    : Color.FromArgb(158, 92, 12);
+            }
+        }
+
         private void RenderProofingCards()
         {
             UpdateFilterPillStyles();
@@ -259,14 +315,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             int cardWidth = GetTargetCardWidth();
             int innerWrap = Math.Max(180, cardWidth - 32);
 
+            UpdateExcelProofingSummaryText(filtered);
+
             if (filtered.Count == 0)
             {
                 _visibleWindowStart = 0;
-                int totalUnresolved = _allItems.Count(i => !i.IsResolved);
-                _lblSummary.Text = totalUnresolved == 0
-                    ? "✓ စစ်ဆေးပြီးသော မြန်မာစာ အကွက်များတွင် အမှားအယွင်း မတွေ့ရှိပါ"
-                    : $"ဤအမျိုးအစားတွင် တွေ့ရှိချက် မရှိပါ (အခြားအမျိုးအစား၌ {totalUnresolved} ခု ရှိသည်)";
-                _lblSummary.ForeColor = Color.FromArgb(16, 108, 56);
 
                 var cleanCard = CreateStyledCardContainer(cardWidth, Color.FromArgb(16, 124, 65));
                 int r = 0;
@@ -307,11 +360,6 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 _visibleWindowStart = Math.Max(0, ((filtered.Count - 1) / ExcelProofingCardBatchSize) * ExcelProofingCardBatchSize);
             }
-
-            _lblSummary.Text = $"တွေ့ရှိချက် ({filtered.Count}) ခု — ကတ်ကိုနှိပ်၍ သက်ဆိုင်ရာ အကွက် (Cell) သို့ တိုက်ရိုက်သွားနိုင်သည်";
-            _lblSummary.ForeColor = filtered.Any(x => !x.Issue.IsGrammarOrStyle && !x.Issue.IsContextualWarning)
-                ? Color.FromArgb(182, 32, 32)
-                : Color.FromArgb(158, 92, 12);
 
             if (_visibleWindowStart > 0)
             {

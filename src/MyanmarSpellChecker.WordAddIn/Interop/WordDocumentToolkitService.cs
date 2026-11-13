@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Text;
+using System.Windows.Forms;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
 using MyanmarSpellChecker.Core.Typography;
@@ -28,7 +30,12 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
     {
         private const string TargetUnicodeFontName = "Pyidaungsu";
 
-        public ToolkitActionSummary ConvertLegacyFontsInDocument(Word.Application app, Word.Document? doc, bool selectionOnly = false)
+        public ToolkitActionSummary ConvertLegacyFontsInDocument(
+            Word.Application app,
+            Word.Document? doc,
+            bool selectionOnly = false,
+            Action<int, string>? onProgress = null,
+            Func<bool>? isCancelled = null)
         {
             if (app == null || doc == null)
             {
@@ -57,13 +64,32 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 if (selectionOnly && app.Selection != null && app.Selection.Range != null &&
                     app.Selection.Range.Start != app.Selection.Range.End)
                 {
-                    convertedRuns += ConvertLegacyFontsInParagraphs(app.Selection.Range.Paragraphs);
+                    convertedRuns += ConvertLegacyFontsInParagraphs(app.Selection.Range.Paragraphs, onProgress, isCancelled);
                 }
                 else
                 {
                     foreach (Word.Range story in EnumerateDocumentStories(doc))
                     {
-                        convertedRuns += ConvertLegacyFontsInParagraphs(story.Paragraphs);
+                        if (isCancelled != null && isCancelled())
+                            break;
+
+                        // Whole-story O(1) fast skip: when an entire 500-page story already uses a uniform Unicode/Latin font
+                        // and contains zero Zawgyi sequences, skip 15,000+ per-paragraph COM calls in < 2 ms!
+                        try
+                        {
+                            string? storyFont = story.Font.Name;
+                            if (!string.IsNullOrEmpty(storyFont) &&
+                                !LegacyMyanmarFontConverter.IsLegacyAsciiMyanmarFont(storyFont!) &&
+                                !LegacyMyanmarFontConverter.IsZawgyiFont(storyFont!))
+                            {
+                                string storyTxt = story.Text ?? string.Empty;
+                                if (!UnicodeNormalizer.IsZawgyiText(storyTxt))
+                                    continue;
+                            }
+                        }
+                        catch { }
+
+                        convertedRuns += ConvertLegacyFontsInParagraphs(story.Paragraphs, onProgress, isCancelled);
                     }
                 }
 
@@ -95,15 +121,28 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             }
         }
 
-        private static int ConvertLegacyFontsInParagraphs(Word.Paragraphs? paragraphs)
+        private static int ConvertLegacyFontsInParagraphs(
+            Word.Paragraphs? paragraphs,
+            Action<int, string>? onProgress = null,
+            Func<bool>? isCancelled = null)
         {
             if (paragraphs == null)
                 return 0;
 
             int changed = 0;
             int count = paragraphs.Count;
+            var pumpWatch = Stopwatch.StartNew();
             for (int i = 1; i <= count; i++)
             {
+                if (isCancelled != null && isCancelled())
+                    break;
+
+                if (pumpWatch.ElapsedMilliseconds >= 110)
+                {
+                    pumpWatch.Restart();
+                    onProgress?.Invoke((i * 95) / Math.Max(1, count), $"⏳ ဖောင့်ပြောင်းလဲနေသည်... {i:N0}/{count:N0}");
+                    Application.DoEvents();
+                }
                 Word.Range? paraRange = null;
                 try { paraRange = paragraphs[i].Range; } catch { continue; }
                 if (paraRange == null)
@@ -316,7 +355,13 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             return changed;
         }
 
-        public ToolkitActionSummary FormatNumeralsInDocument(Word.Application app, Word.Document? doc, bool toMyanmarDigits, bool selectionOnly = false)
+        public ToolkitActionSummary FormatNumeralsInDocument(
+            Word.Application app,
+            Word.Document? doc,
+            bool toMyanmarDigits,
+            bool selectionOnly = false,
+            Action<int, string>? onProgress = null,
+            Func<bool>? isCancelled = null)
         {
             if (app == null || doc == null)
             {
@@ -346,11 +391,21 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     ? new[] { app.Selection.Range.Paragraphs }
                     : EnumerateStoryParagraphCollections(doc);
 
+                var pumpWatch = Stopwatch.StartNew();
                 foreach (var paras in targets)
                 {
                     int pCount = paras.Count;
                     for (int i = 1; i <= pCount; i++)
                     {
+                        if (isCancelled != null && isCancelled())
+                            break;
+
+                        if (pumpWatch.ElapsedMilliseconds >= 110)
+                        {
+                            pumpWatch.Restart();
+                            onProgress?.Invoke((i * 95) / Math.Max(1, pCount), $"⏳ ဂဏန်းပြောင်းလဲနေသည်... {i:N0}/{pCount:N0}");
+                            Application.DoEvents();
+                        }
                         Word.Range? pRange = null;
                         try { pRange = paras[i].Range; } catch { continue; }
                         if (pRange == null)
@@ -396,7 +451,12 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             }
         }
 
-        public ToolkitActionSummary FormatOfficialPunctuationInDocument(Word.Application app, Word.Document? doc, bool selectionOnly = false)
+        public ToolkitActionSummary FormatOfficialPunctuationInDocument(
+            Word.Application app,
+            Word.Document? doc,
+            bool selectionOnly = false,
+            Action<int, string>? onProgress = null,
+            Func<bool>? isCancelled = null)
         {
             if (app == null || doc == null)
             {
@@ -427,11 +487,21 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     ? new[] { app.Selection.Range.Paragraphs }
                     : EnumerateStoryParagraphCollections(doc);
 
+                var pumpWatch = Stopwatch.StartNew();
                 foreach (var paras in targets)
                 {
                     int pCount = paras.Count;
                     for (int i = 1; i <= pCount; i++)
                     {
+                        if (isCancelled != null && isCancelled())
+                            break;
+
+                        if (pumpWatch.ElapsedMilliseconds >= 110)
+                        {
+                            pumpWatch.Restart();
+                            onProgress?.Invoke((i * 95) / Math.Max(1, pCount), $"⏳ ပုဒ်ဖြတ်သန့်စင်နေသည်... {i:N0}/{pCount:N0}");
+                            Application.DoEvents();
+                        }
                         Word.Range? pRange = null;
                         try { pRange = paras[i].Range; } catch { continue; }
                         if (pRange == null)
@@ -602,7 +672,12 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         /// (ပါသည်/များ/နှင့်/သည့်/သို့ရာတွင်/မ...ပါ) across either the current selection or the entire document
         /// inside a single Ctrl+Z UndoRecord while preserving paragraph formatting.
         /// </summary>
-        public int RewriteProseToOfficialStyle(Word.Application app, Word.Document? doc, bool selectionOnly = false)
+        public int RewriteProseToOfficialStyle(
+            Word.Application app,
+            Word.Document? doc,
+            bool selectionOnly = false,
+            Action<int, string>? onProgress = null,
+            Func<bool>? isCancelled = null)
         {
             if (app == null || doc == null)
                 return 0;
@@ -646,11 +721,23 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     }
                 }
 
+                var pumpWatch = Stopwatch.StartNew();
                 foreach (Word.Paragraphs paras in EnumerateStoryParagraphCollections(doc))
                 {
                     int pCount = paras.Count;
+                    int done = 0;
                     for (int i = pCount; i >= 1; i--)
                     {
+                        if (isCancelled != null && isCancelled())
+                            break;
+
+                        done++;
+                        if (pumpWatch.ElapsedMilliseconds >= 110)
+                        {
+                            pumpWatch.Restart();
+                            onProgress?.Invoke((done * 95) / Math.Max(1, pCount), $"⏳ ရုံးသုံးဟန် ပြောင်းနေသည်... {done:N0}/{pCount:N0}");
+                            Application.DoEvents();
+                        }
                         try
                         {
                             Word.Range? pRange = paras[i].Range;
