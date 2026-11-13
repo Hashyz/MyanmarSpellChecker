@@ -214,6 +214,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         public ProofingTaskPaneControl()
         {
             AutoScaleMode = AutoScaleMode.Dpi;
+            Size = new Size(430, 720);
             DoubleBuffered = true;
             BackColor = Color.FromArgb(243, 245, 249);
             Font = _fontBody;
@@ -267,44 +268,35 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 }
             };
 
-            // Row 0: Brand Header + Language Pill + Eco Pill + About/License Pill
+            // Row 0: Responsive 2-Tier Brand Header + Wrapping Quick-Action Pills
+            // (Never places Percent title columns next to multiple AutoSize buttons, preventing narrow-pane vertical text crushing!)
             var brandRow = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 4,
-                RowCount = 1,
-                Margin = new Padding(0, 0, 0, 5)
+                ColumnCount = 1,
+                RowCount = 3,
+                Margin = new Padding(0, 0, 0, 5),
+                Padding = new Padding(0)
             };
             brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             brandRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
-            var titleStack = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 1,
-                RowCount = 2,
-                Margin = new Padding(0)
-            };
-            titleStack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            titleStack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            titleStack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            brandRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            brandRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             _lblBrandTitle = new Label
             {
                 Text = UiLocalizer.Pick("Myanmar Spell Checker", "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း"),
                 Font = _fontBrandTitle,
                 ForeColor = Color.FromArgb(18, 48, 102),
-                AutoSize = true,
-                Dock = DockStyle.Fill,
+                AutoSize = false,
+                AutoEllipsis = true,
+                Dock = DockStyle.Top,
+                Height = 23,
+                TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
-                Padding = new Padding(6, 1, 4, 2)
+                Padding = new Padding(2, 0, 2, 0)
             };
 
             _lblLexiconStats = new Label
@@ -312,14 +304,25 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Text = UiLocalizer.Pick("Official Thatpon + Dictionary • Htet Yar Zar (KU)", "သတ်ပုံကျမ်း + အဘိဓာန် • ထက်ရာဇာ (KU)"),
                 Font = _fontBrandStats,
                 ForeColor = Color.FromArgb(88, 100, 118),
-                AutoSize = true,
-                Dock = DockStyle.Fill,
-                Margin = new Padding(0),
-                Padding = new Padding(6, 0, 4, 2)
+                AutoSize = false,
+                AutoEllipsis = true,
+                Dock = DockStyle.Top,
+                Height = 19,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = new Padding(0, 0, 0, 2),
+                Padding = new Padding(2, 0, 2, 0)
             };
 
-            titleStack.Controls.Add(_lblBrandTitle, 0, 0);
-            titleStack.Controls.Add(_lblLexiconStats, 0, 1);
+            var brandPillsFlow = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                WrapContents = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                Margin = new Padding(0),
+                Padding = new Padding(0)
+            };
 
             _btnLangToggle = CreatePillButton(
                 UiLocalizer.FormatLanguageBadge(),
@@ -328,9 +331,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Color.FromArgb(188, 210, 244),
                 _fontSmallBold);
             _btnLangToggle.Dock = DockStyle.None;
-            _btnLangToggle.Anchor = AnchorStyles.Right;
-            _btnLangToggle.Padding = new Padding(6, 3, 6, 3);
-            _btnLangToggle.Margin = new Padding(2, 2, 2, 2);
+            _btnLangToggle.Padding = new Padding(6, 2, 6, 2);
+            _btnLangToggle.Margin = new Padding(0, 1, 4, 1);
             _btnLangToggle.Click += (s, e) => RequestToggleLanguage?.Invoke();
 
             _btnEcoMode = CreatePillButton(
@@ -340,9 +342,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Color.FromArgb(196, 214, 245),
                 _fontSmallBold);
             _btnEcoMode.Dock = DockStyle.None;
-            _btnEcoMode.Anchor = AnchorStyles.Right;
-            _btnEcoMode.Padding = new Padding(6, 3, 6, 3);
-            _btnEcoMode.Margin = new Padding(2, 2, 2, 2);
+            _btnEcoMode.Padding = new Padding(6, 2, 6, 2);
+            _btnEcoMode.Margin = new Padding(0, 1, 4, 1);
             _btnEcoMode.Click += (s, e) => RequestCycleEcoMode?.Invoke();
 
             _btnAboutLic = CreatePillButton(
@@ -352,15 +353,17 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Color.FromArgb(196, 214, 245),
                 _fontSmallBold);
             _btnAboutLic.Dock = DockStyle.None;
-            _btnAboutLic.Anchor = AnchorStyles.Right;
-            _btnAboutLic.Padding = new Padding(7, 3, 7, 3);
-            _btnAboutLic.Margin = new Padding(2, 2, 0, 2);
+            _btnAboutLic.Padding = new Padding(7, 2, 7, 2);
+            _btnAboutLic.Margin = new Padding(0, 1, 0, 1);
             _btnAboutLic.Click += (s, e) => RequestLicenseDialog?.Invoke();
 
-            brandRow.Controls.Add(titleStack, 0, 0);
-            brandRow.Controls.Add(_btnLangToggle, 1, 0);
-            brandRow.Controls.Add(_btnEcoMode, 2, 0);
-            brandRow.Controls.Add(_btnAboutLic, 3, 0);
+            brandPillsFlow.Controls.Add(_btnLangToggle);
+            brandPillsFlow.Controls.Add(_btnEcoMode);
+            brandPillsFlow.Controls.Add(_btnAboutLic);
+
+            brandRow.Controls.Add(_lblBrandTitle, 0, 0);
+            brandRow.Controls.Add(_lblLexiconStats, 0, 1);
+            brandRow.Controls.Add(brandPillsFlow, 0, 2);
 
             // Row 1: 4-Tab Segmented Workspace Switcher (Proofing | Dictionary | Toolkit | Custom Words)
             var tabStrip = new TableLayoutPanel
@@ -380,16 +383,16 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             tabStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 24F));
             tabStrip.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            _btnTabProofing = CreatePillButton("စစ်ဆေး (0)", Color.FromArgb(22, 76, 162), Color.White, Color.FromArgb(22, 76, 162), _fontTabActive);
+            _btnTabProofing = CreateToolbarSlotButton("စစ်ဆေး (0)", Color.FromArgb(22, 76, 162), Color.White, Color.FromArgb(22, 76, 162), _fontTabActive, 28);
             _btnTabProofing.Click += (s, e) => SwitchWorkspaceTab(TaskPaneWorkspaceTab.Proofing);
 
-            _btnTabDictionary = CreatePillButton("အဘိဓာန်", Color.FromArgb(236, 240, 247), Color.FromArgb(55, 65, 82), Color.FromArgb(236, 240, 247), _fontTabNormal);
+            _btnTabDictionary = CreateToolbarSlotButton("အဘိဓာန်", Color.FromArgb(236, 240, 247), Color.FromArgb(55, 65, 82), Color.FromArgb(236, 240, 247), _fontTabNormal, 28);
             _btnTabDictionary.Click += (s, e) => SwitchWorkspaceTab(TaskPaneWorkspaceTab.Dictionary);
 
-            _btnTabToolkit = CreatePillButton("ကိရိယာ", Color.FromArgb(236, 240, 247), Color.FromArgb(55, 65, 82), Color.FromArgb(236, 240, 247), _fontTabNormal);
+            _btnTabToolkit = CreateToolbarSlotButton("ကိရိယာ", Color.FromArgb(236, 240, 247), Color.FromArgb(55, 65, 82), Color.FromArgb(236, 240, 247), _fontTabNormal, 28);
             _btnTabToolkit.Click += (s, e) => SwitchWorkspaceTab(TaskPaneWorkspaceTab.Toolkit);
 
-            _btnTabCustom = CreatePillButton("မှတ်သား", Color.FromArgb(236, 240, 247), Color.FromArgb(55, 65, 82), Color.FromArgb(236, 240, 247), _fontTabNormal);
+            _btnTabCustom = CreateToolbarSlotButton("မှတ်သား", Color.FromArgb(236, 240, 247), Color.FromArgb(55, 65, 82), Color.FromArgb(236, 240, 247), _fontTabNormal, 28);
             _btnTabCustom.Click += (s, e) => SwitchWorkspaceTab(TaskPaneWorkspaceTab.CustomWords);
 
             tabStrip.Controls.Add(_btnTabProofing, 0, 0);
@@ -450,11 +453,11 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             styleGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
             styleGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            _btnStyleGeneral = CreatePillButton("အထွေထွေ စံသတ်ပုံ", Color.FromArgb(24, 90, 188), Color.White, Color.FromArgb(24, 90, 188), _fontSmallBold);
+            _btnStyleGeneral = CreateToolbarSlotButton("အထွေထွေ စံသတ်ပုံ", Color.FromArgb(24, 90, 188), Color.White, Color.FromArgb(24, 90, 188), _fontSmallBold, 27);
             _btnStyleGeneral.Click += (s, e) => ChangeStyleMode(ProofingStyleMode.GeneralStandard);
             _toolTip.SetToolTip(_btnStyleGeneral, "အများသုံး/လုပ်ငန်းသုံး စံသတ်ပုံစနစ် (ပါတယ်၊ တွေ စသည့် အပြောစကားများကို ခွင့်ပြုသည်)");
 
-            _btnStyleFormal = CreatePillButton("စာပေ / ရုံးသုံး", Color.FromArgb(240, 243, 249), Color.FromArgb(50, 60, 76), Color.FromArgb(214, 220, 232), _fontSmall);
+            _btnStyleFormal = CreateToolbarSlotButton("စာပေ / ရုံးသုံး", Color.FromArgb(240, 243, 249), Color.FromArgb(50, 60, 76), Color.FromArgb(214, 220, 232), _fontSmall, 27);
             _btnStyleFormal.Click += (s, e) => ChangeStyleMode(ProofingStyleMode.FormalOfficial);
             _toolTip.SetToolTip(_btnStyleFormal, "အစိုးရရုံးသုံးနှင့် စာပေအရေးအသားစနစ် (ပါတယ် ➔ ပါသည်၊ တွေ ➔ များ ပါ စစ်ဆေးသည်)");
 
@@ -466,10 +469,13 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Text = "စံသတ်ပုံစနစ် — နေ့စဉ်နှင့် လုပ်ငန်းသုံး စာလုံးပေါင်းများကို စစ်ဆေးသည်",
                 Font = _fontBrandStats,
                 ForeColor = Color.FromArgb(95, 106, 124),
-                AutoSize = true,
-                Dock = DockStyle.Fill,
-                Margin = new Padding(0, 0, 0, 5),
-                Padding = new Padding(2, 0, 2, 1)
+                AutoSize = false,
+                AutoEllipsis = true,
+                Dock = DockStyle.Top,
+                Height = 19,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = new Padding(0, 0, 0, 4),
+                Padding = new Padding(2, 0, 2, 0)
             };
 
             // Primary Action Strip (Scan | Fix All | Clear Underlines)
@@ -487,7 +493,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             actionStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 26F));
             actionStrip.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            _btnScanAll = CreatePillButton("စာတမ်းစစ်မည်", Color.FromArgb(24, 90, 188), Color.White, Color.FromArgb(20, 76, 162), _fontSmallBold);
+            _btnScanAll = CreateToolbarSlotButton("စာတမ်းစစ်မည်", Color.FromArgb(24, 90, 188), Color.White, Color.FromArgb(20, 76, 162), _fontSmallBold, 30);
             _btnScanAll.Click += (s, e) =>
             {
                 SetScanningState(true);
@@ -495,13 +501,13 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             };
             _toolTip.SetToolTip(_btnScanAll, "စာကိုယ်၊ ဇယားကွက်နှင့် ခေါင်းစီး/အောက်ခြေ အားလုံးကို စစ်ဆေးရန်");
 
-            _btnFixAll = CreatePillButton("အားလုံးပြင်မည်", Color.FromArgb(22, 132, 68), Color.White, Color.FromArgb(18, 114, 58), _fontSmallBold);
+            _btnFixAll = CreateToolbarSlotButton("အားလုံးပြင်မည်", Color.FromArgb(22, 132, 68), Color.White, Color.FromArgb(18, 114, 58), _fontSmallBold, 30);
             _btnFixAll.Click += (s, e) => RequestFixAllIssues?.Invoke(_currentFilter);
             _toolTip.SetToolTip(_btnFixAll, "ရွေးချယ်ထားသော စစ်ထုတ်မှုအလိုက် အမှားများကို တစ်ပြိုင်နက် ပြင်ဆင်ရန် — အနက်သံသယ သတိပြုချက်များကို အလိုအလျောက် မပြင်ဘဲ ချန်ထားပေးသည် (Ctrl+Z တစ်ချက်တည်းဖြင့် ပြန်ပြင်နိုင်သည်)");
 
-            _btnClearLines = CreatePillButton(
+            _btnClearLines = CreateToolbarSlotButton(
                 UiLocalizer.Pick("Clear Marks", "မျဉ်းရှင်း"),
-                Color.FromArgb(242, 244, 248), Color.FromArgb(55, 65, 80), Color.FromArgb(215, 220, 230), _fontSmall);
+                Color.FromArgb(242, 244, 248), Color.FromArgb(55, 65, 80), Color.FromArgb(215, 220, 230), _fontSmall, 30);
             _btnClearLines.Click += (s, e) => RequestClearUnderlines?.Invoke();
 
             actionStrip.Controls.Add(_btnScanAll, 0, 0);
@@ -526,24 +532,24 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             filterAndStepRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 9F));
             filterAndStepRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            _btnFilterAll = CreatePillButton("အားလုံး (0)", Color.FromArgb(30, 65, 130), Color.White, Color.FromArgb(30, 65, 130), _fontSmall);
+            _btnFilterAll = CreateToolbarSlotButton("အားလုံး (0)", Color.FromArgb(30, 65, 130), Color.White, Color.FromArgb(30, 65, 130), _fontSmall, 26);
             _btnFilterAll.Click += (s, e) => SetFilterMode(IssueFilterMode.All);
 
-            _btnFilterSpelling = CreatePillButton("သတ်ပုံ (0)", Color.FromArgb(253, 237, 236), Color.FromArgb(168, 28, 28), Color.FromArgb(242, 202, 200), _fontSmall);
+            _btnFilterSpelling = CreateToolbarSlotButton("သတ်ပုံ (0)", Color.FromArgb(253, 237, 236), Color.FromArgb(168, 28, 28), Color.FromArgb(242, 202, 200), _fontSmall, 26);
             _btnFilterSpelling.Click += (s, e) => SetFilterMode(IssueFilterMode.SpellingOnly);
 
-            _btnFilterGrammar = CreatePillButton("သဒ္ဒါ (0)", Color.FromArgb(234, 243, 255), Color.FromArgb(22, 78, 168), Color.FromArgb(196, 218, 248), _fontSmall);
+            _btnFilterGrammar = CreateToolbarSlotButton("သဒ္ဒါ (0)", Color.FromArgb(234, 243, 255), Color.FromArgb(22, 78, 168), Color.FromArgb(196, 218, 248), _fontSmall, 26);
             _btnFilterGrammar.Click += (s, e) => SetFilterMode(IssueFilterMode.GrammarOnly);
 
-            _btnFilterContext = CreatePillButton("အနက် (0)", Color.FromArgb(255, 246, 226), Color.FromArgb(168, 98, 6), Color.FromArgb(245, 214, 152), _fontSmall);
+            _btnFilterContext = CreateToolbarSlotButton("အနက် (0)", Color.FromArgb(255, 246, 226), Color.FromArgb(168, 98, 6), Color.FromArgb(245, 214, 152), _fontSmall, 26);
             _btnFilterContext.Click += (s, e) => SetFilterMode(IssueFilterMode.ContextOnly);
             _toolTip.SetToolTip(_btnFilterContext, "အနက်သံသယ စိစစ်ရန် (ဝါကျအနက်နှင့် တိုက်ဆိုင်စစ်ဆေးရမည့် စကားစပ်သတိပြုချက်များ)");
 
-            _btnPrevIssue = CreatePillButton("↑", Color.FromArgb(242, 244, 248), Color.FromArgb(45, 55, 72), Color.FromArgb(215, 220, 230), _fontSmallBold);
+            _btnPrevIssue = CreateToolbarSlotButton("↑", Color.FromArgb(242, 244, 248), Color.FromArgb(45, 55, 72), Color.FromArgb(215, 220, 230), _fontSmallBold, 26);
             _btnPrevIssue.Click += (s, e) => StepThroughIssues(-1);
             _toolTip.SetToolTip(_btnPrevIssue, "ရှေ့အမှားသို့ သွားရန်");
 
-            _btnNextIssue = CreatePillButton("↓", Color.FromArgb(242, 244, 248), Color.FromArgb(45, 55, 72), Color.FromArgb(215, 220, 230), _fontSmallBold);
+            _btnNextIssue = CreateToolbarSlotButton("↓", Color.FromArgb(242, 244, 248), Color.FromArgb(45, 55, 72), Color.FromArgb(215, 220, 230), _fontSmallBold, 26);
             _btnNextIssue.Click += (s, e) => StepThroughIssues(+1);
             _toolTip.SetToolTip(_btnNextIssue, "နောက်အမှားသို့ သွားရန်");
 
@@ -575,10 +581,12 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Text = "⟳ စစ်ဆေးနေသည်...",
                 Font = _fontSmallBold,
                 ForeColor = Color.FromArgb(20, 74, 162),
-                AutoSize = true,
+                AutoSize = false,
+                AutoEllipsis = true,
+                MinimumSize = new Size(0, 22),
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleLeft,
-                Margin = new Padding(0, 2, 6, 2)
+                Margin = new Padding(0, 1, 6, 1)
             };
 
             _btnStopScan = CreatePillButton(
@@ -602,10 +610,13 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Text = "အသင့်ရှိနေပါသည် — စာရိုက်သည်နှင့် အလိုအလျောက် စစ်ဆေးပေးပါမည်",
                 Font = _fontSmallBold,
                 ForeColor = Color.FromArgb(22, 120, 58),
-                AutoSize = true,
-                Dock = DockStyle.Fill,
+                AutoSize = false,
+                AutoEllipsis = true,
+                Dock = DockStyle.Top,
+                Height = 22,
+                TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
-                Padding = new Padding(2, 2, 2, 1)
+                Padding = new Padding(2, 0, 2, 0)
             };
 
             _proofingToolbar.Controls.Add(styleGrid, 0, 0);
@@ -659,9 +670,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 _searchDebounceTimer.Start();
             };
 
-            _btnLookupSelection = CreatePillButton(
+            _btnLookupSelection = CreateToolbarSlotButton(
                 UiLocalizer.Pick("Selection", "စာတမ်းမှယူ"),
-                Color.FromArgb(234, 243, 255), Color.FromArgb(20, 74, 158), Color.FromArgb(190, 212, 246), _fontSmall);
+                Color.FromArgb(234, 243, 255), Color.FromArgb(20, 74, 158), Color.FromArgb(190, 212, 246), _fontSmall, 28);
             _btnLookupSelection.Click += (s, e) =>
             {
                 string selText = (RequestGetSelectedDocumentText?.Invoke() ?? string.Empty).Trim();
@@ -677,9 +688,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 OpenDictionaryWithQuery(selText);
             };
 
-            _btnClearSearch = CreatePillButton(
+            _btnClearSearch = CreateToolbarSlotButton(
                 UiLocalizer.Pick("Clear", "ရှင်းမည်"),
-                Color.FromArgb(242, 244, 248), Color.FromArgb(50, 60, 76), Color.FromArgb(215, 220, 230), _fontSmall);
+                Color.FromArgb(242, 244, 248), Color.FromArgb(50, 60, 76), Color.FromArgb(215, 220, 230), _fontSmall, 28);
             _btnClearSearch.Click += (s, e) =>
             {
                 _txtDictionarySearch.Text = string.Empty;
@@ -743,10 +754,13 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Text = "သတ်ပုံကျမ်း၊ ပညာရပ် (၅) ရပ်၊ နိုင်ငံ/မြို့နှင့် စကားပုံများ အသင့်ရှာဖွေနိုင်သည်",
                 Font = _fontSmallBold,
                 ForeColor = Color.FromArgb(24, 82, 172),
-                AutoSize = true,
-                Dock = DockStyle.Fill,
+                AutoSize = false,
+                AutoEllipsis = true,
+                Dock = DockStyle.Top,
+                Height = 20,
+                TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
-                Padding = new Padding(2, 2, 2, 1)
+                Padding = new Padding(2, 0, 2, 0)
             };
 
             _dictionaryToolbar.Controls.Add(searchInputGrid, 0, 0);
@@ -773,10 +787,13 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Text = "ဖောင့်ပြောင်း၊ ဂဏန်း/ကျပ်ငွေ၊ မြန်မာသက္ကရာဇ်၊ ရုံးစာ နှင့် အရည်အသွေး စစ်ဆေးချက်",
                 Font = _fontSmallBold,
                 ForeColor = Color.FromArgb(20, 62, 138),
-                AutoSize = true,
-                Dock = DockStyle.Fill,
+                AutoSize = false,
+                AutoEllipsis = true,
+                Dock = DockStyle.Top,
+                Height = 20,
+                TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
-                Padding = new Padding(2, 2, 2, 1)
+                Padding = new Padding(2, 0, 2, 0)
             };
             _toolkitToolbar.Controls.Add(_lblToolkitSummary, 0, 0);
 
@@ -825,9 +842,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 }
             };
 
-            _btnAddCustomWord = CreatePillButton(
+            _btnAddCustomWord = CreateToolbarSlotButton(
                 UiLocalizer.Pick("+ Add Word", "+ မှတ်သားမည်"),
-                Color.FromArgb(24, 90, 188), Color.FromArgb(255, 255, 255), Color.FromArgb(20, 76, 162), _fontSmallBold);
+                Color.FromArgb(24, 90, 188), Color.FromArgb(255, 255, 255), Color.FromArgb(20, 76, 162), _fontSmallBold, 28);
             _btnAddCustomWord.Click += (s, e) => AddManualCustomWordFromInput();
 
             addCustomGrid.Controls.Add(_txtNewCustomWord, 0, 0);
@@ -838,10 +855,13 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Text = "ကိုယ်ပိုင် / ရုံးသုံး မှတ်သားဝေါဟာရများ စာရင်း",
                 Font = _fontSmallBold,
                 ForeColor = Color.FromArgb(35, 65, 118),
-                AutoSize = true,
-                Dock = DockStyle.Fill,
+                AutoSize = false,
+                AutoEllipsis = true,
+                Dock = DockStyle.Top,
+                Height = 20,
+                TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
-                Padding = new Padding(2, 2, 2, 1)
+                Padding = new Padding(2, 0, 2, 0)
             };
 
             _customToolbar.Controls.Add(addCustomGrid, 0, 0);
@@ -1457,6 +1477,30 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             return card;
         }
 
+        private static Button CreateToolbarSlotButton(string text, Color backColor, Color foreColor, Color borderColor, Font font, int height = 28)
+        {
+            var btn = new Button
+            {
+                Text = text,
+                AutoSize = false,
+                AutoEllipsis = true,
+                Height = height,
+                Dock = DockStyle.Fill,
+                BackColor = backColor,
+                ForeColor = foreColor,
+                FlatStyle = FlatStyle.Flat,
+                Font = font,
+                Margin = new Padding(2, 1, 2, 1),
+                Padding = new Padding(2, 0, 2, 0),
+                TextAlign = ContentAlignment.MiddleCenter,
+                Cursor = Cursors.Hand,
+                UseMnemonic = false
+            };
+            btn.FlatAppearance.BorderColor = borderColor;
+            btn.FlatAppearance.BorderSize = 1;
+            return btn;
+        }
+
         private static Button CreatePillButton(string text, Color backColor, Color foreColor, Color borderColor, Font font)
         {
             var btn = new Button
@@ -1472,7 +1516,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Margin = new Padding(2, 2, 2, 2),
                 Padding = new Padding(3, 4, 3, 4),
                 TextAlign = ContentAlignment.MiddleCenter,
-                Cursor = Cursors.Hand
+                Cursor = Cursors.Hand,
+                UseMnemonic = false
             };
             btn.FlatAppearance.BorderColor = borderColor;
             btn.FlatAppearance.BorderSize = 1;
@@ -1481,8 +1526,10 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
         private int GetTargetCardWidth()
         {
-            int w = _cardsPanel.ClientSize.Width - 24;
-            return Math.Max(250, w);
+            int clientW = _cardsPanel.ClientSize.Width;
+            if (clientW <= 80)
+                clientW = Width > 80 ? Width - 22 : 390;
+            return Math.Max(180, clientW - 24);
         }
 
         private void ResizeCardsToFitPanel()

@@ -682,13 +682,28 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 WireTaskPaneEvents(ctrl);
 
                 pane.DockPosition = Office.MsoCTPDockPosition.msoCTPDockPositionRight;
-                pane.Width = 440;
+                bool initialWidthApplied = false;
                 pane.VisibleStateChange += ctp =>
                 {
-                    try { _ribbonUi?.InvalidateControl("BtnToggleTaskPane"); } catch { }
+                    try
+                    {
+                        if (!initialWidthApplied && ctp.Visible)
+                        {
+                            initialWidthApplied = true;
+                            EnsureComfortableStartupPaneWidth(ctp, ctrl);
+                        }
+                        _ribbonUi?.InvalidateControl("BtnToggleTaskPane");
+                    }
+                    catch { }
                 };
+
+                EnsureComfortableStartupPaneWidth(pane, ctrl);
                 if (autoShow)
+                {
                     pane.Visible = true;
+                    initialWidthApplied = true;
+                    EnsureComfortableStartupPaneWidth(pane, ctrl);
+                }
 
                 _windowTaskPanes[hwnd] = (pane, ctrl);
                 _ribbonUi?.InvalidateControl("BtnToggleTaskPane");
@@ -699,6 +714,48 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 AddInDiagnostics.LogException("GetOrCreateActiveWindowTaskPaneControl", ex);
                 return null;
             }
+        }
+
+        private static void EnsureComfortableStartupPaneWidth(Office.CustomTaskPane pane, Control ctrl)
+        {
+            try
+            {
+                float dpiScale = 1.0f;
+                try
+                {
+                    if (ctrl.DeviceDpi > 0)
+                        dpiScale = Math.Max(1.0f, ctrl.DeviceDpi / 96.0f);
+                }
+                catch { }
+
+                int screenWorkWidth = 1920;
+                try { screenWorkWidth = Screen.FromControl(ctrl).WorkingArea.Width; } catch { }
+
+                int targetWidth = Math.Min((int)Math.Round(430 * dpiScale), Math.Max(360, (int)(screenWorkWidth * 0.42)));
+                int minStartupWidth = Math.Min((int)Math.Round(360 * dpiScale), targetWidth);
+
+                if (pane.Width < minStartupWidth)
+                {
+                    pane.Width = targetWidth;
+                }
+
+                if (pane.Visible && ctrl.IsHandleCreated && !ctrl.IsDisposed)
+                {
+                    ctrl.BeginInvoke(new Action(() =>
+                    {
+                        try
+                        {
+                            if (pane.Visible && pane.Width < minStartupWidth)
+                            {
+                                pane.Width = targetWidth;
+                            }
+                            ctrl.PerformLayout();
+                        }
+                        catch { }
+                    }));
+                }
+            }
+            catch { }
         }
 
         private void ScheduleDeferredTaskPaneCreation()

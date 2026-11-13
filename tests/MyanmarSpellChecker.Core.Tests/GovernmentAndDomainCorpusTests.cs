@@ -2205,6 +2205,18 @@ namespace MyanmarSpellChecker.Core.Tests
                 Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "Interop", "SafeUnderlineManager.cs"));
             Assert.Contains("StripAllProofingUnderlines(distinctDocs[i], clearTrackingList: true)", wordUnderlineSource, StringComparison.Ordinal);
 
+            // 2b. Verify responsive 2-tier Task Pane brand header + post-show DPI startup pane width in both Word & Excel
+            string wordTaskPaneSource = File.ReadAllText(
+                Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "ProofingTaskPaneControl.cs"));
+            string excelTaskPaneSource = File.ReadAllText(
+                Path.Combine(excelSrcDir, "UI", "ExcelProofingTaskPaneControl.cs"));
+            string wordAddInSource = File.ReadAllText(
+                Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "ThisAddIn.cs"));
+            Assert.Contains("brandPillsFlow", wordTaskPaneSource, StringComparison.Ordinal);
+            Assert.Contains("brandPillsFlow", excelTaskPaneSource, StringComparison.Ordinal);
+            Assert.Contains("EnsureComfortableStartupPaneWidth", wordAddInSource, StringComparison.Ordinal);
+            Assert.Contains("EnsureComfortableStartupPaneWidth", excelAddInSource, StringComparison.Ordinal);
+
             // 3. Verify screenshot cell ("စားပီးပီ") detection + multi-issue single-cell Quick-Fix stepping ("တာ၀န်ခံ စားပီးပီ")
             string dbPath = Path.Combine(repoRoot, "data", "mlc_thatpon.db");
             Assert.True(File.Exists(dbPath));

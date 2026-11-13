@@ -223,6 +223,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         public ExcelProofingTaskPaneControl()
         {
             AutoScaleMode = AutoScaleMode.Dpi;
+            Size = new Size(430, 720);
             DoubleBuffered = true;
             BackColor = Color.FromArgb(243, 245, 249);
             Font = _fontBody;
@@ -275,44 +276,35 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 }
             };
 
-            // Row 0: Brand Header + Language Switch Pill + Eco Pill + About/License Pill
+            // Row 0: Responsive 2-Tier Brand Header + Wrapping Quick-Action Pills
+            // (Prevents narrow-pane single-character vertical text wrapping on startup or manual resize)
             var brandRow = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 4,
-                RowCount = 1,
-                Margin = new Padding(0, 0, 0, 5)
+                ColumnCount = 1,
+                RowCount = 3,
+                Margin = new Padding(0, 0, 0, 5),
+                Padding = new Padding(0)
             };
             brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             brandRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
-            var titleStack = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 1,
-                RowCount = 2,
-                Margin = new Padding(0)
-            };
-            titleStack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            titleStack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            titleStack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            brandRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            brandRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             _lblBrandTitle = new Label
             {
                 Text = UiLocalizer.Pick("Myanmar Spell Checker (Excel)", "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း (Excel)"),
                 Font = _fontBrandTitle,
                 ForeColor = Color.FromArgb(16, 92, 50),
-                AutoSize = true,
-                Dock = DockStyle.Fill,
+                AutoSize = false,
+                AutoEllipsis = true,
+                Dock = DockStyle.Top,
+                Height = 23,
+                TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
-                Padding = new Padding(6, 1, 4, 2)
+                Padding = new Padding(2, 0, 2, 0)
             };
 
             _lblLexiconStats = new Label
@@ -320,14 +312,25 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Text = UiLocalizer.Pick("Formula-Safe Excel Suite • Htet Yar Zar (KU)", "Formula-Safe Excel Suite • ထက်ရာဇာ (KU)"),
                 Font = _fontBrandStats,
                 ForeColor = Color.FromArgb(88, 100, 118),
-                AutoSize = true,
-                Dock = DockStyle.Fill,
-                Margin = new Padding(0),
-                Padding = new Padding(6, 0, 4, 2)
+                AutoSize = false,
+                AutoEllipsis = true,
+                Dock = DockStyle.Top,
+                Height = 19,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = new Padding(0, 0, 0, 2),
+                Padding = new Padding(2, 0, 2, 0)
             };
 
-            titleStack.Controls.Add(_lblBrandTitle, 0, 0);
-            titleStack.Controls.Add(_lblLexiconStats, 0, 1);
+            var brandPillsFlow = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                WrapContents = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                Margin = new Padding(0),
+                Padding = new Padding(0)
+            };
 
             _btnLangToggle = CreatePillButton(
                 UiLocalizer.FormatLanguageBadge(),
@@ -336,9 +339,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Color.FromArgb(182, 206, 245),
                 _fontSmallBold);
             _btnLangToggle.Dock = DockStyle.None;
-            _btnLangToggle.Anchor = AnchorStyles.Right;
-            _btnLangToggle.Padding = new Padding(6, 3, 6, 3);
-            _btnLangToggle.Margin = new Padding(2, 2, 2, 2);
+            _btnLangToggle.Padding = new Padding(6, 2, 6, 2);
+            _btnLangToggle.Margin = new Padding(0, 1, 4, 1);
             _btnLangToggle.Click += (s, e) => RequestToggleLanguage?.Invoke();
 
             _btnEcoMode = CreatePillButton(
@@ -348,9 +350,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Color.FromArgb(178, 218, 194),
                 _fontSmallBold);
             _btnEcoMode.Dock = DockStyle.None;
-            _btnEcoMode.Anchor = AnchorStyles.Right;
-            _btnEcoMode.Padding = new Padding(6, 3, 6, 3);
-            _btnEcoMode.Margin = new Padding(2, 2, 2, 2);
+            _btnEcoMode.Padding = new Padding(6, 2, 6, 2);
+            _btnEcoMode.Margin = new Padding(0, 1, 4, 1);
             _btnEcoMode.Click += (s, e) => RequestCycleEcoMode?.Invoke();
 
             _btnAboutLic = CreatePillButton(
@@ -360,15 +361,17 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Color.FromArgb(178, 218, 194),
                 _fontSmallBold);
             _btnAboutLic.Dock = DockStyle.None;
-            _btnAboutLic.Anchor = AnchorStyles.Right;
-            _btnAboutLic.Padding = new Padding(8, 3, 8, 3);
-            _btnAboutLic.Margin = new Padding(2, 2, 0, 2);
+            _btnAboutLic.Padding = new Padding(8, 2, 8, 2);
+            _btnAboutLic.Margin = new Padding(0, 1, 0, 1);
             _btnAboutLic.Click += (s, e) => RequestLicenseDialog?.Invoke();
 
-            brandRow.Controls.Add(titleStack, 0, 0);
-            brandRow.Controls.Add(_btnLangToggle, 1, 0);
-            brandRow.Controls.Add(_btnEcoMode, 2, 0);
-            brandRow.Controls.Add(_btnAboutLic, 3, 0);
+            brandPillsFlow.Controls.Add(_btnLangToggle);
+            brandPillsFlow.Controls.Add(_btnEcoMode);
+            brandPillsFlow.Controls.Add(_btnAboutLic);
+
+            brandRow.Controls.Add(_lblBrandTitle, 0, 0);
+            brandRow.Controls.Add(_lblLexiconStats, 0, 1);
+            brandRow.Controls.Add(brandPillsFlow, 0, 2);
 
             // Row 1: 4-Tab Segmented Workspace Switcher
             var tabStrip = new TableLayoutPanel
@@ -445,8 +448,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Text = "စံသတ်ပုံ + Formula ကာကွယ်မှု (အပြောစကား ပါတယ်/တွေ ခွင့်ပြု)",
                 Font = _fontBrandStats,
                 ForeColor = Color.FromArgb(84, 96, 114),
-                AutoSize = true,
-                Dock = DockStyle.Fill,
+                AutoSize = false,
+                AutoEllipsis = true,
+                Dock = DockStyle.Top,
+                Height = 19,
+                TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(1, 0, 1, 4)
             };
 
@@ -578,10 +584,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Text = "⏳ စစ်ဆေးနေသည်...",
                 Font = _fontSmallBold,
                 ForeColor = Color.FromArgb(16, 98, 52),
-                AutoSize = true,
+                AutoSize = false,
+                AutoEllipsis = true,
+                MinimumSize = new Size(0, 22),
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleLeft,
-                Margin = new Padding(0, 2, 6, 2)
+                Margin = new Padding(0, 1, 6, 1)
             };
 
             _btnStopScan = CreatePillButton(
@@ -605,9 +613,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Text = "Sheet စစ်မည် ကိုနှိပ်၍ မြန်မာစာ အကွက်များကို Formula မပျက်စေဘဲ စစ်ဆေးပါ",
                 Font = _fontSmallBold,
                 ForeColor = Color.FromArgb(16, 98, 52),
-                AutoSize = true,
-                Dock = DockStyle.Fill,
-                Margin = new Padding(1, 1, 1, 1)
+                AutoSize = false,
+                AutoEllipsis = true,
+                Dock = DockStyle.Top,
+                Height = 22,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = new Padding(1, 0, 1, 0)
             };
 
             _proofingToolbar.Controls.Add(styleRow, 0, 0);
@@ -660,10 +671,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 _searchDebounceTimer.Start();
             };
 
-            _btnClearDictSearch = CreatePillButton(
+            _btnClearDictSearch = CreateActionButton(
                 UiLocalizer.Pick("Clear", "ရှင်း"),
                 Color.FromArgb(242, 244, 248), Color.FromArgb(65, 75, 92), Color.FromArgb(214, 220, 232), _fontSmall);
-            _btnClearDictSearch.Dock = DockStyle.Fill;
+            _btnClearDictSearch.Height = 28;
             _btnClearDictSearch.Click += (s, e) =>
             {
                 _txtDictionarySearch.Clear();
@@ -707,8 +718,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Text = "မြန်မာ-မြန်မာ အဘိဓာန်ကြီး၊ စွယ်စုံဗဟုသုတ (၂၅,၀၀၀+) နှင့် စကားပုံများ ရှာဖွေနိုင်သည်",
                 Font = _fontSmall,
                 ForeColor = Color.FromArgb(24, 82, 172),
-                AutoSize = true,
-                Dock = DockStyle.Fill
+                AutoSize = false,
+                AutoEllipsis = true,
+                Dock = DockStyle.Top,
+                Height = 20,
+                TextAlign = ContentAlignment.MiddleLeft
             };
 
             _dictionaryToolbar.Controls.Add(searchBoxGrid, 0, 0);
@@ -734,9 +748,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Text = "✓ Formula (=SUM, =IF, =VLOOKUP) နှင့် ကိန်းဂဏန်းတွက်ချက်မှုများကို 100% အလိုအလျောက် ကာကွယ်ထားသည်",
                 Font = _fontSmallBold,
                 ForeColor = Color.FromArgb(16, 108, 56),
-                AutoSize = true,
-                Dock = DockStyle.Fill,
-                Margin = new Padding(1, 2, 1, 2)
+                AutoSize = false,
+                AutoEllipsis = true,
+                Dock = DockStyle.Top,
+                Height = 20,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = new Padding(1, 0, 1, 0)
             };
             _toolkitToolbar.Controls.Add(_lblToolkitSummary, 0, 0);
 
@@ -796,8 +813,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Text = "Word နှင့် Excel နှစ်မျိုးလုံးတွင် တူညီစွာ မျှဝေမှတ်သားထားသော စာလုံးများ",
                 Font = _fontSmall,
                 ForeColor = Color.FromArgb(72, 84, 102),
-                AutoSize = true,
-                Dock = DockStyle.Fill
+                AutoSize = false,
+                AutoEllipsis = true,
+                Dock = DockStyle.Top,
+                Height = 20,
+                TextAlign = ContentAlignment.MiddleLeft
             };
             _customToolbar.Controls.Add(addWordRow, 0, 0);
             _customToolbar.Controls.Add(_lblCustomSummary, 0, 1);
@@ -1227,7 +1247,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             int clientW = _cardsPanel.ClientSize.Width;
             if (clientW <= 80)
                 clientW = Width > 80 ? Width - 22 : 390;
-            return Math.Max(250, clientW - _cardsPanel.Padding.Horizontal - 6);
+            return Math.Max(180, clientW - _cardsPanel.Padding.Horizontal - 6);
         }
 
         private void ReflowCardWidthsIfNeeded()
@@ -1319,12 +1339,14 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             var btn = new Button
             {
                 Text = text,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                AutoSize = false,
+                AutoEllipsis = true,
+                Height = 28,
                 Dock = DockStyle.Fill,
                 FlatStyle = FlatStyle.Flat,
                 Margin = new Padding(1),
-                Padding = new Padding(2, 4, 2, 4),
+                Padding = new Padding(2, 0, 2, 0),
+                TextAlign = ContentAlignment.MiddleCenter,
                 Cursor = Cursors.Hand,
                 UseMnemonic = false
             };
@@ -1337,14 +1359,16 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             var btn = new Button
             {
                 Text = text,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                AutoSize = false,
+                AutoEllipsis = true,
+                Height = 30,
                 Dock = DockStyle.Fill,
                 BackColor = back,
                 ForeColor = fore,
                 FlatStyle = FlatStyle.Flat,
                 Font = font,
-                Padding = new Padding(4, 5, 4, 5),
+                Padding = new Padding(3, 0, 3, 0),
+                TextAlign = ContentAlignment.MiddleCenter,
                 Cursor = Cursors.Hand,
                 UseMnemonic = false
             };
@@ -1357,13 +1381,15 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             var btn = new Button
             {
                 Text = text,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                AutoSize = false,
+                AutoEllipsis = true,
+                Height = 26,
                 Dock = DockStyle.Fill,
                 FlatStyle = FlatStyle.Flat,
                 Font = _fontBrandStats,
                 Margin = new Padding(1),
-                Padding = new Padding(2, 3, 2, 3),
+                Padding = new Padding(2, 0, 2, 0),
+                TextAlign = ContentAlignment.MiddleCenter,
                 Cursor = Cursors.Hand,
                 UseMnemonic = false
             };
