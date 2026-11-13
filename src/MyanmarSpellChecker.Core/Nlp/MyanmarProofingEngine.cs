@@ -32,6 +32,8 @@ namespace MyanmarSpellChecker.Core.Nlp
         private readonly HashSet<string> _sessionIgnoredWords = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> _customUserWords = new HashSet<string>(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, List<ProofingIssue>> _paragraphCache = new ConcurrentDictionary<string, List<ProofingIssue>>(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<(string SylKey, byte Flags), (DictionaryEntry? Best, double Dist)> _fuzzyWindowCache =
+            new ConcurrentDictionary<(string SylKey, byte Flags), (DictionaryEntry? Best, double Dist)>();
         private int _styleModeValue;
         private long _engineStateVersion;
 
@@ -320,6 +322,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 _suggestionEngine = new SuggestionEngine(newTrie);
                 Interlocked.Increment(ref _engineStateVersion);
                 _paragraphCache.Clear();
+                _fuzzyWindowCache.Clear();
             }
             finally
             {
@@ -455,6 +458,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 _suggestionEngine.ClearCache();
                 Interlocked.Increment(ref _engineStateVersion);
                 _paragraphCache.Clear();
+                _fuzzyWindowCache.Clear();
             }
             finally
             {
@@ -537,6 +541,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 _suggestionEngine.ClearCache();
                 Interlocked.Increment(ref _engineStateVersion);
                 _paragraphCache.Clear();
+                _fuzzyWindowCache.Clear();
             }
             finally
             {
@@ -610,6 +615,7 @@ namespace MyanmarSpellChecker.Core.Nlp
         public void TrimMemoryCaches()
         {
             _paragraphCache.Clear();
+            _fuzzyWindowCache.Clear();
             _suggestionEngine.ClearCache();
         }
 
@@ -628,7 +634,9 @@ namespace MyanmarSpellChecker.Core.Nlp
             return false;
         }
 
-        public List<ProofingIssue> CheckText(string text)
+        public List<ProofingIssue> CheckText(string text) => CheckText(text, cacheParagraph: true);
+
+        public List<ProofingIssue> CheckText(string text, bool cacheParagraph)
         {
             if (string.IsNullOrWhiteSpace(text) || !HasAnyMyanmarCodePoint(text))
                 return new List<ProofingIssue>(0);
@@ -636,7 +644,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             _lexiconRwLock.EnterReadLock();
             try
             {
-                return CheckTextCore(text);
+                return CheckTextCore(text, cacheParagraph);
             }
             finally
             {
@@ -644,12 +652,12 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
         }
 
-        private List<ProofingIssue> CheckTextCore(string text)
+        private List<ProofingIssue> CheckTextCore(string text, bool cacheParagraph)
         {
             if (string.IsNullOrWhiteSpace(text))
                 return new List<ProofingIssue>(0);
 
-            bool canCacheParagraph = text.Length <= 2500;
+            bool canCacheParagraph = cacheParagraph && text.Length <= 2500;
             string? cacheKey = canCacheParagraph
                 ? $"{(int)StyleMode}:{Volatile.Read(ref _engineStateVersion)}:{_trie.MutationVersion}:{text}"
                 : null;
@@ -3583,6 +3591,33 @@ namespace MyanmarSpellChecker.Core.Nlp
                 fuzzyMaxDist = bothStandalone ? 0.36 : 0.58;
             }
 
+            bool followedByGeoClassifier = windowLen == 2 && IsFollowedByGeographicClassifier(tokens, startIndex + windowLen);
+
+            (string SylKey, byte Flags) fuzzyCacheKey = default;
+            bool canCacheWindow = windowLen >= 2 && windowLen <= 5 && spanNormalized.Length <= 48;
+            if (canCacheWindow)
+            {
+                string sylKey = windowLen switch
+                {
+                    2 => string.Concat(firstSyl, "\u001F", lastSyl),
+                    3 => string.Concat(firstSyl, "\u001F", tokens[startIndex + 1].NormalizedText, "\u001F", lastSyl),
+                    4 => string.Concat(firstSyl, "\u001F", tokens[startIndex + 1].NormalizedText, "\u001F", tokens[startIndex + 2].NormalizedText, "\u001F", lastSyl),
+                    _ => string.Concat(firstSyl, "\u001F", tokens[startIndex + 1].NormalizedText, "\u001F", tokens[startIndex + 2].NormalizedText, "\u001F", tokens[startIndex + 3].NormalizedText, "\u001F", lastSyl)
+                };
+                byte flags = (byte)(
+                    (hasExactPrefixCompound ? 1 : 0) |
+                    (bothFullStandaloneInL2 ? 2 : 0) |
+                    (isPartialSliceOfRun ? 4 : 0) |
+                    (hasRightVerbalContext ? 8 : 0) |
+                    (followedByGeoClassifier ? 16 : 0));
+                fuzzyCacheKey = (sylKey, flags);
+                if (_fuzzyWindowCache.TryGetValue(fuzzyCacheKey, out var cachedHit))
+                {
+                    bestFuzzyDist = cachedHit.Dist;
+                    return cachedHit.Best;
+                }
+            }
+
             List<DictionaryEntry> phoneticHits = _trie.LookupByPhoneticKey(spanNormalized, out string spanPhoneticKey);
 
             bool zeroEmpiricalBigram = windowLen == 2 &&
@@ -3591,7 +3626,6 @@ namespace MyanmarSpellChecker.Core.Nlp
                                        !ProductiveVerbalAuxiliaries.Contains(lastSyl);
             bool spanHasPaliPatSintOrRetroflex = HasNonKinziPatSintOrRetroflex(spanNormalized);
             bool spanHasNonKinziPatSint = spanHasPaliPatSintOrRetroflex && HasNonKinziPatSint(spanNormalized);
-            bool followedByGeoClassifier = windowLen == 2 && IsFollowedByGeographicClassifier(tokens, startIndex + windowLen);
             bool pureVerbPairInL2 = windowLen == 2 && bothKnownInL2 && bothFullStandaloneInL2 &&
                                     IsPureVerbSyllable(firstSyl) && IsPureVerbSyllable(lastSyl);
             bool anyBoundOrZeroInL2 = windowLen == 2 && bothKnownInL2 && !bothFullStandaloneInL2 &&
@@ -3757,6 +3791,14 @@ namespace MyanmarSpellChecker.Core.Nlp
             hasPreQuery = localHasPre;
             preQuery = localPre;
             bestFuzzyDist = localBestDist;
+            if (canCacheWindow)
+            {
+                if (_fuzzyWindowCache.Count > 24_576)
+                {
+                    _fuzzyWindowCache.Clear();
+                }
+                _fuzzyWindowCache[fuzzyCacheKey] = (bestFuzzy, localBestDist);
+            }
             return bestFuzzy;
         }
 

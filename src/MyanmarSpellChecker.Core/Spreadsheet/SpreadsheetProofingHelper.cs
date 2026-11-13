@@ -280,6 +280,30 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
         }
 
         /// <summary>
+        /// Fast O(k) rectangle hit-test against pre-extracted Excel SpecialCells(xlCellTypeFormulas) areas,
+        /// avoiding 2D Range.Formula BSTR array marshalling across 46,000+ cell sheets while remaining 100% formula-safe.
+        /// </summary>
+        public static bool IsCellInFormulaRects(
+            int rowOneBased,
+            int colOneBased,
+            IReadOnlyList<(int R1, int C1, int R2, int C2)>? sheetFormulaRects)
+        {
+            if (sheetFormulaRects == null || sheetFormulaRects.Count == 0)
+                return false;
+
+            for (int i = 0; i < sheetFormulaRects.Count; i++)
+            {
+                var rect = sheetFormulaRects[i];
+                if (rowOneBased >= rect.R1 && rowOneBased <= rect.R2 &&
+                    colOneBased >= rect.C1 && colOneBased <= rect.C2)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Scans a 2D Value2 + Formula block (supporting both 1-cell scalars, 0-based C# 2D arrays, and 1-based Excel COM SAFEARRAYs)
         /// while strictly skipping formula cells, numbers, dates, booleans, and non-Myanmar strings.
         /// Uses per-scan cell string memoization so sheets with thousands of repeated status/location cells finish in milliseconds.
@@ -298,7 +322,8 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
             Dictionary<string, IReadOnlyList<ProofingIssue>>? sharedCellMemo = null,
             CancellationToken cancellationToken = default,
             int maxIssuesToCollect = int.MaxValue,
-            EcoRuntimeBudgets? explicitBudgets = null)
+            EcoRuntimeBudgets? explicitBudgets = null,
+            IReadOnlyList<(int R1, int C1, int R2, int C2)>? sheetFormulaRects = null)
         {
             if (engine == null)
                 throw new ArgumentNullException(nameof(engine));
@@ -324,8 +349,11 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
             int fmlRowLb = fmlArray?.GetLowerBound(0) ?? 0;
             int fmlColLb = fmlArray?.GetLowerBound(1) ?? 0;
 
+            int workerDegree = Math.Max(1, budgets.ExcelBackgroundWorkers);
+            int microYieldCadence = budgets.ExcelMicroYieldEveryItems;
+
             // Multi-core distinct-string prewarm for large 2D blocks when hardware governor permits >= 2 workers
-            if (valArray != null && blockCells >= 512 && budgets.MaxBackgroundWorkers > 1)
+            if (valArray != null && blockCells >= 256 && workerDegree > 1)
             {
                 HashSet<string>? distinctSet = null;
                 List<string>? unseenList = null;
@@ -335,6 +363,7 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                     if ((r & 63) == 0 && cancellationToken.IsCancellationRequested)
                         return results;
 
+                    int sheetR = baseRowOneBased + r;
                     for (int c = 0; c < colCount; c++)
                     {
                         object? cellVal = valArray[valRowLb + r, valColLb + c];
@@ -342,6 +371,10 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                             continue;
 
                         if (!ShouldInspectCellText(s, out string cellText))
+                            continue;
+
+                        int sheetC = baseColOneBased + c;
+                        if (IsCellInFormulaRects(sheetR, sheetC, sheetFormulaRects))
                             continue;
 
                         object? cellFml = fmlArray != null ? fmlArray[fmlRowLb + r, fmlColLb + c] : null;
@@ -357,14 +390,13 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                     }
                 }
 
-                if (unseenList != null && unseenList.Count >= 32)
+                if (unseenList != null && unseenList.Count >= 24)
                 {
                     var computed = new IReadOnlyList<ProofingIssue>[unseenList.Count];
-                    int maxDegree = budgets.MaxBackgroundWorkers;
                     Parallel.For(
                         0,
                         unseenList.Count,
-                        new ParallelOptions { MaxDegreeOfParallelism = maxDegree },
+                        new ParallelOptions { MaxDegreeOfParallelism = workerDegree },
                         (idx, loopState) =>
                         {
                             if (cancellationToken.IsCancellationRequested)
@@ -372,7 +404,7 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                                 loopState.Stop();
                                 return;
                             }
-                            computed[idx] = engine.CheckText(unseenList[idx]);
+                            computed[idx] = engine.CheckText(unseenList[idx], cacheParagraph: false);
                         });
 
                     if (cancellationToken.IsCancellationRequested)
@@ -394,6 +426,7 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                 if ((r & 31) == 0 && cancellationToken.IsCancellationRequested)
                     return results;
 
+                int sheetRow = baseRowOneBased + r;
                 for (int c = 0; c < colCount; c++)
                 {
                     object? cellVal = valArray != null
@@ -401,6 +434,10 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                         : (r == 0 && c == 0 ? rawValue2Block : null);
 
                     if (!ShouldInspectCellText(cellVal, out string cellText))
+                        continue;
+
+                    int sheetCol = baseColOneBased + c;
+                    if (IsCellInFormulaRects(sheetRow, sheetCol, sheetFormulaRects))
                         continue;
 
                     object? cellFml = fmlArray != null
@@ -416,8 +453,8 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                         if (!memo.TryGetValue(cellText, out cellIssues!))
                         {
                             nlpEvaluations++;
-                            EcoPerformanceGovernor.MaybeMicroYield(nlpEvaluations, budgets.MicroYieldEveryItems);
-                            cellIssues = engine.CheckText(cellText);
+                            EcoPerformanceGovernor.MaybeMicroYield(nlpEvaluations, microYieldCadence);
+                            cellIssues = engine.CheckText(cellText, cacheParagraph: false);
                             if (memo.Count < maxMemoEntries)
                             {
                                 memo[cellText] = cellIssues;
@@ -427,15 +464,12 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                     else
                     {
                         nlpEvaluations++;
-                        EcoPerformanceGovernor.MaybeMicroYield(nlpEvaluations, budgets.MicroYieldEveryItems);
-                        cellIssues = engine.CheckText(cellText);
+                        EcoPerformanceGovernor.MaybeMicroYield(nlpEvaluations, microYieldCadence);
+                        cellIssues = engine.CheckText(cellText, cacheParagraph: false);
                     }
 
                     if (cellIssues == null || cellIssues.Count == 0)
                         continue;
-
-                    int sheetRow = baseRowOneBased + r;
-                    int sheetCol = baseColOneBased + c;
 
                     for (int k = 0; k < cellIssues.Count; k++)
                     {

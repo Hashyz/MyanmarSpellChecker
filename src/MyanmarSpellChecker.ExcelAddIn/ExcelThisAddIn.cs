@@ -400,12 +400,12 @@ namespace MyanmarSpellChecker.ExcelAddIn
 
             _ribbonUi?.Invalidate();
 
-            // Perform non-blocking smart partial scan if a workbook is already open (never blocks startup on huge sheets!)
+            // Perform gentle non-blocking streaming full-sheet scan if a workbook is already open (never blocks startup!)
             try
             {
                 if (_excelApp.ActiveWorkbook != null && ExcelWorkbookScannerAndToolkit.IsExcelReadyForInterop(_excelApp))
                 {
-                    _scannerToolkit.ScheduleDeferredScanScope(SpreadsheetScanScope.ActiveSheet, 250, allowSmartPartialAutoScan: true);
+                    _scannerToolkit.ScheduleDeferredScanScope(SpreadsheetScanScope.ActiveSheet, 250, allowSmartPartialAutoScan: false);
                 }
             }
             catch { }
@@ -545,8 +545,11 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 if (ctrl != null && _scannerToolkit != null)
                 {
                     ctrl.SetEcoModeState(EcoPerformanceGovernor.CurrentPreference, _scannerToolkit.IsEcoActive);
-                    ctrl.SetScanOutcomeMetadata(_scannerToolkit.GetLastScanMetadataForActiveWorkbook());
-                    ctrl.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
+                    if (!_scannerToolkit.IsScanning)
+                    {
+                        ctrl.SetScanOutcomeMetadata(_scannerToolkit.GetLastScanMetadataForActiveWorkbook());
+                        ctrl.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
+                    }
                     ctrl.SetUndoState(_scannerToolkit.UndoManager.UndoCount, _scannerToolkit.UndoManager.LatestDescription);
                 }
                 _quickFixController?.ScheduleRefreshForActiveCell(90);

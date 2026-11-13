@@ -112,11 +112,10 @@ The Excel Add-in provides **100% Non-Destructive Screen-Only Wavy Underlines, Wo
 2. **Word-Style On-Cursor Quick-Fix Popup + Right-Click Menu:**
    - **Click or arrow-navigate onto any flagged cell** (e.g. `A1`) to see the floating **Word-Style Quick-Fix Popup** directly below the cell (without stealing keyboard focus!) with 1-click suggestions, multi-issue cell stepping (`1/2 ▶`), batch same-word fixes, expandable dictionary/grammar notes, `Ignore`, and `+Add Word`.
    - **Right-click any flagged cell** to pick top suggestions directly from Excel's native cell context menu.
-3. **Choose Scan Scope (Ribbon or Task Pane):**
-   - **`Scan Sheet` (`လက်ရှိ Sheet`):** Scans all text cells in the active worksheet in milliseconds using read-only bulk 2D `SAFEARRAY` reads.
-   - **`Scan Selection` (`ရွေးထားကွက်`):** Scans only your highlighted cell range.
-   - **`Scan Workbook` (`Workbook လုံး`):** Scans every worksheet across the entire `.xlsx` workbook.
-   - **`Live Check` (`အလိုအလျောက် စစ်ဆေးမှု`):** Automatically checks cells right after you press `Enter` to finish editing a cell.
+3. **Instant Open + Non-Blocking Streaming Full Scan (46,000–1,000,000 Cells):**
+   - **Zero `"Excel Not Responding"` Freeze on Huge Spreadsheets:** Workbooks with `46,000`–`1,000,000` cells open instantaneously (`< 0.2 s`), render visible screen wavy underlines immediately via viewport-first priority slicing, and gently stream 100% of the active sheet in background `250 × 20` slices (`26–110 ms` UI breathing cadence) with live progress (`⏳ Checking 46,000 cells... 68% (312 issues)`) and a **`[■ Stop]`** button.
+   - **Full True Count (Up to `50,000` Issues) + 1-Click Repeated-Word Batch Fix (`⚡ Repeated Issues`):** Displays the exact true issue count across massive sheets and groups top repeated typos at the top of the Task Pane so identical spelling errors across thousands of rows can be fixed in 1 click!
+   - **Choose Scan Scope (Ribbon or Task Pane):** **`Scan Sheet`**, **`Scan Selection`**, **`Scan Workbook`**, and **`Live Check`** (automatic incremental cell check on `Enter`).
 4. **100% Formula & Number Protection Guarantee:**
    - Cells containing Excel formulas (`=SUM(...)`, `=VLOOKUP(...)`, `=IF(...)`, `=TEXT(...)`), pure accounting numbers, currencies, percentages, and dates are **strictly shielded** and **never** modified during single fixes, `Fix All`, font conversion, or numeral conversion.
 5. **Click-to-Navigate, Fix & 25-Step Undo (`↶ Undo`):**

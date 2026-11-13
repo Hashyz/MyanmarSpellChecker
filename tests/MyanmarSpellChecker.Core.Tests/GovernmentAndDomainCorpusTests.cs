@@ -2466,5 +2466,145 @@ namespace MyanmarSpellChecker.Core.Tests
                     File.Delete(tempBookmarkFile);
             }
         }
+
+        [Fact]
+        public void V54_FortySixThousandCellExcelAntiFreezeTrueCountAndBatchFixVerification()
+        {
+            string root = TestPaths.RepoRoot;
+            string dbPath = Path.Combine(root, "data", "mlc_thatpon.db");
+            Assert.True(File.Exists(dbPath));
+
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            MyanmarTrie trie = repo.LoadIntoTrie(AntiTamperGuard.ReconstructProtectedFallbackKey());
+            var engine = new MyanmarProofingEngine(trie);
+
+            // 1. Verify EcoPerformanceGovernor large-Excel true-count budget (50,000 issues) & worker scaling
+            Assert.True(EcoPerformanceGovernor.IsLargeExcelScope(46_000));
+            var largeBudgets = EcoPerformanceGovernor.ComputeBudgets(isLargeFile: true);
+            Assert.Equal(50_000, largeBudgets.MaxExcelIssuesPerFullScan);
+            Assert.True(largeBudgets.ExcelBackgroundWorkers >= 1);
+
+            // 2. Verify deterministic Viterbi fuzzy-window memoization produces 100% identical NLP results
+            string sampleUniqueA = "အမှတ်စဉ် ၉၀၀၁ — ကျောက်ဆည်မြို့နယ် စာရင်းစစ်ဆေးချက် ဆောင်ရွက်ပီးပီ ဖြစ်ပါသည်။";
+            var coldIssues = engine.CheckText(sampleUniqueA);
+            var warmIssues = engine.CheckText(sampleUniqueA, cacheParagraph: false);
+            Assert.NotEmpty(coldIssues);
+            Assert.Equal(coldIssues.Count, warmIssues.Count);
+            for (int i = 0; i < coldIssues.Count; i++)
+            {
+                Assert.Equal(coldIssues[i].OriginalText, warmIssues[i].OriginalText);
+                Assert.Equal(coldIssues[i].StartIndex, warmIssues[i].StartIndex);
+                Assert.Equal(coldIssues[i].Suggestions.FirstOrDefault()?.Replacement, warmIssues[i].Suggestions.FirstOrDefault()?.Replacement);
+            }
+
+            // 3. Simulate exact 46,000-cell Excel sheet (11,500 rows x 4 cols = 46,000 cells):
+            //    - Col 1: 11,500 UNIQUE Burmese row strings (defeats exact-string memo; exercises _fuzzyWindowCache!)
+            //    - Col 2: Repeated status phrases with typos ("စားပီးပီ" / "လုပ်ငန်း ဆောင်ရွက်ပီးပီ")
+            //    - Col 3: Numeric values (doubles)
+            //    - Col 4: Formula column protected solely via sheetFormulaRects (rawFormulaBlock == null!)
+            const int totalRows = 11_500;
+            const int totalCols = 4;
+            const int sliceRows = 250;
+
+            string[] townships =
+            {
+                "ကျောက်ဆည်မြို့နယ်", "မန္တလေးမြို့တော်", "နေပြည်တော်ကောင်စီ", "ပြင်ဦးလွင်မြို့နယ်",
+                "မိတ္ထီလာခရိုင်", "မြင်းခြံမြို့နယ်", "ညောင်ဦးခရိုင်", "ရမည်းသင်းမြို့နယ်"
+            };
+
+            var liveGrid = new string?[totalRows + 1, totalCols + 1];
+            var formulaRects = new List<(int R1, int C1, int R2, int C2)> { (1, 4, totalRows, 4) };
+            var sharedMemo = new Dictionary<string, IReadOnlyList<ProofingIssue>>(StringComparer.Ordinal);
+            var collected = new List<SpreadsheetCellIssue>(24_000);
+
+            var swScan = System.Diagnostics.Stopwatch.StartNew();
+            for (int baseRow = 1; baseRow <= totalRows; baseRow += sliceRows)
+            {
+                int rowsInSlice = Math.Min(sliceRows, totalRows - baseRow + 1);
+                var valBlock = new object?[rowsInSlice, totalCols];
+
+                for (int r = 0; r < rowsInSlice; r++)
+                {
+                    int absRow = baseRow + r;
+                    string col1 = $"အမှတ်စဉ် {absRow} — {townships[absRow & 7]} စစ်ဆေးချက် ပီးပီ";
+                    string col2 = (absRow % 2 == 0) ? "စားပီးပီ" : "လုပ်ငန်း ဆောင်ရွက်ပီးပီ";
+
+                    liveGrid[absRow, 1] = col1;
+                    liveGrid[absRow, 2] = col2;
+
+                    valBlock[r, 0] = col1;
+                    valBlock[r, 1] = col2;
+                    valBlock[r, 2] = absRow * 1250.50;
+                    // Col 4 has an evaluated string containing a typo, but is inside formulaRects (rawFormulaBlock is null!)
+                    valBlock[r, 3] = "စားပီးပီ";
+                }
+
+                int remaining = largeBudgets.MaxExcelIssuesPerFullScan - collected.Count;
+                var chunkHits = SpreadsheetProofingHelper.ScanBlockValues(
+                    engine,
+                    "Huge46k.xlsx",
+                    "Sheet1",
+                    baseRow,
+                    1,
+                    rowsInSlice,
+                    totalCols,
+                    valBlock,
+                    rawFormulaBlock: null,
+                    blockHasFormula: null,
+                    sharedCellMemo: sharedMemo,
+                    maxIssuesToCollect: remaining,
+                    explicitBudgets: largeBudgets,
+                    sheetFormulaRects: formulaRects);
+
+                if (chunkHits.Count > 0)
+                {
+                    collected.AddRange(chunkHits);
+                }
+            }
+            swScan.Stop();
+
+            // True count must capture ALL 23,000 issues across 11,500 rows without stopping early at 2,500!
+            Assert.True(
+                collected.Count >= 20_000,
+                $"Expected true count >= 20,000 issues on 46,000-cell sheet (not capped at 2,500), got {collected.Count}");
+
+            // Zero formula cells from Column 4 may ever be flagged, even with rawFormulaBlock == null!
+            Assert.DoesNotContain(collected, x => x.Column == 4);
+
+            // Full 46,000-cell scan (with 11,500 unique Burmese sentences) must complete in < 6 seconds (down from 3-5 minutes!)
+            Assert.True(
+                swScan.ElapsedMilliseconds < 6_000,
+                $"Expected 46,000-cell scan to finish in < 6,000 ms, took {swScan.ElapsedMilliseconds} ms");
+
+            // 4. Verify 1-Click Repeated-Word Batch Fix across all 23,000 occurrences executes cleanly in < 1,000 ms
+            var sampleIssue = collected.First(x =>
+                !x.Issue.IsContextualWarning &&
+                x.Issue.Suggestions.Count > 0 &&
+                UnicodeNormalizer.NormalizeCanonicalOrder(x.Issue.OriginalText) == UnicodeNormalizer.NormalizeCanonicalOrder("ပီးပီ"));
+            string topReplacement = sampleIssue.Issue.Suggestions[0].Replacement;
+
+            var swBatch = System.Diagnostics.Stopwatch.StartNew();
+            var batchOps = SpreadsheetProofingHelper.BuildSameWordBatchReplacementsByCell(
+                collected,
+                sampleIssue.Issue.OriginalText,
+                topReplacement,
+                anchor => anchor.Column == 4 ? null : liveGrid[anchor.Row, anchor.Column]);
+            swBatch.Stop();
+
+            Assert.Equal(totalRows * 2, batchOps.Count);
+            Assert.DoesNotContain(batchOps, op => op.Column == 4);
+            Assert.All(batchOps, op => Assert.Contains(
+                UnicodeNormalizer.NormalizeCanonicalOrder(topReplacement),
+                UnicodeNormalizer.NormalizeCanonicalOrder(op.UpdatedText),
+                StringComparison.Ordinal));
+            Assert.True(
+                swBatch.ElapsedMilliseconds < 1_000,
+                $"Expected 23,000-cell repeated-word batch replacement plan in < 1,000 ms, took {swBatch.ElapsedMilliseconds} ms");
+
+            // 5. Static source guard: ensure 17.18-billion-cell ws.Cells.Find("*") never regresses
+            string scannerCs = File.ReadAllText(Path.Combine(root, "src", "MyanmarSpellChecker.ExcelAddIn", "Interop", "ExcelWorkbookScannerAndToolkit.cs"));
+            Assert.DoesNotContain("ws.Cells.Find(", scannerCs, StringComparison.Ordinal);
+            Assert.Contains("used.Find(", scannerCs, StringComparison.Ordinal);
+        }
     }
 }

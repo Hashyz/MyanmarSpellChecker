@@ -147,10 +147,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             int grammarCount = _allItems.Count(i => !i.IsResolved && i.Issue.IsGrammarOrStyle);
             int contextCount = _allItems.Count(i => !i.IsResolved && i.Issue.IsContextualWarning);
 
-            _btnFilterAll.Text = UiLocalizer.Pick($"All ({unresolvedTotal})", $"အားလုံး ({unresolvedTotal})");
-            _btnFilterSpelling.Text = UiLocalizer.Pick($"Spelling ({spellingCount})", $"သတ်ပုံ ({spellingCount})");
-            _btnFilterGrammar.Text = UiLocalizer.Pick($"Grammar ({grammarCount})", $"သဒ္ဒါ ({grammarCount})");
-            _btnFilterContext.Text = UiLocalizer.Pick($"Meaning ({contextCount})", $"အနက် ({contextCount})");
+            _btnFilterAll.Text = UiLocalizer.Pick($"All ({unresolvedTotal:N0})", $"အားလုံး ({unresolvedTotal:N0})");
+            _btnFilterSpelling.Text = UiLocalizer.Pick($"Spelling ({spellingCount:N0})", $"သတ်ပုံ ({spellingCount:N0})");
+            _btnFilterGrammar.Text = UiLocalizer.Pick($"Grammar ({grammarCount:N0})", $"သဒ္ဒါ ({grammarCount:N0})");
+            _btnFilterContext.Text = UiLocalizer.Pick($"Meaning ({contextCount:N0})", $"အနက် ({contextCount:N0})");
 
             ApplyFilterPillAppearance(_btnFilterAll, _currentFilter == IssueFilterMode.All, Color.FromArgb(24, 58, 118), Color.FromArgb(238, 242, 250), Color.FromArgb(45, 58, 78));
             ApplyFilterPillAppearance(_btnFilterSpelling, _currentFilter == IssueFilterMode.SpellingOnly, Color.FromArgb(196, 36, 36), Color.FromArgb(253, 238, 238), Color.FromArgb(158, 28, 28));
@@ -169,6 +169,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
         private void UpdateFixAllButtonState(int spellingCount, int grammarCount, int contextCount)
         {
+            _ = spellingCount;
+            _ = grammarCount;
+            _ = contextCount;
+
             static bool HasChoices(SpreadsheetCellIssue i) =>
                 !i.IsResolved && i.Issue.Suggestions != null && i.Issue.Suggestions.Count > 0;
 
@@ -182,7 +186,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             _btnFixAll.Enabled = reviewableCount > 0;
             _btnFixAll.Text = reviewableCount > 0
-                ? UiLocalizer.Pick($"Fix All ({reviewableCount})", $"စိစစ်ပြင် ({reviewableCount})")
+                ? UiLocalizer.Pick($"Fix All ({reviewableCount:N0})", $"စိစစ်ပြင် ({reviewableCount:N0})")
                 : UiLocalizer.Pick("Fix All", "စိစစ်ပြင်မည်");
             _btnFixAll.BackColor = reviewableCount > 0 ? Color.FromArgb(24, 90, 188) : Color.FromArgb(204, 214, 228);
             _btnFixAll.ForeColor = Color.White;
@@ -309,8 +313,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 _lblSummary.Text = activeCount > 0
                     ? UiLocalizer.Pick(
-                        $"⏹ Scan stopped — showing {activeCount} issue(s) found so far",
-                        $"⏹ စစ်ဆေးမှုကို ရပ်တန့်ထားသည် — တွေ့ရှိပြီးသား ({activeCount}) ခု")
+                        $"⏹ Scan stopped — showing {activeCount:N0} issue(s) found so far",
+                        $"⏹ စစ်ဆေးမှုကို ရပ်တန့်ထားသည် — တွေ့ရှိပြီးသား ({activeCount:N0}) ခု")
                     : UiLocalizer.Pick(
                         "⏹ Scan stopped — click [Scan] to resume checking",
                         "⏹ စစ်ဆေးမှုကို ရပ်တန့်ထားသည် — ထပ်စစ်ရန် [စစ်မည်] ကိုနှိပ်ပါ");
@@ -339,8 +343,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 else
                 {
                     _lblSummary.Text = UiLocalizer.Pick(
-                        $"⚡ {activeCount} issue(s) in nearby cells — click [Scan] for full sheet",
-                        $"⚡ အနီးဝန်းကျင်၌ ({activeCount}) ခု တွေ့သည် — ဇယားတစ်ခုလုံးစစ်ရန် [စစ်မည်] နှိပ်ပါ");
+                        $"⚡ {activeCount:N0} issue(s) in nearby cells — click [Scan] for full sheet",
+                        $"⚡ အနီးဝန်းကျင်၌ ({activeCount:N0}) ခု တွေ့သည် — ဇယားတစ်ခုလုံးစစ်ရန် [စစ်မည်] နှိပ်ပါ");
                     _lblSummary.ForeColor = Color.FromArgb(182, 32, 32);
                 }
                 return;
@@ -354,15 +358,15 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                         "✓ No Myanmar spelling or grammar issues found in scanned cells",
                         "✓ စစ်ဆေးပြီးသော မြန်မာစာ အကွက်များတွင် အမှားအယွင်း မတွေ့ရှိပါ")
                     : UiLocalizer.Pick(
-                        $"No issues in this filter ({totalUnresolved} in other categories)",
-                        $"ဤအမျိုးအစားတွင် တွေ့ရှိချက် မရှိပါ (အခြားအမျိုးအစား၌ {totalUnresolved} ခု ရှိသည်)");
+                        $"No issues in this filter ({totalUnresolved:N0} in other categories)",
+                        $"ဤအမျိုးအစားတွင် တွေ့ရှိချက် မရှိပါ (အခြားအမျိုးအစား၌ {totalUnresolved:N0} ခု ရှိသည်)");
                 _lblSummary.ForeColor = Color.FromArgb(16, 108, 56);
             }
             else
             {
                 _lblSummary.Text = UiLocalizer.Pick(
-                    $"{activeCount} issue(s) found — click any card to jump directly to its cell",
-                    $"တွေ့ရှိချက် ({activeCount}) ခု — ကတ်ကိုနှိပ်၍ သက်ဆိုင်ရာ အကွက် (Cell) သို့ တိုက်ရိုက်သွားနိုင်သည်");
+                    $"{activeCount:N0} issue(s) found — click any card to jump directly to its cell",
+                    $"တွေ့ရှိချက် ({activeCount:N0}) ခု — ကတ်ကိုနှိပ်၍ သက်ဆိုင်ရာ အကွက် (Cell) သို့ တိုက်ရိုက်သွားနိုင်သည်");
                 _lblSummary.ForeColor = filtered.Any(x => !x.Issue.IsGrammarOrStyle && !x.Issue.IsContextualWarning)
                     ? Color.FromArgb(182, 32, 32)
                     : Color.FromArgb(158, 92, 12);
@@ -435,8 +439,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 var prevCard = CreateStyledCardContainer(cardWidth, Color.FromArgb(16, 108, 56));
                 var btnPrevBatch = CreatePillButton(
                     UiLocalizer.Pick(
-                        $"▴ View Previous Issues (#1 to #{_visibleWindowStart})",
-                        $"▴ ရှေ့ပိုင်း တွေ့ရှိချက် (#1 မှ #{_visibleWindowStart}) ပြန်ကြည့်မည်"),
+                        $"▴ View Previous Issues (#1 to #{_visibleWindowStart:N0})",
+                        $"▴ ရှေ့ပိုင်း တွေ့ရှိချက် (#1 မှ #{_visibleWindowStart:N0}) ပြန်ကြည့်မည်"),
                     Color.FromArgb(234, 246, 239),
                     Color.FromArgb(14, 96, 50),
                     Color.FromArgb(182, 220, 196),
@@ -450,6 +454,14 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 prevCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
                 prevCard.Controls.Add(btnPrevBatch, 0, 0);
                 _cardsPanel.Controls.Add(prevCard);
+            }
+            else if (filtered.Count >= 4)
+            {
+                Control? repeatedCard = TryBuildRepeatedIssuesBatchFixCard(filtered, cardWidth, innerWrap);
+                if (repeatedCard != null)
+                {
+                    _cardsPanel.Controls.Add(repeatedCard);
+                }
             }
 
             var sameWordCounts = BuildExcelSameWordCountsMap();
@@ -474,8 +486,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 var moreCard = CreateStyledCardContainer(cardWidth, Color.FromArgb(16, 108, 56));
                 var btnMoreBatch = CreatePillButton(
                     UiLocalizer.Pick(
-                        $"▾ Load Next {nextBatch} Issue(s)  •  {remaining} / {filtered.Count} Remaining",
-                        $"▾ နောက်ထပ် တွေ့ရှိချက် ({nextBatch}) ခု ဆက်လက်ဖော်ပြမည်  •  ကျန်ရှိ ({remaining} / {filtered.Count})"),
+                        $"▾ Load Next {nextBatch:N0} Issue(s)  •  {remaining:N0} / {filtered.Count:N0} Remaining",
+                        $"▾ နောက်ထပ် တွေ့ရှိချက် ({nextBatch:N0}) ခု ဆက်လက်ဖော်ပြမည်  •  ကျန်ရှိ ({remaining:N0} / {filtered.Count:N0})"),
                     Color.FromArgb(234, 246, 239),
                     Color.FromArgb(14, 96, 50),
                     Color.FromArgb(182, 220, 196),
@@ -501,6 +513,122 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             }
 
             _cardsPanel.ResumeLayout(true);
+        }
+
+        private Control? TryBuildRepeatedIssuesBatchFixCard(
+            IReadOnlyList<SpreadsheetCellIssue> filtered,
+            int cardWidth,
+            int innerWrap)
+        {
+            var groups = new Dictionary<string, (string RawOrig, string TopReplacement, int Count)>(StringComparer.Ordinal);
+            for (int i = 0; i < filtered.Count; i++)
+            {
+                SpreadsheetCellIssue item = filtered[i];
+                if (item.IsResolved ||
+                    item.Issue.IsContextualWarning ||
+                    item.Issue.Suggestions == null ||
+                    item.Issue.Suggestions.Count == 0)
+                {
+                    continue;
+                }
+
+                string rawOrig = (item.Issue.OriginalText ?? string.Empty).Trim();
+                string topRep = (item.Issue.Suggestions[0].Replacement ?? string.Empty).Trim();
+                if (string.IsNullOrEmpty(rawOrig) || string.IsNullOrEmpty(topRep))
+                    continue;
+
+                string normOrig = UnicodeNormalizer.NormalizeCanonicalOrder(rawOrig);
+                if (groups.TryGetValue(normOrig, out var existing))
+                {
+                    groups[normOrig] = (existing.RawOrig, existing.TopReplacement, existing.Count + 1);
+                }
+                else
+                {
+                    groups[normOrig] = (rawOrig, topRep, 1);
+                }
+            }
+
+            var topRepeated = groups.Values
+                .Where(g => g.Count >= 3)
+                .OrderByDescending(g => g.Count)
+                .Take(6)
+                .ToList();
+
+            if (topRepeated.Count == 0)
+                return null;
+
+            var card = CreateStyledCardContainer(cardWidth, Color.FromArgb(16, 118, 84));
+            int r = 0;
+
+            var lblTitle = new Label
+            {
+                Text = UiLocalizer.Pick(
+                    "⚡ Repeated Issues — 1-Click Batch Fix",
+                    "⚡ ထပ်ခါတလဲလဲ အမှားများ — တစ်ချက်နှိပ် အစုလိုက်ပြင်ရန်"),
+                Font = _fontBodyBold,
+                ForeColor = Color.FromArgb(14, 98, 68),
+                AutoSize = true,
+                MaximumSize = new Size(innerWrap, 0),
+                Tag = WrapTag,
+                Dock = DockStyle.Fill,
+                UseMnemonic = false,
+                Margin = new Padding(0, 0, 0, 3)
+            };
+            card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            card.Controls.Add(lblTitle, 0, r++);
+
+            var lblSub = new Label
+            {
+                Text = UiLocalizer.Pick(
+                    "Fix identical typos across the entire scanned sheet in 1 click (formulas stay 100% untouched):",
+                    "ဇယားတစ်ခုလုံးရှိ တူညီသောအမှားများကို တစ်ချက်နှိပ်ရုံဖြင့် အမြန်ပြင်နိုင်သည် (Formula များ မထိခိုက်ပါ) -"),
+                Font = _fontBrandStats,
+                ForeColor = Color.FromArgb(72, 86, 104),
+                AutoSize = true,
+                MaximumSize = new Size(innerWrap, 0),
+                Tag = WrapTag,
+                Dock = DockStyle.Fill,
+                UseMnemonic = false,
+                Margin = new Padding(0, 0, 0, 6)
+            };
+            card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            card.Controls.Add(lblSub, 0, r++);
+
+            for (int i = 0; i < topRepeated.Count; i++)
+            {
+                var grp = topRepeated[i];
+                var btn = new WordWrapChoiceButton
+                {
+                    Text = UiLocalizer.Pick(
+                        $"✓✓ \"{grp.RawOrig}\"  ➔  \"{grp.TopReplacement}\"   ({grp.Count:N0} cells)",
+                        $"✓✓ \"{grp.RawOrig}\"  ➔  \"{grp.TopReplacement}\"   ({grp.Count:N0} ကွက်)"),
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    MaximumSize = new Size(innerWrap, 0),
+                    Tag = WrapTag,
+                    Dock = DockStyle.Fill,
+                    UseMnemonic = false,
+                    TextAlign = ContentAlignment.MiddleLeft,
+                    Padding = new Padding(8, 5, 8, 5),
+                    Margin = new Padding(0, 0, 0, i == topRepeated.Count - 1 ? 0 : 4),
+                    BackColor = Color.FromArgb(232, 248, 239),
+                    ForeColor = Color.FromArgb(14, 78, 54),
+                    FlatStyle = FlatStyle.Flat,
+                    Font = _fontSmallBold,
+                    Cursor = Cursors.Hand
+                };
+                btn.FlatAppearance.BorderColor = Color.FromArgb(148, 212, 176);
+                btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(208, 240, 222);
+
+                string origCapture = grp.RawOrig;
+                string repCapture = grp.TopReplacement;
+                btn.Click += (s, e) => RequestApplyBatchSuggestion?.Invoke(origCapture, repCapture);
+
+                card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                card.Controls.Add(btn, 0, r++);
+            }
+
+            return card;
         }
 
         private Control BuildExcelIssueCard(

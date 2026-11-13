@@ -51,11 +51,14 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
     /// </summary>
     public sealed class ExcelWorkbookScannerAndToolkit : IDisposable
     {
-        private const int MaxRowsPerChunk = 2000;
-        private const int MaxColsPerChunk = 64;
-        private const int MaxCellsPerFullScan = 250_000;
+        private const int MaxRowsPerChunk = 1000;
+        private const int MaxColsPerChunk = 32;
+        private const int StreamingRowsPerChunk = 250;
+        private const int StreamingColsPerChunk = 20;
+        private const int MaxCellsPerFullScan = 1_000_000;
+        private const int ExtremeAutoPartialFallbackThreshold = 500_000;
         private const int MaxCellsPerLiveEditScan = 5_000;
-        private const int ExtractSliceBudgetMs = 10;
+        private const int ExtractSliceBudgetMs = 6;
 
         // Legacy sentinel OLE BGR colors written only by older pre-overlay builds (used solely to auto-heal old workbooks back to black)
         public const int LegacyOleColorSpellingRed = 0x001C1CD2;  // RGB(210, 28, 28)
@@ -97,6 +100,21 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             public object? Val2 { get; set; }
             public object? Formula { get; set; }
             public bool? HasFormula { get; set; }
+            public IReadOnlyList<(int R1, int C1, int R2, int C2)>? SheetFormulaRects { get; set; }
+        }
+
+        private readonly struct SheetFormulaLayoutInfo
+        {
+            public readonly bool AllFormulas;
+            public readonly bool ZeroFormulas;
+            public readonly List<(int R1, int C1, int R2, int C2)>? FormulaRects;
+
+            public SheetFormulaLayoutInfo(bool allFormulas, bool zeroFormulas, List<(int R1, int C1, int R2, int C2)>? formulaRects)
+            {
+                AllFormulas = allFormulas;
+                ZeroFormulas = zeroFormulas;
+                FormulaRects = formulaRects;
+            }
         }
 
         private sealed class PendingExtractionState
@@ -105,10 +123,14 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
             public int Generation { get; set; }
             public string WorkbookName { get; set; } = string.Empty;
+            public Dictionary<string, Excel.Worksheet> WorksheetMap { get; set; } =
+                new Dictionary<string, Excel.Worksheet>(StringComparer.OrdinalIgnoreCase);
+            public Dictionary<string, SheetFormulaLayoutInfo> SheetFormulaInfo { get; } =
+                new Dictionary<string, SheetFormulaLayoutInfo>(StringComparer.OrdinalIgnoreCase);
             public Queue<PendingChunkSpec> Chunks { get; } = new Queue<PendingChunkSpec>();
             public int TotalChunksPlanned { get; set; }
-            public int ChunksExtractedCount { get; set; }
-            public int ChunksProcessedCount { get; set; }
+            public int ChunksExtractedCount;
+            public int ChunksProcessedCount;
             public long TotalScopeCells { get; set; }
             public long ScannedCells { get; set; }
             public bool WasPartialAutoScan { get; set; }
@@ -117,8 +139,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             public Queue<ExtractedExcelBlock> ReadyBlocks { get; } = new Queue<ExtractedExcelBlock>(4);
             public bool ExtractionFinished { get; set; }
             public bool ConsumerRunning { get; set; }
+            public volatile bool FirstViewportPublished;
             public volatile bool StopRequestedByIssueCap;
-            public List<SpreadsheetCellIssue> CollectedIssues { get; } = new List<SpreadsheetCellIssue>(128);
+            public List<SpreadsheetCellIssue> CollectedIssues { get; } = new List<SpreadsheetCellIssue>(256);
             public Dictionary<string, IReadOnlyList<ProofingIssue>> SharedMemo { get; } =
                 new Dictionary<string, IReadOnlyList<ProofingIssue>>(StringComparer.Ordinal);
             public CancellationToken Token { get; set; }
@@ -147,7 +170,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
         private readonly System.Windows.Forms.Timer _deferredScanTimer;
         private readonly System.Windows.Forms.Timer _extractChunkTimer;
         private SpreadsheetScanScope _deferredScanScope = SpreadsheetScanScope.ActiveSheet;
-        private bool _deferredAllowPartialAutoScan = true;
+        private bool _deferredAllowPartialAutoScan = false;
         private int _scanGeneration;
         private CancellationTokenSource? _activeScanCts;
         private PendingExtractionState? _activeExtractState;
@@ -158,6 +181,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
         public bool IsLiveAutoScanEnabled { get; set; } = true;
         public bool IsVisualUnderlineEnabled { get; set; } = true;
         public bool IsEcoActive => _lastEcoActive;
+        public bool IsScanning => _activeExtractState != null || _activeScanCts != null;
         public int VisualStateVersion { get; private set; }
         public SpreadsheetScanScope CurrentScope { get; set; } = SpreadsheetScanScope.ActiveSheet;
         public SpreadsheetUndoManager UndoManager => _undoManager;
@@ -180,7 +204,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             _deferredScanTimer = new System.Windows.Forms.Timer { Interval = 220 };
             _deferredScanTimer.Tick += OnDeferredScanTimerTick;
 
-            _extractChunkTimer = new System.Windows.Forms.Timer { Interval = 14 };
+            _extractChunkTimer = new System.Windows.Forms.Timer { Interval = 28 };
             _extractChunkTimer.Tick += OnExtractChunkTimerTick;
         }
 
@@ -303,15 +327,41 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
         public void CancelUserScan()
         {
+            PendingExtractionState? running = _activeExtractState;
+            List<SpreadsheetCellIssue>? partialSnapshot = null;
+            string wbKey = running?.WorkbookName ?? GetActiveWorkbookKey();
+            long partialScanned = running?.ScannedCells ?? 0;
+            long partialTotal = running?.TotalScopeCells ?? 0;
+
+            if (running != null)
+            {
+                lock (running.StreamSync)
+                {
+                    if (running.CollectedIssues.Count > 0)
+                    {
+                        partialSnapshot = new List<SpreadsheetCellIssue>(running.CollectedIssues);
+                        partialSnapshot.Sort(CompareIssuesByLocation);
+                    }
+                }
+            }
+
             CancelActiveAsyncPipeline();
-            string wbKey = GetActiveWorkbookKey();
             if (!string.IsNullOrEmpty(wbKey))
             {
+                if (partialSnapshot != null)
+                {
+                    _issuesByWorkbook[wbKey] = partialSnapshot;
+                    _qualityByWorkbook.Remove(wbKey);
+                }
+
                 _scanMetaByWorkbook[wbKey] = new ExcelScanOutcomeMetadata
                 {
                     IsEcoActive = _lastEcoActive,
-                    WasCancelled = true
+                    WasCancelled = true,
+                    ScannedCellCount = partialScanned,
+                    TotalScopeCells = partialTotal
                 };
+                NotifyVisualUnderlinesInvalidated();
             }
             ScanCompleted?.Invoke(GetCachedIssuesForActiveWorkbook());
         }
@@ -360,9 +410,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
         }
 
         /// <summary>
-        /// Schedules a debounced non-blocking scan (ideal for WorkbookOpen and rapid Sheet tab switching).
+        /// Schedules a debounced non-blocking background scan (ideal for WorkbookOpen and rapid Sheet tab switching).
+        /// Streams 100% of normal and large active sheets gently without freezing Excel's UI thread.
         /// </summary>
-        public void ScheduleDeferredScanScope(SpreadsheetScanScope scope, int delayMs = 220, bool allowSmartPartialAutoScan = true)
+        public void ScheduleDeferredScanScope(SpreadsheetScanScope scope, int delayMs = 220, bool allowSmartPartialAutoScan = false)
         {
             if (_disposed)
                 return;
@@ -453,7 +504,6 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                     ScannedCellCount = 0,
                     TotalScopeCells = 0
                 };
-                HealLegacySentinelMarksIfPresentOnce(wb, wbName);
                 ScanCompleted?.Invoke(Array.Empty<SpreadsheetCellIssue>());
                 NotifyVisualUnderlinesInvalidated();
                 return;
@@ -464,11 +514,52 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             {
                 ScanProgressChanged?.Invoke(
                     5,
-                    UiLocalizer.Pick("⏳ Reading spreadsheet cells...", "⏳ အကွက်များ ဖတ်ယူစစ်ဆေးနေသည်..."));
+                    UiLocalizer.Pick(
+                        $"⏳ Checking {state.ScannedCells:N0} cells...",
+                        $"⏳ အကွက် {state.ScannedCells:N0} စစ်ဆေးနေသည်..."));
             }
 
             _activeExtractState = state;
             ProcessExtractionSlice();
+        }
+
+        private static SheetFormulaLayoutInfo InspectSheetFormulaLayout(Excel.Range used)
+        {
+            bool? hf = ReadRangeHasFormulaTriState(used);
+            if (hf == true)
+                return new SheetFormulaLayoutInfo(allFormulas: true, zeroFormulas: false, formulaRects: null);
+            if (hf == false)
+                return new SheetFormulaLayoutInfo(allFormulas: false, zeroFormulas: true, formulaRects: null);
+
+            try
+            {
+                Excel.Range? fmlCells = used.SpecialCells(Excel.XlCellType.xlCellTypeFormulas);
+                if (fmlCells != null)
+                {
+                    Excel.Areas areas = fmlCells.Areas;
+                    int areaCount = areas.Count;
+                    if (areaCount > 0 && areaCount <= 2048)
+                    {
+                        var rects = new List<(int R1, int C1, int R2, int C2)>(areaCount);
+                        for (int idx = 1; idx <= areaCount; idx++)
+                        {
+                            Excel.Range ar = areas[idx];
+                            int r1 = ar.Row;
+                            int c1 = ar.Column;
+                            int r2 = r1 + ar.Rows.Count - 1;
+                            int c2 = c1 + ar.Columns.Count - 1;
+                            rects.Add((r1, c1, r2, c2));
+                        }
+                        return new SheetFormulaLayoutInfo(allFormulas: false, zeroFormulas: false, formulaRects: rects);
+                    }
+                }
+            }
+            catch
+            {
+                // Protected sheet or >2048 disjoint formula areas: fall back cleanly to per-chunk HasFormula/Formula
+            }
+
+            return new SheetFormulaLayoutInfo(allFormulas: false, zeroFormulas: false, formulaRects: null);
         }
 
         private void EnqueueScopeChunkSpecs(
@@ -477,71 +568,13 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             PendingExtractionState state,
             bool allowSmartPartialAutoScan)
         {
-            long estimatedTotalCells = EstimateTotalScopeCells(wb, scope);
-            bool isLargeScope = EcoPerformanceGovernor.IsLargeExcelScope(estimatedTotalCells);
-            EcoRuntimeBudgets budgets = EcoPerformanceGovernor.ComputeBudgets(isLargeScope);
-            state.TotalScopeCells = estimatedTotalCells;
-            state.Budgets = budgets;
+            state.WorksheetMap = BuildWorksheetMap(wb);
 
-            // Smart Partial Auto-Scan on Open / Sheet Switch: protect weak ("potato") PCs & huge sheets!
-            if (allowSmartPartialAutoScan &&
-                scope != SpreadsheetScanScope.Selection &&
-                (isLargeScope || (budgets.IsEcoActive && estimatedTotalCells >= 3_000)))
-            {
-                if (TryEnqueuePartialViewportChunks(wb, state.Chunks, budgets.MaxAutoOpenExcelCells, out long partialCells))
-                {
-                    state.WasPartialAutoScan = true;
-                    state.ScannedCells = partialCells;
-                    return;
-                }
-            }
+            var resolvedTargets = new List<(Excel.Worksheet Ws, string SheetName, Excel.Range EffectiveRange, bool IsActiveSheet)>();
+            long estimatedTotalCells = 0;
 
-            int chunkRowSize = budgets.IsEcoActive ? 800 : MaxRowsPerChunk;
-            int chunkColSize = budgets.IsEcoActive ? 32 : MaxColsPerChunk;
-            int budgetRemaining = MaxCellsPerFullScan;
-            long plannedCells = 0;
-
-            void EnqueueWorksheetRange(Excel.Worksheet ws, Excel.Range rangeToScan, bool alreadyTrimmedUsed)
-            {
-                if (budgetRemaining <= 0)
-                    return;
-
-                Excel.Range? effective = rangeToScan;
-                if (!alreadyTrimmedUsed)
-                {
-                    Excel.Range? used = SafeGetUsedRange(ws);
-                    if (used == null)
-                        return;
-                    effective = SafeIntersect(rangeToScan, used);
-                    if (effective == null)
-                        return;
-                }
-
-                string sheetName = SafeGetSheetName(ws);
-                foreach (Excel.Range area in effective.Areas)
-                {
-                    if (budgetRemaining <= 0)
-                        break;
-
-                    int areaRow = area.Row;
-                    int areaCol = area.Column;
-                    int areaRows = area.Rows.Count;
-                    int areaCols = area.Columns.Count;
-
-                    for (int rOffset = 0; rOffset < areaRows && budgetRemaining > 0; rOffset += chunkRowSize)
-                    {
-                        int chunkRows = Math.Min(chunkRowSize, areaRows - rOffset);
-                        for (int cOffset = 0; cOffset < areaCols && budgetRemaining > 0; cOffset += chunkColSize)
-                        {
-                            int chunkCols = Math.Min(chunkColSize, areaCols - cOffset);
-                            int cellSlice = chunkRows * chunkCols;
-                            budgetRemaining -= cellSlice;
-                            plannedCells += cellSlice;
-                            state.Chunks.Enqueue(new PendingChunkSpec(sheetName, areaRow + rOffset, areaCol + cOffset, chunkRows, chunkCols));
-                        }
-                    }
-                }
-            }
+            Excel.Worksheet? activeWsRef = null;
+            try { activeWsRef = wb.ActiveSheet as Excel.Worksheet; } catch { }
 
             if (scope == SpreadsheetScanScope.Selection)
             {
@@ -549,16 +582,22 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 try { selRange = _excelApp.Selection as Excel.Range; } catch { }
                 if (selRange?.Worksheet is Excel.Worksheet ws)
                 {
-                    EnqueueWorksheetRange(ws, selRange, alreadyTrimmedUsed: false);
+                    Excel.Range? used = SafeGetUsedRange(ws);
+                    Excel.Range? eff = used != null ? SafeIntersect(selRange, used) : selRange;
+                    if (eff != null)
+                    {
+                        estimatedTotalCells = SafeGetCountLarge(eff);
+                        string sName = SafeGetSheetName(ws);
+                        if (used != null && !state.SheetFormulaInfo.ContainsKey(sName))
+                            state.SheetFormulaInfo[sName] = InspectSheetFormulaLayout(used);
+                        resolvedTargets.Add((ws, sName, eff, true));
+                    }
                 }
             }
             else if (scope == SpreadsheetScanScope.EntireWorkbook)
             {
                 foreach (object rawSheet in wb.Worksheets)
                 {
-                    if (budgetRemaining <= 0)
-                        break;
-
                     if (rawSheet is Excel.Worksheet ws)
                     {
                         bool visible = true;
@@ -569,19 +608,122 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                         Excel.Range? used = SafeGetUsedRange(ws);
                         if (used != null)
                         {
-                            EnqueueWorksheetRange(ws, used, alreadyTrimmedUsed: true);
+                            long cnt = SafeGetCountLarge(used);
+                            if (cnt <= 0)
+                                continue;
+                            estimatedTotalCells += cnt;
+                            string sName = SafeGetSheetName(ws);
+                            var fmlLayout = InspectSheetFormulaLayout(used);
+                            state.SheetFormulaInfo[sName] = fmlLayout;
+                            if (!fmlLayout.AllFormulas)
+                            {
+                                bool isActive = activeWsRef != null && string.Equals(sName, SafeGetSheetName(activeWsRef), StringComparison.OrdinalIgnoreCase);
+                                resolvedTargets.Add((ws, sName, used, isActive));
+                            }
+                        }
+                    }
+                }
+                // Scan the active sheet first even when scanning EntireWorkbook so screen underlines appear right away!
+                resolvedTargets.Sort((a, b) => b.IsActiveSheet.CompareTo(a.IsActiveSheet));
+            }
+            else if (activeWsRef != null)
+            {
+                Excel.Range? used = SafeGetUsedRange(activeWsRef);
+                if (used != null)
+                {
+                    estimatedTotalCells = SafeGetCountLarge(used);
+                    if (estimatedTotalCells > 0)
+                    {
+                        string sName = SafeGetSheetName(activeWsRef);
+                        var fmlLayout = InspectSheetFormulaLayout(used);
+                        state.SheetFormulaInfo[sName] = fmlLayout;
+                        if (!fmlLayout.AllFormulas)
+                        {
+                            resolvedTargets.Add((activeWsRef, sName, used, true));
                         }
                     }
                 }
             }
-            else
+
+            bool isLargeScope = EcoPerformanceGovernor.IsLargeExcelScope(estimatedTotalCells);
+            EcoRuntimeBudgets budgets = EcoPerformanceGovernor.ComputeBudgets(isLargeScope);
+            state.TotalScopeCells = estimatedTotalCells;
+            state.Budgets = budgets;
+
+            // Only fall back to partial viewport preview if caller explicitly requested partial mode AND sheet exceeds 500,000 cells
+            if (allowSmartPartialAutoScan &&
+                scope != SpreadsheetScanScope.Selection &&
+                estimatedTotalCells > ExtremeAutoPartialFallbackThreshold)
             {
-                if (wb.ActiveSheet is Excel.Worksheet activeSheet)
+                if (TryEnqueuePartialViewportChunks(wb, state.Chunks, budgets.MaxAutoOpenExcelCells, out long partialCells))
                 {
-                    Excel.Range? used = SafeGetUsedRange(activeSheet);
-                    if (used != null)
+                    state.WasPartialAutoScan = true;
+                    state.ScannedCells = partialCells;
+                    return;
+                }
+            }
+
+            int chunkRowSize = StreamingRowsPerChunk;
+            int chunkColSize = StreamingColsPerChunk;
+            int budgetRemaining = MaxCellsPerFullScan;
+            long plannedCells = 0;
+
+            int visibleAnchorRow = 1;
+            try
+            {
+                Excel.Range? vis = _excelApp.ActiveWindow?.VisibleRange;
+                if (vis != null)
+                    visibleAnchorRow = Math.Max(1, vis.Row);
+            }
+            catch { }
+
+            void EnqueueRowBand(string sheetName, int areaRow, int areaCol, int areaCols, int rStartOffset, int rEndOffset)
+            {
+                for (int rOffset = rStartOffset; rOffset < rEndOffset && budgetRemaining > 0; rOffset += chunkRowSize)
+                {
+                    int chunkRows = Math.Min(chunkRowSize, rEndOffset - rOffset);
+                    for (int cOffset = 0; cOffset < areaCols && budgetRemaining > 0; cOffset += chunkColSize)
                     {
-                        EnqueueWorksheetRange(activeSheet, used, alreadyTrimmedUsed: true);
+                        int chunkCols = Math.Min(chunkColSize, areaCols - cOffset);
+                        int cellSlice = chunkRows * chunkCols;
+                        budgetRemaining -= cellSlice;
+                        plannedCells += cellSlice;
+                        state.Chunks.Enqueue(new PendingChunkSpec(sheetName, areaRow + rOffset, areaCol + cOffset, chunkRows, chunkCols));
+                    }
+                }
+            }
+
+            foreach (var target in resolvedTargets)
+            {
+                if (budgetRemaining <= 0)
+                    break;
+
+                foreach (Excel.Range area in target.EffectiveRange.Areas)
+                {
+                    if (budgetRemaining <= 0)
+                        break;
+
+                    int areaRow = area.Row;
+                    int areaCol = area.Column;
+                    int areaRows = area.Rows.Count;
+                    int areaCols = area.Columns.Count;
+
+                    // Viewport-first priority: enqueue the currently visible rows FIRST so wavy underlines render in <150ms!
+                    if (target.IsActiveSheet && areaRows > chunkRowSize)
+                    {
+                        int relVisStart = Math.Max(0, Math.Min(areaRows - 1, (visibleAnchorRow - areaRow) - 10));
+                        int alignedStart = (relVisStart / chunkRowSize) * chunkRowSize;
+                        int priorityEnd = Math.Min(areaRows, alignedStart + chunkRowSize);
+
+                        EnqueueRowBand(target.SheetName, areaRow, areaCol, areaCols, alignedStart, priorityEnd);
+                        if (priorityEnd < areaRows)
+                            EnqueueRowBand(target.SheetName, areaRow, areaCol, areaCols, priorityEnd, areaRows);
+                        if (alignedStart > 0)
+                            EnqueueRowBand(target.SheetName, areaRow, areaCol, areaCols, 0, alignedStart);
+                    }
+                    else
+                    {
+                        EnqueueRowBand(target.SheetName, areaRow, areaCol, areaCols, 0, areaRows);
                     }
                 }
             }
@@ -717,6 +859,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 if (state.ReadyBlocks.Count >= PendingExtractionState.MaxBufferedBlocksInRam)
                 {
                     EnsureStreamingConsumerRunning(state);
+                    _extractChunkTimer.Interval = 32;
                     _extractChunkTimer.Start();
                     return;
                 }
@@ -724,7 +867,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
             if (!IsExcelReadyForInterop(_excelApp))
             {
-                // User started typing in a cell or dragging; pause briefly and retry without blocking UI
+                // User started typing in a cell or dragging; pause gently and retry without blocking UI
+                _extractChunkTimer.Interval = 65;
                 _extractChunkTimer.Start();
                 return;
             }
@@ -738,9 +882,15 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 return;
             }
 
-            var wsMap = BuildWorksheetMap(wb);
+            if (state.WorksheetMap.Count == 0)
+            {
+                state.WorksheetMap = BuildWorksheetMap(wb);
+            }
+            var wsMap = state.WorksheetMap;
             var sw = Stopwatch.StartNew();
-            int sliceBudget = state.Budgets.IsEcoActive ? 7 : ExtractSliceBudgetMs;
+            bool gentleSingleChunkPacing = state.TotalChunksPlanned > 2 && (state.Budgets.IsEcoActive || state.TotalScopeCells >= 8_000);
+            int sliceBudget = gentleSingleChunkPacing ? 4 : ExtractSliceBudgetMs;
+            int chunksThisTick = 0;
 
             try
             {
@@ -756,43 +906,84 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
                     PendingChunkSpec spec = state.Chunks.Dequeue();
                     state.ChunksExtractedCount++;
+                    chunksThisTick++;
 
                     if (wsMap.TryGetValue(spec.SheetName, out Excel.Worksheet? ws) && ws != null)
                     {
-                        Excel.Range chunk = (spec.Rows == 1 && spec.Cols == 1)
-                            ? (Excel.Range)ws.Cells[spec.BaseRow, spec.BaseCol]
-                            : ws.Range[ws.Cells[spec.BaseRow, spec.BaseCol], ws.Cells[spec.BaseRow + spec.Rows - 1, spec.BaseCol + spec.Cols - 1]];
-
-                        bool? hasFormula = ReadRangeHasFormulaTriState(chunk);
-                        if (hasFormula != true)
+                        bool hasPrecomputedLayout = state.SheetFormulaInfo.TryGetValue(spec.SheetName, out var fmlLayout);
+                        if (hasPrecomputedLayout && fmlLayout.AllFormulas)
                         {
-                            object? val2 = chunk.Value2;
-                            if (val2 != null)
+                            // Entire sheet is formulas; skip immediately with zero COM calls
+                        }
+                        else
+                        {
+                            Excel.Range chunk = (spec.Rows == 1 && spec.Cols == 1)
+                                ? (Excel.Range)ws.Cells[spec.BaseRow, spec.BaseCol]
+                                : ws.Range[ws.Cells[spec.BaseRow, spec.BaseCol], ws.Cells[spec.BaseRow + spec.Rows - 1, spec.BaseCol + spec.Cols - 1]];
+
+                            if (hasPrecomputedLayout && (fmlLayout.ZeroFormulas || fmlLayout.FormulaRects != null))
                             {
-                                object? fml = hasFormula == null ? chunk.Formula : null;
-                                var block = new ExtractedExcelBlock
+                                // Fast 1-COM-call path: read ONLY Value2 (zero HasFormula & zero 2D Formula BSTR marshalling!)
+                                object? val2 = chunk.Value2;
+                                if (val2 != null)
                                 {
-                                    SheetName = spec.SheetName,
-                                    BaseRow = spec.BaseRow,
-                                    BaseCol = spec.BaseCol,
-                                    Rows = spec.Rows,
-                                    Cols = spec.Cols,
-                                    Val2 = val2,
-                                    Formula = fml,
-                                    HasFormula = hasFormula
-                                };
-                                lock (state.StreamSync)
-                                {
-                                    state.ReadyBlocks.Enqueue(block);
+                                    var block = new ExtractedExcelBlock
+                                    {
+                                        SheetName = spec.SheetName,
+                                        BaseRow = spec.BaseRow,
+                                        BaseCol = spec.BaseCol,
+                                        Rows = spec.Rows,
+                                        Cols = spec.Cols,
+                                        Val2 = val2,
+                                        Formula = null,
+                                        HasFormula = false,
+                                        SheetFormulaRects = fmlLayout.FormulaRects
+                                    };
+                                    lock (state.StreamSync)
+                                    {
+                                        state.ReadyBlocks.Enqueue(block);
+                                    }
+                                    EnsureStreamingConsumerRunning(state);
                                 }
-                                EnsureStreamingConsumerRunning(state);
+                            }
+                            else
+                            {
+                                bool? hasFormula = ReadRangeHasFormulaTriState(chunk);
+                                if (hasFormula != true)
+                                {
+                                    object? val2 = chunk.Value2;
+                                    if (val2 != null)
+                                    {
+                                        object? fml = hasFormula == null ? chunk.Formula : null;
+                                        var block = new ExtractedExcelBlock
+                                        {
+                                            SheetName = spec.SheetName,
+                                            BaseRow = spec.BaseRow,
+                                            BaseCol = spec.BaseCol,
+                                            Rows = spec.Rows,
+                                            Cols = spec.Cols,
+                                            Val2 = val2,
+                                            Formula = fml,
+                                            HasFormula = hasFormula
+                                        };
+                                        lock (state.StreamSync)
+                                        {
+                                            state.ReadyBlocks.Enqueue(block);
+                                        }
+                                        EnsureStreamingConsumerRunning(state);
+                                    }
+                                }
                             }
                         }
                     }
 
-                    if (sw.ElapsedMilliseconds >= sliceBudget && state.Chunks.Count > 0)
+                    if ((gentleSingleChunkPacing && chunksThisTick >= 1 && state.Chunks.Count > 0) ||
+                        (sw.ElapsedMilliseconds >= sliceBudget && state.Chunks.Count > 0))
                     {
                         EnsureStreamingConsumerRunning(state);
+                        _extractChunkTimer.Interval = state.TotalChunksPlanned > 2
+                            ? Math.Max(26, Math.Min(110, (int)(sw.ElapsedMilliseconds * 3) + 20))
+                            : 14;
                         _extractChunkTimer.Start();
                         return;
                     }
@@ -800,6 +991,13 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             }
             catch (COMException ex) when (IsTransientExcelBusyComError(ex))
             {
+                // Transient Excel busy state (e.g. user clicked formula bar): pause gently and retry remaining chunks!
+                if (state.Chunks.Count > 0)
+                {
+                    _extractChunkTimer.Interval = 90;
+                    _extractChunkTimer.Start();
+                    return;
+                }
                 _activeExtractState = null;
                 ScanCompleted?.Invoke(GetCachedIssuesForActiveWorkbook());
                 return;
@@ -815,6 +1013,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             if (state.Chunks.Count > 0 && !state.StopRequestedByIssueCap)
             {
                 EnsureStreamingConsumerRunning(state);
+                _extractChunkTimer.Interval = state.TotalChunksPlanned > 2
+                    ? Math.Max(26, Math.Min(110, (int)(sw.ElapsedMilliseconds * 3) + 20))
+                    : 14;
                 _extractChunkTimer.Start();
                 return;
             }
@@ -839,7 +1040,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             Task.Run(() =>
             {
                 long lastProgressTick = Environment.TickCount;
-                int maxIssues = state.Budgets.MaxIssuesPerFullScan;
+                int maxIssues = Math.Max(1, state.Budgets.MaxExcelIssuesPerFullScan);
 
                 EcoPerformanceGovernor.ExecuteWithGentlePriority(state.Budgets.UseLowPriorityThreads, () =>
                 {
@@ -875,7 +1076,13 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
                         if (blk != null)
                         {
-                            int remainingCap = maxIssues - state.CollectedIssues.Count;
+                            int currentCollected;
+                            lock (state.StreamSync)
+                            {
+                                currentCollected = state.CollectedIssues.Count;
+                            }
+
+                            int remainingCap = maxIssues - currentCollected;
                             if (remainingCap > 0)
                             {
                                 var hits = SpreadsheetProofingHelper.ScanBlockValues(
@@ -892,14 +1099,30 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                                     state.SharedMemo,
                                     state.Token,
                                     remainingCap,
-                                    state.Budgets);
+                                    state.Budgets,
+                                    blk.SheetFormulaRects);
 
                                 if (hits.Count > 0)
                                 {
-                                    state.CollectedIssues.AddRange(hits);
+                                    List<SpreadsheetCellIssue>? earlyViewportSnapshot = null;
+                                    lock (state.StreamSync)
+                                    {
+                                        state.CollectedIssues.AddRange(hits);
+                                        currentCollected = state.CollectedIssues.Count;
+                                        if (!state.FirstViewportPublished && state.TotalChunksPlanned > 2)
+                                        {
+                                            state.FirstViewportPublished = true;
+                                            earlyViewportSnapshot = new List<SpreadsheetCellIssue>(state.CollectedIssues);
+                                        }
+                                    }
+
+                                    if (earlyViewportSnapshot != null)
+                                    {
+                                        PublishEarlyViewportUnderlinesFromBackground(state.Generation, state.WorkbookName, earlyViewportSnapshot);
+                                    }
                                 }
 
-                                if (state.CollectedIssues.Count >= maxIssues)
+                                if (currentCollected >= maxIssues)
                                 {
                                     state.StopRequestedByIssueCap = true;
                                     lock (state.StreamSync)
@@ -912,24 +1135,50 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                             // Immediately release 2D SAFEARRAY references so Gen0/LOH reclaims memory!
                             blk.Val2 = null;
                             blk.Formula = null;
-                            state.ChunksProcessedCount++;
+                            blk.SheetFormulaRects = null;
+                            int doneChunks = Interlocked.Increment(ref state.ChunksProcessedCount);
 
                             long nowTick = Environment.TickCount;
-                            if (!state.WasPartialAutoScan && state.TotalChunksPlanned > 1 && nowTick - lastProgressTick >= 120)
+                            if (!state.WasPartialAutoScan && state.TotalChunksPlanned > 1 && nowTick - lastProgressTick >= 140)
                             {
                                 lastProgressTick = nowTick;
-                                int pct = Math.Min(92, 8 + (state.ChunksProcessedCount * 84) / Math.Max(1, state.TotalChunksPlanned));
-                                PostExcelProgressFromBackground(
-                                    state.Generation,
-                                    pct,
-                                    UiLocalizer.Pick(
-                                        $"⏳ Checking cells... {Math.Min(99, (state.ChunksProcessedCount * 100) / Math.Max(1, state.TotalChunksPlanned))}%",
-                                        $"⏳ အကွက်များ စစ်ဆေးနေသည်... {Math.Min(99, (state.ChunksProcessedCount * 100) / Math.Max(1, state.TotalChunksPlanned))}%"));
+                                int pct = Math.Min(94, 6 + (doneChunks * 88) / Math.Max(1, state.TotalChunksPlanned));
+                                int pctDisplay = Math.Min(99, (doneChunks * 100) / Math.Max(1, state.TotalChunksPlanned));
+                                string msg = currentCollected > 0
+                                    ? UiLocalizer.Pick(
+                                        $"⏳ Checking {state.ScannedCells:N0} cells... {pctDisplay}% ({currentCollected:N0} issues)",
+                                        $"⏳ အကွက် {state.ScannedCells:N0} စစ်နေသည်... {pctDisplay}% (တွေ့ရှိချက် {currentCollected:N0} ခု)")
+                                    : UiLocalizer.Pick(
+                                        $"⏳ Checking {state.ScannedCells:N0} cells... {pctDisplay}%",
+                                        $"⏳ အကွက် {state.ScannedCells:N0} စစ်နေသည်... {pctDisplay}%");
+                                PostExcelProgressFromBackground(state.Generation, pct, msg);
                             }
                         }
                     }
                 });
             }, state.Token);
+        }
+
+        private void PublishEarlyViewportUnderlinesFromBackground(
+            int generation,
+            string wbName,
+            List<SpreadsheetCellIssue> earlySnapshot)
+        {
+            if (_disposed || generation != Volatile.Read(ref _scanGeneration) || _staMarshaller.IsDisposed || !_staMarshaller.IsHandleCreated)
+                return;
+
+            try
+            {
+                _staMarshaller.BeginInvoke(new Action(() =>
+                {
+                    if (!_disposed && generation == _scanGeneration)
+                    {
+                        _issuesByWorkbook[wbName] = earlySnapshot;
+                        NotifyVisualUnderlinesInvalidated();
+                    }
+                }));
+            }
+            catch { }
         }
 
         private void PostExcelProgressFromBackground(int generation, int percent, string statusText)
@@ -955,6 +1204,16 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             if (state.Token.IsCancellationRequested || _disposed || _staMarshaller.IsDisposed || !_staMarshaller.IsHandleCreated)
                 return;
 
+            List<SpreadsheetCellIssue> finalIssues;
+            lock (state.StreamSync)
+            {
+                finalIssues = new List<SpreadsheetCellIssue>(state.CollectedIssues);
+            }
+            if (finalIssues.Count > 1)
+            {
+                finalIssues.Sort(CompareIssuesByLocation);
+            }
+
             try
             {
                 _staMarshaller.BeginInvoke(new Action(() =>
@@ -963,7 +1222,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                         return;
 
                     state.SharedMemo.Clear();
-                    _issuesByWorkbook[state.WorkbookName] = state.CollectedIssues;
+                    state.WorksheetMap.Clear();
+                    state.SheetFormulaInfo.Clear();
+                    _issuesByWorkbook[state.WorkbookName] = finalIssues;
                     _qualityByWorkbook.Remove(state.WorkbookName);
                     _scanMetaByWorkbook[state.WorkbookName] = new ExcelScanOutcomeMetadata
                     {
@@ -975,18 +1236,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                         TotalScopeCells = state.TotalScopeCells
                     };
 
-                    ScanCompleted?.Invoke(state.CollectedIssues);
-
-                    if (IsExcelReadyForInterop(_excelApp))
-                    {
-                        Excel.Workbook? liveWb = null;
-                        try { liveWb = _excelApp.ActiveWorkbook; } catch { }
-                        if (liveWb != null && string.Equals(SafeGetWorkbookName(liveWb), state.WorkbookName, StringComparison.OrdinalIgnoreCase))
-                        {
-                            HealLegacySentinelMarksIfPresentOnce(liveWb, state.WorkbookName);
-                        }
-                    }
-
+                    ScanCompleted?.Invoke(finalIssues);
                     NotifyVisualUnderlinesInvalidated();
                 }));
             }
@@ -1070,7 +1320,6 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
                 _issuesByWorkbook[wbName] = collected;
                 _qualityByWorkbook.Remove(wbName);
-                HealLegacySentinelMarksIfPresentOnce(wb, wbName);
                 NotifyVisualUnderlinesInvalidated();
             }
             catch (COMException ex) when (IsTransientExcelBusyComError(ex))
@@ -1294,7 +1543,6 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
                 WithExcelWriteGuard(() =>
                 {
-                    HealLegacySentinelMarksInSingleCell(cell);
                     WriteSafePlainStringToCell(cell, updatedText);
                 });
 
@@ -2171,9 +2419,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                             // Fast 1-COM-Call Bulk 2D SAFEARRAY Write when the entire band is 100% formula-free!
                             if (allBulkSafe &&
                                 fontSafeForBox &&
-                                bandCount >= 8 &&
+                                bandCount >= 4 &&
                                 (boxRows > 1 || boxCols > 1) &&
-                                boxArea <= (long)bandCount * 24 &&
+                                boxArea <= (long)bandCount * 64 &&
                                 boxArea <= 32_000)
                             {
                                 try
@@ -2222,7 +2470,6 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                                     if (IsSingleCellFormula(cell))
                                         continue;
 
-                                    HealLegacySentinelMarksInSingleCell(cell);
                                     WriteSafePlainStringToCell(cell, op.UpdatedText);
                                     if (!string.IsNullOrEmpty(op.TargetFontName))
                                     {
@@ -2307,6 +2554,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             if (effective == null)
                 return;
 
+            SheetFormulaLayoutInfo fmlLayout = InspectSheetFormulaLayout(used);
+            if (fmlLayout.AllFormulas)
+                return;
+
             string sheetName = SafeGetSheetName(ws);
 
             foreach (Excel.Range area in effective.Areas)
@@ -2333,16 +2584,31 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                             ? area
                             : ws.Range[ws.Cells[baseR, baseC], ws.Cells[baseR + chunkRows - 1, baseC + chunkCols - 1]];
 
-                        bool? hasFormula = ReadRangeHasFormulaTriState(chunk);
-                        if (hasFormula == true)
-                            continue; // 100% formula block — skip immediately in 1 COM call!
+                        bool? hasFormula;
+                        object? fml = null;
+                        IReadOnlyList<(int R1, int C1, int R2, int C2)>? sheetFormulaRects = null;
+
+                        if (fmlLayout.ZeroFormulas)
+                        {
+                            hasFormula = false;
+                        }
+                        else if (fmlLayout.FormulaRects != null)
+                        {
+                            hasFormula = null;
+                            sheetFormulaRects = fmlLayout.FormulaRects;
+                        }
+                        else
+                        {
+                            hasFormula = ReadRangeHasFormulaTriState(chunk);
+                            if (hasFormula == true)
+                                continue;
+                            if (hasFormula == null)
+                                fml = chunk.Formula;
+                        }
 
                         object? val2 = chunk.Value2;
                         if (val2 == null)
                             continue;
-
-                        // Read chunk.Formula ONLY when chunk has mixed formulas + literals (hasFormula == null)
-                        object? fml = hasFormula == null ? chunk.Formula : null;
 
                         var hits = SpreadsheetProofingHelper.ScanBlockValues(
                             _engine,
@@ -2355,7 +2621,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                             val2,
                             fml,
                             hasFormula,
-                            sharedMemo);
+                            sharedMemo,
+                            sheetFormulaRects: sheetFormulaRects);
 
                         if (hits.Count > 0)
                         {
@@ -2466,9 +2733,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             IEnumerable<SpreadsheetCellIssue> candidateAnchors)
         {
             var wsMap = BuildWorksheetMap(wb);
+            var sheetLayouts = new Dictionary<string, SheetFormulaLayoutInfo>(StringComparer.OrdinalIgnoreCase);
             var prefetched = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
 
-            // Group unique target cell coordinates by sheet so dense sheets are prefetched in 2D SAFEARRAY blocks!
+            // Group unique target cell coordinates by sheet and prefetch in 250-row bands (reading Value2 only!)
+            // so batch-fixing repeated typos spread across 46,000+ rows executes in milliseconds!
             foreach (var sheetGroup in candidateAnchors
                 .Select(a => (Sheet: a.SheetName ?? string.Empty, a.Row, a.Column))
                 .Distinct()
@@ -2477,73 +2746,122 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 if (!wsMap.TryGetValue(sheetGroup.Key, out Excel.Worksheet? ws) || ws == null)
                     continue;
 
-                var coords = sheetGroup.ToList();
-                if (coords.Count >= 16)
+                SheetFormulaLayoutInfo fmlLayout = new SheetFormulaLayoutInfo(false, false, null);
+                try
                 {
-                    int minR = int.MaxValue, maxR = int.MinValue;
-                    int minC = int.MaxValue, maxC = int.MinValue;
+                    Excel.Range? used = SafeGetUsedRange(ws);
+                    if (used != null)
+                        fmlLayout = InspectSheetFormulaLayout(used);
+                }
+                catch { }
+                sheetLayouts[sheetGroup.Key] = fmlLayout;
+
+                var coords = sheetGroup
+                    .OrderBy(x => x.Row)
+                    .ThenBy(x => x.Column)
+                    .ToList();
+
+                if (fmlLayout.AllFormulas)
+                {
                     for (int i = 0; i < coords.Count; i++)
-                    {
-                        var c = coords[i];
-                        if (c.Row < minR) minR = c.Row;
-                        if (c.Row > maxR) maxR = c.Row;
-                        if (c.Column < minC) minC = c.Column;
-                        if (c.Column > maxC) maxC = c.Column;
-                    }
+                        prefetched[MakeCellKey(sheetGroup.Key, coords[i].Row, coords[i].Column)] = null;
+                    continue;
+                }
 
-                    long boxArea = (long)(maxR - minR + 1) * (maxC - minC + 1);
-                    if (boxArea > 0 && boxArea <= 250_000 && boxArea <= (long)coords.Count * 80)
+                if (coords.Count >= 4)
+                {
+                    const int BandRows = 250;
+                    int idx = 0;
+                    while (idx < coords.Count)
                     {
-                        try
+                        int bandStartRow = coords[idx].Row;
+                        int endIdx = idx;
+                        int minR = bandStartRow, maxR = bandStartRow;
+                        int minC = coords[idx].Column, maxC = coords[idx].Column;
+
+                        while (endIdx < coords.Count && (coords[endIdx].Row - bandStartRow) < BandRows)
                         {
-                            int rows = maxR - minR + 1;
-                            int cols = maxC - minC + 1;
-                            Excel.Range box = (rows == 1 && cols == 1)
-                                ? (Excel.Range)ws.Cells[minR, minC]
-                                : ws.Range[ws.Cells[minR, minC], ws.Cells[maxR, maxC]];
+                            var c = coords[endIdx];
+                            if (c.Row < minR) minR = c.Row;
+                            if (c.Row > maxR) maxR = c.Row;
+                            if (c.Column < minC) minC = c.Column;
+                            if (c.Column > maxC) maxC = c.Column;
+                            endIdx++;
+                        }
 
-                            bool? hasFml = ReadRangeHasFormulaTriState(box);
-                            if (hasFml == true)
+                        int bandCount = endIdx - idx;
+                        int rows = maxR - minR + 1;
+                        int cols = maxC - minC + 1;
+                        long bandArea = (long)rows * cols;
+
+                        if (bandCount >= 2 && bandArea > 1 && bandArea <= 25_000 && bandArea <= (long)bandCount * 150)
+                        {
+                            try
                             {
-                                for (int i = 0; i < coords.Count; i++)
-                                    prefetched[MakeCellKey(sheetGroup.Key, coords[i].Row, coords[i].Column)] = null;
-                                continue;
-                            }
+                                Excel.Range box = ws.Range[ws.Cells[minR, minC], ws.Cells[maxR, maxC]];
+                                bool? hasFml = null;
+                                object? fml = null;
 
-                            object? val2 = box.Value2;
-                            object? fml = hasFml == null ? box.Formula : null;
-
-                            if (rows == 1 && cols == 1)
-                            {
-                                bool isFml = fml is string fs && fs.StartsWith("=", StringComparison.Ordinal);
-                                prefetched[MakeCellKey(sheetGroup.Key, minR, minC)] = isFml ? null : (val2 as string);
-                                continue;
-                            }
-
-                            if (val2 is object?[,] vArr)
-                            {
-                                object?[,]? fArr = fml as object?[,];
-                                int vRLb = vArr.GetLowerBound(0), vCLb = vArr.GetLowerBound(1);
-                                int fRLb = fArr != null ? fArr.GetLowerBound(0) : 0;
-                                int fCLb = fArr != null ? fArr.GetLowerBound(1) : 0;
-
-                                for (int i = 0; i < coords.Count; i++)
+                                if (fmlLayout.ZeroFormulas)
                                 {
-                                    int rOff = coords[i].Row - minR;
-                                    int cOff = coords[i].Column - minC;
-                                    bool cellHasFml = fArr != null &&
-                                                      fArr[fRLb + rOff, fCLb + cOff] is string fs &&
-                                                      fs.StartsWith("=", StringComparison.Ordinal);
-                                    string? plain = cellHasFml ? null : (vArr[vRLb + rOff, vCLb + cOff] as string);
-                                    prefetched[MakeCellKey(sheetGroup.Key, coords[i].Row, coords[i].Column)] = plain;
+                                    hasFml = false;
                                 }
-                                continue;
+                                else if (fmlLayout.FormulaRects == null)
+                                {
+                                    hasFml = ReadRangeHasFormulaTriState(box);
+                                    if (hasFml == true)
+                                    {
+                                        for (int k = idx; k < endIdx; k++)
+                                            prefetched[MakeCellKey(sheetGroup.Key, coords[k].Row, coords[k].Column)] = null;
+                                        idx = endIdx;
+                                        continue;
+                                    }
+                                    if (hasFml == null)
+                                        fml = box.Formula;
+                                }
+
+                                if (box.Value2 is object?[,] vArr)
+                                {
+                                    object?[,]? fArr = fml as object?[,];
+                                    int vRLb = vArr.GetLowerBound(0), vCLb = vArr.GetLowerBound(1);
+                                    int fRLb = fArr != null ? fArr.GetLowerBound(0) : 0;
+                                    int fCLb = fArr != null ? fArr.GetLowerBound(1) : 0;
+
+                                    for (int k = idx; k < endIdx; k++)
+                                    {
+                                        int cellR = coords[k].Row;
+                                        int cellC = coords[k].Column;
+                                        int rOff = cellR - minR;
+                                        int cOff = cellC - minC;
+
+                                        bool cellHasFml;
+                                        if (fmlLayout.ZeroFormulas || hasFml == false)
+                                        {
+                                            cellHasFml = false;
+                                        }
+                                        else if (fmlLayout.FormulaRects != null)
+                                        {
+                                            cellHasFml = SpreadsheetProofingHelper.IsCellInFormulaRects(cellR, cellC, fmlLayout.FormulaRects);
+                                        }
+                                        else
+                                        {
+                                            cellHasFml = fArr != null &&
+                                                         fArr[fRLb + rOff, fCLb + cOff] is string fs &&
+                                                         fs.StartsWith("=", StringComparison.Ordinal);
+                                        }
+
+                                        string? plain = cellHasFml ? null : (vArr[vRLb + rOff, vCLb + cOff] as string);
+                                        prefetched[MakeCellKey(sheetGroup.Key, cellR, cellC)] = plain;
+                                    }
+                                }
+                            }
+                            catch
+                            {
+                                // Fall back cleanly to single-cell lookup below for this band
                             }
                         }
-                        catch
-                        {
-                            // Fall back to cached single-cell reads below
-                        }
+
+                        idx = endIdx;
                     }
                 }
             }
@@ -2557,11 +2875,33 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 string? val = null;
                 try
                 {
-                    if (wsMap.TryGetValue(sheetName ?? string.Empty, out Excel.Worksheet? ws) && ws != null)
+                    string sKey = sheetName ?? string.Empty;
+                    if (wsMap.TryGetValue(sKey, out Excel.Worksheet? ws) && ws != null)
                     {
-                        Excel.Range cell = (Excel.Range)ws.Cells[row, col];
-                        if (!IsSingleCellFormula(cell))
-                            val = cell.Value2 as string;
+                        if (sheetLayouts.TryGetValue(sKey, out var layout))
+                        {
+                            if (layout.AllFormulas)
+                            {
+                                prefetched[key] = null;
+                                return null;
+                            }
+                            if (layout.FormulaRects != null &&
+                                SpreadsheetProofingHelper.IsCellInFormulaRects(row, col, layout.FormulaRects))
+                            {
+                                prefetched[key] = null;
+                                return null;
+                            }
+
+                            Excel.Range cell = (Excel.Range)ws.Cells[row, col];
+                            if (layout.ZeroFormulas || layout.FormulaRects != null || !IsSingleCellFormula(cell))
+                                val = cell.Value2 as string;
+                        }
+                        else
+                        {
+                            Excel.Range cell = (Excel.Range)ws.Cells[row, col];
+                            if (!IsSingleCellFormula(cell))
+                                val = cell.Value2 as string;
+                        }
                     }
                 }
                 catch { }
@@ -2702,8 +3042,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
         }
 
         /// <summary>
-        /// Returns the worksheet's UsedRange clamped to actual last non-blank formula/value row and column
-        /// so full-column/full-row formatting (1,048,576 empty rows) never triggers million-cell scans!
+        /// Returns the worksheet's UsedRange quickly without invoking a 17.18-billion-cell full-sheet wildcard Find
+        /// on genuine data tables (e.g. 46,000+ rows). Clamping via <c>used.Find("*")</c> runs ONLY when
+        /// whole-column/whole-row formatting inflates <c>UsedRange</c> to legacy/modern sheet limits or &gt;500,000 cells.
         /// </summary>
         private static Excel.Range? SafeGetUsedRange(Excel.Worksheet ws)
         {
@@ -2712,15 +3053,31 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             if (used == null)
                 return null;
 
-            long rawCells = SafeGetCountLarge(used);
-            if (rawCells <= 2_500)
+            int usedRows;
+            int usedCols;
+            try
+            {
+                usedRows = used.Rows.Count;
+                usedCols = used.Columns.Count;
+            }
+            catch
+            {
+                return used;
+            }
+
+            long rawCells = (long)usedRows * usedCols;
+            if (rawCells <= 0)
+                return null;
+
+            // Fast zero-Find path for genuine user tables (covers 46,000+ row tables in <0.1ms with 0 Find("*") calls!)
+            if (usedRows < 65_536 && usedCols < 256 && rawCells <= 500_000)
                 return used;
 
             try
             {
                 object missing = Type.Missing;
-                Excel.Range anchor = (Excel.Range)ws.Cells[1, 1];
-                Excel.Range? lastRowCell = ws.Cells.Find(
+                Excel.Range anchor = (Excel.Range)used.Cells[1, 1];
+                Excel.Range? lastRowCell = used.Find(
                     What: "*",
                     After: anchor,
                     LookIn: Excel.XlFindLookIn.xlFormulas,
@@ -2734,7 +3091,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 if (lastRowCell == null)
                     return null; // 100% empty formatted sheet!
 
-                Excel.Range? lastColCell = ws.Cells.Find(
+                Excel.Range? lastColCell = used.Find(
                     What: "*",
                     After: anchor,
                     LookIn: Excel.XlFindLookIn.xlFormulas,
@@ -2750,20 +3107,20 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
                 int startR = used.Row;
                 int startC = used.Column;
-                int endR = Math.Min(startR + used.Rows.Count - 1, lastRowCell.Row);
-                int endC = Math.Min(startC + used.Columns.Count - 1, lastColCell.Column);
+                int endR = Math.Min(startR + usedRows - 1, lastRowCell.Row);
+                int endC = Math.Min(startC + usedCols - 1, lastColCell.Column);
 
                 if (endR < startR || endC < startC)
                     return null;
 
-                if (endR < startR + used.Rows.Count - 1 || endC < startC + used.Columns.Count - 1)
+                if (endR < startR + usedRows - 1 || endC < startC + usedCols - 1)
                 {
                     return ws.Range[ws.Cells[startR, startC], ws.Cells[endR, endC]];
                 }
             }
             catch
             {
-                // Protected / special sheet where Cells.Find is disallowed — fall back to UsedRange
+                // Protected / special sheet where Range.Find is disallowed — fall back to UsedRange
             }
 
             return used;
@@ -3076,34 +3433,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
         public void TemporarilyStripUnderlinesForSaveOrPrint(Excel.Workbook? wb)
         {
-            // Screen-only ExcelWavyUnderlineOverlay never mutates cell Font.Color or Font.Underline,
-            // so .xlsx saves and printouts are 100% clean automatically.
-            // As an extra safeguard, heal any legacy sentinel marks if this workbook came from a pre-overlay build.
-            if (wb == null)
-                return;
-
-            try
-            {
-                string wbName = SafeGetWorkbookName(wb);
-                if (!_legacyHealedWorkbooks.Contains(wbName))
-                {
-                    HealLegacySentinelMarksInWorkbook(wb, preserveSavedState: false);
-                    _legacyHealedWorkbooks.Add(wbName);
-                }
-            }
-            catch (Exception ex)
-            {
-                AddInDiagnostics.LogException("TemporarilyStripUnderlinesForSaveOrPrint", ex);
-            }
-        }
-
-        private void HealLegacySentinelMarksIfPresentOnce(Excel.Workbook wb, string wbName)
-        {
-            if (string.IsNullOrEmpty(wbName) || _legacyHealedWorkbooks.Contains(wbName))
-                return;
-
-            _legacyHealedWorkbooks.Add(wbName);
-            HealLegacySentinelMarksInWorkbook(wb, preserveSavedState: true);
+            // Zero-COM-call no-op: Screen-only ExcelWavyUnderlineOverlay never mutates cell Font.Color or Font.Underline,
+            // so .xlsx saves and printouts are 100% clean automatically without touching worksheet cells on Save/Print.
+            _ = wb;
         }
 
         /// <summary>

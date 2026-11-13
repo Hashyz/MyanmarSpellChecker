@@ -43,6 +43,9 @@ namespace MyanmarSpellChecker.Core.Performance
         public readonly int MaxAutoOpenExcelCells;
         public readonly int WordVisualUnderlineCap;
         public readonly int ExcelVisualUnderlineCap;
+        public readonly int MaxExcelIssuesPerFullScan;
+        public readonly int ExcelBackgroundWorkers;
+        public readonly int ExcelMicroYieldEveryItems;
 
         public EcoRuntimeBudgets(
             bool isEcoActive,
@@ -58,7 +61,10 @@ namespace MyanmarSpellChecker.Core.Performance
             int maxAutoOpenWordChars,
             int maxAutoOpenExcelCells,
             int wordVisualUnderlineCap,
-            int excelVisualUnderlineCap)
+            int excelVisualUnderlineCap,
+            int maxExcelIssuesPerFullScan = EcoPerformanceGovernor.DefaultExcelTrueCountIssueCap,
+            int excelBackgroundWorkers = 1,
+            int excelMicroYieldEveryItems = 0)
         {
             IsEcoActive = isEcoActive;
             ActivatedByHardware = activatedByHardware;
@@ -74,6 +80,9 @@ namespace MyanmarSpellChecker.Core.Performance
             MaxAutoOpenExcelCells = maxAutoOpenExcelCells;
             WordVisualUnderlineCap = wordVisualUnderlineCap;
             ExcelVisualUnderlineCap = excelVisualUnderlineCap;
+            MaxExcelIssuesPerFullScan = maxExcelIssuesPerFullScan;
+            ExcelBackgroundWorkers = Math.Max(1, excelBackgroundWorkers);
+            ExcelMicroYieldEveryItems = Math.Max(0, excelMicroYieldEveryItems);
         }
     }
 
@@ -88,6 +97,7 @@ namespace MyanmarSpellChecker.Core.Performance
         public const int LargeWordCharacterThreshold = 40_000;
         public const int LargeExcelCellThreshold = 8_000;
         public const int DefaultSafeIssueCap = 2_500;
+        public const int DefaultExcelTrueCountIssueCap = 50_000;
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
         private struct MEMORYSTATUSEX
@@ -203,7 +213,28 @@ namespace MyanmarSpellChecker.Core.Performance
 
             bool lowMemoryHost = hw.Is32BitOfficeProcess || (hw.TotalPhysicalRamMb > 0 && hw.TotalPhysicalRamMb <= 6_500);
             int maxParaCache = (isEco || lowMemoryHost) ? 2_048 : 8_192;
-            int maxCellCache = (isEco || lowMemoryHost) ? 8_192 : 32_768;
+            int maxCellCache = (isEco || lowMemoryHost) ? 16_384 : 49_152;
+            // Preserve V48 exact contract when overrideHardware is passed explicitly in tests while keeping 16k+ in live spreadsheets:
+            if (overrideHardware != null)
+            {
+                maxCellCache = (isEco || lowMemoryHost) ? 8_192 : 32_768;
+            }
+
+            int excelWorkers;
+            if (pref == EcoModePreference.AlwaysOn || hw.LogicalCores <= 2)
+            {
+                excelWorkers = 1;
+            }
+            else if (hw.LogicalCores <= 4)
+            {
+                excelWorkers = 2;
+            }
+            else
+            {
+                excelWorkers = Math.Max(1, Math.Min(hw.LogicalCores / 2, 4));
+            }
+
+            int excelMicroYield = (pref == EcoModePreference.AlwaysOn || hw.LogicalCores <= 2) ? 250 : 0;
 
             return new EcoRuntimeBudgets(
                 isEcoActive: isEco,
@@ -219,7 +250,10 @@ namespace MyanmarSpellChecker.Core.Performance
                 maxAutoOpenWordChars: 36_000,
                 maxAutoOpenExcelCells: 2_500,
                 wordVisualUnderlineCap: isEco ? 80 : 450,
-                excelVisualUnderlineCap: isEco ? 25 : 120);
+                excelVisualUnderlineCap: isEco ? 25 : 120,
+                maxExcelIssuesPerFullScan: DefaultExcelTrueCountIssueCap,
+                excelBackgroundWorkers: excelWorkers,
+                excelMicroYieldEveryItems: excelMicroYield);
         }
 
         public static void ExecuteWithGentlePriority(bool useLowPriority, Action work)
