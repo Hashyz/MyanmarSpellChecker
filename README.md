@@ -7,7 +7,7 @@
 
 100% Offline, Air-Gapped **Microsoft Word + Microsoft Excel** Desktop COM Add-in Suite (`.NET Framework 4.8`, `AnyCPU`) engineered for Government Ministries (`B2G`), Universities, Enterprises, Publishers, Accountants, and General Writers.
 
-Built on the complete 462-page **"မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း"** (Myanmar Language Commission), **"မြန်မာအဘိဓာန်"**, **25,000+ Offline Encyclopedia (`စွယ်စုံဗဟုသုတကျမ်း`)**, **"ရုံးသုံးမြန်မာစာ"**, and **6 Specialized Academic & Enterprise Domains** (including **Geology & Earth Sciences / ဘူမိဗေဒနှင့် မြေကမ္ဘာသိပ္ပံ**).
+Built on the complete 462-page **"မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း"** (Myanmar Language Commission), **"မြန်မာအဘိဓာန်"**, **25,000+ Offline Encyclopedia (`စွယ်စုံဗဟုသုတကျမ်း`)**, **MLIS/MOI Union Statutory Laws**, **MIMU v9.7 / GAD Multi-Tier Gazetteer**, **"ရုံးသုံးမြန်မာစာ"**, and **8 Specialized Academic, Government & Enterprise Domains** (including **Geology & Earth Sciences / ဘူမိဗေဒနှင့် မြေကမ္ဘာသိပ္ပံ**, **Public Administration & Civil Service**, and **Higher Education & Universities**).
 
 ---
 
@@ -48,7 +48,7 @@ This project is open-source software licensed under the **[GNU General Public Li
 1. **Download or Clone:** Click **`Code ➔ Download ZIP`** on GitHub *(or download `MyanmarSpellChecker-EasySetup-Word-Excel.zip`)* and **Right-click the `.zip` file ➔ `Extract All...`** into a normal folder first.
 2. **Close Microsoft Word and Microsoft Excel** (save any open documents first).
 3. **Double-click `Install-MyanmarSpellChecker.bat`** inside the extracted folder *(or **`Install-EasyUser.bat`** inside the standalone Release ZIP — **no PowerShell commands, no `.NET SDK`, and no Administrator password required!**)*.
-4. A friendly confirmation popup (`✓ Installed successfully!`) will appear once the **12.44 MB (`89,578` headwords / `118,664` entries)** offline dictionary and both Word + Excel Add-ins are installed into `%LocalAppData%\MyanmarSpellChecker\app`.
+4. A friendly confirmation popup (`✓ Installed successfully!`) will appear once the **12.65 MB (`95,225` headwords / `124,453` entries)** offline dictionary and both Word + Excel Add-ins are installed into `%LocalAppData%\MyanmarSpellChecker\app`.
 5. **Open Microsoft Word or Microsoft Excel** — you will see the **`Myanmar Proofing`** Ribbon tab and the **4-Tab Myanmar Spell Checker Task Pane** docked on the right!
    - **Default UI Language is English (`🌐 EN`)** — click **`🌐 EN` ⇄ `🌐 မြန်မာ`** in the Task Pane header (or **`UI: English ➔ မြန်မာ`** on the Ribbon) anytime to switch the entire interface live between **English** and **Myanmar (`မြန်မာ`)** without restarting Word or Excel!
 
@@ -87,8 +87,8 @@ This project is open-source software licensed under the **[GNU General Public Li
 
 #### C. Using the 4-Tab Custom Task Pane in Word
 1. **`စာစစ်` (Proofing Tab):** Filter issues by **All (`အားလုံး`)**, **Spelling (`သတ်ပုံ`)**, **Grammar (`သဒ္ဒါ`)**, or **Context (`အနက်`)**, step through issues with **`↑` / `↓`**, and read deep Burmese linguistic & Pali etymological explanations on every card.
-2. **`အဘိဓာန်` (Dictionary & Encyclopedia Tab):** Instant offline search across **118,600+ entries**:
-   - Filter by **`သတ်ပုံကျမ်း`**, **`အဘိဓာန်`**, **`ဗဟုသုတ` (25,000+ Encyclopedia articles)**, **`နယ်ပယ်သုံး` (Geology `ဘူမိဗေဒ`, Legal, Finance, Medical, Pali, IT)**, **`ဒေသ/အမည်` (330 Townships & Gazetteer)**, and **`စကားပုံ` (Proverbs)**.
+2. **`အဘိဓာန်` (Dictionary & Encyclopedia Tab):** Instant offline search across **124,400+ entries**:
+   - Filter by **`သတ်ပုံကျမ်း`**, **`အဘိဓာန်`**, **`ဗဟုသုတ` (25,000+ Encyclopedia articles)**, **`နယ်ပယ်သုံး` (Geology `ဘူမိဗေဒ`, Public Administration & Civil Service, Universities & Research, Legal, Finance, Medical, Pali, IT)**, **`ဒေသ/အမည်` (9,200+ MIMU v9.7 / GAD Districts, 330+ Townships, Towns, Wards & Village Tracts)**, and **`စကားပုံ` (Proverbs)**.
    - Shows Burmese pronunciation, synonyms (`ကြောင်းတူသံကွဲ`), antonyms (`ဆန့်ကျင်ဘက်`), and homophone siblings.
 3. **`ရုံးစာကိရိယာ` (Official Writing Toolkit Tab):**
    - **Legacy Font Converter (`WinInnwa/Zawgyi ➔ Pyidaungsu`):** Converts legacy fonts across the document or selection without breaking English text, tables, or bold/italic formatting.
@@ -135,13 +135,13 @@ The Excel Add-in provides **In-Cell Color-Coded Underlines + Formula-Safe Cell-b
 
 ## 1. Architecture & Technical Highlights
 
-- **118,659 Lexicon & Reference Entries (`89,573` Unique Headwords) + `85,000` Empirical Bigrams:**
+- **124,453 Lexicon & Reference Entries (`95,225` Unique Headwords), `1,503` Orthography Rules, `712` Contextual Rules + `110,000` Empirical & Statutory Bigrams:**
   - Complete 462-page Official **မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း** (Part 1 + Part 2 `ခွဲထား` + Preface `တ / တစ်` + Arrow Rules).
   - Authoritative **မြန်မာအဘိဓာန်** definitions, Burmese pronunciations, numeral classifiers, etymologies, synonyms, and antonyms.
-  - **25,001 Offline Myanmar Encyclopedia (`စွယ်စုံဗဟုသုတကျမ်း`)** articles, **U Hoke Sein Pali-Myanmar** cognates, classical proverbs (`စကားပုံ` / `ဆိုရိုးစကား`), MOFA/GAD global countries, cities, and all **330 Myanmar townships**.
-  - **6 Specialized Domains:** **Geology & Earth Sciences (`ဘူမိဗေဒနှင့် မြေကမ္ဘာသိပ္ပံ` — Kyaukse University)**, Legal & Judicial, Banking/Tax/Finance, Medical & Health, Pali & Religious Affairs, and IT/Cybersecurity + Global Currencies & Scientific Units.
+  - **25,001 Offline Myanmar Encyclopedia (`စွယ်စုံဗဟုသုတကျမ်း`)** articles, **MLIS/MOI Union Statutory Laws & By-Laws**, **U Hoke Sein Pali-Myanmar** cognates, classical proverbs (`စကားပုံ` / `ဆိုရိုးစကား`), and **9,221 MIMU v9.7 / GAD / MOFA Multi-Tier Gazetteer** proper nouns (global countries/cities + all Myanmar States/Regions, expanded 2022–2026 Districts, Townships, Towns, Named Urban Wards, and Verified Village Tracts with Pcode metadata).
+  - **8 Specialized Domains:** **Geology & Earth Sciences (`ဘူမိဗေဒနှင့် မြေကမ္ဘာသိပ္ပံ` — Kyaukse University & DGSE/MONREC)**, **Public Administration & Civil Service (`ပြည်သူ့အုပ်ချုပ်ရေးနှင့် နိုင်ငံ့ဝန်ထမ်းရေးရာ` — 28 Union Ministries, Directorates, UCSB Ranks & Procurement)**, **Higher Education & Universities (`အဆင့်မြင့်ပညာရေးနှင့် တက္ကသိုလ်များ`)**, Legal & Judicial, Banking/Tax/Finance, Medical & Health, Pali & Religious Affairs, and IT/Cybersecurity + Global Currencies & Scientific Units.
 - **High-Throughput & Low-Memory Architecture:**
-  - **Streaming Binary Trie + Lazy Encyclopedia Hydration:** ~`85 MB` managed heap (`~120 MB` steady-state RAM) with `~1.8 s` cold encrypted database load across `89,578` unique headwords and `85,000` word bigrams.
+  - **Streaming Binary Trie + Lazy Encyclopedia Hydration:** ~`85 MB` managed heap (`~120 MB` steady-state RAM) with `~1.8 s` cold encrypted database load (`12.65 MB` `mlc_thatpon.db`) across `95,225` unique headwords and `110,000` word bigrams.
   - **Sub-5 ms Real-Time Proofing:** Zero-Regex O(N) syllable tokenization (`~0.02 ms/paragraph`), deferred Viterbi lattice issue materialization (`~2.5–4.8 ms` per unique uncached paragraph; `< 0.1 ms` cached), and 45-bit base-consonant branch-and-bound suggestion pruning (`~0.3–4.9 ms` uncached).
 - **Zero Internet Calls & 100% Free Open-Source Runtime:**
   - Pure `.NET Framework 4.8` FIPS-compliant `AES-256` + `PBKDF2-SHA256` + `HMAC-SHA256` binary dictionary (`mlc_thatpon.db`) — **100% free & active out-of-the-box under GNU GPL v3.0 (no `.lic` activation key required)**.
@@ -181,14 +181,14 @@ SpellChecker/
 │   ├── Register-DevAddIn.ps1                      # Zero-Admin HKCU COM registration for local MS Word + MS Excel
 │   └── Product.wxs                                # WiX MSI installer definition
 └── tests/
-    └── MyanmarSpellChecker.Core.Tests/            # Automated xUnit test suite (59 end-to-end tests)
+    └── MyanmarSpellChecker.Core.Tests/            # Automated xUnit test suite (64 end-to-end tests)
 ```
 
 ---
 
 ## 3. Developer & Maintainer Commands
 
-### Run All 59 Automated Tests
+### Run All 64 Automated Tests
 *(On a fresh Git clone, `TestPaths.MasterJsonPath` automatically builds the intermediate `mlc_thatpon_master.json` from `data/sources/` on the first test run.)*
 ```powershell
 dotnet test .\tests\MyanmarSpellChecker.Core.Tests\MyanmarSpellChecker.Core.Tests.csproj -c Release

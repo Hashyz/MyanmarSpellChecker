@@ -248,11 +248,11 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         internal MyanmarTrie(bool bulkCapacity)
         {
-            _exactWordIndex = new Dictionary<string, List<DictionaryEntry>>(bulkCapacity ? 90500 : 0, StringComparer.Ordinal);
-            _phoneticIndex = new Dictionary<string, object>(bulkCapacity ? 80000 : 0, StringComparer.Ordinal);
-            _strictHomophoneIndex = new Dictionary<string, object>(bulkCapacity ? 88500 : 0, StringComparer.Ordinal);
-            _wrongFormIndex = new Dictionary<string, OrthographyRule>(bulkCapacity ? 1600 : 0, StringComparer.Ordinal);
-            _wordBigramIndex = new Dictionary<(string Left, string Right), int>(bulkCapacity ? 86000 : 0, OrdinalStringPairComparer.Instance);
+            _exactWordIndex = new Dictionary<string, List<DictionaryEntry>>(bulkCapacity ? 102000 : 0, StringComparer.Ordinal);
+            _phoneticIndex = new Dictionary<string, object>(bulkCapacity ? 88000 : 0, StringComparer.Ordinal);
+            _strictHomophoneIndex = new Dictionary<string, object>(bulkCapacity ? 96000 : 0, StringComparer.Ordinal);
+            _wrongFormIndex = new Dictionary<string, OrthographyRule>(bulkCapacity ? 1800 : 0, StringComparer.Ordinal);
+            _wordBigramIndex = new Dictionary<(string Left, string Right), int>(bulkCapacity ? 112000 : 0, OrdinalStringPairComparer.Instance);
         }
 
         public long MutationVersion => Volatile.Read(ref _mutationVersion);
@@ -1782,6 +1782,9 @@ namespace MyanmarSpellChecker.Core.Nlp
 
                 foreach (var e in exactEnMatches
                     .OrderByDescending(x => !string.IsNullOrEmpty(x.EnglishName) && string.Equals(x.EnglishName, norm, StringComparison.OrdinalIgnoreCase))
+                    .ThenByDescending(x => !string.IsNullOrEmpty(x.EnglishName) &&
+                        (x.EnglishName.IndexOf(parenToken, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         x.EnglishName.StartsWith(norm + " ", StringComparison.OrdinalIgnoreCase)))
                     .ThenByDescending(x => x.IsProperNoun || x.IsSpecializedDomain)
                     .ThenBy(x => x.Word.Length)
                     .ThenByDescending(x => x.Frequency))

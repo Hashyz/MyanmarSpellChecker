@@ -494,7 +494,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
 
         private static bool IsCleanHeadword(string word)
         {
-            if (string.IsNullOrEmpty(word) || word.Length > 45) return false;
+            if (string.IsNullOrEmpty(word) || word.Length > 75) return false;
             if (KnownWrongBlacklist.Contains(word)) return false;
             if (ZawgyiCheckRegex.IsMatch(word)) return false;
             if (!PureMyanmarWordRegex.IsMatch(word)) return false;
@@ -2410,7 +2410,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     }
                     else
                     {
-                        if (officialPurityKeys.Contains(ComputeExtendedPuritySkeleton(w)))
+                        if (dPos != "PROPN" && officialPurityKeys.Contains(ComputeExtendedPuritySkeleton(w)))
                             continue;
 
                         map[w] = new EntryItem
@@ -3371,7 +3371,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
 
             var topBigrams = bigramMap.Values
                 .OrderByDescending(b => b.Count)
-                .Take(85000)
+                .Take(110000)
                 .ToList();
 
             // R. Ingest Sanitized Classical Myanmar Proverbs (စကားပုံ), Sayings (ဆိုရိုးစကား), & Rhetorical Styles (စကားကြီးဆယ်မျိုး)
