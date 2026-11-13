@@ -2151,7 +2151,7 @@ namespace MyanmarSpellChecker.Core.Tests
                 ("အမိန့်ကို ပယ်ဖြတ်လိုက်သည်။", "ပယ်ဖြတ်", "ပယ်ဖျက်")
             };
 
-            foreach (var (input, expectedSpan, expectedFix) in govErrorCases)
+                foreach (var (input, expectedSpan, expectedFix) in govErrorCases)
             {
                 string normSpan = UnicodeNormalizer.NormalizeCanonicalOrder(expectedSpan);
                 string normFix = UnicodeNormalizer.NormalizeCanonicalOrder(expectedFix);
@@ -2165,6 +2165,103 @@ namespace MyanmarSpellChecker.Core.Tests
                         : string.Empty;
                     return origNorm.Contains(normSpan) && topNorm.Contains(normFix);
                 });
+            }
+        }
+
+        [Fact]
+        public void V51_ZeroCellColorMutationOverlayAndExcelQuickFixVerification()
+        {
+            string repoRoot = TestPaths.RepoRoot;
+            string excelSrcDir = Path.Combine(repoRoot, "src", "MyanmarSpellChecker.ExcelAddIn");
+            Assert.True(Directory.Exists(excelSrcDir), $"Expected ExcelAddIn directory at {excelSrcDir}");
+
+            // 1. Guarantee zero partial-character Font.Color / Font.Underline mutations anywhere in ExcelAddIn
+            var csFiles = Directory.GetFiles(excelSrcDir, "*.cs", SearchOption.AllDirectories)
+                .Where(f => !f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar) &&
+                            !f.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar))
+                .ToList();
+            Assert.NotEmpty(csFiles);
+
+            foreach (string file in csFiles)
+            {
+                string source = File.ReadAllText(file);
+                Assert.DoesNotContain("chars.Font.Color =", source, StringComparison.Ordinal);
+                Assert.DoesNotContain("chars.Font.Underline =", source, StringComparison.Ordinal);
+            }
+
+            // 2. Verify Win32 click-through layered wavy overlay + Word-style on-cursor Quick-Fix Popup + Disconnect cleanup wiring
+            Assert.True(File.Exists(Path.Combine(excelSrcDir, "UI", "ExcelWavyUnderlineOverlay.cs")));
+            Assert.True(File.Exists(Path.Combine(excelSrcDir, "UI", "ExcelQuickFixPopup.cs")));
+            Assert.True(File.Exists(Path.Combine(excelSrcDir, "Interop", "ExcelQuickFixController.cs")));
+            Assert.True(File.Exists(Path.Combine(excelSrcDir, "Interop", "ExcelCellGeometryHelper.cs")));
+
+            string excelAddInSource = File.ReadAllText(Path.Combine(excelSrcDir, "ExcelThisAddIn.cs"));
+            Assert.Contains("SheetSelectionChange", excelAddInSource, StringComparison.Ordinal);
+            Assert.Contains("SheetBeforeRightClick", excelAddInSource, StringComparison.Ordinal);
+            Assert.Contains("ExcelQuickFixController", excelAddInSource, StringComparison.Ordinal);
+            Assert.Contains("ExcelWavyUnderlineOverlay", excelAddInSource, StringComparison.Ordinal);
+
+            string wordUnderlineSource = File.ReadAllText(
+                Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "Interop", "SafeUnderlineManager.cs"));
+            Assert.Contains("StripAllProofingUnderlines(distinctDocs[i], clearTrackingList: true)", wordUnderlineSource, StringComparison.Ordinal);
+
+            // 3. Verify screenshot cell ("စားပီးပီ") detection + multi-issue single-cell Quick-Fix stepping ("တာ၀န်ခံ စားပီးပီ")
+            string dbPath = Path.Combine(repoRoot, "data", "mlc_thatpon.db");
+            Assert.True(File.Exists(dbPath));
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            MyanmarTrie trie = repo.LoadIntoTrie(AntiTamperGuard.ReconstructProtectedFallbackKey());
+            var engine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+
+            var a1Issues = engine.CheckText("စားပီးပီ");
+            Assert.NotEmpty(a1Issues);
+            Assert.Contains(a1Issues, i =>
+                UnicodeNormalizer.NormalizeCanonicalOrder(i.OriginalText) == UnicodeNormalizer.NormalizeCanonicalOrder("ပီးပီ") &&
+                i.Suggestions.Any(s => UnicodeNormalizer.NormalizeCanonicalOrder(s.Replacement) == UnicodeNormalizer.NormalizeCanonicalOrder("ပြီးပြီ")));
+
+            string multiIssueCell = "တာ၀န်ခံ စားပီးပီ";
+            var rawMulti = engine.CheckText(multiIssueCell);
+            Assert.True(rawMulti.Count >= 2, $"Expected >= 2 issues in '{multiIssueCell}', got {rawMulti.Count}");
+
+            var cellItems = rawMulti.Select(iss => new SpreadsheetCellIssue
+            {
+                WorkbookName = "Book1",
+                SheetName = "Sheet1",
+                Row = 1,
+                Column = 1,
+                CellSnapshotText = multiIssueCell,
+                Issue = iss
+            }).ToList();
+
+            string firstRep = cellItems[0].Issue.Suggestions[0].Replacement;
+            bool okStep1 = SpreadsheetProofingHelper.ApplySingleIssueReplacement(
+                multiIssueCell,
+                cellItems[0],
+                firstRep,
+                cellItems,
+                out string afterStep1);
+            Assert.True(okStep1);
+            Assert.True(cellItems[0].IsResolved);
+            Assert.False(cellItems[1].IsResolved);
+
+            string secondRep = cellItems[1].Issue.Suggestions[0].Replacement;
+            bool okStep2 = SpreadsheetProofingHelper.ApplySingleIssueReplacement(
+                afterStep1,
+                cellItems[1],
+                secondRep,
+                cellItems,
+                out string afterStep2);
+            Assert.True(okStep2);
+            Assert.Equal(
+                UnicodeNormalizer.NormalizeCanonicalOrder("တာဝန်ခံ စားပြီးပြီ"),
+                UnicodeNormalizer.NormalizeCanonicalOrder(afterStep2));
+
+            // 4. Ensure UTF-8 BOM (0xEF 0xBB 0xBF) is preserved on all Windows PowerShell 5.1 installer scripts
+            foreach (string ps1 in Directory.GetFiles(Path.Combine(repoRoot, "installer"), "*.ps1"))
+            {
+                byte[] bytes = File.ReadAllBytes(ps1);
+                Assert.True(
+                    bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF,
+                    $"Installer script {Path.GetFileName(ps1)} is missing UTF-8 BOM required for Windows PowerShell 5.1 Myanmar strings!");
             }
         }
     }

@@ -509,7 +509,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _btnClearUnderlines = CreateActionButton("မျဉ်းရှင်း", Color.FromArgb(244, 246, 250), Color.FromArgb(55, 65, 82), Color.FromArgb(210, 218, 230), _fontSmall);
             _btnClearUnderlines.Margin = new Padding(2, 0, 0, 0);
             _btnClearUnderlines.Click += (s, e) => RequestClearUnderlines?.Invoke();
-            _toolTip.SetToolTip(_btnClearUnderlines, "အကွက်များအတွင်းရှိ စစ်ဆေးရေး အနီ/အပြာ/လိမ္မော် မျဉ်းသားချက်များကို ဖယ်ရှားရန် (Save/Print လုပ်ချိန်တွင်လည်း အလိုအလျောက် ဖယ်ရှားပေးသည်)");
+            _toolTip.SetToolTip(_btnClearUnderlines, "ဖန်သားပြင်ပေါ်ရှိ စစ်ဆေးရေး အနီ/အပြာ/လိမ္မော် မျဉ်းလှိုင်းများကို ဖျောက်ရန် (Cell စာသားအရောင်နှင့် .xlsx ဖိုင်ကို လုံးဝ မပြောင်းလဲပါ)");
 
             actionRow.Controls.Add(_btnScanNow, 0, 0);
             actionRow.Controls.Add(_btnFixAll, 1, 0);
@@ -930,8 +930,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _toolTip.SetToolTip(
                 _btnClearUnderlines,
                 UiLocalizer.Pick(
-                    "Clear temporary red/blue/amber proofing underlines from cells (automatically stripped before Save & Print)",
-                    "အကွက်များအတွင်းရှိ စစ်ဆေးရေး အနီ/အပြာ/လိမ္မော် မျဉ်းသားချက်များကို ဖယ်ရှားရန် (Save/Print လုပ်ချိန်တွင်လည်း အလိုအလျောက် ဖယ်ရှားပေးသည်)"));
+                    "Hide screen-only red/blue/amber wavy underlines (cell text color & saved .xlsx files are never modified)",
+                    "ဖန်သားပြင်ပေါ်ရှိ စစ်ဆေးရေး အနီ/အပြာ/လိမ္မော် မျဉ်းလှိုင်းများကို ဖျောက်ရန် (Cell စာသားအရောင်နှင့် .xlsx ဖိုင်ကို လုံးဝ မပြောင်းလဲပါ)"));
 
             _btnStopScan.Text = UiLocalizer.Pick("■ Stop", "■ ရပ်မည်");
             _toolTip.SetToolTip(

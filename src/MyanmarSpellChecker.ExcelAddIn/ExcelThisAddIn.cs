@@ -56,6 +56,8 @@ namespace MyanmarSpellChecker.ExcelAddIn
 
         private MyanmarProofingEngine? _proofingEngine;
         private ExcelWorkbookScannerAndToolkit? _scannerToolkit;
+        private ExcelQuickFixController? _quickFixController;
+        private ExcelWavyUnderlineOverlay? _wavyOverlay;
         private ProofingStyleMode _pendingStyleMode = ProofingStyleMode.GeneralStandard;
         private bool _pendingLiveAutoScan = true;
         private bool _pendingVisualUnderlines = true;
@@ -338,6 +340,25 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 IsVisualUnderlineEnabled = _pendingVisualUnderlines
             };
 
+            _quickFixController = new ExcelQuickFixController(
+                _excelApp,
+                _scannerToolkit,
+                ApplySingleIssueFixFromUi,
+                ApplySameWordBatchFixFromUi,
+                IgnoreIssueFromUi,
+                AddIssueWordToDictionaryFromUi,
+                item => GetOrCreateActiveWindowTaskPaneControl(autoShow: false)?.HighlightCellIssueFromSheet(item),
+                () => _wavyOverlay?.NotifyPopupBoundsChanged());
+
+            _wavyOverlay = new ExcelWavyUnderlineOverlay(
+                _excelApp,
+                _scannerToolkit,
+                () => _quickFixController?.ActivePopupHwnd ?? IntPtr.Zero,
+                () => _quickFixController?.ActivePopupScreenBounds);
+            IntPtr _ = _wavyOverlay.Handle;
+            _wavyOverlay.ViewportScrolledOrResized += () => _quickFixController?.CloseActivePopup();
+            _wavyOverlay.ExcelDeactivatedOrEditing += () => _quickFixController?.CloseActivePopup();
+
             _scannerToolkit.ScanStarted += () =>
             {
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
@@ -357,6 +378,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
                     ctrl.SetScanOutcomeMetadata(_scannerToolkit.GetLastScanMetadataForActiveWorkbook());
                     ctrl.RenderIssues(items);
                 }
+                _quickFixController?.ScheduleRefreshForActiveCell(70);
             };
             _scannerToolkit.UndoStateChanged += SyncUndoStateAcrossTaskPanes;
             _scannerToolkit.RefreshEcoActiveState();
@@ -393,8 +415,12 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 return;
 
             _excelApp.SheetChange += OnSheetChange;
+            _excelApp.SheetSelectionChange += OnSheetSelectionChange;
+            _excelApp.SheetBeforeRightClick += OnSheetBeforeRightClick;
+            _excelApp.SheetBeforeDoubleClick += OnSheetBeforeDoubleClick;
             _excelApp.SheetActivate += OnSheetActivate;
             _excelApp.WindowActivate += OnWindowActivate;
+            _excelApp.WindowDeactivate += OnWindowDeactivate;
             _excelApp.WorkbookOpen += OnWorkbookOpen;
             ((Excel.AppEvents_Event)_excelApp).NewWorkbook += OnNewWorkbook;
             _excelApp.WorkbookBeforeSave += OnWorkbookBeforeSave;
@@ -406,8 +432,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
         {
             AddInDiagnostics.SafeExecute("OnWorkbookBeforeSave", () =>
             {
-                // Strip temporary Red/Blue/Amber proofing underlines before Excel writes the .xlsx file,
-                // then restore them 450ms later if the workbook remains open
+                // Screen-only overlay never touches .xlsx formatting; this also heals any legacy pre-overlay marks once
                 _scannerToolkit?.TemporarilyStripUnderlinesForSaveOrPrint(wb);
             });
         }
@@ -416,7 +441,6 @@ namespace MyanmarSpellChecker.ExcelAddIn
         {
             AddInDiagnostics.SafeExecute("OnWorkbookBeforePrint", () =>
             {
-                // Strip temporary proofing underlines before printing, then restore 450ms later
                 _scannerToolkit?.TemporarilyStripUnderlinesForSaveOrPrint(wb);
             });
         }
@@ -429,16 +453,60 @@ namespace MyanmarSpellChecker.ExcelAddIn
             });
         }
 
+        private void OnSheetSelectionChange(object sh, Excel.Range target)
+        {
+            AddInDiagnostics.SafeExecute("OnSheetSelectionChange", () =>
+            {
+                _quickFixController?.OnSheetSelectionChange(sh, target);
+            });
+        }
+
+        private void OnSheetBeforeRightClick(object sh, Excel.Range target, ref bool cancel)
+        {
+            bool localCancel = cancel;
+            AddInDiagnostics.SafeExecute("OnSheetBeforeRightClick", () =>
+            {
+                _quickFixController?.OnSheetBeforeRightClick(sh, target, ref localCancel);
+            });
+            cancel = localCancel;
+        }
+
+        private void OnSheetBeforeDoubleClick(object sh, Excel.Range target, ref bool cancel)
+        {
+            bool localCancel = cancel;
+            AddInDiagnostics.SafeExecute("OnSheetBeforeDoubleClick", () =>
+            {
+                _quickFixController?.OnSheetBeforeDoubleClick(sh, target, ref localCancel);
+            });
+            cancel = localCancel;
+        }
+
         private void OnSheetActivate(object sh)
         {
             AddInDiagnostics.SafeExecute("OnSheetActivate", () =>
             {
+                _quickFixController?.CloseActivePopup();
+                _scannerToolkit?.RefreshVisualUnderlinesForActiveWorkbook();
+
                 if (_scannerToolkit != null &&
                     _scannerToolkit.IsLiveAutoScanEnabled &&
                     _scannerToolkit.CurrentScope == SpreadsheetScanScope.ActiveSheet)
                 {
                     _scannerToolkit.ScheduleDeferredScanScope(SpreadsheetScanScope.ActiveSheet, 220);
                 }
+                else
+                {
+                    _quickFixController?.ScheduleRefreshForActiveCell(90);
+                }
+            });
+        }
+
+        private void OnWindowDeactivate(Excel.Workbook wb, Excel.Window wn)
+        {
+            AddInDiagnostics.SafeExecute("OnWindowDeactivate", () =>
+            {
+                _quickFixController?.CloseActivePopup();
+                _wavyOverlay?.HideOverlayImmediate();
             });
         }
 
@@ -463,6 +531,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 }
 
                 _scannerToolkit?.RefreshEcoActiveState();
+                _scannerToolkit?.RefreshVisualUnderlinesForActiveWorkbook();
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
                 if (ctrl != null && _scannerToolkit != null)
                 {
@@ -471,6 +540,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
                     ctrl.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
                     ctrl.SetUndoState(_scannerToolkit.UndoManager.UndoCount, _scannerToolkit.UndoManager.LatestDescription);
                 }
+                _quickFixController?.ScheduleRefreshForActiveCell(90);
                 _ribbonUi?.InvalidateControl("BtnToggleTaskPane");
             });
         }
@@ -496,6 +566,8 @@ namespace MyanmarSpellChecker.ExcelAddIn
         {
             AddInDiagnostics.SafeExecute("OnWorkbookBeforeClose", () =>
             {
+                _quickFixController?.CloseActivePopup();
+                _wavyOverlay?.HideOverlayImmediate();
                 string? wbName = null;
                 try { wbName = wb?.Name; } catch { }
                 _scannerToolkit?.PurgeClosedWorkbook(wbName);
@@ -726,77 +798,10 @@ namespace MyanmarSpellChecker.ExcelAddIn
             ctrl.RequestChangeStyleMode += ApplyStyleModeAndRescan;
             ctrl.RequestSelectIssueInSheet += item => _scannerToolkit?.SelectAndScrollToIssue(item);
 
-            ctrl.RequestApplySuggestion += (item, replacement) =>
-            {
-                if (_scannerToolkit == null)
-                    return;
-
-                if (_scannerToolkit.ApplySingleFix(item, replacement, out string err))
-                {
-                    ctrl.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
-                    ctrl.ShowToastBanner(UiLocalizer.Pick(
-                        $"✓ Applied \"{replacement}\" in {item.DisplayLocation} (↶ Undo available).",
-                        $"✓ {item.DisplayLocation} အကွက်တွင် \"{replacement}\" ဖြင့် ပြင်ဆင်ပြီးပါပြီ (↶ ပြန်ဆုတ်နိုင်သည်)။"));
-                }
-                else if (!string.IsNullOrEmpty(err))
-                {
-                    ctrl.ShowToastBanner(err, isSuccess: false);
-                }
-            };
-
-            ctrl.RequestApplyBatchSuggestion += (orig, rep) =>
-            {
-                if (_scannerToolkit == null)
-                    return;
-
-                int count = _scannerToolkit.ApplySameWordBatchFix(orig, rep, out string warn);
-                ctrl.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
-                if (count > 0)
-                {
-                    ctrl.ShowToastBanner(UiLocalizer.Pick(
-                        $"✓ Updated {count} matching cell(s) with \"{rep}\" (↶ Undo available).",
-                        $"✓ တူညီသောအမှား ({count}) နေရာလုံးကို \"{rep}\" ဖြင့် တစ်ပြိုင်နက် ပြင်ဆင်ပြီးပါပြီ (↶ ပြန်ဆုတ်နိုင်သည်)။"));
-                }
-                else if (!string.IsNullOrEmpty(warn))
-                {
-                    ctrl.ShowToastBanner(warn, isSuccess: false);
-                }
-            };
-
-            ctrl.RequestIgnoreOnce += item =>
-            {
-                _proofingEngine?.IgnoreWordInSession(item.Issue.OriginalText);
-                item.IsResolved = true;
-                if (_scannerToolkit != null)
-                {
-                    _scannerToolkit.RefreshVisualUnderlinesForActiveWorkbook();
-                    ctrl.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
-                }
-            };
-
-            ctrl.RequestAddToDictionary += item =>
-            {
-                if (_proofingEngine == null)
-                    return;
-
-                _proofingEngine.AddCustomWord(item.Issue.OriginalText, _customDictFilePath);
-                string normAdded = UnicodeNormalizer.NormalizeCanonicalOrder(item.Issue.OriginalText.Trim());
-                if (_scannerToolkit != null)
-                {
-                    foreach (var cached in _scannerToolkit.GetCachedIssuesForActiveWorkbook())
-                    {
-                        if (UnicodeNormalizer.NormalizeCanonicalOrder(cached.Issue.OriginalText.Trim()) == normAdded)
-                        {
-                            cached.IsResolved = true;
-                        }
-                    }
-                    _scannerToolkit.RefreshVisualUnderlinesForActiveWorkbook();
-                    ctrl.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
-                    ctrl.ShowToastBanner(UiLocalizer.Pick(
-                        $"✓ Added \"{item.Issue.OriginalText}\" to your Personal Dictionary (Word + Excel).",
-                        $"✓ \"{item.Issue.OriginalText}\" ကို ကိုယ်ပိုင်အဘိဓာန် (Word + Excel) သို့ မှတ်သားပြီးပါပြီ။"));
-                }
-            };
+            ctrl.RequestApplySuggestion += ApplySingleIssueFixFromUi;
+            ctrl.RequestApplyBatchSuggestion += ApplySameWordBatchFixFromUi;
+            ctrl.RequestIgnoreOnce += IgnoreIssueFromUi;
+            ctrl.RequestAddToDictionary += AddIssueWordToDictionaryFromUi;
 
             ctrl.RequestDictionarySearch += query =>
                 _proofingEngine?.SearchDictionary(query, 45) ?? new List<DictionaryEntry>();
@@ -1102,21 +1107,100 @@ namespace MyanmarSpellChecker.ExcelAddIn
             return true;
         }
 
+        private void ApplySingleIssueFixFromUi(SpreadsheetCellIssue item, string replacement)
+        {
+            if (_scannerToolkit == null)
+                return;
+
+            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
+            if (_scannerToolkit.ApplySingleFix(item, replacement, out string err))
+            {
+                ctrl?.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
+                ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                    $"✓ Applied \"{replacement}\" in {item.DisplayLocation} (↶ Undo available).",
+                    $"✓ {item.DisplayLocation} အကွက်တွင် \"{replacement}\" ဖြင့် ပြင်ဆင်ပြီးပါပြီ (↶ ပြန်ဆုတ်နိုင်သည်)။"));
+            }
+            else if (!string.IsNullOrEmpty(err))
+            {
+                ctrl?.ShowToastBanner(err, isSuccess: false);
+            }
+        }
+
+        private void ApplySameWordBatchFixFromUi(string orig, string rep)
+        {
+            if (_scannerToolkit == null)
+                return;
+
+            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
+            int count = _scannerToolkit.ApplySameWordBatchFix(orig, rep, out string warn);
+            ctrl?.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
+            if (count > 0)
+            {
+                ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                    $"✓ Updated {count} matching cell(s) with \"{rep}\" (↶ Undo available).",
+                    $"✓ တူညီသောအမှား ({count}) နေရာလုံးကို \"{rep}\" ဖြင့် တစ်ပြိုင်နက် ပြင်ဆင်ပြီးပါပြီ (↶ ပြန်ဆုတ်နိုင်သည်)။"));
+            }
+            else if (!string.IsNullOrEmpty(warn))
+            {
+                ctrl?.ShowToastBanner(warn, isSuccess: false);
+            }
+        }
+
+        private void IgnoreIssueFromUi(SpreadsheetCellIssue item)
+        {
+            _proofingEngine?.IgnoreWordInSession(item.Issue.OriginalText);
+            item.IsResolved = true;
+            if (_scannerToolkit != null)
+            {
+                _scannerToolkit.RefreshVisualUnderlinesForActiveWorkbook();
+                var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
+                ctrl?.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
+            }
+        }
+
+        private void AddIssueWordToDictionaryFromUi(SpreadsheetCellIssue item)
+        {
+            if (_proofingEngine == null)
+                return;
+
+            _proofingEngine.AddCustomWord(item.Issue.OriginalText, _customDictFilePath);
+            string normAdded = UnicodeNormalizer.NormalizeCanonicalOrder(item.Issue.OriginalText.Trim());
+            if (_scannerToolkit != null)
+            {
+                foreach (var cached in _scannerToolkit.GetCachedIssuesForActiveWorkbook())
+                {
+                    if (UnicodeNormalizer.NormalizeCanonicalOrder(cached.Issue.OriginalText.Trim()) == normAdded)
+                    {
+                        cached.IsResolved = true;
+                    }
+                }
+                _scannerToolkit.RefreshVisualUnderlinesForActiveWorkbook();
+                var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
+                ctrl?.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
+                ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                    $"✓ Added \"{item.Issue.OriginalText}\" to your Personal Dictionary (Word + Excel).",
+                    $"✓ \"{item.Issue.OriginalText}\" ကို ကိုယ်ပိုင်အဘိဓာန် (Word + Excel) သို့ မှတ်သားပြီးပါပြီ။"));
+            }
+        }
+
         private void ExecuteClearExcelUnderlines()
         {
             if (_scannerToolkit == null)
                 return;
+
+            _quickFixController?.CloseActivePopup();
+            _wavyOverlay?.HideOverlayImmediate();
 
             var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
             int cleaned = _scannerToolkit.ClearAllVisualUnderlinesInActiveWorkbook();
             ctrl?.ShowToastBanner(
                 cleaned > 0
                     ? UiLocalizer.Pick(
-                        $"✓ Cleared proofing underlines from {cleaned} cell(s).",
-                        $"✓ အကွက် ({cleaned}) ကွက်ရှိ စစ်ဆေးရေး အနီ/အပြာ မျဉ်းသားချက်များကို ဖယ်ရှားပြီးပါပြီ။")
+                        $"✓ Hid screen-only wavy underlines for {cleaned} cell(s) (cell text & .xlsx file untouched).",
+                        $"✓ အကွက် ({cleaned}) ကွက်၏ ဖန်သားပြင်ပေါ်ရှိ မျဉ်းလှိုင်းများကို ဖျောက်ပြီးပါပြီ (Cell အရောင်နှင့် .xlsx ဖိုင် လုံးဝမပြောင်းလဲပါ)။")
                     : UiLocalizer.Pick(
-                        "✓ No proofing underlines to clear.",
-                        "✓ ဖယ်ရှားရန် စစ်ဆေးရေးမျဉ်း မရှိပါ။"));
+                        "✓ No active proofing underlines on screen.",
+                        "✓ ဖန်သားပြင်ပေါ်တွင် ဖျောက်ရန် စစ်ဆေးရေးမျဉ်း မရှိပါ။"));
         }
 
         private ProofingStyleMode LoadSavedStyleMode()
@@ -1417,11 +1501,11 @@ namespace MyanmarSpellChecker.ExcelAddIn
                     "Automatically check cells whenever you edit text and press Enter",
                     "အကွက်အတွင်း စာရိုက်ပြီး Enter နှိပ်တိုင်း အလိုအလျောက် စစ်ဆေးပေးရန်"),
                 "BtnToggleVisualUnderlines" => UiLocalizer.Pick(
-                    "Show/hide red, blue, and amber proofing underlines in cells (automatically stripped before Save & Print)",
-                    "အမှားရှိသော စာသားကွက်များတွင် အနီ/အပြာ/လိမ္မော် မျဉ်းသားပြသမှုကို ဖွင့်/ပိတ်ရန် (Save/Print လုပ်ချိန် အလိုအလျောက် ဖယ်ရှားပေးသည်)"),
+                    "Show/hide screen-only red, blue, and amber wavy underlines above cells (cell text color & .xlsx files are never modified)",
+                    "ဖန်သားပြင်ပေါ်တွင် အနီ/အပြာ/လိမ္မော် မျဉ်းလှိုင်း ပြသမှုကို ဖွင့်/ပိတ်ရန် (Cell စာသားအရောင်နှင့် .xlsx ဖိုင်ကို လုံးဝ မပြောင်းလဲပါ)"),
                 "BtnClearExcelUnderlines" => UiLocalizer.Pick(
-                    "Immediately remove all temporary proofing underlines from cells",
-                    "Excel အကွက်များအတွင်းရှိ စစ်ဆေးရေး မျဉ်းသားချက်အားလုံးကို ချက်ချင်းဖယ်ရှားရန်"),
+                    "Immediately hide all screen-only proofing wavy underlines in the active workbook",
+                    "ဖန်သားပြင်ပေါ်ရှိ စစ်ဆေးရေး မျဉ်းလှိုင်းအားလုံးကို ချက်ချင်းဖျောက်ရန်"),
                 "BtnSearchDictionary" => UiLocalizer.Pick(
                     "Search the 100% offline Spelling Lexicon, Myanmar Dictionary & Encyclopedia (25,000+ entries)",
                     "သတ်ပုံကျမ်း၊ မြန်မာ-မြန်မာ အဘိဓာန် နှင့် စွယ်စုံဗဟုသုတ (၂၅,၀၀၀+) ရှာဖွေရန်"),
@@ -1518,17 +1602,21 @@ namespace MyanmarSpellChecker.ExcelAddIn
                     _scannerToolkit.IsVisualUnderlineEnabled = pressed;
                     _scannerToolkit.RefreshVisualUnderlinesForActiveWorkbook();
                 }
+                if (!pressed)
+                {
+                    _wavyOverlay?.HideOverlayImmediate();
+                }
 
                 _ribbonUi?.InvalidateControl("BtnToggleVisualUnderlines");
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
                 ctrl?.ShowToastBanner(
                     pressed
                         ? UiLocalizer.Pick(
-                            "✓ Enabled red/blue/amber proofing underlines in Excel cells (auto-stripped before Save & Print).",
-                            "✓ Excel အကွက်အတွင်း အနီ/အပြာ/လိမ္မော် စစ်ဆေးရေးမျဉ်း ပြသမှုကို ဖွင့်လိုက်ပါပြီ (Save/Print လုပ်ချိန် အလိုအလျောက် ဖယ်ရှားပေးသည်)။")
+                            "✓ Enabled screen-only red/blue/amber wavy underlines (cell text color & .xlsx files are never modified).",
+                            "✓ ဖန်သားပြင်ပေါ်ရှိ အနီ/အပြာ/လိမ္မော် မျဉ်းလှိုင်း ပြသမှုကို ဖွင့်လိုက်ပါပြီ (Cell အရောင်နှင့် .xlsx ဖိုင် လုံးဝမပြောင်းလဲပါ)။")
                         : UiLocalizer.Pick(
-                            "✓ Disabled cell proofing underlines and cleared all temporary marks.",
-                            "✓ Excel အကွက်အတွင်း မျဉ်းသားပြသမှုကို ပိတ်ပြီး မျဉ်းအားလုံး ရှင်းလင်းလိုက်ပါပြီ။"));
+                            "✓ Disabled screen-only proofing wavy underlines.",
+                            "✓ ဖန်သားပြင်ပေါ်ရှိ စစ်ဆေးရေး မျဉ်းလှိုင်းပြသမှုကို ပိတ်လိုက်ပါပြီ။"));
             });
         }
 
@@ -1718,14 +1806,24 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 if (_excelApp != null)
                 {
                     _excelApp.SheetChange -= OnSheetChange;
+                    _excelApp.SheetSelectionChange -= OnSheetSelectionChange;
+                    _excelApp.SheetBeforeRightClick -= OnSheetBeforeRightClick;
+                    _excelApp.SheetBeforeDoubleClick -= OnSheetBeforeDoubleClick;
                     _excelApp.SheetActivate -= OnSheetActivate;
                     _excelApp.WindowActivate -= OnWindowActivate;
+                    _excelApp.WindowDeactivate -= OnWindowDeactivate;
                     _excelApp.WorkbookOpen -= OnWorkbookOpen;
                     ((Excel.AppEvents_Event)_excelApp).NewWorkbook -= OnNewWorkbook;
                     _excelApp.WorkbookBeforeSave -= OnWorkbookBeforeSave;
                     _excelApp.WorkbookBeforePrint -= OnWorkbookBeforePrint;
                     _excelApp.WorkbookBeforeClose -= OnWorkbookBeforeClose;
                 }
+
+                _quickFixController?.Dispose();
+                _quickFixController = null;
+
+                _wavyOverlay?.Dispose();
+                _wavyOverlay = null;
 
                 _scannerToolkit?.Dispose();
                 _scannerToolkit = null;

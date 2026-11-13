@@ -38,17 +38,16 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
     }
 
     /// <summary>
-    /// Formula-safe, Undo-safe, bulk 2D SAFEARRAY scanner, Save/Print-safe In-Cell Underline Manager,
-    /// and spreadsheet toolkit for Microsoft Excel.
+    /// Formula-safe, Undo-safe, 100% Zero-Formatting-Mutation bulk 2D SAFEARRAY scanner and spreadsheet toolkit for Microsoft Excel.
     /// Rules enforced at all times:
-    /// 1. Bulk scanning reads 2D SAFEARRAYs; when visual underlines are enabled, only plain-text non-formula cells
-    ///    with active issues (or cells being cleaned) have per-word Red/Blue/Amber underlines applied, and all
-    ///    temporary proofing underlines are automatically stripped before Save (Ctrl+S) and Print (Ctrl+P).
+    /// 1. Bulk scanning is 100% read-only on cell formatting: visual Red/Blue/Amber wavy underlines are rendered purely on screen
+    ///    by <c>ExcelWavyUnderlineOverlay</c> (Win32 per-pixel alpha click-through layered window) — NEVER mutating cell Font.Color
+    ///    or Font.Underline, NEVER wiping Excel's native Ctrl+Z stack, NEVER polluting Clipboard rich-text, and NEVER persisting into .xlsx files.
     /// 2. Formula cells (HasFormula == true or Formula starting with '=') and numeric calculation cells are
-    ///    NEVER modified by spellcheck fixes, underlines, Zawgyi conversion, numeral conversion, or style rewrites.
+    ///    NEVER modified by spellcheck fixes, Zawgyi conversion, numeral conversion, or style rewrites.
     /// 3. In-Cell Edit Mode / Formula Bar typing is guarded via IsExcelReadyForInterop + HRESULT shields
     ///    (0x800A03EC, 0x800AC472, 0x80010001) so Excel never throws or lags while a user is typing.
-    /// 4. Every add-in cell modification is recorded in SpreadsheetUndoManager for instant 1-click Undo.
+    /// 4. Every add-in cell text modification is recorded in SpreadsheetUndoManager for instant 1-click Undo.
     /// </summary>
     public sealed class ExcelWorkbookScannerAndToolkit : IDisposable
     {
@@ -56,24 +55,18 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
         private const int MaxColsPerChunk = 64;
         private const int MaxCellsPerFullScan = 250_000;
         private const int MaxCellsPerLiveEditScan = 5_000;
-        private const int MaxUnderlinedCellsPerScan = 120;
         private const int ExtractSliceBudgetMs = 10;
-        private const int UnderlineSliceBudgetMs = 9;
 
-        // OLE BGR colors for Excel Range.Characters.Font.Color
-        private const int OleColorSpellingRed = 0x001C1CD2;  // RGB(210, 28, 28)
-        private const int OleColorGrammarBlue = 0x00C05814;  // RGB(20, 88, 192)
-        private const int OleColorContextAmber = 0x000866BA; // RGB(186, 102, 8)
+        // Legacy sentinel OLE BGR colors written only by older pre-overlay builds (used solely to auto-heal old workbooks back to black)
+        public const int LegacyOleColorSpellingRed = 0x001C1CD2;  // RGB(210, 28, 28)
+        public const int LegacyOleColorGrammarBlue = 0x00C05814;  // RGB(20, 88, 192)
+        public const int LegacyOleColorContextAmber = 0x000866BA; // RGB(186, 102, 8)
 
-        private sealed class MarkedCellBaseline
+        public static bool IsLegacyProofingSentinelColor(int oleBgrColor)
         {
-            public string SheetName { get; set; } = string.Empty;
-            public int Row { get; set; }
-            public int Column { get; set; }
-            public bool WasColorAutomatic { get; set; } = true;
-            public int OriginalOleColor { get; set; }
-            public int OriginalUnderline { get; set; } = (int)Excel.XlUnderlineStyle.xlUnderlineStyleNone;
-            public string AppliedSignature { get; set; } = string.Empty;
+            return oleBgrColor == LegacyOleColorSpellingRed ||
+                   oleBgrColor == LegacyOleColorGrammarBlue ||
+                   oleBgrColor == LegacyOleColorContextAmber;
         }
 
         private readonly struct PendingChunkSpec
@@ -131,27 +124,6 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             public CancellationToken Token { get; set; }
         }
 
-        private sealed class PendingUnderlineOp
-        {
-            public bool IsRestoreOnly { get; set; }
-            public string CellKey { get; set; } = string.Empty;
-            public string SheetName { get; set; } = string.Empty;
-            public int Row { get; set; }
-            public int Column { get; set; }
-            public MarkedCellBaseline? BaselineToRestore { get; set; }
-            public List<SpreadsheetCellIssue>? IssuesToApply { get; set; }
-            public string Signature { get; set; } = string.Empty;
-        }
-
-        private sealed class PendingUnderlineJob
-        {
-            public int Generation { get; set; }
-            public string WorkbookName { get; set; } = string.Empty;
-            public bool PreserveSavedState { get; set; }
-            public bool InitialWorkbookSaved { get; set; }
-            public Queue<PendingUnderlineOp> Operations { get; } = new Queue<PendingUnderlineOp>();
-        }
-
         private readonly Excel.Application _excelApp;
         private readonly MyanmarProofingEngine _engine;
         private readonly SpreadsheetUndoManager _undoManager = new SpreadsheetUndoManager(maxBatches: 30);
@@ -162,24 +134,23 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
         private readonly Dictionary<string, DocumentQualityReport> _qualityByWorkbook =
             new Dictionary<string, DocumentQualityReport>(StringComparer.OrdinalIgnoreCase);
 
-        private readonly Dictionary<string, Dictionary<string, MarkedCellBaseline>> _markedCellsByWorkbook =
-            new Dictionary<string, Dictionary<string, MarkedCellBaseline>>(StringComparer.OrdinalIgnoreCase);
-
         private readonly Dictionary<string, ExcelScanOutcomeMetadata> _scanMetaByWorkbook =
             new Dictionary<string, ExcelScanOutcomeMetadata>(StringComparer.OrdinalIgnoreCase);
 
+        private readonly HashSet<string> _suppressedOverlayWorkbooks =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        private readonly HashSet<string> _legacyHealedWorkbooks =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         private readonly Control _staMarshaller;
-        private readonly System.Windows.Forms.Timer _postSaveRestoreTimer;
         private readonly System.Windows.Forms.Timer _deferredScanTimer;
         private readonly System.Windows.Forms.Timer _extractChunkTimer;
-        private readonly System.Windows.Forms.Timer _underlineChunkTimer;
         private SpreadsheetScanScope _deferredScanScope = SpreadsheetScanScope.ActiveSheet;
         private bool _deferredAllowPartialAutoScan = true;
         private int _scanGeneration;
         private CancellationTokenSource? _activeScanCts;
         private PendingExtractionState? _activeExtractState;
-        private PendingUnderlineJob? _activeUnderlineJob;
-        private string? _pendingRestoreWorkbookName;
         private int _suppressSheetChangeEvents;
         private bool _lastEcoActive;
         private bool _disposed;
@@ -187,6 +158,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
         public bool IsLiveAutoScanEnabled { get; set; } = true;
         public bool IsVisualUnderlineEnabled { get; set; } = true;
         public bool IsEcoActive => _lastEcoActive;
+        public int VisualStateVersion { get; private set; }
         public SpreadsheetScanScope CurrentScope { get; set; } = SpreadsheetScanScope.ActiveSheet;
         public SpreadsheetUndoManager UndoManager => _undoManager;
 
@@ -194,6 +166,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
         public event Action<int, string>? ScanProgressChanged;
         public event Action<bool>? EcoActiveChanged;
         public event Action<IReadOnlyList<SpreadsheetCellIssue>>? ScanCompleted;
+        public event Action? VisualUnderlinesInvalidated;
         public event Action? UndoStateChanged;
 
         public ExcelWorkbookScannerAndToolkit(Excel.Application excelApp, MyanmarProofingEngine engine)
@@ -204,17 +177,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             _staMarshaller = new Control();
             var _ = _staMarshaller.Handle;
 
-            _postSaveRestoreTimer = new System.Windows.Forms.Timer { Interval = 450 };
-            _postSaveRestoreTimer.Tick += OnPostSaveRestoreTimerTick;
-
             _deferredScanTimer = new System.Windows.Forms.Timer { Interval = 220 };
             _deferredScanTimer.Tick += OnDeferredScanTimerTick;
 
             _extractChunkTimer = new System.Windows.Forms.Timer { Interval = 14 };
             _extractChunkTimer.Tick += OnExtractChunkTimerTick;
-
-            _underlineChunkTimer = new System.Windows.Forms.Timer { Interval = 20 };
-            _underlineChunkTimer.Tick += OnUnderlineChunkTimerTick;
         }
 
         public void Dispose()
@@ -224,14 +191,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             _disposed = true;
 
             CancelActiveAsyncPipeline();
-            _postSaveRestoreTimer.Stop();
-            _postSaveRestoreTimer.Dispose();
             _deferredScanTimer.Stop();
             _deferredScanTimer.Dispose();
             _extractChunkTimer.Stop();
             _extractChunkTimer.Dispose();
-            _underlineChunkTimer.Stop();
-            _underlineChunkTimer.Dispose();
             if (!_staMarshaller.IsDisposed)
                 _staMarshaller.Dispose();
         }
@@ -241,9 +204,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             _scanGeneration++;
             _deferredScanTimer.Stop();
             _extractChunkTimer.Stop();
-            _underlineChunkTimer.Stop();
             _activeExtractState = null;
-            _activeUnderlineJob = null;
 
             if (_activeScanCts != null)
             {
@@ -253,10 +214,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             }
         }
 
-        private void StopActiveUnderlineJobOnly()
+        private void NotifyVisualUnderlinesInvalidated()
         {
-            _underlineChunkTimer.Stop();
-            _activeUnderlineJob = null;
+            unchecked { VisualStateVersion++; }
+            VisualUnderlinesInvalidated?.Invoke();
         }
 
         public static bool IsExcelReadyForInterop(Excel.Application? app)
@@ -365,6 +326,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 _issuesByWorkbook.Remove(wbKey);
                 _qualityByWorkbook.Remove(wbKey);
                 _scanMetaByWorkbook.Remove(wbKey);
+                _suppressedOverlayWorkbooks.Remove(wbKey);
+                NotifyVisualUnderlinesInvalidated();
             }
         }
 
@@ -378,29 +341,21 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             {
                 CancelActiveAsyncPipeline();
             }
-            if (_activeUnderlineJob != null &&
-                string.Equals(_activeUnderlineJob.WorkbookName, workbookName, StringComparison.OrdinalIgnoreCase))
-            {
-                StopActiveUnderlineJobOnly();
-            }
 
             bool wasLarge = _scanMetaByWorkbook.TryGetValue(workbookName!, out var meta) &&
                             (meta.TotalScopeCells >= EcoPerformanceGovernor.LargeExcelCellThreshold || meta.IsEcoActive);
 
             _issuesByWorkbook.Remove(workbookName!);
             _qualityByWorkbook.Remove(workbookName!);
-            _markedCellsByWorkbook.Remove(workbookName!);
             _scanMetaByWorkbook.Remove(workbookName!);
-            if (string.Equals(_pendingRestoreWorkbookName, workbookName, StringComparison.OrdinalIgnoreCase))
-            {
-                _pendingRestoreWorkbookName = null;
-                _postSaveRestoreTimer.Stop();
-            }
+            _suppressedOverlayWorkbooks.Remove(workbookName!);
+            _legacyHealedWorkbooks.Remove(workbookName!);
             _undoManager.ClearForWorkbook(workbookName!);
             if (wasLarge || _issuesByWorkbook.Count == 0)
             {
                 _engine.TrimMemoryCaches();
             }
+            NotifyVisualUnderlinesInvalidated();
             UndoStateChanged?.Invoke();
         }
 
@@ -433,7 +388,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
         /// Non-blocking, bounded-RAM streaming spreadsheet scan pipeline for large sheets and multi-sheet workbooks:
         /// Stage 1: Time-sliced STA 2D SAFEARRAY extraction (&lt;= 10ms per tick, max 3 blocks buffered in RAM at once!).
         /// Stage 2: Gentle hardware-throttled streaming NLP consumer freeing each 2D array immediately after scan.
-        /// Stage 3: Viewport-prioritized, Eco-capped, incremental STA cell underlining (&lt;= 9ms per tick).
+        /// Stage 3: Zero-formatting-mutation screen-only wavy underline notification via <see cref="VisualUnderlinesInvalidated"/>.
         /// </summary>
         public void ScanScopeAsync(SpreadsheetScanScope scope, bool allowSmartPartialAutoScan = false)
         {
@@ -455,6 +410,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             }
 
             string wbName = SafeGetWorkbookName(wb);
+            _suppressedOverlayWorkbooks.Remove(wbName);
             int generation = _scanGeneration;
             var cts = new CancellationTokenSource();
             _activeScanCts = cts;
@@ -497,8 +453,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                     ScannedCellCount = 0,
                     TotalScopeCells = 0
                 };
+                HealLegacySentinelMarksIfPresentOnce(wb, wbName);
                 ScanCompleted?.Invoke(Array.Empty<SpreadsheetCellIssue>());
-                StartIncrementalUnderlineSync(wb, wbName, generation, preserveSavedState: true);
+                NotifyVisualUnderlinesInvalidated();
                 return;
             }
 
@@ -1026,9 +983,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                         try { liveWb = _excelApp.ActiveWorkbook; } catch { }
                         if (liveWb != null && string.Equals(SafeGetWorkbookName(liveWb), state.WorkbookName, StringComparison.OrdinalIgnoreCase))
                         {
-                            StartIncrementalUnderlineSync(liveWb, state.WorkbookName, state.Generation, preserveSavedState: true);
+                            HealLegacySentinelMarksIfPresentOnce(liveWb, state.WorkbookName);
                         }
                     }
+
+                    NotifyVisualUnderlinesInvalidated();
                 }));
             }
             catch { }
@@ -1050,6 +1009,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 return Array.Empty<SpreadsheetCellIssue>();
 
             string wbName = SafeGetWorkbookName(wb);
+            _suppressedOverlayWorkbooks.Remove(wbName);
             ScanStarted?.Invoke();
 
             var collected = new List<SpreadsheetCellIssue>();
@@ -1110,7 +1070,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
                 _issuesByWorkbook[wbName] = collected;
                 _qualityByWorkbook.Remove(wbName);
-                SyncVisualUnderlinesForWorkbook(wb, wbName, preserveSavedState: true);
+                HealLegacySentinelMarksIfPresentOnce(wb, wbName);
+                NotifyVisualUnderlinesInvalidated();
             }
             catch (COMException ex) when (IsTransientExcelBusyComError(ex))
             {
@@ -1131,7 +1092,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
         /// <summary>
         /// Incremental cell re-check triggered after a user finishes editing cell(s) and presses Enter/Tab.
-        /// Updates per-word Red/Blue/Amber underlines on affected cells when visual underlines are enabled.
+        /// Updates cached cell issues and refreshes the screen-only wavy underline overlay with zero cell formatting writes.
         /// </summary>
         public void OnWorkbookSheetChange(object sh, Excel.Range target)
         {
@@ -1187,16 +1148,17 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
                 if (freshIssues.Count > 0)
                 {
+                    _suppressedOverlayWorkbooks.Remove(wbName);
                     existingList.AddRange(freshIssues);
                     existingList.Sort(CompareIssuesByLocation);
                 }
 
                 _qualityByWorkbook.Remove(wbName);
-                SyncVisualUnderlinesForEditedRange(wb, ws, wbName, sheetName, effective, freshIssues);
 
                 // Avoid tearing down and recreating WinForms Task Pane cards when a clean cell stays clean (0 -> 0 delta)
                 if (removedCount > 0 || freshIssues.Count > 0)
                 {
+                    NotifyVisualUnderlinesInvalidated();
                     ScanCompleted?.Invoke(existingList);
                 }
             }
@@ -1330,12 +1292,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                     return false;
                 }
 
-                StopActiveUnderlineJobOnly();
                 WithExcelWriteGuard(() =>
                 {
-                    RestoreAndUntrackSingleCellIfMarked(wbName, cell, item.SheetName, item.Row, item.Column);
+                    HealLegacySentinelMarksInSingleCell(cell);
                     WriteSafePlainStringToCell(cell, updatedText);
-                    SyncVisualUnderlinesForSingleCell(wbName, ws, cell, item.SheetName, item.Row, item.Column, updatedText, allItems);
                 });
 
                 _undoManager.PushBatch(new SpreadsheetUndoBatch
@@ -1356,6 +1316,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 });
 
                 _qualityByWorkbook.Remove(wbName);
+                NotifyVisualUnderlinesInvalidated();
                 UndoStateChanged?.Invoke();
                 return true;
             }
@@ -1414,7 +1375,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             int totalFixedIssues = ApplyCellWriteOperations(wb, wbName, ops, descriptionLabel, out busyWarning);
             if (totalFixedIssues > 0)
             {
-                StartIncrementalUnderlineSync(wb, wbName, _scanGeneration, preserveSavedState: false);
+                NotifyVisualUnderlinesInvalidated();
             }
             return totalFixedIssues;
         }
@@ -1457,7 +1418,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             int totalFixedIssues = ApplyCellWriteOperations(wb, wbName, ops, descriptionLabel, out busyWarning);
             if (totalFixedIssues > 0)
             {
-                StartIncrementalUnderlineSync(wb, wbName, _scanGeneration, preserveSavedState: false);
+                NotifyVisualUnderlinesInvalidated();
             }
             return totalFixedIssues;
         }
@@ -1511,7 +1472,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 out busyWarning);
             if (count > 0)
             {
-                StartIncrementalUnderlineSync(wb, wbName, _scanGeneration, preserveSavedState: false);
+                NotifyVisualUnderlinesInvalidated();
             }
             return count;
         }
@@ -1546,7 +1507,6 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 if (wb == null)
                     return false;
 
-                StopActiveUnderlineJobOnly();
                 var wsMap = BuildWorksheetMap(wb);
 
                 WithExcelWriteGuard(() =>
@@ -1564,7 +1524,6 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                                 if (IsSingleCellFormula(cell))
                                     continue;
 
-                                RestoreAndUntrackSingleCellIfMarked(entry.WorkbookName, cell, entry.SheetName, entry.Row, entry.Column);
                                 WriteSafePlainStringToCell(cell, entry.PreviousText);
                                 if (!string.IsNullOrEmpty(entry.PreviousFontName))
                                 {
@@ -1577,6 +1536,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                     }
                 }, suspendCalculation: batch.Entries.Count >= 4);
 
+                NotifyVisualUnderlinesInvalidated();
                 UndoStateChanged?.Invoke();
                 ScanScopeAsync(CurrentScope);
                 statusMessage = UiLocalizer.Pick(
@@ -2156,7 +2116,6 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
             try
             {
-                StopActiveUnderlineJobOnly();
                 var wsMap = BuildWorksheetMap(wb);
                 var pumpWatch = Stopwatch.StartNew();
                 int processedSoFar = 0;
@@ -2175,24 +2134,6 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                             .OrderBy(o => o.Row)
                             .ThenBy(o => o.Column)
                             .ToList();
-
-                        // Restore any underlined cells among target ops upfront (bounded to <= 25..120 marked cells)
-                        if (_markedCellsByWorkbook.TryGetValue(wbName, out var sheetMarks) && sheetMarks.Count > 0)
-                        {
-                            for (int m = 0; m < sheetOps.Count; m++)
-                            {
-                                var mop = sheetOps[m];
-                                if (sheetMarks.ContainsKey(MakeCellKey(mop.SheetName, mop.Row, mop.Column)))
-                                {
-                                    try
-                                    {
-                                        Excel.Range markedCell = (Excel.Range)ws.Cells[mop.Row, mop.Column];
-                                        RestoreAndUntrackSingleCellIfMarked(wbName, markedCell, mop.SheetName, mop.Row, mop.Column);
-                                    }
-                                    catch { }
-                                }
-                            }
-                        }
 
                         const int BandRowHeight = 200;
                         int idx = 0;
@@ -2281,7 +2222,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                                     if (IsSingleCellFormula(cell))
                                         continue;
 
-                                    RestoreAndUntrackSingleCellIfMarked(wbName, cell, op.SheetName, op.Row, op.Column);
+                                    HealLegacySentinelMarksInSingleCell(cell);
                                     WriteSafePlainStringToCell(cell, op.UpdatedText);
                                     if (!string.IsNullOrEmpty(op.TargetFontName))
                                     {
@@ -2828,7 +2769,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             return used;
         }
 
-        private static long SafeGetCountLarge(Excel.Range range)
+        internal static long SafeGetCountLarge(Excel.Range range)
         {
             try
             {
@@ -2857,12 +2798,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             }
         }
 
-        private static string SafeGetWorkbookName(Excel.Workbook wb)
+        internal static string SafeGetWorkbookName(Excel.Workbook wb)
         {
             try { return wb.Name ?? "Workbook"; } catch { return "Workbook"; }
         }
 
-        private static string SafeGetSheetName(Excel.Worksheet ws)
+        internal static string SafeGetSheetName(Excel.Worksheet ws)
         {
             try { return ws.Name ?? "Sheet1"; } catch { return "Sheet1"; }
         }
@@ -2878,72 +2819,276 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             return a.Issue.StartIndex.CompareTo(b.Issue.StartIndex);
         }
 
-        // ================= SAVE/PRINT-SAFE IN-CELL VISUAL UNDERLINE MANAGER =================
+        // ================= ZERO-MUTATION SCREEN-ONLY VISUAL UNDERLINE QUERIES & LEGACY HEALER =================
+
+        public bool HasActiveVisualUnderlinesForActiveWorkbook()
+        {
+            if (!IsVisualUnderlineEnabled)
+                return false;
+
+            string wbKey = GetActiveWorkbookKey();
+            if (string.IsNullOrEmpty(wbKey) || _suppressedOverlayWorkbooks.Contains(wbKey))
+                return false;
+
+            if (!_issuesByWorkbook.TryGetValue(wbKey, out var items) || items.Count == 0)
+                return false;
+
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (!items[i].IsResolved)
+                    return true;
+            }
+            return false;
+        }
+
+        public List<List<SpreadsheetCellIssue>> GetVisibleSheetUnresolvedCellGroups(
+            string wbName,
+            string sheetName,
+            int minRow,
+            int maxRow,
+            int minCol,
+            int maxCol,
+            int maxVisibleCells)
+        {
+            var result = new List<List<SpreadsheetCellIssue>>();
+            if (string.IsNullOrEmpty(wbName) ||
+                string.IsNullOrEmpty(sheetName) ||
+                !IsVisualUnderlineEnabled ||
+                _suppressedOverlayWorkbooks.Contains(wbName))
+            {
+                return result;
+            }
+
+            if (!_issuesByWorkbook.TryGetValue(wbName, out var allItems) || allItems.Count == 0)
+                return result;
+
+            var byCell = new Dictionary<long, List<SpreadsheetCellIssue>>();
+            for (int i = 0; i < allItems.Count; i++)
+            {
+                SpreadsheetCellIssue it = allItems[i];
+                if (it.IsResolved)
+                    continue;
+                if (it.Row < minRow || it.Row > maxRow || it.Column < minCol || it.Column > maxCol)
+                    continue;
+                if (!string.Equals(it.SheetName, sheetName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                long coordKey = ((long)it.Row << 20) | (uint)it.Column;
+                if (!byCell.TryGetValue(coordKey, out var group))
+                {
+                    if (byCell.Count >= maxVisibleCells)
+                        continue;
+
+                    group = new List<SpreadsheetCellIssue>(2);
+                    byCell[coordKey] = group;
+                    result.Add(group);
+                }
+                group.Add(it);
+            }
+
+            return result;
+        }
+
+        public List<SpreadsheetCellIssue> GetUnresolvedIssuesForSingleCell(
+            string wbName,
+            string sheetName,
+            int row,
+            int col,
+            Excel.Worksheet? wsForLiveFallback = null,
+            Excel.Range? cellForLiveFallback = null)
+        {
+            var matched = new List<SpreadsheetCellIssue>(2);
+            if (string.IsNullOrEmpty(wbName) || string.IsNullOrEmpty(sheetName) || row <= 0 || col <= 0)
+                return matched;
+
+            string? liveText = null;
+            bool inspectedLiveCell = false;
+            if (cellForLiveFallback != null)
+            {
+                inspectedLiveCell = true;
+                if (IsSingleCellFormula(cellForLiveFallback))
+                    return matched;
+
+                try { liveText = cellForLiveFallback.Value2 as string; } catch { }
+                if (string.IsNullOrWhiteSpace(liveText))
+                    return matched;
+            }
+
+            if (_issuesByWorkbook.TryGetValue(wbName, out var allItems) && allItems.Count > 0)
+            {
+                for (int i = 0; i < allItems.Count; i++)
+                {
+                    SpreadsheetCellIssue it = allItems[i];
+                    if (it.IsResolved || it.Row != row || it.Column != col)
+                        continue;
+                    if (!string.Equals(it.SheetName, sheetName, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    if (inspectedLiveCell && liveText != null)
+                    {
+                        string expected = it.Issue.OriginalText ?? string.Empty;
+                        if (!string.IsNullOrEmpty(expected) && liveText.IndexOf(expected, StringComparison.Ordinal) < 0)
+                            continue;
+                    }
+
+                    matched.Add(it);
+                }
+            }
+
+            if (matched.Count > 0)
+                return matched;
+
+            // Instant on-the-fly single-cell check if user selects an unscanned cell containing Myanmar text
+            if (IsLiveAutoScanEnabled &&
+                wsForLiveFallback != null &&
+                cellForLiveFallback != null &&
+                !string.IsNullOrWhiteSpace(liveText) &&
+                liveText!.Length <= 2_000 &&
+                SpreadsheetProofingHelper.ContainsMyanmarScript(liveText))
+            {
+                bool alreadyFullyScannedSheet = _scanMetaByWorkbook.TryGetValue(wbName, out var meta) &&
+                                                !meta.WasPartialAutoScan &&
+                                                !meta.WasCancelled &&
+                                                !meta.WasIssueCapReached &&
+                                                CurrentScope != SpreadsheetScanScope.Selection;
+                if (!alreadyFullyScannedSheet)
+                {
+                    IReadOnlyList<ProofingIssue> fresh = _engine.CheckText(liveText);
+                    if (fresh.Count > 0)
+                    {
+                        if (!_issuesByWorkbook.TryGetValue(wbName, out var wbList))
+                        {
+                            wbList = new List<SpreadsheetCellIssue>();
+                            _issuesByWorkbook[wbName] = wbList;
+                        }
+
+                        for (int i = 0; i < fresh.Count; i++)
+                        {
+                            var created = new SpreadsheetCellIssue
+                            {
+                                WorkbookName = wbName,
+                                SheetName = sheetName,
+                                Row = row,
+                                Column = col,
+                                CellSnapshotText = liveText,
+                                Issue = fresh[i]
+                            };
+                            matched.Add(created);
+                            wbList.Add(created);
+                        }
+
+                        wbList.Sort(CompareIssuesByLocation);
+                        _suppressedOverlayWorkbooks.Remove(wbName);
+                        NotifyVisualUnderlinesInvalidated();
+                        ScanCompleted?.Invoke(wbList);
+                    }
+                }
+            }
+
+            return matched;
+        }
+
+        public int CountMatchingUnresolvedOccurrencesInWorkbook(string? originalText)
+        {
+            if (string.IsNullOrWhiteSpace(originalText))
+                return 0;
+
+            string wbKey = GetActiveWorkbookKey();
+            if (string.IsNullOrEmpty(wbKey) || !_issuesByWorkbook.TryGetValue(wbKey, out var items) || items.Count == 0)
+                return 0;
+
+            string normTarget = UnicodeNormalizer.NormalizeCanonicalOrder(originalText!.Trim());
+            int count = 0;
+            for (int i = 0; i < items.Count; i++)
+            {
+                var it = items[i];
+                if (it.IsResolved)
+                    continue;
+                if (string.Equals(
+                        UnicodeNormalizer.NormalizeCanonicalOrder((it.Issue.OriginalText ?? string.Empty).Trim()),
+                        normTarget,
+                        StringComparison.Ordinal))
+                {
+                    count++;
+                }
+            }
+            return count;
+        }
 
         public void RefreshVisualUnderlinesForActiveWorkbook()
         {
-            if (!IsExcelReadyForInterop(_excelApp))
-                return;
-
-            try
+            string wbKey = GetActiveWorkbookKey();
+            if (!string.IsNullOrEmpty(wbKey))
             {
-                Excel.Workbook? wb = _excelApp.ActiveWorkbook;
-                if (wb == null)
-                    return;
-
-                string wbName = SafeGetWorkbookName(wb);
-                StartIncrementalUnderlineSync(wb, wbName, _scanGeneration, preserveSavedState: true);
+                if (IsVisualUnderlineEnabled)
+                    _suppressedOverlayWorkbooks.Remove(wbKey);
+                else
+                    _suppressedOverlayWorkbooks.Add(wbKey);
             }
-            catch (COMException ex) when (IsTransientExcelBusyComError(ex))
-            {
-                // Ignore busy state
-            }
-            catch (Exception ex)
-            {
-                AddInDiagnostics.LogException("RefreshVisualUnderlinesForActiveWorkbook", ex);
-            }
+            NotifyVisualUnderlinesInvalidated();
         }
 
         public int ClearAllVisualUnderlinesInActiveWorkbook()
         {
-            StopActiveUnderlineJobOnly();
-            if (!IsExcelReadyForInterop(_excelApp))
-                return 0;
+            string wbKey = GetActiveWorkbookKey();
+            int activeOverlayCells = 0;
 
-            try
+            if (!string.IsNullOrEmpty(wbKey))
             {
-                Excel.Workbook? wb = _excelApp.ActiveWorkbook;
-                if (wb == null)
-                    return 0;
+                if (!_suppressedOverlayWorkbooks.Contains(wbKey) &&
+                    _issuesByWorkbook.TryGetValue(wbKey, out var items) &&
+                    items.Count > 0)
+                {
+                    var distinctCells = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    for (int i = 0; i < items.Count; i++)
+                    {
+                        if (!items[i].IsResolved)
+                            distinctCells.Add(MakeCellKey(items[i].SheetName, items[i].Row, items[i].Column));
+                    }
+                    activeOverlayCells = distinctCells.Count;
+                }
+                _suppressedOverlayWorkbooks.Add(wbKey);
+            }
 
-                return StripAllUnderlinesForWorkbook(wb, preserveSavedState: true);
-            }
-            catch (COMException ex) when (IsTransientExcelBusyComError(ex))
+            int legacyHealed = 0;
+            if (IsExcelReadyForInterop(_excelApp))
             {
-                return 0;
+                try
+                {
+                    Excel.Workbook? wb = _excelApp.ActiveWorkbook;
+                    if (wb != null)
+                    {
+                        legacyHealed = HealLegacySentinelMarksInWorkbook(wb, preserveSavedState: true);
+                        if (!string.IsNullOrEmpty(wbKey))
+                            _legacyHealedWorkbooks.Add(wbKey);
+                    }
+                }
+                catch (COMException ex) when (IsTransientExcelBusyComError(ex)) { }
+                catch (Exception ex)
+                {
+                    AddInDiagnostics.LogException("ClearAllVisualUnderlinesInActiveWorkbook", ex);
+                }
             }
-            catch (Exception ex)
-            {
-                AddInDiagnostics.LogException("ClearAllVisualUnderlinesInActiveWorkbook", ex);
-                return 0;
-            }
+
+            NotifyVisualUnderlinesInvalidated();
+            return activeOverlayCells + legacyHealed;
         }
 
         public void TemporarilyStripUnderlinesForSaveOrPrint(Excel.Workbook? wb)
         {
-            StopActiveUnderlineJobOnly();
+            // Screen-only ExcelWavyUnderlineOverlay never mutates cell Font.Color or Font.Underline,
+            // so .xlsx saves and printouts are 100% clean automatically.
+            // As an extra safeguard, heal any legacy sentinel marks if this workbook came from a pre-overlay build.
             if (wb == null)
                 return;
 
             try
             {
                 string wbName = SafeGetWorkbookName(wb);
-                int stripped = StripAllUnderlinesForWorkbook(wb, preserveSavedState: false);
-                if (stripped > 0 && IsVisualUnderlineEnabled)
+                if (!_legacyHealedWorkbooks.Contains(wbName))
                 {
-                    _pendingRestoreWorkbookName = wbName;
-                    _postSaveRestoreTimer.Stop();
-                    _postSaveRestoreTimer.Start();
+                    HealLegacySentinelMarksInWorkbook(wb, preserveSavedState: false);
+                    _legacyHealedWorkbooks.Add(wbName);
                 }
             }
             catch (Exception ex)
@@ -2952,670 +3097,157 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             }
         }
 
-        private void OnPostSaveRestoreTimerTick(object? sender, EventArgs e)
+        private void HealLegacySentinelMarksIfPresentOnce(Excel.Workbook wb, string wbName)
         {
-            _postSaveRestoreTimer.Stop();
-            string? targetWbName = _pendingRestoreWorkbookName;
-            _pendingRestoreWorkbookName = null;
-
-            if (string.IsNullOrEmpty(targetWbName) || !IsVisualUnderlineEnabled || !IsExcelReadyForInterop(_excelApp))
+            if (string.IsNullOrEmpty(wbName) || _legacyHealedWorkbooks.Contains(wbName))
                 return;
 
-            try
-            {
-                foreach (Excel.Workbook wb in _excelApp.Workbooks)
-                {
-                    if (string.Equals(SafeGetWorkbookName(wb), targetWbName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        bool wasSavedAfterSave = false;
-                        try { wasSavedAfterSave = wb.Saved; } catch { }
-                        StartIncrementalUnderlineSync(wb, targetWbName!, _scanGeneration, preserveSavedState: wasSavedAfterSave);
-                        break;
-                    }
-                }
-            }
-            catch
-            {
-                // Workbook may have closed right after saving — safe no-op
-            }
+            _legacyHealedWorkbooks.Add(wbName);
+            HealLegacySentinelMarksInWorkbook(wb, preserveSavedState: true);
         }
 
-        private int StripAllUnderlinesForWorkbook(Excel.Workbook wb, bool preserveSavedState)
+        /// <summary>
+        /// Fast 1-COM-call check per sheet that heals any cell previously colored with our 3 exact legacy pre-overlay
+        /// sentinel BGR colors (<c>0x001C1CD2</c>, <c>0x00C05814</c>, <c>0x000866BA</c>) back to clean Automatic black text,
+        /// while leaving 100% of user formatting and clean sheets untouched (0 cell writes on clean sheets).
+        /// </summary>
+        private int HealLegacySentinelMarksInWorkbook(Excel.Workbook wb, bool preserveSavedState)
         {
-            StopActiveUnderlineJobOnly();
-            string wbName = SafeGetWorkbookName(wb);
-            if (!_markedCellsByWorkbook.TryGetValue(wbName, out var markedMap) || markedMap.Count == 0)
-                return 0;
-
+            int healedCells = 0;
             bool wasSaved = false;
             try { wasSaved = wb.Saved; } catch { }
 
-            var wsMap = BuildWorksheetMap(wb);
-            int restoredCount = 0;
-            WithExcelWriteGuard(() =>
+            try
             {
-                foreach (var sheetGroup in markedMap.Values.GroupBy(m => m.SheetName, StringComparer.OrdinalIgnoreCase))
+                foreach (object rawSheet in wb.Worksheets)
                 {
-                    if (!wsMap.TryGetValue(sheetGroup.Key, out Excel.Worksheet? ws) || ws == null)
+                    if (!(rawSheet is Excel.Worksheet ws))
                         continue;
 
                     bool isProtected = false;
                     try { isProtected = ws.ProtectContents; } catch { }
-
-                    foreach (var mark in sheetGroup)
-                    {
-                        try
-                        {
-                            Excel.Range cell = (Excel.Range)ws.Cells[mark.Row, mark.Column];
-                            if (isProtected && IsCellLockedSafe(cell))
-                                continue;
-
-                            RestoreCellBaselineFormatting(cell, mark);
-                            restoredCount++;
-                        }
-                        catch { }
-                    }
-                }
-            });
-
-            markedMap.Clear();
-            if (preserveSavedState && wasSaved)
-            {
-                try { wb.Saved = true; } catch { }
-            }
-
-            return restoredCount;
-        }
-
-        private void SyncVisualUnderlinesForEditedRange(
-            Excel.Workbook wb,
-            Excel.Worksheet ws,
-            string wbName,
-            string sheetName,
-            Excel.Range effective,
-            List<SpreadsheetCellIssue> freshIssues)
-        {
-            if (!IsVisualUnderlineEnabled)
-                return;
-
-            _markedCellsByWorkbook.TryGetValue(wbName, out var existingMarks);
-
-            // Collect any previously marked cells inside the edited areas that may need restoration/update
-            var staleKeysInEdit = new List<string>();
-            if (existingMarks != null && existingMarks.Count > 0)
-            {
-                foreach (Excel.Range area in effective.Areas)
-                {
-                    int rStart = area.Row;
-                    int cStart = area.Column;
-                    int rEnd = rStart + area.Rows.Count - 1;
-                    int cEnd = cStart + area.Columns.Count - 1;
-
-                    foreach (var kv in existingMarks)
-                    {
-                        if (string.Equals(kv.Value.SheetName, sheetName, StringComparison.OrdinalIgnoreCase) &&
-                            kv.Value.Row >= rStart && kv.Value.Row <= rEnd &&
-                            kv.Value.Column >= cStart && kv.Value.Column <= cEnd)
-                        {
-                            staleKeysInEdit.Add(kv.Key);
-                        }
-                    }
-                }
-            }
-
-            // Fast zero-COM-write exit when edited cell(s) have 0 fresh issues and had no prior underlines!
-            if (freshIssues.Count == 0 && staleKeysInEdit.Count == 0)
-                return;
-
-            if (existingMarks == null)
-            {
-                existingMarks = new Dictionary<string, MarkedCellBaseline>(StringComparer.OrdinalIgnoreCase);
-                _markedCellsByWorkbook[wbName] = existingMarks;
-            }
-
-            var freshByCellKey = new Dictionary<string, List<SpreadsheetCellIssue>>(StringComparer.OrdinalIgnoreCase);
-            foreach (var issue in freshIssues)
-            {
-                if (issue.IsResolved)
-                    continue;
-                string key = MakeCellKey(issue.SheetName, issue.Row, issue.Column);
-                if (!freshByCellKey.TryGetValue(key, out var list))
-                {
-                    list = new List<SpreadsheetCellIssue>(2);
-                    freshByCellKey[key] = list;
-                }
-                list.Add(issue);
-            }
-
-            bool isProtected = false;
-            try { isProtected = ws.ProtectContents; } catch { }
-
-            WithExcelWriteGuard(() =>
-            {
-                // 1. Restore any previously marked cell in the edited area that now has 0 issues
-                foreach (string staleKey in staleKeysInEdit)
-                {
-                    if (freshByCellKey.ContainsKey(staleKey))
+                    if (isProtected)
                         continue;
 
-                    if (existingMarks.TryGetValue(staleKey, out var mark))
-                    {
-                        try
-                        {
-                            Excel.Range cell = (Excel.Range)ws.Cells[mark.Row, mark.Column];
-                            if (!(isProtected && IsCellLockedSafe(cell)))
-                            {
-                                RestoreCellBaselineFormatting(cell, mark);
-                            }
-                        }
-                        catch { }
-                        existingMarks.Remove(staleKey);
-                    }
-                }
-
-                // 2. Apply underlines only to the newly flagged edited cell(s)
-                foreach (var kv in freshByCellKey)
-                {
-                    string cellKey = kv.Key;
-                    List<SpreadsheetCellIssue> cellIssues = kv.Value;
-                    int row = cellIssues[0].Row;
-                    int col = cellIssues[0].Column;
-
-                    try
-                    {
-                        Excel.Range cell = (Excel.Range)ws.Cells[row, col];
-                        if ((isProtected && IsCellLockedSafe(cell)) || IsSingleCellFormula(cell))
-                            continue;
-
-                        string? liveText = cell.Value2 as string;
-                        if (string.IsNullOrEmpty(liveText))
-                            continue;
-
-                        string sig = BuildCellUnderlineSignature(cellIssues);
-                        if (existingMarks.TryGetValue(cellKey, out var mark) &&
-                            string.Equals(mark.AppliedSignature, sig, StringComparison.Ordinal))
-                        {
-                            continue;
-                        }
-
-                        if (mark == null)
-                        {
-                            mark = CaptureCellBaseline(cell, sheetName, row, col);
-                            existingMarks[cellKey] = mark;
-                        }
-                        else
-                        {
-                            RestoreCellBaselineFormatting(cell, mark);
-                        }
-
-                        ApplyUnderlinesToSingleCell(cell, liveText!, cellIssues);
-                        mark.AppliedSignature = sig;
-                    }
-                    catch { }
-                }
-            });
-        }
-
-        private void SyncVisualUnderlinesForSingleCell(
-            string wbName,
-            Excel.Worksheet ws,
-            Excel.Range cell,
-            string sheetName,
-            int row,
-            int col,
-            string updatedText,
-            List<SpreadsheetCellIssue>? allWorkbookItems)
-        {
-            if (!IsVisualUnderlineEnabled || allWorkbookItems == null || string.IsNullOrEmpty(updatedText))
-                return;
-
-            var remainingInCell = new List<SpreadsheetCellIssue>();
-            for (int i = 0; i < allWorkbookItems.Count; i++)
-            {
-                var it = allWorkbookItems[i];
-                if (!it.IsResolved &&
-                    it.Row == row &&
-                    it.Column == col &&
-                    string.Equals(it.SheetName, sheetName, StringComparison.OrdinalIgnoreCase))
-                {
-                    remainingInCell.Add(it);
-                }
-            }
-
-            if (remainingInCell.Count == 0)
-                return;
-
-            try
-            {
-                bool isProtected = false;
-                try { isProtected = ws.ProtectContents; } catch { }
-                if ((isProtected && IsCellLockedSafe(cell)) || IsSingleCellFormula(cell))
-                    return;
-
-                if (!_markedCellsByWorkbook.TryGetValue(wbName, out var marks))
-                {
-                    marks = new Dictionary<string, MarkedCellBaseline>(StringComparer.OrdinalIgnoreCase);
-                    _markedCellsByWorkbook[wbName] = marks;
-                }
-
-                string cellKey = MakeCellKey(sheetName, row, col);
-                MarkedCellBaseline mark = CaptureCellBaseline(cell, sheetName, row, col);
-                marks[cellKey] = mark;
-                ApplyUnderlinesToSingleCell(cell, updatedText, remainingInCell);
-                mark.AppliedSignature = BuildCellUnderlineSignature(remainingInCell);
-            }
-            catch { }
-        }
-
-        private static string BuildCellUnderlineSignature(List<SpreadsheetCellIssue> cellIssues)
-        {
-            if (cellIssues.Count == 0)
-                return string.Empty;
-
-            var sb = new StringBuilder(cellIssues.Count * 16);
-            for (int i = 0; i < cellIssues.Count; i++)
-            {
-                var it = cellIssues[i];
-                if (it.IsResolved)
-                    continue;
-                sb.Append(it.Issue.StartIndex).Append(':')
-                  .Append(it.Issue.Length).Append(':')
-                  .Append((int)it.Issue.IssueType).Append('|');
-            }
-            return sb.ToString();
-        }
-
-        private void StartIncrementalUnderlineSync(
-            Excel.Workbook wb,
-            string wbName,
-            int generation,
-            bool preserveSavedState)
-        {
-            StopActiveUnderlineJobOnly();
-
-            if (!IsVisualUnderlineEnabled)
-            {
-                StripAllUnderlinesForWorkbook(wb, preserveSavedState);
-                return;
-            }
-
-            _issuesByWorkbook.TryGetValue(wbName, out var allIssues);
-
-            // Group unresolved issues by cell, then prioritize ActiveSheet + VisibleRange proximity up to MaxUnderlinedCellsPerScan!
-            var groupedByCell = new Dictionary<string, List<SpreadsheetCellIssue>>(StringComparer.OrdinalIgnoreCase);
-            if (allIssues != null && allIssues.Count > 0)
-            {
-                for (int i = 0; i < allIssues.Count; i++)
-                {
-                    var issue = allIssues[i];
-                    if (issue.IsResolved)
+                    Excel.Range? used = SafeGetUsedRange(ws);
+                    if (used == null)
                         continue;
 
-                    string key = MakeCellKey(issue.SheetName, issue.Row, issue.Column);
-                    if (!groupedByCell.TryGetValue(key, out var list))
+                    // Fast 1-COM-call exit: if the entire UsedRange has xlUnderlineStyleNone, zero legacy marks exist!
+                    object? sheetUl = null;
+                    try { sheetUl = used.Font.Underline; } catch { continue; }
+                    if (sheetUl is int uNone && uNone == (int)Excel.XlUnderlineStyle.xlUnderlineStyleNone)
+                        continue;
+
+                    long totalUsed = SafeGetCountLarge(used);
+                    int maxInspectCells = (int)Math.Min(totalUsed, 600L);
+                    if (maxInspectCells <= 0)
+                        continue;
+
+                    int startR = used.Row;
+                    int startC = used.Column;
+                    int endR = startR + used.Rows.Count - 1;
+                    int endC = startC + used.Columns.Count - 1;
+                    int inspected = 0;
+
+                    WithExcelWriteGuard(() =>
                     {
-                        list = new List<SpreadsheetCellIssue>(2);
-                        groupedByCell[key] = list;
-                    }
-                    list.Add(issue);
-                }
-            }
-
-            string activeSheetName = string.Empty;
-            int visMidRow = 15;
-            try
-            {
-                if (wb.ActiveSheet is Excel.Worksheet aws)
-                    activeSheetName = SafeGetSheetName(aws);
-                Excel.Range? vis = _excelApp.ActiveWindow?.VisibleRange;
-                if (vis != null)
-                    visMidRow = vis.Row + (vis.Rows.Count / 2);
-            }
-            catch { }
-
-            long knownScopeCells = _scanMetaByWorkbook.TryGetValue(wbName, out var wbMeta) ? wbMeta.TotalScopeCells : 0;
-            EcoRuntimeBudgets underlineBudgets = EcoPerformanceGovernor.ComputeBudgets(
-                EcoPerformanceGovernor.IsLargeExcelScope(knownScopeCells) || groupedByCell.Count >= 80);
-            int maxUnderlineCap = underlineBudgets.ExcelVisualUnderlineCap;
-
-            var selectedCells = new Dictionary<string, List<SpreadsheetCellIssue>>(StringComparer.OrdinalIgnoreCase);
-            if (groupedByCell.Count <= maxUnderlineCap)
-            {
-                foreach (var kv in groupedByCell)
-                    selectedCells[kv.Key] = kv.Value;
-            }
-            else
-            {
-                foreach (var kv in groupedByCell
-                    .OrderBy(kv => string.Equals(kv.Value[0].SheetName, activeSheetName, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
-                    .ThenBy(kv => Math.Abs(kv.Value[0].Row - visMidRow))
-                    .ThenBy(kv => kv.Value[0].Column)
-                    .Take(maxUnderlineCap))
-                {
-                    selectedCells[kv.Key] = kv.Value;
-                }
-            }
-
-            _markedCellsByWorkbook.TryGetValue(wbName, out var existingMarks);
-            bool hasExistingMarks = existingMarks != null && existingMarks.Count > 0;
-
-            if (selectedCells.Count == 0 && !hasExistingMarks)
-                return;
-
-            if (existingMarks == null)
-            {
-                existingMarks = new Dictionary<string, MarkedCellBaseline>(StringComparer.OrdinalIgnoreCase);
-                _markedCellsByWorkbook[wbName] = existingMarks;
-            }
-
-            var job = new PendingUnderlineJob
-            {
-                Generation = generation,
-                WorkbookName = wbName,
-                PreserveSavedState = preserveSavedState
-            };
-            try { job.InitialWorkbookSaved = wb.Saved; } catch { }
-
-            // 1. Enqueue restore ops for previously underlined cells that are no longer active
-            if (existingMarks.Count > 0)
-            {
-                foreach (var kv in existingMarks)
-                {
-                    if (!selectedCells.ContainsKey(kv.Key))
-                    {
-                        job.Operations.Enqueue(new PendingUnderlineOp
+                        for (int r = startR; r <= endR && inspected < maxInspectCells; r++)
                         {
-                            IsRestoreOnly = true,
-                            CellKey = kv.Key,
-                            SheetName = kv.Value.SheetName,
-                            Row = kv.Value.Row,
-                            Column = kv.Value.Column,
-                            BaselineToRestore = kv.Value
-                        });
-                    }
-                }
-            }
-
-            // 2. Enqueue apply ops ONLY for cells whose underline signature changed!
-            foreach (var kv in selectedCells
-                .OrderBy(kv => string.Equals(kv.Value[0].SheetName, activeSheetName, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
-                .ThenBy(kv => Math.Abs(kv.Value[0].Row - visMidRow)))
-            {
-                string sig = BuildCellUnderlineSignature(kv.Value);
-                if (existingMarks.TryGetValue(kv.Key, out var existingMark) &&
-                    string.Equals(existingMark.AppliedSignature, sig, StringComparison.Ordinal))
-                {
-                    // Already underlined with exact same character offsets & types — 0 COM calls needed!
-                    continue;
-                }
-
-                job.Operations.Enqueue(new PendingUnderlineOp
-                {
-                    IsRestoreOnly = false,
-                    CellKey = kv.Key,
-                    SheetName = kv.Value[0].SheetName,
-                    Row = kv.Value[0].Row,
-                    Column = kv.Value[0].Column,
-                    IssuesToApply = kv.Value,
-                    Signature = sig
-                });
-            }
-
-            if (job.Operations.Count == 0)
-                return;
-
-            _activeUnderlineJob = job;
-            ProcessUnderlineJobSlice();
-        }
-
-        private void OnUnderlineChunkTimerTick(object? sender, EventArgs e)
-        {
-            _underlineChunkTimer.Stop();
-            ProcessUnderlineJobSlice();
-        }
-
-        private void ProcessUnderlineJobSlice()
-        {
-            PendingUnderlineJob? job = _activeUnderlineJob;
-            if (_disposed || job == null || job.Generation != _scanGeneration || !IsVisualUnderlineEnabled)
-            {
-                _activeUnderlineJob = null;
-                return;
-            }
-
-            if (!IsExcelReadyForInterop(_excelApp))
-            {
-                // User is actively typing or editing formula bar — yield immediately and retry smoothly later
-                _underlineChunkTimer.Start();
-                return;
-            }
-
-            Excel.Workbook? wb = null;
-            try { wb = _excelApp.ActiveWorkbook; } catch { }
-            if (wb == null || !string.Equals(SafeGetWorkbookName(wb), job.WorkbookName, StringComparison.OrdinalIgnoreCase))
-            {
-                _activeUnderlineJob = null;
-                return;
-            }
-
-            if (!_markedCellsByWorkbook.TryGetValue(job.WorkbookName, out var existingMarks))
-            {
-                existingMarks = new Dictionary<string, MarkedCellBaseline>(StringComparer.OrdinalIgnoreCase);
-                _markedCellsByWorkbook[job.WorkbookName] = existingMarks;
-            }
-
-            var wsMap = BuildWorksheetMap(wb);
-            var protectedCache = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-            var sw = Stopwatch.StartNew();
-
-            try
-            {
-                WithExcelWriteGuard(() =>
-                {
-                    while (job.Operations.Count > 0)
-                    {
-                        PendingUnderlineOp op = job.Operations.Dequeue();
-                        if (wsMap.TryGetValue(op.SheetName, out Excel.Worksheet? ws) && ws != null)
-                        {
-                            if (!protectedCache.TryGetValue(op.SheetName, out bool isProtected))
+                            for (int c = startC; c <= endC && inspected < maxInspectCells; c++)
                             {
-                                try { isProtected = ws.ProtectContents; } catch { isProtected = false; }
-                                protectedCache[op.SheetName] = isProtected;
-                            }
-
-                            try
-                            {
-                                Excel.Range cell = (Excel.Range)ws.Cells[op.Row, op.Column];
-                                if (op.IsRestoreOnly)
+                                inspected++;
+                                try
                                 {
-                                    if (op.BaselineToRestore != null && !(isProtected && IsCellLockedSafe(cell)))
+                                    Excel.Range cell = (Excel.Range)ws.Cells[r, c];
+                                    if (HealLegacySentinelMarksInSingleCell(cell))
                                     {
-                                        RestoreCellBaselineFormatting(cell, op.BaselineToRestore);
-                                    }
-                                    existingMarks.Remove(op.CellKey);
-                                }
-                                else if (op.IssuesToApply != null)
-                                {
-                                    if (!(isProtected && IsCellLockedSafe(cell)) && !IsSingleCellFormula(cell))
-                                    {
-                                        string? liveText = cell.Value2 as string;
-                                        if (!string.IsNullOrEmpty(liveText))
-                                        {
-                                            if (!existingMarks.TryGetValue(op.CellKey, out var mark))
-                                            {
-                                                mark = CaptureCellBaseline(cell, op.SheetName, op.Row, op.Column);
-                                                existingMarks[op.CellKey] = mark;
-                                            }
-                                            else
-                                            {
-                                                RestoreCellBaselineFormatting(cell, mark);
-                                            }
-
-                                            ApplyUnderlinesToSingleCell(cell, liveText!, op.IssuesToApply);
-                                            mark.AppliedSignature = op.Signature;
-                                        }
+                                        healedCells++;
                                     }
                                 }
+                                catch { }
                             }
-                            catch { }
                         }
-                        else if (op.IsRestoreOnly)
-                        {
-                            existingMarks.Remove(op.CellKey);
-                        }
+                    });
+                }
 
-                        if (sw.ElapsedMilliseconds >= UnderlineSliceBudgetMs && job.Operations.Count > 0)
-                        {
-                            break;
-                        }
-                    }
-                });
-            }
-            catch
-            {
-                _activeUnderlineJob = null;
-                return;
-            }
-
-            if (job.Operations.Count > 0)
-            {
-                _underlineChunkTimer.Start();
-            }
-            else
-            {
-                _activeUnderlineJob = null;
-                if (job.PreserveSavedState && job.InitialWorkbookSaved)
+                if (healedCells > 0 && preserveSavedState && wasSaved)
                 {
                     try { wb.Saved = true; } catch { }
                 }
             }
+            catch { }
+
+            return healedCells;
         }
 
-        private void SyncVisualUnderlinesForWorkbook(Excel.Workbook wb, string wbName, bool preserveSavedState)
+        private static bool HealLegacySentinelMarksInSingleCell(Excel.Range cell)
         {
-            StartIncrementalUnderlineSync(wb, wbName, _scanGeneration, preserveSavedState);
-        }
-
-        private void RestoreAndUntrackSingleCellIfMarked(string wbName, Excel.Range cell, string sheetName, int row, int col)
-        {
-            if (string.IsNullOrEmpty(wbName))
-                return;
-
-            if (_markedCellsByWorkbook.TryGetValue(wbName, out var marks))
-            {
-                string key = MakeCellKey(sheetName, row, col);
-                if (marks.TryGetValue(key, out var baseline))
-                {
-                    RestoreCellBaselineFormatting(cell, baseline);
-                    marks.Remove(key);
-                }
-            }
-        }
-
-        private static MarkedCellBaseline CaptureCellBaseline(Excel.Range cell, string sheetName, int row, int col)
-        {
-            var baseline = new MarkedCellBaseline
-            {
-                SheetName = sheetName,
-                Row = row,
-                Column = col,
-                WasColorAutomatic = true,
-                OriginalUnderline = (int)Excel.XlUnderlineStyle.xlUnderlineStyleNone
-            };
-
             try
             {
-                object? rawColorIdx = cell.Font.ColorIndex;
+                object? rawUl = cell.Font.Underline;
+                if (rawUl is int u && u == (int)Excel.XlUnderlineStyle.xlUnderlineStyleNone)
+                    return false;
+
+                if (IsSingleCellFormula(cell))
+                    return false;
+
+                bool hasLegacySentinel = false;
                 object? rawColor = cell.Font.Color;
-                int oleColor = 0;
-                bool hasConcreteColor = false;
-
-                if (rawColor is double d && !double.IsNaN(d))
+                if (TryExtractOleColor(rawColor, out int wholeCellColor))
                 {
-                    oleColor = Convert.ToInt32(d);
-                    hasConcreteColor = true;
+                    hasLegacySentinel = IsLegacyProofingSentinelColor(wholeCellColor);
                 }
-                else if (rawColor is int i)
+                else if (cell.Value2 is string txt && txt.Length > 0 && txt.Length <= 400)
                 {
-                    oleColor = i;
-                    hasConcreteColor = true;
+                    // Partial character formatting in cell (e.g. "စား" black + "ပီးပီ" sentinel red): sample character runs
+                    for (int pos = 1; pos <= txt.Length; pos += 2)
+                    {
+                        if (TryExtractOleColor(cell.Characters[pos, 1].Font.Color, out int chColor) &&
+                            IsLegacyProofingSentinelColor(chColor))
+                        {
+                            hasLegacySentinel = true;
+                            break;
+                        }
+                    }
+
+                    if (!hasLegacySentinel && txt.Length % 2 == 0)
+                    {
+                        if (TryExtractOleColor(cell.Characters[txt.Length, 1].Font.Color, out int lastColor) &&
+                            IsLegacyProofingSentinelColor(lastColor))
+                        {
+                            hasLegacySentinel = true;
+                        }
+                    }
                 }
 
-                bool isOurProofingColor = hasConcreteColor &&
-                    (oleColor == OleColorSpellingRed || oleColor == OleColorGrammarBlue || oleColor == OleColorContextAmber);
+                if (!hasLegacySentinel)
+                    return false;
 
-                if (!isOurProofingColor && rawColorIdx is int ci && ci != (int)Excel.XlColorIndex.xlColorIndexAutomatic && hasConcreteColor)
-                {
-                    baseline.WasColorAutomatic = false;
-                    baseline.OriginalOleColor = oleColor;
-                }
-
-                if (!isOurProofingColor && cell.Font.Underline is int ul && ul != 9999999)
-                {
-                    baseline.OriginalUnderline = ul;
-                }
-            }
-            catch { }
-
-            return baseline;
-        }
-
-        private static void RestoreCellBaselineFormatting(Excel.Range cell, MarkedCellBaseline baseline)
-        {
-            if (IsSingleCellFormula(cell))
-                return;
-
-            try { cell.Font.Underline = baseline.OriginalUnderline; } catch { }
-            try
-            {
-                if (baseline.WasColorAutomatic)
-                    cell.Font.ColorIndex = Excel.XlColorIndex.xlColorIndexAutomatic;
-                else
-                    cell.Font.Color = baseline.OriginalOleColor;
-            }
-            catch { }
-        }
-
-        private static void ApplyUnderlinesToSingleCell(Excel.Range cell, string liveText, List<SpreadsheetCellIssue> cellIssues)
-        {
-            foreach (var item in cellIssues)
-            {
-                if (item.IsResolved)
-                    continue;
-
-                int start0 = item.Issue.StartIndex;
-                int len = item.Issue.Length;
-                if (start0 < 0 || len <= 0 || start0 + len > liveText.Length)
-                    continue;
-
-                int oleColor = item.Issue.IsContextualWarning
-                    ? OleColorContextAmber
-                    : (item.Issue.IsGrammarOrStyle ? OleColorGrammarBlue : OleColorSpellingRed);
-
-                Excel.XlUnderlineStyle ulStyle = item.Issue.IsGrammarOrStyle
-                    ? Excel.XlUnderlineStyle.xlUnderlineStyleDouble
-                    : Excel.XlUnderlineStyle.xlUnderlineStyleSingle;
-
-                try
-                {
-                    Excel.Characters chars = cell.Characters[start0 + 1, len];
-                    chars.Font.Color = oleColor;
-                    chars.Font.Underline = ulStyle;
-                }
-                catch { }
-            }
-        }
-
-        private static bool IsCellLockedSafe(Excel.Range cell)
-        {
-            try
-            {
-                return cell.Locked is bool b && b;
+                cell.Font.Underline = Excel.XlUnderlineStyle.xlUnderlineStyleNone;
+                cell.Font.ColorIndex = Excel.XlColorIndex.xlColorIndexAutomatic;
+                return true;
             }
             catch
             {
+                return false;
+            }
+        }
+
+        private static bool TryExtractOleColor(object? rawColor, out int oleColor)
+        {
+            oleColor = 0;
+            if (rawColor is double d && !double.IsNaN(d))
+            {
+                oleColor = Convert.ToInt32(d);
                 return true;
             }
+            if (rawColor is int i)
+            {
+                oleColor = i;
+                return true;
+            }
+            return false;
         }
 
         private static string MakeCellKey(string sheetName, int row, int col)

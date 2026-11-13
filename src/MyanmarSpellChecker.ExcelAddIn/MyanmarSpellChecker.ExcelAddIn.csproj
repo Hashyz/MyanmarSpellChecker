@@ -21,6 +21,12 @@
     <Compile Update="UI\LicenseActivationForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Update="UI\ExcelQuickFixPopup.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="UI\ExcelWavyUnderlineOverlay.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Update="UI\ExcelProofingTaskPaneControl.cs">
       <SubType>UserControl</SubType>
     </Compile>

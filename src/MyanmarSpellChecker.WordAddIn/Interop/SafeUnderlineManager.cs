@@ -1690,7 +1690,42 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
         public void Dispose()
         {
-            _postSaveRestoreTimer.Dispose();
+            try
+            {
+                _postSaveRestoreTimer.Stop();
+                _pendingRestoreDoc = null;
+
+                // Strip all temporary proofing wavy underlines across any still-open documents
+                // if the add-in is disabled/disconnected while Word remains open.
+                var distinctDocs = new List<Word.Document>();
+                for (int i = 0; i < _trackedRanges.Count; i++)
+                {
+                    Word.Document? doc = _trackedRanges[i].Document;
+                    if (doc != null && !distinctDocs.Any(d => ReferenceEquals(d, doc)))
+                    {
+                        distinctDocs.Add(doc);
+                    }
+                }
+
+                for (int i = 0; i < distinctDocs.Count; i++)
+                {
+                    try
+                    {
+                        StripAllProofingUnderlines(distinctDocs[i], clearTrackingList: true);
+                    }
+                    catch { }
+                }
+
+                _trackedRanges.Clear();
+            }
+            catch
+            {
+                // Ignore disconnect COM teardown exceptions
+            }
+            finally
+            {
+                _postSaveRestoreTimer.Dispose();
+            }
         }
     }
 }

@@ -100,27 +100,29 @@ This project is open-source software licensed under the **[GNU General Public Li
 
 ---
 
-### Step 3 — How to Use in Microsoft Excel (`မြန်မာစာ စစ်ဆေးရေး` Tab)
+### Step 3 — How to Use in Microsoft Excel (`Myanmar Proofing` / `မြန်မာစာ စစ်ဆေးရေး` Tab)
 
-The Excel Add-in provides **In-Cell Color-Coded Underlines + Formula-Safe Cell-by-Cell Proofing & Accounting Tools**:
+The Excel Add-in provides **100% Non-Destructive Screen-Only Wavy Underlines, Word-Style On-Cursor Quick-Fix Popups & Formula-Safe Accounting Tools**:
 
-1. **In-Cell Red / Blue / Amber Underlines (Save & Print Safe):**
-   - Misspelled words inside plain-text cells are highlighted directly inside the cell with **Red Single Underline (`သတ်ပုံအမှား`)**, **Blue Double Underline (`သဒ္ဒါ/စာဟန်`)**, or **Amber Single Underline (`အနက်သံသယ`)**.
-   - All temporary proofing underlines are **automatically restored to clean normal text** as soon as you fix the word, click **`မျဉ်းရှင်း`**, or press **`Ctrl+S` (Save) / `Ctrl+P` (Print)** so proofing underlines are **never** baked into your saved `.xlsx` file. You can also toggle **`အနီမျဉ်း ပြသမှု (Underlines)`** on/off from the Ribbon at any time.
-2. **Choose Scan Scope (Ribbon or Task Pane):**
-   - **`လက်ရှိ Sheet စစ်မည်` (`Sheet`):** Scans all text cells in the active worksheet in milliseconds using bulk 2D `SAFEARRAY` reads.
-   - **`ရွေးကွက် စစ်မည်` (`ရွေးကွက်`):** Scans only your highlighted cell range.
-   - **`Workbook လုံး စစ်မည်` (`စာအုပ်လုံး`):** Scans every worksheet across the entire `.xlsx` workbook.
-   - **`အလိုအလျောက် စစ်ဆေးမှု (Live)`:** Automatically checks cells right after you press `Enter` to finish editing a cell.
-3. **100% Formula & Number Protection Guarantee:**
-   - Cells containing Excel formulas (`=SUM(...)`, `=VLOOKUP(...)`, `=IF(...)`, `=TEXT(...)`), pure accounting numbers, currencies, percentages, and dates are **strictly shielded** and **never** modified during single fixes, `အားလုံးပြင်`, underlining, font conversion, or numeral conversion.
-4. **Click-to-Navigate, Fix & 25-Step Undo (`↶ ပြန်ဆုတ်`):**
-   - Click any issue card (e.g. `စာရင်း(၁)!B4`) in the Task Pane to jump straight to that sheet and cell in Excel.
-   - Click `✓ ပြင်မည်` for a single fix or `အားလုံးပြင်` for a batch fix across cells.
-   - Because COM writes normally clear Excel's native `Ctrl+Z`, the add-in includes its own **25-step Multi-Level Undo stack** — click **`ပြန်ဆုတ်မည် (Undo)`** on the Ribbon or **`↶ ပြန်ဆုတ်`** in the Task Pane at any time to restore previous cell values and fonts!
-5. **Excel Accounting & Audit Tools:**
-   - Select any numeric budget cell in Excel and open the **`ကိရိယာ` (Toolkit)** tab — the number is automatically captured and converted into **Kyat Lakh (`ကျပ်သိန်း...တိတိ`)** Burmese words ready to copy or insert!
-   - Click **`အရည်အသွေး အစီရင်ခံစာ`** to generate a formatted printable audit report sheet (`မြန်မာစာ_စစ်ဆေးချက်`) listing quality scores and cell-by-cell findings.
+1. **Screen-Only Red / Blue / Amber Wavy Underlines (Zero Cell Color Mutation — Never Saved into `.xlsx`):**
+   - Flagged words inside visible plain-text cells are highlighted on screen via a High-DPI click-through Win32 layered overlay using **Red Wavy Underline (`သတ်ပုံအမှား`)**, **Blue Wavy Underline (`သဒ္ဒါ/စာဟန်`)**, or **Amber Wavy Underline (`အနက်သံသယ`)**.
+   - **Your cell text color, font formatting, Clipboard (`Ctrl+C`), native `Ctrl+Z`, and saved `.xlsx` file are 100% untouched** — opening the spreadsheet on another PC without the plugin installed always shows clean normal black text.
+2. **Word-Style On-Cursor Quick-Fix Popup + Right-Click Menu:**
+   - **Click or arrow-navigate onto any flagged cell** (e.g. `A1`) to see the floating **Word-Style Quick-Fix Popup** directly below the cell (without stealing keyboard focus!) with 1-click suggestions, multi-issue cell stepping (`1/2 ▶`), batch same-word fixes, expandable dictionary/grammar notes, `Ignore`, and `+Add Word`.
+   - **Right-click any flagged cell** to pick top suggestions directly from Excel's native cell context menu.
+3. **Choose Scan Scope (Ribbon or Task Pane):**
+   - **`Scan Sheet` (`လက်ရှိ Sheet`):** Scans all text cells in the active worksheet in milliseconds using read-only bulk 2D `SAFEARRAY` reads.
+   - **`Scan Selection` (`ရွေးထားကွက်`):** Scans only your highlighted cell range.
+   - **`Scan Workbook` (`Workbook လုံး`):** Scans every worksheet across the entire `.xlsx` workbook.
+   - **`Live Check` (`အလိုအလျောက် စစ်ဆေးမှု`):** Automatically checks cells right after you press `Enter` to finish editing a cell.
+4. **100% Formula & Number Protection Guarantee:**
+   - Cells containing Excel formulas (`=SUM(...)`, `=VLOOKUP(...)`, `=IF(...)`, `=TEXT(...)`), pure accounting numbers, currencies, percentages, and dates are **strictly shielded** and **never** modified during single fixes, `Fix All`, font conversion, or numeral conversion.
+5. **Click-to-Navigate, Fix & 25-Step Undo (`↶ Undo`):**
+   - Click any issue card (e.g. `Sheet1!B4`) in the Task Pane to jump straight to that sheet and cell in Excel.
+   - Click **`Undo Last` / `↶ Undo`** on the Ribbon or Task Pane at any time to restore up to **25 levels** of previous cell edits!
+6. **Excel Accounting & Audit Tools:**
+   - Select any numeric budget cell in Excel and open the **`Toolkit` (`ကိရိယာ`)** tab — the number is automatically captured and converted into **Kyat Lakh (`ကျပ်သိန်း...တိတိ`)** Burmese words ready to copy or insert!
+   - Click **`Audit Report` (`အရည်အသွေး အစီရင်ခံစာ`)** to generate a formatted audit report workbook listing quality scores and cell-by-cell findings.
 
 ---
 
@@ -181,14 +183,14 @@ SpellChecker/
 │   ├── Register-DevAddIn.ps1                      # Zero-Admin HKCU COM registration for local MS Word + MS Excel
 │   └── Product.wxs                                # WiX MSI installer definition
 └── tests/
-    └── MyanmarSpellChecker.Core.Tests/            # Automated xUnit test suite (64 end-to-end tests)
+    └── MyanmarSpellChecker.Core.Tests/            # Automated xUnit test suite (65 end-to-end tests)
 ```
 
 ---
 
 ## 3. Developer & Maintainer Commands
 
-### Run All 64 Automated Tests
+### Run All 65 Automated Tests
 *(On a fresh Git clone, `TestPaths.MasterJsonPath` automatically builds the intermediate `mlc_thatpon_master.json` from `data/sources/` on the first test run.)*
 ```powershell
 dotnet test .\tests\MyanmarSpellChecker.Core.Tests\MyanmarSpellChecker.Core.Tests.csproj -c Release

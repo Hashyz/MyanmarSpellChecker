@@ -240,6 +240,48 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             }
         }
 
+        /// <summary>
+        /// Passively highlights the matching issue card in the Task Pane when the user moves the Excel cursor
+        /// onto a flagged cell (without re-triggering sheet selection or stealing focus from the worksheet).
+        /// </summary>
+        public void HighlightCellIssueFromSheet(SpreadsheetCellIssue? item)
+        {
+            if (ReferenceEquals(_selectedItem, item))
+                return;
+
+            _selectedItem = item;
+            if (item == null)
+            {
+                foreach (var kv in _cardByItem.Values)
+                    kv.Invalidate();
+                return;
+            }
+
+            if (_activeTab != TaskPaneWorkspaceTab.Proofing)
+                return;
+
+            var visible = GetFilteredUnresolvedIssues();
+            int idx = visible.IndexOf(item);
+            if (idx >= 0)
+            {
+                _stepperCursor = idx;
+                if (!_cardByItem.ContainsKey(item))
+                {
+                    _visibleWindowStart = (idx / ExcelProofingCardBatchSize) * ExcelProofingCardBatchSize;
+                    _visibleCardLimit = Math.Min(MaxMountedExcelCards, ExcelProofingCardBatchSize * 2);
+                    RenderProofingCards();
+                }
+            }
+
+            if (_cardByItem.TryGetValue(item, out var cardCtrl))
+            {
+                try { _cardsPanel.ScrollControlIntoView(cardCtrl); } catch { }
+            }
+
+            foreach (var kv in _cardByItem.Values)
+                kv.Invalidate();
+        }
+
         private Dictionary<string, int> BuildExcelSameWordCountsMap()
         {
             var counts = new Dictionary<string, int>(StringComparer.Ordinal);

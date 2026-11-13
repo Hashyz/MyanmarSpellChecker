@@ -23,6 +23,7 @@ artifacts/*.lic
 artifacts/*.cer
 artifacts/*.pfx
 artifacts/mlc_thatpon.db
+artifacts/*.zip
 installer/prebuilt/mlc_thatpon.db
 artifacts/obfuscated/
 artifacts/release-package/
