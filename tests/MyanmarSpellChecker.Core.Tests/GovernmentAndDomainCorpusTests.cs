@@ -2606,5 +2606,144 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.DoesNotContain("ws.Cells.Find(", scannerCs, StringComparison.Ordinal);
             Assert.Contains("used.Find(", scannerCs, StringComparison.Ordinal);
         }
+
+        [Fact]
+        public void V55_WholeLexicon360ConsistencyAndOrthographyGate()
+        {
+            string root = TestPaths.RepoRoot;
+            string dbPath = Path.Combine(root, "data", "mlc_thatpon.db");
+            Assert.True(File.Exists(dbPath));
+
+            var model = EncryptedDictionaryRepository.ParseFromJsonFile(TestPaths.MasterJsonPath);
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            MyanmarTrie trie = repo.LoadIntoTrie(AntiTamperGuard.ReconstructProtectedFallbackKey());
+            var engine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+
+            Assert.True(trie.WordCount >= 95_000, $"Expected >= 95,000 active headwords, got {trie.WordCount}");
+
+            // 1. Rule-vs-Headword & Rule-vs-Bigram Zero-Contradiction Gate
+            var activeHeadwords = new HashSet<string>(
+                model.Entries.Where(e => !e.IsReferenceEntry).Select(e => e.Word),
+                StringComparer.Ordinal);
+            var condemnedWrongSet = new HashSet<string>(
+                model.OrthographyRules
+                    .Where(r => !string.Equals(r.Category, "OfficialStyle", StringComparison.OrdinalIgnoreCase))
+                    .Select(r => r.WrongForm),
+                StringComparer.Ordinal);
+
+            foreach (string wf in condemnedWrongSet)
+            {
+                Assert.DoesNotContain(wf, activeHeadwords);
+            }
+
+            foreach (var bg in model.WordBigrams)
+            {
+                Assert.DoesNotContain(bg.LeftWord, condemnedWrongSet);
+                Assert.DoesNotContain(bg.RightWord, condemnedWrongSet);
+            }
+
+            // 2. 100% of single-word Myanmar CorrectForms across OrthographyRules & ContextRules must exist in active Trie
+            var pureMyanmarRx = new System.Text.RegularExpressions.Regex(@"^[\u1000-\u103F\u104C-\u104F]+$");
+            foreach (var r in model.OrthographyRules)
+            {
+                if (pureMyanmarRx.IsMatch(r.CorrectForm))
+                {
+                    Assert.True(
+                        trie.ContainsExactWord(UnicodeNormalizer.NormalizeCanonicalOrder(r.CorrectForm)),
+                        $"OrthographyRule CorrectForm missing from active Trie: {r.WrongForm} -> {r.CorrectForm}");
+                }
+            }
+            foreach (var cr in model.ContextRules)
+            {
+                if (pureMyanmarRx.IsMatch(cr.CorrectForm))
+                {
+                    Assert.True(
+                        trie.ContainsExactWord(UnicodeNormalizer.NormalizeCanonicalOrder(cr.CorrectForm)),
+                        $"ContextualRule CorrectForm missing from active Trie: {cr.WrongForm} -> {cr.CorrectForm}");
+                }
+            }
+
+            // 3. Active Headword Structural & Mojibake Purity Gate
+            var vowelBeforeStackRx = new System.Text.RegularExpressions.Regex(@"[\u102B-\u1032\u1036]\u1039[\u1000-\u1021]");
+            var misplacedYaAaAsatRx = new System.Text.RegularExpressions.Regex(@"[\u1000-\u1021][\u103B\u103C](?:[\u102B\u102C]\u103A|\u103A[\u102B\u102C])");
+            var shiftedShweRx = new System.Text.RegularExpressions.Regex(@"\u101B\u103D(?:\u1004\u103A\u1039)?[\u1000-\u1021][\u103B-\u103D]*\u103E\u1031");
+            var shiftedMweRx = new System.Text.RegularExpressions.Regex(@"(?:\u1019\u103C|\u1000\u103C|\u1001\u103C|\u1001\u103B)(?!(?:\u1004\u103D\u1031(?![\u1000-\u1021]\u103A)|\u101E\u103D\u1031\u1038|\u1019\u103C\u103D\u1031\u1000\u103C\u102E\u1038))(?:\u1004\u103A\u1039)?[\u1000-\u1021][\u103B\u103C]*\u103D\u1031");
+            var illegalMedialTallAaRx = new System.Text.RegularExpressions.Regex(@"(?!\u1012\u103D|\u101D\u103E)[\u1000-\u1021][\u103B-\u103E]+\u1031?\u102B");
+
+            foreach (string hw in activeHeadwords)
+            {
+                Assert.Matches(pureMyanmarRx, hw);
+                Assert.DoesNotMatch(vowelBeforeStackRx, hw);
+                Assert.DoesNotMatch(misplacedYaAaAsatRx, hw);
+                Assert.DoesNotContain("\u103A\u103C", hw, StringComparison.Ordinal);
+                Assert.DoesNotContain("\u1019\u103E\u102F\u1036", hw, StringComparison.Ordinal);
+                Assert.DoesNotMatch(shiftedShweRx, hw);
+                Assert.DoesNotMatch(shiftedMweRx, hw);
+                Assert.DoesNotMatch(illegalMedialTallAaRx, hw);
+            }
+
+            // 4. Purged leaks must not exist in active headwords
+            string[] purgedLeaks =
+            {
+                "ပီးပီး", "က်ုစင်", "ထပှ်", "ဓဂဵု", "အလုပ်သျှင်", "ပညာသျှင်",
+                "စားလုံးပေါင်း", "ဆဌမ", "အဌမ", "ဓမ္မဓိဌာန်", "ကော့မှုး", "ကော့မှုးမြို့နယ်",
+                "နှုတ်ခမ်းမွှေး", "ပုံပန်းသဏ္ဍာန်", "လုံးရပ်သဏ္ဍာန်"
+            };
+            foreach (string leak in purgedLeaks)
+            {
+                Assert.DoesNotContain(leak, activeHeadwords);
+            }
+
+            // 5. Live Engine Proofing & Zero-False-Positive Verification
+            var expectedCorrections = new (string WrongInput, string ExpectedCanonical)[]
+            {
+                ("စားလုံးပေါင်း", "စာလုံးပေါင်း"),
+                ("ဆဌမ", "ဆဋ္ဌမ"),
+                ("အဌမ", "အဋ္ဌမ"),
+                ("ဓမ္မဓိဌာန်", "ဓမ္မဓိဋ္ဌာန်"),
+                ("ကော့မှုးမြို့နယ်", "ကော့မှူးမြို့နယ်"),
+                ("နှုတ်ခမ်းမွှေး", "နှုတ်ခမ်းမွေး"),
+                ("အလုပ်သျှင်", "အလုပ်ရှင်"),
+                ("ယောကျ်ား", "ယောက်ျား"),
+                ("ဒုကိ္ခတ", "ဒုက္ခိတ"),
+                ("ပဥှာ", "ပဉှာ")
+            };
+            foreach (var (wrongInput, expectedCanonical) in expectedCorrections)
+            {
+                var issues = engine.CheckText(wrongInput);
+                Assert.NotEmpty(issues);
+                Assert.Contains(
+                    issues.SelectMany(x => x.Suggestions),
+                    s => UnicodeNormalizer.NormalizeCanonicalOrder(s.Replacement) == UnicodeNormalizer.NormalizeCanonicalOrder(expectedCanonical));
+            }
+
+            string[] cleanCanonicalWords =
+            {
+                "ရွှေဘိုမြို့နယ်", "မြွေပါ", "မြွေပွေး", "ကြွေရောင်", "ချွေတာ",
+                "ဂွာတီမာလာ", "ဒုက္ခိတ", "ပဉှာ", "သြောင်း", "ဥုံသြောင်း",
+                "စတုမဓု", "အခက်ခဲဆုံး", "ကော့မှူးမြို့နယ်", "ဆည်မြောင်းဦးစီးဌာန"
+            };
+            foreach (string cleanWord in cleanCanonicalWords)
+            {
+                var issues = engine.CheckText(cleanWord);
+                Assert.Empty(issues);
+            }
+
+            // 6. Full 360° Prose Sanitization Gate across all MeaningCue & UsageNote fields
+            var zeroWidthRx = new System.Text.RegularExpressions.Regex(@"[\u200B-\u200F\uFEFF\u00AD]");
+            foreach (var e in model.Entries)
+            {
+                foreach (string prose in new[] { e.MeaningCue ?? string.Empty, e.UsageNote ?? string.Empty })
+                {
+                    if (prose.Length == 0) continue;
+                    Assert.DoesNotMatch(zeroWidthRx, prose);
+                    Assert.DoesNotContain("၄င်း", prose, StringComparison.Ordinal);
+                    Assert.DoesNotContain("\u1025\u103A", prose, StringComparison.Ordinal);
+                    Assert.DoesNotMatch(vowelBeforeStackRx, prose);
+                    Assert.DoesNotMatch(shiftedShweRx, prose);
+                    Assert.DoesNotMatch(shiftedMweRx, prose);
+                }
+            }
+        }
     }
 }
