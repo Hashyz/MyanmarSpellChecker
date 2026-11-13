@@ -116,7 +116,7 @@ if (-not $ValidateOnly) {
         if ($runningOffice.Count -eq 0 -or $Silent) {
             break
         }
-        $promptMsg = "Microsoft Word သို့မဟုတ် Excel ပွင့်နေပါသည်။`r`n`r`nကျေးဇူးပြု၍ လက်ရှိဖိုင်များကို Save လုပ်၍ Word နှင့် Excel ကို ခေတ္တပိတ်ပြီး 'Retry' ကို နှိပ်ပါ။`r`n`r`n(Please save your work, close Microsoft Word & Excel, and click Retry.)"
+        $promptMsg = "Microsoft Word or Excel is currently open.`r`n`r`nPlease save your work, close Microsoft Word & Excel, and click 'Retry'.`r`n`r`n(ကျေးဇူးပြု၍ လက်ရှိဖိုင်များကို Save လုပ်၍ Word နှင့် Excel ကို ခေတ္တပိတ်ပြီး 'Retry' ကို နှိပ်ပါ။)"
         $choice = [System.Windows.Forms.MessageBox]::Show(
             $promptMsg,
             $TitleText,
@@ -148,7 +148,7 @@ if ($Uninstall) {
     if ([System.IO.Directory]::Exists($appInstallDir)) {
         try { [System.IO.Directory]::Delete($appInstallDir, $true) } catch { }
     }
-    Show-UserInfo "✓ မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း Add-in (Word + Excel) ကို အောင်မြင်စွာ ဖြုတ်သိမ်းပြီးပါပြီ။`r`n(Successfully uninstalled from Microsoft Word and Excel.)"
+    Show-UserInfo "✓ Successfully uninstalled Myanmar Spell Checker Add-in from Microsoft Word and Excel.`r`n(မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း Add-in ကို အောင်မြင်စွာ ဖြုတ်သိမ်းပြီးပါပြီ။)"
     exit 0
 }
 
@@ -160,7 +160,7 @@ try {
     # Detect accidental execution directly inside an unextracted .zip folder in Windows Explorer (%TEMP%\Temp1_*.zip\...)
     $tempRoot = [System.IO.Path]::GetFullPath($env:TEMP)
     if ($scriptDir.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase) -and ($scriptDir -match '\.zip')) {
-        throw "သင်သည် ZIP ဖိုင်ကို မဖြည်ဘဲ အတွင်းမှ တိုက်ရိုက် နှိပ်မိနေပါသည်။`r`n`r`nကျေးဇူးပြု၍ ZIP ဖိုင်ပေါ်တွင် Right-click နှိပ်ပြီး 'Extract All...' ဖြင့် အရင်ဖြည်ပြီးမှ ပြန်သွင်းပေးပါ။`r`n(Please right-click the .ZIP archive, select 'Extract All...', and run the installer from the extracted folder.)"
+        throw "You are running the installer directly from inside an unextracted .ZIP archive.`r`n`r`nPlease right-click the .ZIP file, select 'Extract All...', and run Setup from the extracted folder.`r`n(ကျေးဇူးပြု၍ ZIP ဖိုင်ပေါ်တွင် Right-click နှိပ်ပြီး 'Extract All...' ဖြင့် အရင်ဖြည်ပြီးမှ ပြန်သွင်းပေးပါ။)"
     }
 
     # Unblock downloaded files (removes Windows Zone.Identifier Mark-of-the-Web from ZIP downloads; -LiteralPath handles [1] brackets!)
@@ -417,16 +417,18 @@ try {
     }
 
     $dbMb = [Math]::Round(([System.IO.FileInfo]::new([System.IO.Path]::Combine($appInstallDir, "mlc_thatpon.db")).Length / 1MB), 2)
-    $doneMsg = "✓ မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း နှင့် အဘိဓာန် (Word + Excel) ကို အောင်မြင်စွာ ထည့်သွင်းပြီးပါပြီ!`r`n`r`n" +
-               "• Microsoft Word နှင့် Microsoft Excel နှစ်မျိုးလုံးတွင် အသင့်သုံးနိုင်ပါပြီ။`r`n" +
-               "• Offline အဘိဓာန် ဒေတာဘေ့စ်: $dbMb MB (ဝေါဟာရနှင့် သုတပေါင်း ၁၁၈,၆၀၀+ အပြည့်အစုံ)`r`n" +
-               "• ထည့်သွင်းထားသည့်နေရာ: $appInstallDir`r`n`r`n" +
-               "ယခု Microsoft Word သို့မဟုတ် Excel ကို ဖွင့်၍ စတင်အသုံးပြုနိုင်ပါပြီ။"
+    $doneMsg = "✓ Myanmar Official Spell Checker & Offline Dictionary (Word + Excel) installed successfully!`r`n`r`n" +
+               "• Ready in both Microsoft Word and Microsoft Excel`r`n" +
+               "• Default UI Language: English (switchable anytime via 🌐 EN ⇄ မြန်မာ)`r`n" +
+               "• Offline Dictionary Database: $dbMb MB (118,600+ verified lexicon & encyclopedia entries)`r`n" +
+               "• Installed Location: $appInstallDir`r`n`r`n" +
+               "You can now open Microsoft Word or Excel to start using the add-in.`r`n" +
+               "(ယခု Microsoft Word သို့မဟုတ် Excel ကို ဖွင့်၍ စတင်အသုံးပြုနိုင်ပါပြီ။)"
     Show-UserInfo $doneMsg
     exit 0
 }
 catch {
-    $errMsg = "ထည့်သွင်းစဉ် အခက်အခဲတစ်ခု ဖြစ်ပေါ်ခဲ့ပါသည် (Installation Error):`r`n`r`n$($_.Exception.Message)"
+    $errMsg = "Installation Error (ထည့်သွင်းစဉ် အခက်အခဲတစ်ခု ဖြစ်ပေါ်ခဲ့ပါသည်):`r`n`r`n$($_.Exception.Message)"
     Show-UserInfo $errMsg ([System.Windows.Forms.MessageBoxIcon]::Error)
     exit 1
 }

@@ -170,17 +170,17 @@ namespace MyanmarSpellChecker.Core.Models
         }
 
         /// <summary>
-        /// Human-readable Myanmar certainty label displayed in the Fix-All Preview Checklist Dialog.
+        /// Human-readable certainty label displayed in the Fix-All Preview Checklist Dialog.
         /// </summary>
         public string CertaintyBadgeText
         {
             get
             {
                 if (IsContextualWarning)
-                    return "⚠ အနက်သံသယ (စိစစ်ရန်)";
+                    return Localization.UiLocalizer.Pick("⚠ Context Check (Review)", "⚠ အနက်သံသယ (စိစစ်ရန်)");
                 if (IsHighCertaintyPrecheck)
-                    return "✓ သေချာ (စံသတ်ပုံ/သဒ္ဒါ)";
-                return "⚠ စိစစ်ရန် (အမည်/ခန့်မှန်းချက်)";
+                    return Localization.UiLocalizer.Pick("✓ High Certainty (Standard Rule)", "✓ သေချာ (စံသတ်ပုံ/သဒ္ဒါ)");
+                return Localization.UiLocalizer.Pick("⚠ Review Needed (Name/Guess)", "⚠ စိစစ်ရန် (အမည်/ခန့်မှန်းချက်)");
             }
         }
 

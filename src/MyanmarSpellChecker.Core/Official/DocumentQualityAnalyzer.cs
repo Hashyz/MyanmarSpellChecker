@@ -14,6 +14,25 @@ namespace MyanmarSpellChecker.Core.Official
         public string GradeCode { get; set; } = "A+";
         public string GradeLabel { get; set; } = "A+ စံချိန်မီ အထူးကောင်းမွန်";
 
+        public string LocalizedGradeLabel
+        {
+            get
+            {
+                if (!Localization.UiLocalizer.IsEnglish)
+                    return GradeLabel;
+
+                return (GradeCode ?? string.Empty).Trim().ToUpperInvariant() switch
+                {
+                    "A+" => "A+ Excellent (Publication Ready)",
+                    "A" => "A Very Good",
+                    "B" => "B Good",
+                    "C" => "C Needs Revision",
+                    "D" => "D Needs Major Editing",
+                    _ => $"{GradeCode} Quality Score"
+                };
+            }
+        }
+
         public int MyanmarSyllableCount { get; set; }
         public int WordCount { get; set; }
         public int SentenceCount { get; set; }

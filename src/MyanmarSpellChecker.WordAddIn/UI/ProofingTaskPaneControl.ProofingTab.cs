@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
@@ -52,8 +53,12 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             _btnStyleFormal.FlatAppearance.BorderColor = !isGeneral ? Color.FromArgb(22, 78, 164) : Color.FromArgb(214, 220, 232);
 
             _lblStyleHint.Text = isGeneral
-                ? "အထွေထွေ စံစနစ် — အများသုံး စကားပြေနှင့် စံသတ်ပုံများကို စစ်ဆေးသည်"
-                : "စာပေ / ရုံးသုံးစနစ် — အစိုးရရုံးသုံး သဒ္ဒါ (ပါတယ် ➔ ပါသည်၊ တွေ ➔ များ) ပါ စစ်ဆေးသည်";
+                ? UiLocalizer.Pick(
+                    "General Standard — Checks everyday prose & standard Myanmar orthography",
+                    "အထွေထွေ စံစနစ် — အများသုံး စကားပြေနှင့် စံသတ်ပုံများကို စစ်ဆေးသည်")
+                : UiLocalizer.Pick(
+                    "Official / Literary — Also checks formal register (ပါတယ် ➔ ပါသည်, တွေ ➔ များ)",
+                    "စာပေ / ရုံးသုံးစနစ် — အစိုးရရုံးသုံး သဒ္ဒါ (ပါတယ် ➔ ပါသည်၊ တွေ ➔ များ) ပါ စစ်ဆေးသည်");
         }
 
         private void SetFilterMode(IssueFilterMode mode)
@@ -86,10 +91,10 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 _ => _allItems.Count(HasChoices)
             };
 
-            _btnFilterAll.Text = $"အားလုံး ({total})";
-            _btnFilterSpelling.Text = $"သတ်ပုံ ({spellingCount})";
-            _btnFilterGrammar.Text = $"သဒ္ဒါ ({grammarCount})";
-            _btnFilterContext.Text = $"အနက် ({contextCount})";
+            _btnFilterAll.Text = UiLocalizer.Pick($"All ({total})", $"အားလုံး ({total})");
+            _btnFilterSpelling.Text = UiLocalizer.Pick($"Spelling ({spellingCount})", $"သတ်ပုံ ({spellingCount})");
+            _btnFilterGrammar.Text = UiLocalizer.Pick($"Grammar ({grammarCount})", $"သဒ္ဒါ ({grammarCount})");
+            _btnFilterContext.Text = UiLocalizer.Pick($"Context ({contextCount})", $"အနက် ({contextCount})");
 
             _btnFilterAll.BackColor = _currentFilter == IssueFilterMode.All
                 ? Color.FromArgb(30, 65, 130) : Color.FromArgb(236, 240, 247);
@@ -118,19 +123,27 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             _btnFixAll.Enabled = fixableCount > 0;
             if (_currentFilter == IssueFilterMode.ContextOnly)
             {
-                _btnFixAll.Text = fixableCount > 0 ? $"စိစစ်ပြင် ({fixableCount})" : "စိစစ်ပြင်မည်";
+                _btnFixAll.Text = fixableCount > 0
+                    ? UiLocalizer.Pick($"Review & Fix ({fixableCount})", $"စိစစ်ပြင် ({fixableCount})")
+                    : UiLocalizer.Pick("Review & Fix", "စိစစ်ပြင်မည်");
             }
             else if (_currentFilter == IssueFilterMode.SpellingOnly)
             {
-                _btnFixAll.Text = fixableCount > 0 ? $"စိစစ်ပြင် ({fixableCount})" : "သတ်ပုံပြင်မည်";
+                _btnFixAll.Text = fixableCount > 0
+                    ? UiLocalizer.Pick($"Review & Fix ({fixableCount})", $"စိစစ်ပြင် ({fixableCount})")
+                    : UiLocalizer.Pick("Fix Spelling", "သတ်ပုံပြင်မည်");
             }
             else if (_currentFilter == IssueFilterMode.GrammarOnly)
             {
-                _btnFixAll.Text = fixableCount > 0 ? $"စိစစ်ပြင် ({fixableCount})" : "သဒ္ဒါပြင်မည်";
+                _btnFixAll.Text = fixableCount > 0
+                    ? UiLocalizer.Pick($"Review & Fix ({fixableCount})", $"စိစစ်ပြင် ({fixableCount})")
+                    : UiLocalizer.Pick("Fix Grammar", "သဒ္ဒါပြင်မည်");
             }
             else
             {
-                _btnFixAll.Text = fixableCount > 0 ? $"စိစစ်ပြင် ({fixableCount})" : "စိစစ်ပြင်မည်";
+                _btnFixAll.Text = fixableCount > 0
+                    ? UiLocalizer.Pick($"Review & Fix ({fixableCount})", $"စိစစ်ပြင် ({fixableCount})")
+                    : UiLocalizer.Pick("Review & Fix", "စိစစ်ပြင်မည်");
             }
             _btnFixAll.BackColor = fixableCount > 0 ? Color.FromArgb(22, 132, 68) : Color.FromArgb(224, 230, 238);
             _btnFixAll.ForeColor = fixableCount > 0 ? Color.White : Color.FromArgb(120, 128, 140);
@@ -222,15 +235,21 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             if (_lastScanOutcome != null && _lastScanOutcome.WasCancelled)
             {
                 _lblSummary.Text = activeCount > 0
-                    ? $"⏹ စစ်ဆေးမှုကို ရပ်တန့်ထားသည် — တွေ့ရှိပြီးသား ({activeCount}) ခု"
-                    : "⏹ စစ်ဆေးမှုကို ရပ်တန့်ထားသည် — ထပ်စစ်ရန် [စာတမ်းစစ်မည်] ကိုနှိပ်ပါ";
+                    ? UiLocalizer.Pick(
+                        $"⏹ Scan stopped — showing {activeCount} issue(s) found so far",
+                        $"⏹ စစ်ဆေးမှုကို ရပ်တန့်ထားသည် — တွေ့ရှိပြီးသား ({activeCount}) ခု")
+                    : UiLocalizer.Pick(
+                        "⏹ Scan stopped — click [Scan Document] to scan again",
+                        "⏹ စစ်ဆေးမှုကို ရပ်တန့်ထားသည် — ထပ်စစ်ရန် [စာတမ်းစစ်မည်] ကိုနှိပ်ပါ");
                 _lblSummary.ForeColor = Color.FromArgb(158, 86, 6);
                 return;
             }
 
             if (_lastScanOutcome != null && _lastScanOutcome.WasIssueCapReached && activeCount > 0)
             {
-                _lblSummary.Text = $"⚡ စက်မလေးစေရန် အမှားအများဆုံး ({activeCount:N0}) ခုအထိသာ ကန့်သတ်ပြသထားသည်";
+                _lblSummary.Text = UiLocalizer.Pick(
+                    $"⚡ Capped at {activeCount:N0} issues to keep Word responsive",
+                    $"⚡ စက်မလေးစေရန် အမှားအများဆုံး ({activeCount:N0}) ခုအထိသာ ကန့်သတ်ပြသထားသည်");
                 _lblSummary.ForeColor = Color.FromArgb(168, 82, 8);
                 return;
             }
@@ -239,12 +258,16 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             {
                 if (activeCount == 0)
                 {
-                    _lblSummary.Text = $"⚡ အနီးဝန်းကျင် စာပိုဒ် ({_lastScanOutcome.ScannedParagraphCount}) ခု အမှားကင်းသည် — တစ်ဖိုင်လုံးစစ်ရန် [စာတမ်းစစ်မည်] နှိပ်ပါ";
+                    _lblSummary.Text = UiLocalizer.Pick(
+                        $"⚡ Nearby {_lastScanOutcome.ScannedParagraphCount} paragraphs clean — click [Scan Document] for full scan",
+                        $"⚡ အနီးဝန်းကျင် စာပိုဒ် ({_lastScanOutcome.ScannedParagraphCount}) ခု အမှားကင်းသည် — တစ်ဖိုင်လုံးစစ်ရန် [စာတမ်းစစ်မည်] နှိပ်ပါ");
                     _lblSummary.ForeColor = Color.FromArgb(20, 118, 62);
                 }
                 else
                 {
-                    _lblSummary.Text = $"⚡ အနီးဝန်းကျင်၌ ({activeCount}) ခု တွေ့သည် — တစ်ဖိုင်လုံးစစ်ရန် [စာတမ်းစစ်မည်] နှိပ်ပါ";
+                    _lblSummary.Text = UiLocalizer.Pick(
+                        $"⚡ {activeCount} issue(s) in nearby text — click [Scan Document] for full scan",
+                        $"⚡ အနီးဝန်းကျင်၌ ({activeCount}) ခု တွေ့သည် — တစ်ဖိုင်လုံးစစ်ရန် [စာတမ်းစစ်မည်] နှိပ်ပါ");
                     _lblSummary.ForeColor = Color.FromArgb(182, 42, 24);
                 }
                 return;
@@ -253,14 +276,18 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             if (activeCount == 0)
             {
                 string modeLabel = _currentStyleMode == ProofingStyleMode.GeneralStandard
-                    ? "အထွေထွေ စံစနစ်"
-                    : "စာပေ / ရုံးသုံးစနစ်";
-                _lblSummary.Text = $"✓ အမှားအယွင်း မတွေ့ရှိပါ ({modeLabel})";
+                    ? UiLocalizer.Pick("General Standard", "အထွေထွေ စံစနစ်")
+                    : UiLocalizer.Pick("Official / Literary", "စာပေ / ရုံးသုံးစနစ်");
+                _lblSummary.Text = UiLocalizer.Pick(
+                    $"✓ No issues found ({modeLabel})",
+                    $"✓ အမှားအယွင်း မတွေ့ရှိပါ ({modeLabel})");
                 _lblSummary.ForeColor = Color.FromArgb(20, 124, 58);
             }
             else
             {
-                _lblSummary.Text = $"တွေ့ရှိချက် ({activeCount}) ခု — ကတ်ကိုနှိပ်၍ စာတမ်း၌ တိုက်ရိုက်ကြည့်ရှုပြင်ဆင်နိုင်သည်";
+                _lblSummary.Text = UiLocalizer.Pick(
+                    $"Found {activeCount} issue(s) — click any card to jump directly in document",
+                    $"တွေ့ရှိချက် ({activeCount}) ခု — ကတ်ကိုနှိပ်၍ စာတမ်း၌ တိုက်ရိုက်ကြည့်ရှုပြင်ဆင်နိုင်သည်");
                 _lblSummary.ForeColor = Color.FromArgb(186, 34, 34);
             }
         }
@@ -415,7 +442,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             var card = CreateStyledCardContainer(cardWidth, Color.FromArgb(24, 98, 188), isSelectableItem: null);
             var lblInfo = new Label
             {
-                Text = $"💡 ဤစာမူသည် အပြောစကားဟန် (ဝတ္ထု / ဆောင်းပါး) ဖြစ်နေပုံရပါသည် — ရုံးသုံးဟန် မျဉ်းပြာ ({colloqCount}) ခု မပြလိုပါက အထွေထွေ စံ သို့ ပြောင်းနိုင်ပါသည်။",
+                Text = UiLocalizer.Pick(
+                    $"💡 This document appears to use conversational prose (story/article) — switch to General Standard if you want to hide {colloqCount} blue formal-style marks.",
+                    $"💡 ဤစာမူသည် အပြောစကားဟန် (ဝတ္ထု / ဆောင်းပါး) ဖြစ်နေပုံရပါသည် — ရုံးသုံးဟန် မျဉ်းပြာ ({colloqCount}) ခု မပြလိုပါက အထွေထွေ စံ သို့ ပြောင်းနိုင်ပါသည်။"),
                 Font = _fontSmallBold,
                 ForeColor = Color.FromArgb(24, 58, 112),
                 BackColor = Color.FromArgb(236, 245, 255),
@@ -430,7 +459,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             card.Controls.Add(lblInfo, 0, 0);
 
             var btnSwitch = CreatePillButton(
-                "✓ အထွေထွေ စံ (စကားပြေစနစ်) သို့ ပြောင်းမည်",
+                UiLocalizer.Pick("✓ Switch to General Standard Mode", "✓ အထွေထွေ စံ (စကားပြေစနစ်) သို့ ပြောင်းမည်"),
                 Color.FromArgb(24, 90, 188),
                 Color.White,
                 Color.FromArgb(20, 76, 162),
@@ -445,7 +474,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         {
             var card = CreateStyledCardContainer(cardWidth, Color.FromArgb(24, 90, 188), isSelectableItem: null);
             var btnPrev = CreatePillButton(
-                $"▴ ရှေ့ပိုင်း တွေ့ရှိချက် (#1 မှ #{previousCount}) ပြန်ကြည့်မည်",
+                UiLocalizer.Pick(
+                    $"▴ Show Earlier Issues (#1 to #{previousCount})",
+                    $"▴ ရှေ့ပိုင်း တွေ့ရှိချက် (#1 မှ #{previousCount}) ပြန်ကြည့်မည်"),
                 Color.FromArgb(236, 244, 255),
                 Color.FromArgb(18, 68, 152),
                 Color.FromArgb(186, 210, 246),
@@ -466,7 +497,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             var card = CreateStyledCardContainer(cardWidth, Color.FromArgb(24, 90, 188), isSelectableItem: null);
             int nextBatch = Math.Min(ProofingCardBatchSize, remainingCount);
             var btnMore = CreatePillButton(
-                $"▾ နောက်ထပ် တွေ့ရှိချက် ({nextBatch}) ခု ဆက်လက်ဖော်ပြမည်  •  ကျန်ရှိ ({remainingCount} / {totalCount})",
+                UiLocalizer.Pick(
+                    $"▾ Show Next {nextBatch} Issue(s)  •  Remaining ({remainingCount} / {totalCount})",
+                    $"▾ နောက်ထပ် တွေ့ရှိချက် ({nextBatch}) ခု ဆက်လက်ဖော်ပြမည်  •  ကျန်ရှိ ({remainingCount} / {totalCount})"),
                 Color.FromArgb(236, 244, 255),
                 Color.FromArgb(18, 68, 152),
                 Color.FromArgb(186, 210, 246),
@@ -532,7 +565,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             var lblHeadline = new Label
             {
-                Text = "✓ စာလုံးပေါင်းနှင့် သဒ္ဒါ စစ်ဆေးချက် ကောင်းမွန်ပါသည်",
+                Text = UiLocalizer.Pick(
+                    "✓ Spelling & Grammar Check Passed",
+                    "✓ စာလုံးပေါင်းနှင့် သဒ္ဒါ စစ်ဆေးချက် ကောင်းမွန်ပါသည်"),
                 Font = _fontBodyBold,
                 ForeColor = emerald,
                 AutoSize = true,
@@ -546,8 +581,12 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             card.Controls.Add(lblHeadline, 0, row++);
 
             string modeDesc = _currentStyleMode == ProofingStyleMode.GeneralStandard
-                ? "လက်ရှိစနစ်: အထွေထွေ စံသတ်ပုံစနစ် — စာရိုက်နေစဉ် အလိုအလျောက် ဆက်လက်စစ်ဆေးပေးနေပါသည်။"
-                : "လက်ရှိစနစ်: စာပေ / ရုံးသုံး အရေးစကားစနစ် — စာလုံးပေါင်းနှင့် ရုံးသုံးသဒ္ဒါအားလုံး စစ်ဆေးပြီးဖြစ်ပါသည်။";
+                ? UiLocalizer.Pick(
+                    "Active Mode: General Standard — Live background proofing automatically checks as you type.",
+                    "လက်ရှိစနစ်: အထွေထွေ စံသတ်ပုံစနစ် — စာရိုက်နေစဉ် အလိုအလျောက် ဆက်လက်စစ်ဆေးပေးနေပါသည်။")
+                : UiLocalizer.Pick(
+                    "Active Mode: Official / Literary — Orthography and formal ministry register have been checked.",
+                    "လက်ရှိစနစ်: စာပေ / ရုံးသုံး အရေးစကားစနစ် — စာလုံးပေါင်းနှင့် ရုံးသုံးသဒ္ဒါအားလုံး စစ်ဆေးပြီးဖြစ်ပါသည်။");
 
             var lblBody = new Label
             {
@@ -577,14 +616,18 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             quickActions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 48F));
             quickActions.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            var btnRescan = CreatePillButton("စာတမ်းတစ်ခုလုံး ပြန်စစ်မည်", Color.FromArgb(236, 244, 255), Color.FromArgb(20, 74, 158), Color.FromArgb(190, 212, 246), _fontSmallBold);
+            var btnRescan = CreatePillButton(
+                UiLocalizer.Pick("Scan Full Document", "စာတမ်းတစ်ခုလုံး ပြန်စစ်မည်"),
+                Color.FromArgb(236, 244, 255), Color.FromArgb(20, 74, 158), Color.FromArgb(190, 212, 246), _fontSmallBold);
             btnRescan.Click += (s, e) =>
             {
                 SetScanningState(true);
                 RequestFullDocumentScan?.Invoke();
             };
 
-            var btnGoDict = CreatePillButton("အဘိဓာန် ရှာဖွေရန် ➔", Color.FromArgb(242, 245, 250), Color.FromArgb(48, 58, 74), Color.FromArgb(215, 222, 232), _fontSmall);
+            var btnGoDict = CreatePillButton(
+                UiLocalizer.Pick("Open Dictionary ➔", "အဘိဓာန် ရှာဖွေရန် ➔"),
+                Color.FromArgb(242, 245, 250), Color.FromArgb(48, 58, 74), Color.FromArgb(215, 222, 232), _fontSmall);
             btnGoDict.Click += (s, e) => FocusDictionarySearchBox();
 
             quickActions.Controls.Add(btnRescan, 0, 0);
@@ -637,12 +680,12 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             topMetaRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             string categoryText = isEncoding
-                ? $"● ယူနီကုဒ် စံနှုန်း  •  {item.StoryName}"
+                ? UiLocalizer.Pick($"● Unicode Standard  •  {item.StoryName}", $"● ယူနီကုဒ် စံနှုန်း  •  {item.StoryName}")
                 : (isContextWarning
-                    ? $"● အနက်သံသယ (Context Check)  •  {item.StoryName}"
+                    ? UiLocalizer.Pick($"● Context Check  •  {item.StoryName}", $"● အနက်သံသယ (Context Check)  •  {item.StoryName}")
                     : (isGrammar
-                        ? $"● သဒ္ဒါ / အရေးအသား  •  {item.StoryName}"
-                        : $"● စာလုံးပေါင်းသတ်ပုံ  •  {item.StoryName}"));
+                        ? UiLocalizer.Pick($"● Grammar & Style  •  {item.StoryName}", $"● သဒ္ဒါ / အရေးအသား  •  {item.StoryName}")
+                        : UiLocalizer.Pick($"● Spelling  •  {item.StoryName}", $"● စာလုံးပေါင်းသတ်ပုံ  •  {item.StoryName}")));
 
             var lblBadge = new Label
             {
@@ -680,7 +723,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             SuggestionCandidate? topCand = issue.Suggestions.Count > 0 ? issue.Suggestions[0] : null;
             string topReplacementPreview = topCand != null
                 ? $"\"{issue.OriginalText}\"   ➔   \"{topCand.Replacement}\""
-                : $"မူရင်းစာသား: \"{issue.OriginalText}\"";
+                : UiLocalizer.Pick($"Original: \"{issue.OriginalText}\"", $"မူရင်းစာသား: \"{issue.OriginalText}\"");
 
             Color diffBg = (isEncoding || isContextWarning)
                 ? Color.FromArgb(255, 248, 228)
@@ -710,8 +753,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 var lblChooseHeader = new Label
                 {
                     Text = issue.Suggestions.Count > 1
-                        ? $"ရွေးချယ်ပြင်ဆင်ရန် ({issue.Suggestions.Count} မျိုး) —"
-                        : "အကြံပြုထားသော စာလုံးပေါင်းအမှန် —",
+                        ? UiLocalizer.Pick($"Choose replacement ({issue.Suggestions.Count} options) —", $"ရွေးချယ်ပြင်ဆင်ရန် ({issue.Suggestions.Count} မျိုး) —")
+                        : UiLocalizer.Pick("Suggested Correction —", "အကြံပြုထားသော စာလုံးပေါင်းအမှန် —"),
                     Font = _fontSmallBold,
                     ForeColor = isGrammar ? Color.FromArgb(20, 78, 168) : Color.FromArgb(20, 102, 54),
                     AutoSize = true,
@@ -736,7 +779,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
                     var btnFix = new WordWrapChoiceButton
                     {
-                        Text = $"✓ ပြင်မည်  ➔  {candidate.DisplayLabel}",
+                        Text = UiLocalizer.Pick($"✓ Apply  ➔  {candidate.DisplayLabel}", $"✓ ပြင်မည်  ➔  {candidate.DisplayLabel}"),
                         AutoSize = true,
                         AutoSizeMode = AutoSizeMode.GrowAndShrink,
                         MaximumSize = new Size(innerWrap, 0),
@@ -781,7 +824,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                     string batchRepl = topCand.Replacement;
                     var btnBatchSame = new WordWrapChoiceButton
                     {
-                        Text = $"✓✓ တူညီသောအမှား ({sameErrorCount}) ခုလုံး ပြင်မည်  ➔  {batchRepl}",
+                        Text = UiLocalizer.Pick(
+                            $"✓✓ Fix all {sameErrorCount} matching occurrences  ➔  {batchRepl}",
+                            $"✓✓ တူညီသောအမှား ({sameErrorCount}) ခုလုံး ပြင်မည်  ➔  {batchRepl}"),
                         AutoSize = true,
                         AutoSizeMode = AutoSizeMode.GrowAndShrink,
                         MaximumSize = new Size(innerWrap, 0),
@@ -798,7 +843,11 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                     };
                     btnBatchSame.FlatAppearance.BorderColor = Color.FromArgb(14, 96, 70);
                     btnBatchSame.FlatAppearance.MouseOverBackColor = Color.FromArgb(16, 102, 74);
-                    _toolTip.SetToolTip(btnBatchSame, "စာတမ်းတစ်ခုလုံးရှိ တူညီသော အမှားအားလုံးကို တစ်ချက်တည်းဖြင့် အစားထိုးပေးသည် (Ctrl+Z ပြန်ဆုတ်နိုင်သည်)");
+                    _toolTip.SetToolTip(
+                        btnBatchSame,
+                        UiLocalizer.Pick(
+                            "Replace all identical occurrences across the document in a single Ctrl+Z step",
+                            "စာတမ်းတစ်ခုလုံးရှိ တူညီသော အမှားအားလုံးကို တစ်ချက်တည်းဖြင့် အစားထိုးပေးသည် (Ctrl+Z ပြန်ဆုတ်နိုင်သည်)"));
                     btnBatchSame.Click += (s, e) =>
                     {
                         RequestApplyBatchSuggestion?.Invoke(batchOrig, batchRepl);
@@ -836,34 +885,48 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             if (topCand != null && !string.IsNullOrWhiteSpace(topCand.DiagnosticDetail))
             {
-                quickNoteLines.Add($"• အက္ခရာ/ဝဏ္ဏ ကွာခြားချက်: {topCand.DiagnosticDetail}");
+                quickNoteLines.Add(UiLocalizer.Pick(
+                    $"• Character/Syllable Diff: {topCand.DiagnosticDetail}",
+                    $"• အက္ခရာ/ဝဏ္ဏ ကွာခြားချက်: {topCand.DiagnosticDetail}"));
             }
 
             if (topCand != null && !string.IsNullOrWhiteSpace(topCand.AbidanSummary))
             {
-                quickNoteLines.Add($"• အဘိဓာန်မှတ်ချက်: {topCand.AbidanSummary}");
+                quickNoteLines.Add(UiLocalizer.Pick(
+                    $"• Dictionary Note: {topCand.AbidanSummary}",
+                    $"• အဘိဓာန်မှတ်ချက်: {topCand.AbidanSummary}"));
             }
 
             if (!string.IsNullOrWhiteSpace(issue.GrammaticalReasoning))
             {
-                deepReasoningLines.Add($"• သုံးသပ်ချက်: {issue.GrammaticalReasoning}");
+                deepReasoningLines.Add(UiLocalizer.Pick(
+                    $"• Analysis: {issue.GrammaticalReasoning}",
+                    $"• သုံးသပ်ချက်: {issue.GrammaticalReasoning}"));
             }
 
             if (topCand != null && !string.IsNullOrWhiteSpace(topCand.SyllableBreakdown))
             {
-                string posText = DictionaryEntry.FormatPosTag(topCand.PosTag);
-                string authText = topCand.IsOfficialThatpon ? "သတ်ပုံကျမ်းဝင် ✓" : "ခေတ်သုံး စံသတ်ပုံ";
-                deepReasoningLines.Add($"• ဝဏ္ဏဖွဲ့စည်းပုံ: {topCand.SyllableBreakdown}  |  {posText}  |  {authText}");
+                string posText = DictionaryEntry.FormatLocalizedPosTag(topCand.PosTag);
+                string authText = topCand.IsOfficialThatpon
+                    ? UiLocalizer.Pick("Official Thatpon ✓", "သတ်ပုံကျမ်းဝင် ✓")
+                    : UiLocalizer.Pick("Standard Usage", "ခေတ်သုံး စံသတ်ပုံ");
+                deepReasoningLines.Add(UiLocalizer.Pick(
+                    $"• Syllables: {topCand.SyllableBreakdown}  |  {posText}  |  {authText}",
+                    $"• ဝဏ္ဏဖွဲ့စည်းပုံ: {topCand.SyllableBreakdown}  |  {posText}  |  {authText}"));
             }
 
             if (topCand != null && !string.IsNullOrWhiteSpace(topCand.HomophoneSiblings))
             {
-                deepReasoningLines.Add($"• အသံတူသတိပြုရန်: {topCand.HomophoneSiblings}");
+                deepReasoningLines.Add(UiLocalizer.Pick(
+                    $"• Homophones: {topCand.HomophoneSiblings}",
+                    $"• အသံတူသတိပြုရန်: {topCand.HomophoneSiblings}"));
             }
 
             if (!string.IsNullOrWhiteSpace(issue.AuthoritativeSource))
             {
-                deepReasoningLines.Add($"• ကျမ်းကိုးစံနှုန်း: {issue.AuthoritativeSource}");
+                deepReasoningLines.Add(UiLocalizer.Pick(
+                    $"• Reference: {issue.AuthoritativeSource}",
+                    $"• ကျမ်းကိုးစံနှုန်း: {issue.AuthoritativeSource}"));
             }
 
             if (quickNoteLines.Count > 0)
@@ -904,7 +967,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
                 var btnToggleTech = new Label
                 {
-                    Text = "▾ သုံးသပ်ချက်နှင့် ကျမ်းကိုး အသေးစိတ်ကြည့်ရန်",
+                    Text = UiLocalizer.Pick("▾ Show Analysis & Reference Details", "▾ သုံးသပ်ချက်နှင့် ကျမ်းကိုး အသေးစိတ်ကြည့်ရန်"),
                     Font = _fontSmallBold,
                     ForeColor = Color.FromArgb(24, 88, 178),
                     AutoSize = true,
@@ -919,8 +982,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                     _cardsPanel.SuspendLayout();
                     lblTechDetails.Visible = expand;
                     btnToggleTech.Text = expand
-                        ? "▴ အသေးစိတ် သုံးသပ်ချက် ပြန်ဖျောက်ရန်"
-                        : "▾ သုံးသပ်ချက်နှင့် ကျမ်းကိုး အသေးစိတ်ကြည့်ရန်";
+                        ? UiLocalizer.Pick("▴ Hide Details", "▴ အသေးစိတ် သုံးသပ်ချက် ပြန်ဖျောက်ရန်")
+                        : UiLocalizer.Pick("▾ Show Analysis & Reference Details", "▾ သုံးသပ်ချက်နှင့် ကျမ်းကိုး အသေးစိတ်ကြည့်ရန်");
                     _cardsPanel.ResumeLayout();
                 };
 
@@ -954,10 +1017,14 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             }
             bottomActions.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            var btnJump = CreatePillButton("စာတမ်း၌ပြရန်", Color.FromArgb(243, 245, 249), Color.FromArgb(48, 58, 74), Color.FromArgb(216, 222, 232), _fontSmall);
+            var btnJump = CreatePillButton(
+                UiLocalizer.Pick("Locate", "စာတမ်း၌ပြရန်"),
+                Color.FromArgb(243, 245, 249), Color.FromArgb(48, 58, 74), Color.FromArgb(216, 222, 232), _fontSmall);
             btnJump.Click += (s, e) => jumpAction();
 
-            var btnIgnore = CreatePillButton("ကျော်မည်", Color.FromArgb(243, 245, 249), Color.FromArgb(85, 92, 105), Color.FromArgb(216, 222, 232), _fontSmall);
+            var btnIgnore = CreatePillButton(
+                UiLocalizer.Pick("Ignore", "ကျော်မည်"),
+                Color.FromArgb(243, 245, 249), Color.FromArgb(85, 92, 105), Color.FromArgb(216, 222, 232), _fontSmall);
             btnIgnore.Click += (s, e) =>
             {
                 RequestIgnoreOnce?.Invoke(item);
@@ -969,12 +1036,16 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             if (canAddToCustomDict)
             {
-                var btnAddDict = CreatePillButton("+အဘိဓာန်မှတ်", Color.FromArgb(236, 244, 255), Color.FromArgb(20, 72, 155), Color.FromArgb(190, 212, 246), _fontSmall);
+                var btnAddDict = CreatePillButton(
+                    UiLocalizer.Pick("+Add Word", "+အဘိဓာန်မှတ်"),
+                    Color.FromArgb(236, 244, 255), Color.FromArgb(20, 72, 155), Color.FromArgb(190, 212, 246), _fontSmall);
                 btnAddDict.Click += (s, e) =>
                 {
                     string wordSaved = item.Issue.OriginalText;
                     RequestAddToDictionary?.Invoke(item);
-                    ShowToastBanner($"✓ \"{wordSaved}\" ကို မှတ်သားစာလုံးစာရင်းသို့ ထည့်သွင်းပြီးပါပြီ။");
+                    ShowToastBanner(UiLocalizer.Pick(
+                        $"✓ Added \"{wordSaved}\" to your Custom Dictionary.",
+                        $"✓ \"{wordSaved}\" ကို မှတ်သားစာလုံးစာရင်းသို့ ထည့်သွင်းပြီးပါပြီ။"));
                 };
                 bottomActions.Controls.Add(btnAddDict, 2, 0);
             }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
+using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
@@ -100,8 +101,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             StyleSegment(_btnStyleFormal, isFormal, Color.FromArgb(18, 56, 128));
 
             _lblStyleHint.Text = isFormal
-                ? "ရုံးသုံး/စာပေစနစ် — စာလုံးပေါင်း + ပါတယ်➔ပါသည်၊ တွေ➔များ၊ နဲ့➔နှင့် စစ်ဆေးသည်"
-                : "အထွေထွေ စံသတ်ပုံ — စာလုံးပေါင်း၊ တ/တစ်၊ ခုနစ်/ခုနှစ် နှင့် အနက်သံသယ စစ်ဆေးသည်";
+                ? UiLocalizer.Pick(
+                    "Formal / Official — Checks spelling + colloquial particles (ပါတယ်➔ပါသည်, တွေ➔များ, နဲ့➔နှင့်)",
+                    "ရုံးသုံး/စာပေစနစ် — စာလုံးပေါင်း + ပါတယ်➔ပါသည်၊ တွေ➔များ၊ နဲ့➔နှင့် စစ်ဆေးသည်")
+                : UiLocalizer.Pick(
+                    "General Standard — Checks spelling, တ/တစ်, ခုနစ်/ခုနှစ် & contextual meaning (Formula-Safe)",
+                    "အထွေထွေ စံသတ်ပုံ — စာလုံးပေါင်း၊ တ/တစ်၊ ခုနစ်/ခုနှစ် နှင့် အနက်သံသယ စစ်ဆေးသည်");
         }
 
         private void SelectAndScanScope(SpreadsheetScanScope scope)
@@ -119,9 +124,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             _btnScanNow.Text = _currentScanScope switch
             {
-                SpreadsheetScanScope.Selection => "ရွေးကွက် စစ်မည်",
-                SpreadsheetScanScope.EntireWorkbook => "Workbook စစ်မည်",
-                _ => "Sheet စစ်မည်"
+                SpreadsheetScanScope.Selection => UiLocalizer.Pick("Scan Range", "ရွေးကွက် စစ်မည်"),
+                SpreadsheetScanScope.EntireWorkbook => UiLocalizer.Pick("Scan Workbook", "Workbook စစ်မည်"),
+                _ => UiLocalizer.Pick("Scan Sheet", "Sheet စစ်မည်")
             };
         }
 
@@ -142,10 +147,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             int grammarCount = _allItems.Count(i => !i.IsResolved && i.Issue.IsGrammarOrStyle);
             int contextCount = _allItems.Count(i => !i.IsResolved && i.Issue.IsContextualWarning);
 
-            _btnFilterAll.Text = $"အားလုံး ({unresolvedTotal})";
-            _btnFilterSpelling.Text = $"သတ်ပုံ ({spellingCount})";
-            _btnFilterGrammar.Text = $"သဒ္ဒါ ({grammarCount})";
-            _btnFilterContext.Text = $"အနက် ({contextCount})";
+            _btnFilterAll.Text = UiLocalizer.Pick($"All ({unresolvedTotal})", $"အားလုံး ({unresolvedTotal})");
+            _btnFilterSpelling.Text = UiLocalizer.Pick($"Spelling ({spellingCount})", $"သတ်ပုံ ({spellingCount})");
+            _btnFilterGrammar.Text = UiLocalizer.Pick($"Grammar ({grammarCount})", $"သဒ္ဒါ ({grammarCount})");
+            _btnFilterContext.Text = UiLocalizer.Pick($"Meaning ({contextCount})", $"အနက် ({contextCount})");
 
             ApplyFilterPillAppearance(_btnFilterAll, _currentFilter == IssueFilterMode.All, Color.FromArgb(24, 58, 118), Color.FromArgb(238, 242, 250), Color.FromArgb(45, 58, 78));
             ApplyFilterPillAppearance(_btnFilterSpelling, _currentFilter == IssueFilterMode.SpellingOnly, Color.FromArgb(196, 36, 36), Color.FromArgb(253, 238, 238), Color.FromArgb(158, 28, 28));
@@ -176,7 +181,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             };
 
             _btnFixAll.Enabled = reviewableCount > 0;
-            _btnFixAll.Text = reviewableCount > 0 ? $"စိစစ်ပြင် ({reviewableCount})" : "စိစစ်ပြင်မည်";
+            _btnFixAll.Text = reviewableCount > 0
+                ? UiLocalizer.Pick($"Fix All ({reviewableCount})", $"စိစစ်ပြင် ({reviewableCount})")
+                : UiLocalizer.Pick("Fix All", "စိစစ်ပြင်မည်");
             _btnFixAll.BackColor = reviewableCount > 0 ? Color.FromArgb(24, 90, 188) : Color.FromArgb(204, 214, 228);
             _btnFixAll.ForeColor = Color.White;
         }
@@ -259,15 +266,21 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             if (_lastScanOutcome != null && _lastScanOutcome.WasCancelled)
             {
                 _lblSummary.Text = activeCount > 0
-                    ? $"⏹ စစ်ဆေးမှုကို ရပ်တန့်ထားသည် — တွေ့ရှိပြီးသား ({activeCount}) ခု"
-                    : "⏹ စစ်ဆေးမှုကို ရပ်တန့်ထားသည် — ထပ်စစ်ရန် [စစ်မည်] ကိုနှိပ်ပါ";
+                    ? UiLocalizer.Pick(
+                        $"⏹ Scan stopped — showing {activeCount} issue(s) found so far",
+                        $"⏹ စစ်ဆေးမှုကို ရပ်တန့်ထားသည် — တွေ့ရှိပြီးသား ({activeCount}) ခု")
+                    : UiLocalizer.Pick(
+                        "⏹ Scan stopped — click [Scan] to resume checking",
+                        "⏹ စစ်ဆေးမှုကို ရပ်တန့်ထားသည် — ထပ်စစ်ရန် [စစ်မည်] ကိုနှိပ်ပါ");
                 _lblSummary.ForeColor = Color.FromArgb(158, 86, 6);
                 return;
             }
 
             if (_lastScanOutcome != null && _lastScanOutcome.WasIssueCapReached && activeCount > 0)
             {
-                _lblSummary.Text = $"⚡ စက်မလေးစေရန် အမှားအများဆုံး ({activeCount:N0}) ခုအထိသာ ကန့်သတ်ပြသထားသည်";
+                _lblSummary.Text = UiLocalizer.Pick(
+                    $"⚡ Capped at {activeCount:N0} issues to keep Excel responsive",
+                    $"⚡ စက်မလေးစေရန် အမှားအများဆုံး ({activeCount:N0}) ခုအထိသာ ကန့်သတ်ပြသထားသည်");
                 _lblSummary.ForeColor = Color.FromArgb(168, 82, 8);
                 return;
             }
@@ -276,12 +289,16 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 if (activeCount == 0)
                 {
-                    _lblSummary.Text = $"⚡ အနီးဝန်းကျင် အကွက် ({_lastScanOutcome.ScannedCellCount:N0}) ခု အမှားကင်းသည် — တစ်ခုလုံးစစ်ရန် [စစ်မည်] နှိပ်ပါ";
+                    _lblSummary.Text = UiLocalizer.Pick(
+                        $"⚡ Nearby {_lastScanOutcome.ScannedCellCount:N0} cell(s) look clean — click [Scan] for full sheet",
+                        $"⚡ အနီးဝန်းကျင် အကွက် ({_lastScanOutcome.ScannedCellCount:N0}) ခု အမှားကင်းသည် — တစ်ခုလုံးစစ်ရန် [စစ်မည်] နှိပ်ပါ");
                     _lblSummary.ForeColor = Color.FromArgb(16, 108, 56);
                 }
                 else
                 {
-                    _lblSummary.Text = $"⚡ အနီးဝန်းကျင်၌ ({activeCount}) ခု တွေ့သည် — ဇယားတစ်ခုလုံးစစ်ရန် [စစ်မည်] နှိပ်ပါ";
+                    _lblSummary.Text = UiLocalizer.Pick(
+                        $"⚡ {activeCount} issue(s) in nearby cells — click [Scan] for full sheet",
+                        $"⚡ အနီးဝန်းကျင်၌ ({activeCount}) ခု တွေ့သည် — ဇယားတစ်ခုလုံးစစ်ရန် [စစ်မည်] နှိပ်ပါ");
                     _lblSummary.ForeColor = Color.FromArgb(182, 32, 32);
                 }
                 return;
@@ -291,13 +308,19 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 int totalUnresolved = _allItems.Count(i => !i.IsResolved);
                 _lblSummary.Text = totalUnresolved == 0
-                    ? "✓ စစ်ဆေးပြီးသော မြန်မာစာ အကွက်များတွင် အမှားအယွင်း မတွေ့ရှိပါ"
-                    : $"ဤအမျိုးအစားတွင် တွေ့ရှိချက် မရှိပါ (အခြားအမျိုးအစား၌ {totalUnresolved} ခု ရှိသည်)";
+                    ? UiLocalizer.Pick(
+                        "✓ No Myanmar spelling or grammar issues found in scanned cells",
+                        "✓ စစ်ဆေးပြီးသော မြန်မာစာ အကွက်များတွင် အမှားအယွင်း မတွေ့ရှိပါ")
+                    : UiLocalizer.Pick(
+                        $"No issues in this filter ({totalUnresolved} in other categories)",
+                        $"ဤအမျိုးအစားတွင် တွေ့ရှိချက် မရှိပါ (အခြားအမျိုးအစား၌ {totalUnresolved} ခု ရှိသည်)");
                 _lblSummary.ForeColor = Color.FromArgb(16, 108, 56);
             }
             else
             {
-                _lblSummary.Text = $"တွေ့ရှိချက် ({activeCount}) ခု — ကတ်ကိုနှိပ်၍ သက်ဆိုင်ရာ အကွက် (Cell) သို့ တိုက်ရိုက်သွားနိုင်သည်";
+                _lblSummary.Text = UiLocalizer.Pick(
+                    $"{activeCount} issue(s) found — click any card to jump directly to its cell",
+                    $"တွေ့ရှိချက် ({activeCount}) ခု — ကတ်ကိုနှိပ်၍ သက်ဆိုင်ရာ အကွက် (Cell) သို့ တိုက်ရိုက်သွားနိုင်သည်");
                 _lblSummary.ForeColor = filtered.Any(x => !x.Issue.IsGrammarOrStyle && !x.Issue.IsContextualWarning)
                     ? Color.FromArgb(182, 32, 32)
                     : Color.FromArgb(158, 92, 12);
@@ -326,7 +349,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
                 var lblOkTitle = new Label
                 {
-                    Text = "✓ မြန်မာစာ စာလုံးပေါင်းနှင့် သဒ္ဒါ ကောင်းမွန်ပါသည် (Formula-Safe)",
+                    Text = UiLocalizer.Pick(
+                        "✓ Myanmar Spelling & Grammar Look Great (Formula-Safe)",
+                        "✓ မြန်မာစာ စာလုံးပေါင်းနှင့် သဒ္ဒါ ကောင်းမွန်ပါသည် (Formula-Safe)"),
                     Font = _fontBodyBold,
                     ForeColor = Color.FromArgb(16, 102, 52),
                     AutoSize = true,
@@ -340,7 +365,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
                 var lblOkBody = new Label
                 {
-                    Text = "• လက်ရှိ Sheet၊ ရွေးထားသော အကွက်များ သို့မဟုတ် Workbook တစ်ခုလုံးကို ရွေးချယ်စစ်ဆေးနိုင်ပါသည်။\n• အမှားတွေ့ရှိသော စာသားကွက်များတွင် သတ်ပုံ (အနီမျဉ်း)၊ သဒ္ဒါ (အပြာမျဉ်းနှစ်ထပ်)၊ အနက်သံသယ (လိမ္မော်မျဉ်း) ပြသပေးပြီး Save (Ctrl+S) / Print (Ctrl+P) လုပ်ချိန်၌ အလိုအလျောက် ဖယ်ရှားပေးပါသည်။\n• Excel Formula အကွက်များ (=SUM, =IF, =VLOOKUP) နှင့် ကိန်းဂဏန်းတွက်ချက်မှုများကို 100% အလိုအလျောက် ကာကွယ်ချန်လှပ်ထားပါသည်။",
+                    Text = UiLocalizer.Pick(
+                        "• Scan the Active Sheet, Selected Cells, or Entire Workbook anytime.\n• Text cells show temporary red (spelling), blue (grammar), or amber (meaning) underlines that auto-strip before Save (Ctrl+S) and Print (Ctrl+P).\n• Excel formulas (=SUM, =IF, =VLOOKUP) and numeric calculations are 100% protected and untouched.",
+                        "• လက်ရှိ Sheet၊ ရွေးထားသော အကွက်များ သို့မဟုတ် Workbook တစ်ခုလုံးကို ရွေးချယ်စစ်ဆေးနိုင်ပါသည်။\n• အမှားတွေ့ရှိသော စာသားကွက်များတွင် သတ်ပုံ (အနီမျဉ်း)၊ သဒ္ဒါ (အပြာမျဉ်းနှစ်ထပ်)၊ အနက်သံသယ (လိမ္မော်မျဉ်း) ပြသပေးပြီး Save (Ctrl+S) / Print (Ctrl+P) လုပ်ချိန်၌ အလိုအလျောက် ဖယ်ရှားပေးပါသည်။\n• Excel Formula အကွက်များ (=SUM, =IF, =VLOOKUP) နှင့် ကိန်းဂဏန်းတွက်ချက်မှုများကို 100% အလိုအလျောက် ကာကွယ်ချန်လှပ်ထားပါသည်။"),
                     Font = _fontSmall,
                     ForeColor = Color.FromArgb(62, 74, 92),
                     AutoSize = true,
@@ -365,7 +392,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 var prevCard = CreateStyledCardContainer(cardWidth, Color.FromArgb(16, 108, 56));
                 var btnPrevBatch = CreatePillButton(
-                    $"▴ ရှေ့ပိုင်း တွေ့ရှိချက် (#1 မှ #{_visibleWindowStart}) ပြန်ကြည့်မည်",
+                    UiLocalizer.Pick(
+                        $"▴ View Previous Issues (#1 to #{_visibleWindowStart})",
+                        $"▴ ရှေ့ပိုင်း တွေ့ရှိချက် (#1 မှ #{_visibleWindowStart}) ပြန်ကြည့်မည်"),
                     Color.FromArgb(234, 246, 239),
                     Color.FromArgb(14, 96, 50),
                     Color.FromArgb(182, 220, 196),
@@ -402,7 +431,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 int nextBatch = Math.Min(ExcelProofingCardBatchSize, remaining);
                 var moreCard = CreateStyledCardContainer(cardWidth, Color.FromArgb(16, 108, 56));
                 var btnMoreBatch = CreatePillButton(
-                    $"▾ နောက်ထပ် တွေ့ရှိချက် ({nextBatch}) ခု ဆက်လက်ဖော်ပြမည်  •  ကျန်ရှိ ({remaining} / {filtered.Count})",
+                    UiLocalizer.Pick(
+                        $"▾ Load Next {nextBatch} Issue(s)  •  {remaining} / {filtered.Count} Remaining",
+                        $"▾ နောက်ထပ် တွေ့ရှိချက် ({nextBatch}) ခု ဆက်လက်ဖော်ပြမည်  •  ကျန်ရှိ ({remaining} / {filtered.Count})"),
                     Color.FromArgb(234, 246, 239),
                     Color.FromArgb(14, 96, 50),
                     Color.FromArgb(182, 220, 196),
@@ -448,13 +479,13 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             string categoryText = issue.IssueType switch
             {
-                ProofingIssueType.ContextualMeaningWarning => "● အနက်သံသယ (Context Check)",
-                ProofingIssueType.NumeralClassifierError => "● ဂဏန်းနှင့် မျိုးပြပစ္စည်း",
-                ProofingIssueType.OfficialStyleGrammarError => "● ရုံးသုံး/စာပေ သဒ္ဒါ",
-                ProofingIssueType.PunctuationError => "● ပုဒ်ဖြတ်ပုဒ်ရပ် (၊ ။)",
-                ProofingIssueType.ZawgyiEncodingError => "● ဇော်ဂျီ ဖောင့်ကုဒ်အမှား",
-                ProofingIssueType.LookalikeCharacterError => "● ဆင်တူအက္ခရာ (၀/ဝ ၊ စဉ်/စဥ်)",
-                _ => "● စာလုံးပေါင်းသတ်ပုံ"
+                ProofingIssueType.ContextualMeaningWarning => UiLocalizer.Pick("● Meaning / Context Check", "● အနက်သံသယ (Context Check)"),
+                ProofingIssueType.NumeralClassifierError => UiLocalizer.Pick("● Numeral & Classifier", "● ဂဏန်းနှင့် မျိုးပြပစ္စည်း"),
+                ProofingIssueType.OfficialStyleGrammarError => UiLocalizer.Pick("● Formal / Literary Grammar", "● ရုံးသုံး/စာပေ သဒ္ဒါ"),
+                ProofingIssueType.PunctuationError => UiLocalizer.Pick("● Punctuation (၊ ။)", "● ပုဒ်ဖြတ်ပုဒ်ရပ် (၊ ။)"),
+                ProofingIssueType.ZawgyiEncodingError => UiLocalizer.Pick("● Zawgyi Encoding Error", "● ဇော်ဂျီ ဖောင့်ကုဒ်အမှား"),
+                ProofingIssueType.LookalikeCharacterError => UiLocalizer.Pick("● Lookalike Character (၀/ဝ, စဉ်/စဥ်)", "● ဆင်တူအက္ခရာ (၀/ဝ ၊ စဉ်/စဥ်)"),
+                _ => UiLocalizer.Pick("● Spelling Issue", "● စာလုံးပေါင်းသတ်ပုံ")
             };
 
             var card = CreateStyledCardContainer(cardWidth, accentColor, item);
@@ -505,7 +536,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 _fontBrandStats);
             btnCellLoc.Dock = DockStyle.Right;
             btnCellLoc.Click += (s, e) => JumpToCell();
-            _toolTip.SetToolTip(btnCellLoc, $"{item.DisplayLocation} အကွက်သို့ တိုက်ရိုက်သွားရန် နှိပ်ပါ");
+            _toolTip.SetToolTip(btnCellLoc, UiLocalizer.Pick(
+                $"Click to jump directly to cell {item.DisplayLocation}",
+                $"{item.DisplayLocation} အကွက်သို့ တိုက်ရိုက်သွားရန် နှိပ်ပါ"));
 
             topBar.Controls.Add(lblCat, 0, 0);
             topBar.Controls.Add(btnCellLoc, 1, 0);
@@ -513,7 +546,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             card.Controls.Add(topBar, 0, row++);
 
             // Row 1: Diff Banner ("အမှား" -> "အမှန်")
-            string topSuggested = issue.Suggestions.Count > 0 ? issue.Suggestions[0].Replacement : "စိစစ်ရန်";
+            bool hasSuggestion = issue.Suggestions.Count > 0;
+            string topSuggested = hasSuggestion ? issue.Suggestions[0].Replacement : UiLocalizer.Pick("Review", "စိစစ်ရန်");
             var pnlDiff = new Panel
             {
                 Dock = DockStyle.Top,
@@ -544,7 +578,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             // Row 2: In-Cell Context Excerpt so user sees surrounding cell text
             var lblCellSnippet = new Label
             {
-                Text = $"အကွက်စာသား — {item.BuildContextSnippet(24)}",
+                Text = UiLocalizer.Pick(
+                    $"Cell Text — {item.BuildContextSnippet(24)}",
+                    $"အကွက်စာသား — {item.BuildContextSnippet(24)}"),
                 Font = _fontSmall,
                 ForeColor = Color.FromArgb(72, 84, 102),
                 AutoSize = true,
@@ -566,7 +602,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 {
                     var lblChoicesHeader = new Label
                     {
-                        Text = $"ရွေးချယ်ပြင်ဆင်ရန် ({maxSug} မျိုး) —",
+                        Text = UiLocalizer.Pick(
+                            $"Choose Replacement ({maxSug} options) —",
+                            $"ရွေးချယ်ပြင်ဆင်ရန် ({maxSug} မျိုး) —"),
                         Font = _fontBrandStats,
                         ForeColor = issue.IsContextualWarning ? Color.FromArgb(148, 86, 8) : Color.FromArgb(16, 108, 56),
                         AutoSize = true,
@@ -603,7 +641,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                             ? (isPrimary ? Color.FromArgb(142, 186, 244) : Color.FromArgb(184, 210, 246))
                             : (isPrimary ? Color.FromArgb(118, 198, 148) : Color.FromArgb(168, 218, 186)));
 
-                    string prefixIcon = issue.IsContextualWarning ? "စိစစ်ရွေးမည်  ➔  " : "✓ ပြင်မည်  ➔  ";
+                    string prefixIcon = issue.IsContextualWarning
+                        ? UiLocalizer.Pick("Review  ➔  ", "စိစစ်ရွေးမည်  ➔  ")
+                        : UiLocalizer.Pick("✓ Apply  ➔  ", "✓ ပြင်မည်  ➔  ");
                     var btnChoice = new WordWrapChoiceButton
                     {
                         Text = $"{prefixIcon}{sug.Replacement}{cuePart}",
@@ -637,7 +677,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     string topRep = issue.Suggestions[0].Replacement;
                     var btnBatchSame = new WordWrapChoiceButton
                     {
-                        Text = $"✓✓ တူညီသောအမှား ({duplicateWordCount}) ကွက်လုံး ပြင်မည်  ➔  {topRep}",
+                        Text = UiLocalizer.Pick(
+                            $"✓✓ Fix All ({duplicateWordCount}) Matching Cells  ➔  {topRep}",
+                            $"✓✓ တူညီသောအမှား ({duplicateWordCount}) ကွက်လုံး ပြင်မည်  ➔  {topRep}"),
                         AutoSize = true,
                         AutoSizeMode = AutoSizeMode.GrowAndShrink,
                         MaximumSize = new Size(innerWrap, 0),
@@ -667,7 +709,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 fullExplanation = string.IsNullOrWhiteSpace(fullExplanation)
                     ? issue.GrammaticalReasoning
-                    : $"{fullExplanation}\n• သဒ္ဒါ/အနက် အကြောင်းပြချက် — {issue.GrammaticalReasoning}";
+                    : UiLocalizer.Pick(
+                        $"{fullExplanation}\n• Grammar / Context Note — {issue.GrammaticalReasoning}",
+                        $"{fullExplanation}\n• သဒ္ဒါ/အနက် အကြောင်းပြချက် — {issue.GrammaticalReasoning}");
             }
 
             if (!string.IsNullOrWhiteSpace(fullExplanation))
@@ -691,7 +735,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 var lblAuth = new Label
                 {
-                    Text = $"ကိုးကားကျမ်း — {issue.AuthoritativeSource}",
+                    Text = UiLocalizer.Pick(
+                        $"Reference — {issue.AuthoritativeSource}",
+                        $"ကိုးကားကျမ်း — {issue.AuthoritativeSource}"),
                     Font = _fontBrandStats,
                     ForeColor = Color.FromArgb(98, 110, 128),
                     AutoSize = true,
@@ -719,18 +765,33 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             footerGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30F));
             footerGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            var btnIgnore = CreatePillButton("လျစ်လျူရှု", Color.FromArgb(245, 247, 250), Color.FromArgb(74, 84, 98), Color.FromArgb(216, 222, 232), _fontBrandStats);
+            var btnIgnore = CreatePillButton(
+                UiLocalizer.Pick("Ignore", "လျစ်လျူရှု"),
+                Color.FromArgb(245, 247, 250),
+                Color.FromArgb(74, 84, 98),
+                Color.FromArgb(216, 222, 232),
+                _fontBrandStats);
             btnIgnore.Dock = DockStyle.Fill;
             btnIgnore.Click += (s, e) => RequestIgnoreOnce?.Invoke(item);
 
-            var btnAddDict = CreatePillButton("+ မှတ်သားမည်", Color.FromArgb(245, 247, 250), Color.FromArgb(22, 74, 156), Color.FromArgb(204, 218, 242), _fontBrandStats);
+            var btnAddDict = CreatePillButton(
+                UiLocalizer.Pick("+ Add Word", "+ မှတ်သားမည်"),
+                Color.FromArgb(245, 247, 250),
+                Color.FromArgb(22, 74, 156),
+                Color.FromArgb(204, 218, 242),
+                _fontBrandStats);
             btnAddDict.Dock = DockStyle.Fill;
             btnAddDict.Enabled = !issue.IsContextualWarning && !issue.IsGrammarOrStyle;
             btnAddDict.Click += (s, e) => RequestAddToDictionary?.Invoke(item);
 
-            var btnLookup = CreatePillButton("အဘိဓာန်ကြည့်", Color.FromArgb(245, 247, 250), Color.FromArgb(16, 102, 52), Color.FromArgb(196, 226, 206), _fontBrandStats);
+            var btnLookup = CreatePillButton(
+                UiLocalizer.Pick("Dictionary", "အဘိဓာန်ကြည့်"),
+                Color.FromArgb(245, 247, 250),
+                Color.FromArgb(16, 102, 52),
+                Color.FromArgb(196, 226, 206),
+                _fontBrandStats);
             btnLookup.Dock = DockStyle.Fill;
-            btnLookup.Click += (s, e) => OpenDictionaryWithQuery(topSuggested != "စိစစ်ရန်" ? topSuggested : issue.OriginalText);
+            btnLookup.Click += (s, e) => OpenDictionaryWithQuery(hasSuggestion ? topSuggested : issue.OriginalText);
 
             footerGrid.Controls.Add(btnIgnore, 0, 0);
             footerGrid.Controls.Add(btnAddDict, 1, 0);

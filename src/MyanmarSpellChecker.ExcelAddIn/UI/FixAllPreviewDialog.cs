@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Models;
 
 namespace MyanmarSpellChecker.ExcelAddIn.UI
@@ -34,6 +36,14 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 ? issue.Suggestions[0].Replacement
                 : string.Empty;
         }
+    }
+
+    internal static class FixPreviewNativeMethods
+    {
+        public const int EM_SETCUEBANNER = 0x1501;
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, string lParam);
     }
 
     /// <summary>
@@ -109,7 +119,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private void InitializeDialogUi(string scopeDisplayTitle)
         {
             AutoScaleMode = AutoScaleMode.Dpi;
-            Text = $"အားလုံးမပြင်မီ စိစစ်အတည်ပြုရန် — {scopeDisplayTitle}";
+            Text = UiLocalizer.Pick(
+                $"Safe Fix-All Review Checklist — {scopeDisplayTitle}",
+                $"အားလုံးမပြင်မီ စိစစ်အတည်ပြုရန် — {scopeDisplayTitle}");
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.Sizable;
             MinimizeBox = false;
@@ -183,7 +195,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             var lblTitle = new Label
             {
-                Text = $"အားလုံးမပြင်မီ စာရင်းဇယားဖြင့် စိစစ်အတည်ပြုရန် ({scopeDisplayTitle})",
+                Text = UiLocalizer.Pick(
+                    $"Review & Approve Replacements Before Applying ({scopeDisplayTitle})",
+                    $"အားလုံးမပြင်မီ စာရင်းဇယားဖြင့် စိစစ်အတည်ပြုရန် ({scopeDisplayTitle})"),
                 Font = _fontTitle,
                 ForeColor = Color.FromArgb(16, 42, 72),
                 AutoSize = true,
@@ -193,7 +207,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             var lblGuide = new Label
             {
-                Text = $"✓ သေချာသော စံသတ်ပုံ/သဒ္ဒါ ({safeCount}) ခုကို အမှန်ခြစ်ပေးထားပြီး (☑)၊ လူအမည်/ဒေသအမည် သို့မဟုတ် စစ်ပြီးသားဖြစ်နိုင်သော ခန့်မှန်းချက်/အနက်သံသယ ({reviewCount}) ခုကို မှားမပြင်မိစေရန် အမှန်ခြစ်ဖြုတ်ထားပါသည် (☐)။",
+                Text = UiLocalizer.Pick(
+                    $"✓ High-certainty standard rules ({safeCount}) are pre-checked (☑), while proper names, guesses, and contextual meaning warnings ({reviewCount}) are left unchecked (☐) to protect already-verified cells.",
+                    $"✓ သေချာသော စံသတ်ပုံ/သဒ္ဒါ ({safeCount}) ခုကို အမှန်ခြစ်ပေးထားပြီး (☑)၊ လူအမည်/ဒေသအမည် သို့မဟုတ် စစ်ပြီးသားဖြစ်နိုင်သော ခန့်မှန်းချက်/အနက်သံသယ ({reviewCount}) ခုကို မှားမပြင်မိစေရန် အမှန်ခြစ်ဖြုတ်ထားပါသည် (☐)။"),
                 Font = _fontSubtitle,
                 ForeColor = Color.FromArgb(52, 72, 96),
                 AutoSize = true,
@@ -229,7 +245,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             toolRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             toolRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 230f));
 
-            var btnSafeOnly = CreateToolbarButton($"☑ သေချာသည်များသာ ({safeCount})", Color.FromArgb(224, 245, 233), Color.FromArgb(16, 102, 54), Color.FromArgb(148, 208, 172));
+            var btnSafeOnly = CreateToolbarButton(
+                UiLocalizer.Pick($"☑ Sure Only ({safeCount})", $"☑ သေချာသည်များသာ ({safeCount})"),
+                Color.FromArgb(224, 245, 233), Color.FromArgb(16, 102, 54), Color.FromArgb(148, 208, 172));
             btnSafeOnly.Click += (s, e) =>
             {
                 foreach (var item in _allEntries)
@@ -237,7 +255,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 RefreshCheckboxColumnValues();
             };
 
-            var btnCheckAll = CreateToolbarButton($"☑ အားလုံးရွေး ({totalCount})", Color.White, Color.FromArgb(28, 56, 92), Color.FromArgb(196, 210, 228));
+            var btnCheckAll = CreateToolbarButton(
+                UiLocalizer.Pick($"☑ Select All ({totalCount})", $"☑ အားလုံးရွေး ({totalCount})"),
+                Color.White, Color.FromArgb(28, 56, 92), Color.FromArgb(196, 210, 228));
             btnCheckAll.Click += (s, e) =>
             {
                 foreach (var item in _visibleEntries)
@@ -245,7 +265,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 RefreshCheckboxColumnValues();
             };
 
-            var btnUncheckAll = CreateToolbarButton("☐ အားလုံးဖြုတ်", Color.White, Color.FromArgb(92, 104, 120), Color.FromArgb(204, 214, 226));
+            var btnUncheckAll = CreateToolbarButton(
+                UiLocalizer.Pick("☐ Clear All", "☐ အားလုံးဖြုတ်"),
+                Color.White, Color.FromArgb(92, 104, 120), Color.FromArgb(204, 214, 226));
             btnUncheckAll.Click += (s, e) =>
             {
                 foreach (var item in _visibleEntries)
@@ -255,7 +277,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             var lblSearchHint = new Label
             {
-                Text = "ရှာဖွေရန် —",
+                Text = UiLocalizer.Pick("Filter —", "ရှာဖွေရန် —"),
                 Font = _fontBadge,
                 ForeColor = Color.FromArgb(72, 90, 112),
                 AutoSize = true,
@@ -270,6 +292,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Anchor = AnchorStyles.Left | AnchorStyles.Right,
                 Margin = new Padding(0, 2, 0, 2)
             };
+            _txtSearch.HandleCreated += (s, e) =>
+                FixPreviewNativeMethods.SendMessage(
+                    _txtSearch.Handle,
+                    FixPreviewNativeMethods.EM_SETCUEBANNER,
+                    (IntPtr)1,
+                    UiLocalizer.Pick("Search word or cell...", "စာလုံး သို့မဟုတ် အကွက် ရှာရန်..."));
             _txtSearch.TextChanged += (s, e) =>
             {
                 _searchDebounceTimer.Stop();
@@ -335,7 +363,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             var colCheck = new DataGridViewTextBoxColumn
             {
                 Name = "ColCheck",
-                HeaderText = "ပြင်မည်",
+                HeaderText = UiLocalizer.Pick("Apply", "ပြင်မည်"),
                 Width = 74,
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
                 DefaultCellStyle = new DataGridViewCellStyle
@@ -348,7 +376,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             var colLoc = new DataGridViewTextBoxColumn
             {
                 Name = "ColLocation",
-                HeaderText = "နေရာ (Cell)",
+                HeaderText = UiLocalizer.Pick("Cell", "နေရာ (Cell)"),
                 Width = 122,
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
                 DefaultCellStyle = new DataGridViewCellStyle
@@ -361,7 +389,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             var colOrig = new DataGridViewTextBoxColumn
             {
                 Name = "ColOriginal",
-                HeaderText = "မူလစာသား (အမှား/သံသယ)",
+                HeaderText = UiLocalizer.Pick("Original Text", "မူလစာသား (အမှား/သံသယ)"),
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
                 FillWeight = 34f
             };
@@ -369,7 +397,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             var colRep = new DataGridViewTextBoxColumn
             {
                 Name = "ColReplacement",
-                HeaderText = "ပြင်ဆင်မည့်စာသား",
+                HeaderText = UiLocalizer.Pick("Replacement", "ပြင်ဆင်မည့်စာသား"),
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
                 FillWeight = 38f,
                 DefaultCellStyle = new DataGridViewCellStyle
@@ -382,7 +410,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             var colCert = new DataGridViewTextBoxColumn
             {
                 Name = "ColCertainty",
-                HeaderText = "စိတ်ချရမှု အဆင့်",
+                HeaderText = UiLocalizer.Pick("Certainty Level", "စိတ်ချရမှု အဆင့်"),
                 Width = 225,
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
                 DefaultCellStyle = new DataGridViewCellStyle
@@ -439,7 +467,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             _lblContextPreview = new Label
             {
-                Text = "စာရင်းမှ အတန်းတစ်တန်းကို နှိပ်၍ မူရင်းအကွက်စာသားနှင့် အခြားရွေးချယ်စရာများကို ကြည့်ရှုနိုင်ပါသည်။",
+                Text = UiLocalizer.Pick(
+                    "Select a row above to inspect surrounding cell text and alternative replacement choices.",
+                    "စာရင်းမှ အတန်းတစ်တန်းကို နှိပ်၍ မူရင်းအကွက်စာသားနှင့် အခြားရွေးချယ်စရာများကို ကြည့်ရှုနိုင်ပါသည်။"),
                 Font = _fontBodyBold,
                 ForeColor = Color.FromArgb(24, 48, 78),
                 AutoSize = true,
@@ -448,7 +478,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Margin = new Padding(0, 0, 8, 4)
             };
 
-            _btnJump = CreateToolbarButton("📍 အကွက်သို့ ကြည့်မည်", Color.FromArgb(238, 245, 255), Color.FromArgb(24, 82, 152), Color.FromArgb(172, 202, 240));
+            _btnJump = CreateToolbarButton(
+                UiLocalizer.Pick("📍 Jump to Cell", "📍 အကွက်သို့ ကြည့်မည်"),
+                Color.FromArgb(238, 245, 255), Color.FromArgb(24, 82, 152), Color.FromArgb(172, 202, 240));
             _btnJump.Visible = _onNavigateToItem != null;
             _btnJump.Enabled = false;
             _btnJump.Click += (s, e) =>
@@ -524,7 +556,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             var btnCancel = new Button
             {
-                Text = "မပြင်တော့ပါ (Esc)",
+                Text = UiLocalizer.Pick("Cancel (Esc)", "မပြင်တော့ပါ (Esc)"),
                 Font = _fontBody,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
@@ -544,7 +576,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             _btnConfirm = new Button
             {
-                Text = "✓ ရွေးချယ်ထားသည်များကို ပြင်ဆင်မည်",
+                Text = UiLocalizer.Pick("✓ Apply Selected Fixes", "✓ ရွေးချယ်ထားသည်များကို ပြင်ဆင်မည်"),
                 Font = _fontBodyBold,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
@@ -640,7 +672,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         {
             int sugCount = entry.Issue.Suggestions?.Count ?? 0;
             if (sugCount > 1)
-                return $"➔  {entry.ChosenReplacement}   ({sugCount} မျိုး)";
+            {
+                return UiLocalizer.Pick(
+                    $"➔  {entry.ChosenReplacement}   ({sugCount} options)",
+                    $"➔  {entry.ChosenReplacement}   ({sugCount} မျိုး)");
+            }
             return $"➔  {entry.ChosenReplacement}";
         }
 
@@ -779,7 +815,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 {
                     _selectedEntry = null;
                     _btnJump.Enabled = false;
-                    _lblContextPreview.Text = "ပြင်ဆင်မည့် အချက်အလက် မရှိပါ။";
+                    _lblContextPreview.Text = UiLocalizer.Pick(
+                        "No matching items to display.",
+                        "ပြင်ဆင်မည့် အချက်အလက် မရှိပါ။");
                     _lblExplanation.Text = string.Empty;
                     return;
                 }
@@ -792,7 +830,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 if (cleanContext.Length > 180)
                     cleanContext = cleanContext.Substring(0, 180) + "…";
 
-                _lblContextPreview.Text = $"[{entry.LocationLabel}] မူရင်းစာသား — {cleanContext}";
+                _lblContextPreview.Text = UiLocalizer.Pick(
+                    $"[{entry.LocationLabel}] Cell Context — {cleanContext}",
+                    $"[{entry.LocationLabel}] မူရင်းစာသား — {cleanContext}");
                 _lblExplanation.Text = entry.Issue.Message ?? string.Empty;
 
                 var sugs = entry.Issue.Suggestions;
@@ -801,7 +841,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     int maxChoices = Math.Min(sugs.Count, 5);
                     var lblPick = new Label
                     {
-                        Text = maxChoices > 1 ? "ရွေးချယ်ပြင်ဆင်ရန် —" : "အကြံပြုချက် —",
+                        Text = maxChoices > 1
+                            ? UiLocalizer.Pick("Choose Replacement —", "ရွေးချယ်ပြင်ဆင်ရန် —")
+                            : UiLocalizer.Pick("Suggested —", "အကြံပြုချက် —"),
                         Font = _fontBadge,
                         ForeColor = Color.FromArgb(44, 68, 96),
                         AutoSize = true,
@@ -864,10 +906,16 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             int checkedCount = _allEntries.Count(x => x.IsChecked && !string.IsNullOrEmpty(x.ChosenReplacement));
             int skippedCount = total - checkedCount;
 
-            _lblFooterSummary.Text = $"စုစုပေါင်း ({total}) ခု  •  ပြင်ဆင်မည် ({checkedCount}) ခု  •  ချန်လှပ်ထားသည် ({skippedCount}) ခု";
+            _lblFooterSummary.Text = UiLocalizer.Pick(
+                $"Total ({total})  •  Selected ({checkedCount})  •  Skipped ({skippedCount})",
+                $"စုစုပေါင်း ({total}) ခု  •  ပြင်ဆင်မည် ({checkedCount}) ခု  •  ချန်လှပ်ထားသည် ({skippedCount}) ခု");
             _btnConfirm.Text = checkedCount > 0
-                ? $"✓ ရွေးချယ်ထားသော ({checkedCount}) ခုကို ပြင်ဆင်မည်"
-                : "ရွေးချယ်ထားသော အချက်မရှိပါ";
+                ? UiLocalizer.Pick(
+                    $"✓ Apply ({checkedCount}) Selected Fixes",
+                    $"✓ ရွေးချယ်ထားသော ({checkedCount}) ခုကို ပြင်ဆင်မည်")
+                : UiLocalizer.Pick(
+                    "No Fixes Selected",
+                    "ရွေးချယ်ထားသော အချက်မရှိပါ");
             _btnConfirm.Enabled = checkedCount > 0;
             _btnConfirm.BackColor = checkedCount > 0
                 ? Color.FromArgb(20, 122, 75)

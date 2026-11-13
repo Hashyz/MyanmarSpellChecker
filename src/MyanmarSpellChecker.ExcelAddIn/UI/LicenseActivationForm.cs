@@ -4,6 +4,7 @@
 using System;
 using System.Drawing;
 using System.Windows.Forms;
+using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Security;
 
 namespace MyanmarSpellChecker.ExcelAddIn.UI
@@ -28,7 +29,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             AutoScaleMode = AutoScaleMode.Dpi;
             DoubleBuffered = true;
-            Text = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း (Excel) — စနစ်အချက်အလက်နှင့် Open-Source လိုင်စင်";
+            Text = UiLocalizer.Pick(
+                "Myanmar Spell Checker (Excel) — About & Open-Source License",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း (Excel) — စနစ်အချက်အလက်နှင့် Open-Source လိုင်စင်");
             AutoSize = true;
             AutoSizeMode = AutoSizeMode.GrowAndShrink;
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -77,7 +80,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             var lblHeader = new Label
             {
-                Text = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း၊ သဒ္ဒါနှင့် စွယ်စုံအဘိဓာန် (Excel + Word)",
+                Text = UiLocalizer.Pick(
+                    "Myanmar Spell Checker, Grammar & Encyclopedia Suite (Excel + Word)",
+                    "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း၊ သဒ္ဒါနှင့် စွယ်စုံအဘိဓာန် (Excel + Word)"),
                 Font = UiFontCache.GetMyanmar(11.2F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(16, 88, 48),
                 AutoSize = true,
@@ -89,9 +94,14 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             cardPanel.Controls.Add(lblHeader, 0, r++);
 
             string statsLine = loadedWordCount > 0
-                ? $"✓ 100% Offline အခမဲ့ Open-Source စနစ် အသင့်အလုပ်လုပ်နေပါသည် (လိုင်စင်ဖိုင် .lic မလိုအပ်ပါ)\n" +
-                  $"   Formula-Safe Excel Suite • စုစုပေါင်း ဝေါဟာရနှင့် ဗဟုသုတ {loadedWordCount:N0} ပုဒ် အသင့်ရှိသည်"
-                : "✓ 100% Offline အခမဲ့ Open-Source စနစ် အသင့်အလုပ်လုပ်နေပါသည် (လိုင်စင်ဖိုင် .lic မလိုအပ်ပါ)";
+                ? UiLocalizer.Pick(
+                    $"✓ 100% Free & Offline Open-Source Suite Active (No .lic license file required)\n" +
+                    $"   Formula-Safe Excel Suite • {loadedWordCount:N0} Official Thatpon, Dictionary & Encyclopedia entries loaded",
+                    $"✓ 100% Offline အခမဲ့ Open-Source စနစ် အသင့်အလုပ်လုပ်နေပါသည် (လိုင်စင်ဖိုင် .lic မလိုအပ်ပါ)\n" +
+                    $"   Formula-Safe Excel Suite • စုစုပေါင်း ဝေါဟာရနှင့် ဗဟုသုတ {loadedWordCount:N0} ပုဒ် အသင့်ရှိသည်")
+                : UiLocalizer.Pick(
+                    "✓ 100% Free & Offline Open-Source Suite Active (No .lic license file required)",
+                    "✓ 100% Offline အခမဲ့ Open-Source စနစ် အသင့်အလုပ်လုပ်နေပါသည် (လိုင်စင်ဖိုင် .lic မလိုအပ်ပါ)");
 
             var lblActiveBadge = new Label
             {
@@ -111,7 +121,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             var lblAuthorTitle = new Label
             {
-                Text = "ဖန်တီးသူ၊ ဂုဏ်ပြုမှတ်တမ်းနှင့် ပူးပေါင်းပါဝင်သူများ (Creator, Dedication & Collaborators)",
+                Text = UiLocalizer.Pick(
+                    "Creator, Dedication & Collaborators",
+                    "ဖန်တီးသူ၊ ဂုဏ်ပြုမှတ်တမ်းနှင့် ပူးပေါင်းပါဝင်သူများ (Creator, Dedication & Collaborators)"),
                 Font = UiFontCache.GetMyanmar(9.5F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(16, 92, 50),
                 AutoSize = true,
@@ -124,12 +136,19 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             var lblAuthorBody = new Label
             {
-                Text = "• ဖန်တီးသူ (Original Creator) : ထက်ရာဇာ — Htet Yar Zar (@Hashyz)\n" +
-                       "• ပညာအရည်အချင်း : M.Sc. Part II Candidate in Geology (M.Sc. Part I Completed)\n" +
-                       "• ဌာနနှင့် တက္ကသိုလ် : ဘူမိဗေဒဌာန၊ ကျောက်ဆည်တက္ကသိုလ် (Department of Geology, Kyaukse University)\n" +
-                       "• တည်နေရာဒေသ : ကျောက်ဆည်မြို့၊ မန္တလေးတိုင်းဒေသကြီး၊ မြန်မာနိုင်ငံ (Kyaukse, Myanmar)\n" +
-                       "• မူလစိတ်ကူးလမ်းညွှန်ပေးသူ (Original Idea) : ဖခင် ဦးမိုးကျော်သူ (Father U Moe Kyaw Thu)\n" +
-                       "• ပူးပေါင်းပါဝင်သူများ (Collaborators) : ဟိန်းထက်ဇော် (Hein Htet Zaw)၊ သူရိန်ခန့် (Thu Reain Khant)",
+                Text = UiLocalizer.Pick(
+                    "• Original Creator : Htet Yar Zar (ထက်ရာဇာ) (@Hashyz)\n" +
+                    "• Academic Standing : M.Sc. Part II Candidate in Geology (M.Sc. Part I Completed)\n" +
+                    "• Department & University : Department of Geology, Kyaukse University (ကျောက်ဆည်တက္ကသိုလ်)\n" +
+                    "• Location : Kyaukse, Mandalay Region, Myanmar\n" +
+                    "• Special Dedication (Original Idea) : Father U Moe Kyaw Thu (ဖခင် ဦးမိုးကျော်သူ)\n" +
+                    "• Project Collaborators : Hein Htet Zaw (ဟိန်းထက်ဇော်), Thu Reain Khant (သူရိန်ခန့်)",
+                    "• ဖန်တီးသူ (Original Creator) : ထက်ရာဇာ — Htet Yar Zar (@Hashyz)\n" +
+                    "• ပညာအရည်အချင်း : M.Sc. Part II Candidate in Geology (M.Sc. Part I Completed)\n" +
+                    "• ဌာနနှင့် တက္ကသိုလ် : ဘူမိဗေဒဌာန၊ ကျောက်ဆည်တက္ကသိုလ် (Department of Geology, Kyaukse University)\n" +
+                    "• တည်နေရာဒေသ : ကျောက်ဆည်မြို့၊ မန္တလေးတိုင်းဒေသကြီး၊ မြန်မာနိုင်ငံ (Kyaukse, Myanmar)\n" +
+                    "• မူလစိတ်ကူးလမ်းညွှန်ပေးသူ (Original Idea) : ဖခင် ဦးမိုးကျော်သူ (Father U Moe Kyaw Thu)\n" +
+                    "• ပူးပေါင်းပါဝင်သူများ (Collaborators) : ဟိန်းထက်ဇော် (Hein Htet Zaw)၊ သူရိန်ခန့် (Thu Reain Khant)"),
                 Font = UiFontCache.GetMyanmar(9.0F, FontStyle.Regular),
                 ForeColor = Color.FromArgb(32, 52, 40),
                 BackColor = Color.FromArgb(242, 249, 245),
@@ -145,8 +164,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             var lblLicenseBox = new Label
             {
-                Text = "Open-Source လိုင်စင်နှင့် မူပိုင်ခွင့် သတ်မှတ်ချက် — GNU GPL v3.0 (Section 7b)\n" +
-                       "ဤဆော့ဖ်ဝဲကို GNU General Public License v3.0 ဖြင့် အခမဲ့ မျှဝေထားပါသည်။ မူရင်းဖန်တီးသူအမည် (Htet Yar Zar — Kyaukse University) နှင့် NOTICE ဖိုင်ကို ဖယ်ရှားပြင်ဆင်ခြင်း၊ မိမိကိုယ်ပိုင် ပရောဂျက်အဖြစ် အမည်ပြောင်းလဲ သုံးစွဲခြင်း သို့မဟုတ် Closed-Source စီးပွားဖြစ် ရောင်းချခြင်းကို ဥပဒေအရ တားမြစ်ထားပါသည်။",
+                Text = UiLocalizer.Pick(
+                    "Open-Source License & Attribution Notice — GNU GPL v3.0 (Section 7b)\n" +
+                    "Released freely under the GNU General Public License v3.0. Removing or altering the original creator attribution (Htet Yar Zar — Kyaukse University) or NOTICE file, rebranding as your own project, or redistributing as closed-source proprietary software is strictly prohibited.",
+                    "Open-Source လိုင်စင်နှင့် မူပိုင်ခွင့် သတ်မှတ်ချက် — GNU GPL v3.0 (Section 7b)\n" +
+                    "ဤဆော့ဖ်ဝဲကို GNU General Public License v3.0 ဖြင့် အခမဲ့ မျှဝေထားပါသည်။ မူရင်းဖန်တီးသူအမည် (Htet Yar Zar — Kyaukse University) နှင့် NOTICE ဖိုင်ကို ဖယ်ရှားပြင်ဆင်ခြင်း၊ မိမိကိုယ်ပိုင် ပရောဂျက်အဖြစ် အမည်ပြောင်းလဲ သုံးစွဲခြင်း သို့မဟုတ် Closed-Source စီးပွားဖြစ် ရောင်းချခြင်းကို ဥပဒေအရ တားမြစ်ထားပါသည်။"),
                 Font = UiFontCache.GetMyanmar(8.6F, FontStyle.Regular),
                 ForeColor = Color.FromArgb(62, 74, 68),
                 BackColor = Color.FromArgb(250, 252, 251),
@@ -172,7 +194,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             _btnCopyRepo = new Button
             {
-                Text = "GitHub လင့်ခ် ကူးယူမည် (Copy URL)",
+                Text = UiLocalizer.Pick("Copy GitHub URL", "GitHub လင့်ခ် ကူးယူမည် (Copy URL)"),
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 BackColor = Color.FromArgb(16, 124, 65),
@@ -189,7 +211,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 try
                 {
                     Clipboard.SetText(RepoUrl);
-                    _btnCopyRepo.Text = "✓ GitHub လင့်ခ် ကူးယူပြီးပါပြီ";
+                    _btnCopyRepo.Text = UiLocalizer.Pick("✓ GitHub URL Copied", "✓ GitHub လင့်ခ် ကူးယူပြီးပါပြီ");
                     _copyFeedbackTimer.Stop();
                     _copyFeedbackTimer.Start();
                 }
@@ -198,7 +220,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             var btnClose = new Button
             {
-                Text = "ပိတ်မည် (Esc)",
+                Text = UiLocalizer.Pick("Close (Esc)", "ပိတ်မည် (Esc)"),
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 FlatStyle = FlatStyle.Flat,
@@ -232,7 +254,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _copyFeedbackTimer.Stop();
             if (!_btnCopyRepo.IsDisposed)
             {
-                _btnCopyRepo.Text = "GitHub လင့်ခ် ကူးယူမည် (Copy URL)";
+                _btnCopyRepo.Text = UiLocalizer.Pick("Copy GitHub URL", "GitHub လင့်ခ် ကူးယူမည် (Copy URL)");
             }
         }
     }

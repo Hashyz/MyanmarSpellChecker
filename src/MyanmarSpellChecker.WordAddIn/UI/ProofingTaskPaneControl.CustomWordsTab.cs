@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
@@ -25,13 +26,19 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             if (ok)
             {
                 _txtNewCustomWord.Text = string.Empty;
-                ShowToastBanner($"✓ \"{candidate}\" ကို ကိုယ်ပိုင်ဝေါဟာရအဖြစ် သိမ်းဆည်းပြီးပါပြီ။");
+                ShowToastBanner(UiLocalizer.Pick(
+                    $"✓ Saved \"{candidate}\" to your Custom Dictionary.",
+                    $"✓ \"{candidate}\" ကို ကိုယ်ပိုင်ဝေါဟာရအဖြစ် သိမ်းဆည်းပြီးပါပြီ။"));
                 UpdateWorkspaceTabStyles();
                 RenderCustomWordsView();
             }
             else
             {
-                ShowToastBanner("⚠ မှန်ကန်သော မြန်မာယူနီကုဒ် စာလုံးကိုသာ ရိုက်ထည့်ပေးပါ။", isSuccess: false);
+                ShowToastBanner(
+                    UiLocalizer.Pick(
+                        "⚠ Please enter a valid Myanmar Unicode word.",
+                        "⚠ မှန်ကန်သော မြန်မာယူနီကုဒ် စာလုံးကိုသာ ရိုက်ထည့်ပေးပါ။"),
+                    isSuccess: false);
             }
         }
 
@@ -45,8 +52,12 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             IReadOnlyList<string> customWords = RequestGetCustomWords?.Invoke() ?? Array.Empty<string>();
             _lblCustomSummary.Text = customWords.Count > 0
-                ? $"မှတ်သားထားသော ကိုယ်ပိုင်/ရုံးသုံး ဝေါဟာရ ({customWords.Count}) လုံး"
-                : "မှတ်သားထားသော ကိုယ်ပိုင်ဝေါဟာရ မရှိသေးပါ";
+                ? UiLocalizer.Pick(
+                    $"Saved Custom / Organization Words ({customWords.Count})",
+                    $"မှတ်သားထားသော ကိုယ်ပိုင်/ရုံးသုံး ဝေါဟာရ ({customWords.Count}) လုံး")
+                : UiLocalizer.Pick(
+                    "No custom words saved yet",
+                    "မှတ်သားထားသော ကိုယ်ပိုင်ဝေါဟာရ မရှိသေးပါ");
 
             int cardWidth = GetTargetCardWidth();
             int innerWrap = Math.Max(180, cardWidth - 32);
@@ -56,7 +67,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 var infoCard = CreateStyledCardContainer(cardWidth, Color.FromArgb(24, 90, 188), isSelectableItem: null);
                 var lblInfo = new Label
                 {
-                    Text = "လူပုဂ္ဂိုလ်အမည်၊ ကုမ္ပဏီ/ဌာနအမည် သို့မဟုတ် အထူးသုံးဝေါဟာရများကို အပေါ်ရှိ အကွက်တွင် ရိုက်ထည့်မှတ်သားနိုင်ပါသည်။\n\nမှတ်သားထားသော စာလုံးများကို စာတမ်းစစ်ဆေးသည့်အခါ အမှားအဖြစ် မတားတော့ဘဲ၊ အချိန်မရွေး ဤနေရာမှ ပြန်လည်ဖျက်ပစ်နိုင်ပါသည်။",
+                    Text = UiLocalizer.Pick(
+                        "Add personal names, company/ministry names, or specialized terminology in the input box above.\n\nSaved custom words are never flagged as spelling errors during proofing and can be removed here anytime.",
+                        "လူပုဂ္ဂိုလ်အမည်၊ ကုမ္ပဏီ/ဌာနအမည် သို့မဟုတ် အထူးသုံးဝေါဟာရများကို အပေါ်ရှိ အကွက်တွင် ရိုက်ထည့်မှတ်သားနိုင်ပါသည်။\n\nမှတ်သားထားသော စာလုံးများကို စာတမ်းစစ်ဆေးသည့်အခါ အမှားအဖြစ် မတားတော့ဘဲ၊ အချိန်မရွေး ဤနေရာမှ ပြန်လည်ဖျက်ပစ်နိုင်ပါသည်။"),
                     Font = _fontSmall,
                     ForeColor = Color.FromArgb(58, 68, 84),
                     AutoSize = true,
@@ -92,7 +105,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
                 var lblBreakdown = new Label
                 {
-                    Text = $"ဝဏ္ဏခွဲ: {OrthographicDiffExplainer.FormatSyllableBreakdown(word)}  •  မှတ်သားဝေါဟာရ",
+                    Text = UiLocalizer.Pick(
+                        $"Syllables: {OrthographicDiffExplainer.FormatSyllableBreakdown(word)}  •  Custom Word",
+                        $"ဝဏ္ဏခွဲ: {OrthographicDiffExplainer.FormatSyllableBreakdown(word)}  •  မှတ်သားဝေါဟာရ"),
                     Font = _fontSmall,
                     ForeColor = Color.FromArgb(88, 98, 114),
                     AutoSize = true,
@@ -118,15 +133,21 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 actions.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
                 string capturedWord = word;
-                var btnInsert = CreatePillButton("စာတမ်းသို့ ထည့်မည်", Color.FromArgb(236, 244, 255), Color.FromArgb(20, 72, 155), Color.FromArgb(190, 212, 246), _fontSmall);
+                var btnInsert = CreatePillButton(
+                    UiLocalizer.Pick("Insert in Doc", "စာတမ်းသို့ ထည့်မည်"),
+                    Color.FromArgb(236, 244, 255), Color.FromArgb(20, 72, 155), Color.FromArgb(190, 212, 246), _fontSmall);
                 btnInsert.Click += (s, e) => RequestInsertWordAtCursor?.Invoke(capturedWord);
 
-                var btnDelete = CreatePillButton("ဖျက်မည် ✕", Color.FromArgb(253, 238, 236), Color.FromArgb(175, 30, 30), Color.FromArgb(242, 204, 202), _fontSmallBold);
+                var btnDelete = CreatePillButton(
+                    UiLocalizer.Pick("Remove ✕", "ဖျက်မည် ✕"),
+                    Color.FromArgb(253, 238, 236), Color.FromArgb(175, 30, 30), Color.FromArgb(242, 204, 202), _fontSmallBold);
                 btnDelete.Click += (s, e) =>
                 {
                     if (RequestRemoveCustomWord?.Invoke(capturedWord) == true)
                     {
-                        ShowToastBanner($"\"{capturedWord}\" ကို မှတ်သားဝေါဟာရမှ ဖယ်ရှားပြီးပါပြီ။");
+                        ShowToastBanner(UiLocalizer.Pick(
+                            $"Removed \"{capturedWord}\" from your Custom Dictionary.",
+                            $"\"{capturedWord}\" ကို မှတ်သားဝေါဟာရမှ ဖယ်ရှားပြီးပါပြီ။"));
                         UpdateWorkspaceTabStyles();
                         RenderCustomWordsView();
                     }

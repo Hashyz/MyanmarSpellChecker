@@ -13,6 +13,7 @@ using System.Windows.Forms;
 using Extensibility;
 using Microsoft.Win32;
 using MyanmarSpellChecker.Core.Dictionary;
+using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
@@ -64,6 +65,7 @@ namespace MyanmarSpellChecker.WordAddIn
             new Dictionary<int, (Office.CustomTaskPane Pane, ProofingTaskPaneControl Control)>();
 
         private string _appDataFolder = string.Empty;
+        private string _uiLanguageConfigPath = string.Empty;
         private string _styleModeConfigPath = string.Empty;
         private string _ecoModeConfigPath = string.Empty;
         private string _customDictFilePath = string.Empty;
@@ -196,6 +198,8 @@ namespace MyanmarSpellChecker.WordAddIn
             Directory.CreateDirectory(localAppDataDir);
             AddInDiagnostics.ConfigureLogDirectory(localAppDataDir);
 
+            _uiLanguageConfigPath = Path.Combine(localAppDataDir, "ui_language.txt");
+            UiLocalizer.CurrentLanguage = UiLocalizer.LoadSavedLanguage(_uiLanguageConfigPath);
             _styleModeConfigPath = Path.Combine(localAppDataDir, "style_mode.txt");
             _ecoModeConfigPath = Path.Combine(localAppDataDir, "eco_mode.txt");
             EcoPerformanceGovernor.CurrentPreference = EcoPerformanceGovernor.LoadSavedPreference(_ecoModeConfigPath);
@@ -530,6 +534,17 @@ namespace MyanmarSpellChecker.WordAddIn
                 _lastCheckedLangDocPos = -1;
                 PruneClosedWindowTaskPanes();
 
+                UiLanguage savedLang = UiLocalizer.LoadSavedLanguage(_uiLanguageConfigPath);
+                if (savedLang != UiLocalizer.CurrentLanguage)
+                {
+                    UiLocalizer.CurrentLanguage = savedLang;
+                    foreach (var kvp in _windowTaskPanes.Values)
+                    {
+                        try { kvp.Control.ApplyLocalization(); } catch { }
+                    }
+                    _ribbonUi?.Invalidate();
+                }
+
                 // Synchronize Task Pane for the newly activated document window
                 _documentScanner?.RefreshEcoActiveStateForActiveDocument();
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
@@ -665,7 +680,7 @@ namespace MyanmarSpellChecker.WordAddIn
 
                 Office.CustomTaskPane pane = _ctpFactory.CreateCTP(
                     "MyanmarSpellChecker.ProofingTaskPaneControl",
-                    "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း",
+                    UiLocalizer.Pick("Myanmar Spell Checker", "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း"),
                     activeWin);
 
                 var ctrl = (ProofingTaskPaneControl)pane.ContentControl;
@@ -761,14 +776,37 @@ namespace MyanmarSpellChecker.WordAddIn
             var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
             string toast = next switch
             {
-                EcoModePreference.AlwaysOn =>
-                    "⚡ ပေါ့ပါးစနစ် (Eco Mode) ကို အမြဲဖွင့်ထားပါပြီ — CPU နှင့် RAM အနည်းဆုံးဖြင့် စက်မလေးစေဘဲ စစ်ဆေးပေးပါမည်။",
-                EcoModePreference.Off =>
-                    "⚡ ပေါ့ပါးစနစ်ကို ပိတ်ထားပါပြီ — စွမ်းဆောင်ရည်အပြည့်ဖြင့် စစ်ဆေးပါမည်။",
-                _ =>
-                    "⚡ ပေါ့ပါးစနစ် (Auto) အသင့်ရှိပါပြီ — စက်အားနည်းလျှင် သို့မဟုတ် စာရွက်များလျှင် အလိုအလျောက် ပေါ့ပါးစွာ စစ်ဆေးပေးပါမည်။"
+                EcoModePreference.AlwaysOn => UiLocalizer.Pick(
+                    "⚡ Eco Mode set to Always On — low CPU & RAM footprint active.",
+                    "⚡ ပေါ့ပါးစနစ် (Eco Mode) ကို အမြဲဖွင့်ထားပါပြီ — CPU နှင့် RAM အနည်းဆုံးဖြင့် စက်မလေးစေဘဲ စစ်ဆေးပေးပါမည်။"),
+                EcoModePreference.Off => UiLocalizer.Pick(
+                    "⚡ Eco Mode turned Off — full-speed scanning active.",
+                    "⚡ ပေါ့ပါးစနစ်ကို ပိတ်ထားပါပြီ — စွမ်းဆောင်ရည်အပြည့်ဖြင့် စစ်ဆေးပါမည်။"),
+                _ => UiLocalizer.Pick(
+                    "⚡ Eco Mode set to Auto — automatically protects low-spec PCs and large documents.",
+                    "⚡ ပေါ့ပါးစနစ် (Auto) အသင့်ရှိပါပြီ — စက်အားနည်းလျှင် သို့မဟုတ် စာရွက်များလျှင် အလိုအလျောက် ပေါ့ပါးစွာ စစ်ဆေးပေးပါမည်။")
             };
             ctrl?.ShowToastBanner(toast);
+        }
+
+        private void ToggleUiLanguageFromUi()
+        {
+            AddInDiagnostics.SafeExecute("ToggleUiLanguageFromUi", () =>
+            {
+                UiLanguage next = UiLocalizer.ToggleLanguage();
+                UiLocalizer.SaveLanguage(_uiLanguageConfigPath, next);
+
+                foreach (var kvp in _windowTaskPanes.Values)
+                {
+                    try { kvp.Control.ApplyLocalization(); } catch { }
+                }
+                _ribbonUi?.Invalidate();
+
+                var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+                ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                    "🌐 UI language switched to English (Default). Click 🌐 EN anytime to switch back to Myanmar.",
+                    "🌐 UI ဘာသာစကားကို မြန်မာဘာသာ (Myanmar) သို့ ပြောင်းလဲပြီးပါပြီ။ 🌐 မြန်မာ ခလုတ်ကိုနှိပ်၍ အင်္ဂလိပ်သို့ ပြန်ပြောင်းနိုင်ပါသည်။"));
+            });
         }
 
         private void WireTaskPaneControlEvents(ProofingTaskPaneControl ctrl)
@@ -779,6 +817,7 @@ namespace MyanmarSpellChecker.WordAddIn
                 _bulkWriteCancelRequested = true;
                 _documentScanner?.CancelUserScan();
             };
+            ctrl.RequestToggleLanguage += ToggleUiLanguageFromUi;
             ctrl.RequestCycleEcoMode += CycleEcoModeFromUi;
             ctrl.RequestFixAllIssues += ExecuteFixAllInActiveDocument;
             ctrl.RequestClearUnderlines += () =>
@@ -810,8 +849,9 @@ namespace MyanmarSpellChecker.WordAddIn
                     ctrl.RenderIssues(_documentScanner.GetCachedIssues(doc));
                     if (replaced > 0)
                     {
-                        ctrl.ShowToastBanner(
-                            $"✓ တူညီသောအမှား ({replaced}) ခုလုံးကို \"{replacementText}\" ဖြင့် တစ်ပြိုင်နက် ပြင်ဆင်ပြီးပါပြီ (Ctrl+Z ပြန်ဆုတ်နိုင်သည်)။");
+                        ctrl.ShowToastBanner(UiLocalizer.Pick(
+                            $"✓ Replaced all ({replaced}) matching occurrences with \"{replacementText}\" (press Ctrl+Z to undo).",
+                            $"✓ တူညီသောအမှား ({replaced}) ခုလုံးကို \"{replacementText}\" ဖြင့် တစ်ပြိုင်နက် ပြင်ဆင်ပြီးပါပြီ (Ctrl+Z ပြန်ဆုတ်နိုင်သည်)။"));
                     }
                 }
             };
@@ -1104,8 +1144,12 @@ namespace MyanmarSpellChecker.WordAddIn
             }
 
             string msg = changed > 0
-                ? $"✓ စကားပြောဟန် အသုံးအနှုန်း ({changed}) နေရာကို ရုံးသုံး/စာပေဟန်သို့ တစ်ချက်တည်းဖြင့် ပြောင်းလဲပြီးပါပြီ (Ctrl+Z ဖြင့် ပြန်ပြင်နိုင်သည်)။"
-                : "✓ ပြောင်းလဲရန် စကားပြောဟန် အသုံးအနှုန်း မတွေ့ရှိပါ (ရုံးသုံးစာပေဟန် အသင့်ဖြစ်ပြီးဖြစ်သည်)။";
+                ? UiLocalizer.Pick(
+                    $"✓ Rewrote ({changed}) colloquial expressions into formal/official Burmese style (press Ctrl+Z to undo).",
+                    $"✓ စကားပြောဟန် အသုံးအနှုန်း ({changed}) နေရာကို ရုံးသုံး/စာပေဟန်သို့ တစ်ချက်တည်းဖြင့် ပြောင်းလဲပြီးပါပြီ (Ctrl+Z ဖြင့် ပြန်ပြင်နိုင်သည်)။")
+                : UiLocalizer.Pick(
+                    "✓ No colloquial expressions found — document is already in formal/official style.",
+                    "✓ ပြောင်းလဲရန် စကားပြောဟန် အသုံးအနှုန်း မတွေ့ရှိပါ (ရုံးသုံးစာပေဟန် အသင့်ဖြစ်ပြီးဖြစ်သည်)။");
             ctrl?.ShowToastBanner(msg, isSuccess: true);
         }
 
@@ -1120,7 +1164,9 @@ namespace MyanmarSpellChecker.WordAddIn
             }
 
             var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
-            ctrl?.ShowToastBanner("✓ ရုံးသုံး စံပုံစံကြမ်းကို Pyidaungsu ဖောင့်ဖြင့် ထည့်သွင်းပြီးပါပြီ။");
+            ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                "✓ Inserted official letter template in Pyidaungsu font.",
+                "✓ ရုံးသုံး စံပုံစံကြမ်းကို Pyidaungsu ဖောင့်ဖြင့် ထည့်သွင်းပြီးပါပြီ။"));
         }
 
         private void ExecuteExportAuditCertificate()
@@ -1132,8 +1178,12 @@ namespace MyanmarSpellChecker.WordAddIn
             var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
             ctrl?.ShowToastBanner(
                 ok
-                    ? "✓ မြန်မာစာ အရည်အသွေး စစ်ဆေးချက် အစီရင်ခံစာ (Word စာတမ်းအသစ်) ထုတ်ပေးပြီးပါပြီ။"
-                    : "⚠ အစီရင်ခံစာ ထုတ်ယူစဉ် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။",
+                    ? UiLocalizer.Pick(
+                        "✓ Generated Myanmar Document Quality Audit Report in a new Word document.",
+                        "✓ မြန်မာစာ အရည်အသွေး စစ်ဆေးချက် အစီရင်ခံစာ (Word စာတမ်းအသစ်) ထုတ်ပေးပြီးပါပြီ။")
+                    : UiLocalizer.Pick(
+                        "⚠ Could not generate the audit report document.",
+                        "⚠ အစီရင်ခံစာ ထုတ်ယူစဉ် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"),
                 ok);
         }
 
@@ -1155,10 +1205,10 @@ namespace MyanmarSpellChecker.WordAddIn
 
             string scopeLabel = filterMode switch
             {
-                IssueFilterMode.SpellingOnly => "သတ်ပုံအမှား",
-                IssueFilterMode.GrammarOnly => "သဒ္ဒါ/စာဟန်အမှား",
-                IssueFilterMode.ContextOnly => "အနက်သံသယ စိစစ်ချက်",
-                _ => "အမှားစုစုပေါင်း"
+                IssueFilterMode.SpellingOnly => UiLocalizer.Pick("Spelling Issues", "သတ်ပုံအမှား"),
+                IssueFilterMode.GrammarOnly => UiLocalizer.Pick("Grammar & Style Issues", "သဒ္ဒါ/စာဟန်အမှား"),
+                IssueFilterMode.ContextOnly => UiLocalizer.Pick("Context Meaning Warnings", "အနက်သံသယ စိစစ်ချက်"),
+                _ => UiLocalizer.Pick("All Issues", "အမှားစုစုပေါင်း")
             };
 
             var cached = _documentScanner.GetCachedIssues(doc);
@@ -1171,14 +1221,18 @@ namespace MyanmarSpellChecker.WordAddIn
 
             if (candidates.Count == 0)
             {
-                ctrl?.ShowToastBanner("✓ ပြင်ဆင်ရန် အမှားအယွင်း မကျန်ရှိတော့ပါ။");
+                ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                    "✓ No remaining issues to fix.",
+                    "✓ ပြင်ဆင်ရန် အမှားအယွင်း မကျန်ရှိတော့ပါ။"));
                 return;
             }
 
             var previewEntries = candidates
                 .Select(item => new FixPreviewEntry<DocumentProofingItem>(
                     item,
-                    $"{item.StoryName} • ပိုဒ် #{item.ParagraphIndex}",
+                    UiLocalizer.Pick(
+                        $"{item.StoryName} • Para #{item.ParagraphIndex}",
+                        $"{item.StoryName} • ပိုဒ် #{item.ParagraphIndex}"),
                     TryExtractWordParagraphSnippet(item),
                     item.Issue))
                 .ToList();
@@ -1218,10 +1272,11 @@ namespace MyanmarSpellChecker.WordAddIn
                 if (count > 0)
                 {
                     string skipTail = skippedCount > 0
-                        ? $" (ချန်လှပ်ထားသည် {skippedCount} ခု)"
+                        ? UiLocalizer.Pick($" ({skippedCount} skipped)", $" (ချန်လှပ်ထားသည် {skippedCount} ခု)")
                         : string.Empty;
-                    ctrl?.ShowToastBanner(
-                        $"✓ စိစစ်အတည်ပြုထားသော ({count}) ခုကို တစ်ပြိုင်နက် ပြင်ဆင်ပြီးပါပြီ{skipTail} (Ctrl+Z ဖြင့် မူလအတိုင်း ပြန်ပြင်နိုင်သည်)။");
+                    ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                        $"✓ Applied ({count}) approved fixes{skipTail} (press Ctrl+Z to undo).",
+                        $"✓ စိစစ်အတည်ပြုထားသော ({count}) ခုကို တစ်ပြိုင်နက် ပြင်ဆင်ပြီးပါပြီ{skipTail} (Ctrl+Z ဖြင့် မူလအတိုင်း ပြန်ပြင်နိုင်သည်)။"));
                 }
             }
         }
@@ -1310,115 +1365,121 @@ namespace MyanmarSpellChecker.WordAddIn
 <customUI xmlns='http://schemas.microsoft.com/office/2009/07/customui' onLoad='OnRibbonLoad'>
   <ribbon>
     <tabs>
-      <tab id='TabMyanmarProofing' label='မြန်မာစာ စစ်ဆေးရေး'>
-        <group id='GrpProofingActions' label='စာတမ်း စစ်ဆေးရေးနှင့် ပြင်ဆင်မှု'>
+      <tab id='TabMyanmarProofing' getLabel='GetRibbonLabel'>
+        <group id='GrpProofingActions' getLabel='GetRibbonLabel'>
           <button id='BtnScanFullDocument'
-                  label='စာတမ်းတစ်ခုလုံး စစ်ဆေးမည်'
+                  getLabel='GetRibbonLabel'
                   size='large'
                   imageMso='SpellingAndGrammar'
                   onAction='OnRibbonScanDocument'
-                  screentip='စာကိုယ်၊ ဇယားကွက်နှင့် ခေါင်းစီး/အောက်ခြေ အားလုံးကို စစ်ဆေးရန်' />
+                  getScreentip='GetRibbonScreentip' />
           <button id='BtnFixAllIssues'
-                  label='အားလုံး တစ်ပြိုင်နက် ပြင်မည်'
+                  getLabel='GetRibbonLabel'
                   size='large'
                   imageMso='AcceptInvitation'
                   onAction='OnRibbonFixAllIssues'
-                  screentip='တွေ့ရှိသော အမှားအားလုံးကို သတ်ပုံကျမ်းအမှန်ဖြင့် တစ်ပြိုင်နက် အစားထိုးရန် (Single Ctrl+Z)' />
+                  getScreentip='GetRibbonScreentip' />
           <button id='BtnClearUnderlines'
-                  label='မျဉ်းလှိုင်းများ ဖယ်ရှားမည်'
+                  getLabel='GetRibbonLabel'
                   size='normal'
                   imageMso='ClearFormatting'
                   onAction='OnRibbonClearUnderlines'
-                  screentip='စာတမ်းပေါ်ရှိ စစ်ဆေးရေး မျဉ်းလှိုင်းများကို ဖယ်ရှားရန်' />
+                  getScreentip='GetRibbonScreentip' />
         </group>
-        <group id='GrpStyleAndLive' label='အရေးအသားနှင့် အလိုအလျောက်စနစ်'>
+        <group id='GrpStyleAndLive' getLabel='GetRibbonLabel'>
           <toggleButton id='BtnToggleFormalStyle'
-                        label='စာပေ / ရုံးသုံး အရေးစကားစနစ်'
+                        getLabel='GetRibbonLabel'
                         size='large'
                         imageMso='FileDocumentInspect'
                         getPressed='GetFormalStylePressed'
                         onAction='OnRibbonToggleFormalStyle'
-                        screentip='ပိတ်ထားပါက အထွေထွေ စံသတ်ပုံစနစ်ဖြင့် စစ်ဆေးပြီး၊ ဖွင့်ထားပါက စာပေနှင့် ရုံးသုံးအရေးစကား (ပါတယ်->ပါသည်၊ တွေ->များ) ပါ စစ်ဆေးပေးပါမည်' />
+                        getScreentip='GetRibbonScreentip' />
           <toggleButton id='BtnToggleLiveScan'
-                        label='အလိုအလျောက် စစ်ဆေးမှု (Live)'
+                        getLabel='GetRibbonLabel'
                         size='large'
                         imageMso='ReviewTrackChanges'
                         getPressed='GetLiveScanPressed'
                         onAction='OnRibbonToggleLiveScan'
-                        screentip='စာရိုက်နေစဉ် အလိုအလျောက် စစ်ဆေးမှုကို ဖွင့်/ပိတ်ရန်' />
+                        getScreentip='GetRibbonScreentip' />
         </group>
-        <group id='GrpDictionaryAndTools' label='အဘိဓာန်နှင့် စစ်ဆေးရေးပြကွက် (Offline)'>
+        <group id='GrpDictionaryAndTools' getLabel='GetRibbonLabel'>
           <button id='BtnSearchDictionary'
-                  label='သတ်ပုံကျမ်းနှင့် အဘိဓာန် ရှာရန်'
+                  getLabel='GetRibbonLabel'
                   size='large'
                   imageMso='LookUpReference'
                   onAction='OnRibbonSearchDictionary'
-                  screentip='သတ်ပုံကျမ်း၊ မြန်မာအဘိဓာန် နှင့် စကားပုံများကို အမြန်ရှာဖွေရန်' />
+                  getScreentip='GetRibbonScreentip' />
           <toggleButton id='BtnToggleTaskPane'
-                        label='စစ်ဆေးရေးပြကွက် ပြ/ဖျောက်'
+                        getLabel='GetRibbonLabel'
                         size='large'
                         imageMso='ResearchPane'
                         getPressed='GetTaskPanePressed'
                         onAction='OnRibbonToggleTaskPane'
-                        screentip='ညာဘက် စစ်ဆေးရေးပြကွက် (Task Pane) ကို ဖွင့်/ပိတ် ပြုလုပ်ရန်' />
+                        getScreentip='GetRibbonScreentip' />
+          <button id='BtnToggleUiLanguage'
+                  getLabel='GetRibbonLabel'
+                  size='normal'
+                  imageMso='Translate'
+                  onAction='OnRibbonToggleLanguage'
+                  getScreentip='GetRibbonScreentip' />
           <button id='BtnManageCustomWords'
-                  label='မှတ်သားဝေါဟာရ စီမံရန်'
+                  getLabel='GetRibbonLabel'
                   size='normal'
                   imageMso='BookmarkInsert'
                   onAction='OnRibbonManageCustomWords'
-                  screentip='ကိုယ်ပိုင် / ရုံးသုံး မှတ်သားထားသော စာလုံးများကို ထည့်သွင်း/ဖျက်သိမ်းရန်' />
+                  getScreentip='GetRibbonScreentip' />
           <button id='BtnLicenseActivation'
-                  label='ဖန်တီးသူနှင့် လိုင်စင် (GPLv3)'
+                  getLabel='GetRibbonLabel'
                   size='normal'
                   imageMso='Info'
                   onAction='OnRibbonOpenLicense'
-                  screentip='စနစ်အချက်အလက်၊ ဖန်တီးသူ ထက်ရာဇာ (ကျောက်ဆည်တက္ကသိုလ်) နှင့် GNU GPL v3.0 Open-Source လိုင်စင် ကြည့်ရှုရန်' />
+                  getScreentip='GetRibbonScreentip' />
         </group>
-        <group id='GrpTypographyToolkit' label='ဖောင့်နှင့် ကိန်းဂဏန်း ကိရိယာ'>
+        <group id='GrpTypographyToolkit' getLabel='GetRibbonLabel'>
           <button id='BtnConvertFonts'
-                  label='WinInnwa/Zawgyi ➔ Pyidaungsu'
+                  getLabel='GetRibbonLabel'
                   size='large'
                   imageMso='FontDialog'
                   onAction='OnRibbonConvertFonts'
-                  screentip='WinInnwa, WinResearcher, CE နှင့် Zawgyi ဖောင့်များကို အင်္ဂလိပ်ဖောင့်နှင့် ပုံစံမပျက်စေဘဲ Pyidaungsu သို့ တစ်ချက်နှိပ် ပြောင်းလဲရန်' />
+                  getScreentip='GetRibbonScreentip' />
           <button id='BtnNumeralsToMyanmar'
-                  label='0-9 ➔ ၀-၉ (Smart)'
+                  getLabel='GetRibbonLabel'
                   size='normal'
                   imageMso='BulletsAndNumberingDialog'
                   onAction='OnRibbonNumeralsToMyanmar'
-                  screentip='URL, Email, COVID-19, ISO-9001, A4, 5G တို့ကို မထိခိုက်ဘဲ မြန်မာဂဏန်း ပြောင်းလဲရန်' />
+                  getScreentip='GetRibbonScreentip' />
           <button id='BtnCleanPunctuation'
-                  label='ပုဒ်ဖြတ် ၊ / ။ ရှင်းမည်'
+                  getLabel='GetRibbonLabel'
                   size='normal'
                   imageMso='ParagraphMarks'
                   onAction='OnRibbonCleanPunctuation'
-                  screentip='ပုဒ်ထီး (၊)၊ ပုဒ်မ (။) အကွာအဝေးနှင့် မမြင်ရသော ZWSP များကို သန့်စင်ညှိနှိုင်းရန်' />
+                  getScreentip='GetRibbonScreentip' />
         </group>
-        <group id='GrpOfficialSuite' label='ရုံးစာနှင့် အရည်အသွေး စစ်ဆေးချက်'>
+        <group id='GrpOfficialSuite' getLabel='GetRibbonLabel'>
           <button id='BtnOpenToolkitPane'
-                  label='ကိရိယာ နှင့် ပြက္ခဒိန်'
+                  getLabel='GetRibbonLabel'
                   size='large'
                   imageMso='DateAndTimeInsert'
                   onAction='OnRibbonOpenToolkitPane'
-                  screentip='ကျပ်ငွေ (သိန်း) စာသားပြောင်းစက်၊ မြန်မာသက္ကရာဇ် ပြက္ခဒိန် နှင့် ရုံးစာပြကွက် ဖွင့်ရန်' />
+                  getScreentip='GetRibbonScreentip' />
           <button id='BtnRewriteOfficialProse'
-                  label='ရုံးသုံးစာပေဟန် ပြောင်းမည်'
+                  getLabel='GetRibbonLabel'
                   size='normal'
                   imageMso='Translate'
                   onAction='OnRibbonRewriteOfficialProse'
-                  screentip='စကားပြောဟန် (ပါတယ်၊ တွေ၊ နဲ့၊ ဒီနေ့...) များကို အစိုးရရုံးသုံး စာပေအရေးအသားသို့ တစ်ချက်နှိပ် ပြောင်းလဲရန် (Single Ctrl+Z)' />
+                  getScreentip='GetRibbonScreentip' />
           <button id='BtnInsertOfficialLetter'
-                  label='ရုံးစာ ပုံစံကြမ်း ထည့်ရန်'
+                  getLabel='GetRibbonLabel'
                   size='normal'
                   imageMso='FileNewDefault'
                   onAction='OnRibbonInsertOfficialLetter'
-                  screentip='မြန်မာသက္ကရာဇ် ရက်စွဲပါဝင်သော ရုံးစာ ပုံစံကြမ်းကို လက်ရှိနေရာ၌ ထည့်သွင်းရန်' />
+                  getScreentip='GetRibbonScreentip' />
           <button id='BtnExportAuditReport'
-                  label='အရည်အသွေး အစီရင်ခံစာ'
+                  getLabel='GetRibbonLabel'
                   size='normal'
                   imageMso='FilePrintPreview'
                   onAction='OnRibbonExportAuditReport'
-                  screentip='စာတမ်း၏ စာလုံးပေါင်းနှင့် ရုံးသုံးစံနှုန်း အရည်အသွေး စစ်ဆေးချက် အစီရင်ခံစာ (Word) ထုတ်ယူရန်' />
+                  getScreentip='GetRibbonScreentip' />
         </group>
       </tab>
     </tabs>
@@ -1429,6 +1490,101 @@ namespace MyanmarSpellChecker.WordAddIn
         public void OnRibbonLoad(Office.IRibbonUI ribbonUi)
         {
             _ribbonUi = ribbonUi;
+        }
+
+        public string GetRibbonLabel(Office.IRibbonControl control)
+        {
+            return control?.Id switch
+            {
+                "TabMyanmarProofing" => UiLocalizer.Pick("Myanmar Proofing", "မြန်မာစာ စစ်ဆေးရေး"),
+                "GrpProofingActions" => UiLocalizer.Pick("Proofing & Fixes", "စာတမ်း စစ်ဆေးရေးနှင့် ပြင်ဆင်မှု"),
+                "BtnScanFullDocument" => UiLocalizer.Pick("Scan Document", "စာတမ်းတစ်ခုလုံး စစ်ဆေးမည်"),
+                "BtnFixAllIssues" => UiLocalizer.Pick("Fix All (Preview)", "အားလုံး တစ်ပြိုင်နက် ပြင်မည်"),
+                "BtnClearUnderlines" => UiLocalizer.Pick("Clear Marks", "မျဉ်းလှိုင်းများ ဖယ်ရှားမည်"),
+                "GrpStyleAndLive" => UiLocalizer.Pick("Style & Auto-Scan", "အရေးအသားနှင့် အလိုအလျောက်စနစ်"),
+                "BtnToggleFormalStyle" => UiLocalizer.Pick("Formal / Official Style", "စာပေ / ရုံးသုံး အရေးစကားစနစ်"),
+                "BtnToggleLiveScan" => UiLocalizer.Pick("Live Auto-Check", "အလိုအလျောက် စစ်ဆေးမှု (Live)"),
+                "GrpDictionaryAndTools" => UiLocalizer.Pick("Dictionary & Workspace", "အဘိဓာန်နှင့် စစ်ဆေးရေးပြကွက် (Offline)"),
+                "BtnSearchDictionary" => UiLocalizer.Pick("Myanmar Dictionary", "သတ်ပုံကျမ်းနှင့် အဘိဓာန် ရှာရန်"),
+                "BtnToggleTaskPane" => UiLocalizer.Pick("Show/Hide Pane", "စစ်ဆေးရေးပြကွက် ပြ/ဖျောက်"),
+                "BtnToggleUiLanguage" => UiLocalizer.Pick("UI: English (⇄ မြန်မာ)", "UI: မြန်မာ (⇄ EN)"),
+                "BtnManageCustomWords" => UiLocalizer.Pick("Custom Words", "မှတ်သားဝေါဟာရ စီမံရန်"),
+                "BtnLicenseActivation" => UiLocalizer.Pick("About & GPLv3 License", "ဖန်တီးသူနှင့် လိုင်စင် (GPLv3)"),
+                "GrpTypographyToolkit" => UiLocalizer.Pick("Font & Numerals", "ဖောင့်နှင့် ကိန်းဂဏန်း ကိရိယာ"),
+                "BtnConvertFonts" => "WinInnwa/Zawgyi ➔ Pyidaungsu",
+                "BtnNumeralsToMyanmar" => "0-9 ➔ ၀-၉ (Smart)",
+                "BtnCleanPunctuation" => UiLocalizer.Pick("Clean Punctuation ၊ / ။", "ပုဒ်ဖြတ် ၊ / ။ ရှင်းမည်"),
+                "GrpOfficialSuite" => UiLocalizer.Pick("Official Suite & Audit", "ရုံးစာနှင့် အရည်အသွေး စစ်ဆေးချက်"),
+                "BtnOpenToolkitPane" => UiLocalizer.Pick("Toolkit & Calendar", "ကိရိယာ နှင့် ပြက္ခဒိန်"),
+                "BtnRewriteOfficialProse" => UiLocalizer.Pick("Rewrite Formal Style", "ရုံးသုံးစာပေဟန် ပြောင်းမည်"),
+                "BtnInsertOfficialLetter" => UiLocalizer.Pick("Insert Official Letter", "ရုံးစာ ပုံစံကြမ်း ထည့်ရန်"),
+                "BtnExportAuditReport" => UiLocalizer.Pick("Quality Audit Report", "အရည်အသွေး အစီရင်ခံစာ"),
+                _ => string.Empty
+            };
+        }
+
+        public string GetRibbonScreentip(Office.IRibbonControl control)
+        {
+            return control?.Id switch
+            {
+                "BtnScanFullDocument" => UiLocalizer.Pick(
+                    "Scan document body, tables, headers, and footers for Myanmar spelling, grammar, and meaning issues",
+                    "စာကိုယ်၊ ဇယားကွက်နှင့် ခေါင်းစီး/အောက်ခြေ အားလုံးကို စစ်ဆေးရန်"),
+                "BtnFixAllIssues" => UiLocalizer.Pick(
+                    "Open Safe Fix-All Preview Checklist before applying replacements (Single Ctrl+Z)",
+                    "တွေ့ရှိသော အမှားအားလုံးကို သတ်ပုံကျမ်းအမှန်ဖြင့် တစ်ပြိုင်နက် အစားထိုးရန် (Single Ctrl+Z)"),
+                "BtnClearUnderlines" => UiLocalizer.Pick(
+                    "Clear temporary proofing wavy underlines from the document",
+                    "စာတမ်းပေါ်ရှိ စစ်ဆေးရေး မျဉ်းလှိုင်းများကို ဖယ်ရှားရန်"),
+                "BtnToggleFormalStyle" => UiLocalizer.Pick(
+                    "Off = General Standard spelling; On = also check colloquial-to-formal style (ပါတယ် -> ပါသည်, တွေ -> များ)",
+                    "ပိတ်ထားပါက အထွေထွေ စံသတ်ပုံစနစ်ဖြင့် စစ်ဆေးပြီး၊ ဖွင့်ထားပါက စာပေနှင့် ရုံးသုံးအရေးစကား (ပါတယ်->ပါသည်၊ တွေ->များ) ပါ စစ်ဆေးပေးပါမည်"),
+                "BtnToggleLiveScan" => UiLocalizer.Pick(
+                    "Enable or pause real-time proofing while typing",
+                    "စာရိုက်နေစဉ် အလိုအလျောက် စစ်ဆေးမှုကို ဖွင့်/ပိတ်ရန်"),
+                "BtnSearchDictionary" => UiLocalizer.Pick(
+                    "Search official Myanmar orthography, definitions, proverbs, and encyclopedia offline",
+                    "သတ်ပုံကျမ်း၊ မြန်မာအဘိဓာန် နှင့် စကားပုံများကို အမြန်ရှာဖွေရန်"),
+                "BtnToggleTaskPane" => UiLocalizer.Pick(
+                    "Show or hide the Myanmar Spell Checker Task Pane on the right",
+                    "ညာဘက် စစ်ဆေးရေးပြကွက် (Task Pane) ကို ဖွင့်/ပိတ် ပြုလုပ်ရန်"),
+                "BtnToggleUiLanguage" => UiLocalizer.Pick(
+                    "Switch user interface language between English (Default) and Myanmar (မြန်မာ) instantly",
+                    "UI ဘာသာစကားကို အင်္ဂလိပ် (English) နှင့် မြန်မာ (Myanmar) အကြား ချက်ချင်းပြောင်းလဲရန်"),
+                "BtnManageCustomWords" => UiLocalizer.Pick(
+                    "Add or remove personal and organization custom Myanmar words",
+                    "ကိုယ်ပိုင် / ရုံးသုံး မှတ်သားထားသော စာလုံးများကို ထည့်သွင်း/ဖျက်သိမ်းရန်"),
+                "BtnLicenseActivation" => UiLocalizer.Pick(
+                    "View system info, creator Htet Yar Zar (Kyaukse University), and GNU GPL v3.0 open-source license",
+                    "စနစ်အချက်အလက်၊ ဖန်တီးသူ ထက်ရာဇာ (ကျောက်ဆည်တက္ကသိုလ်) နှင့် GNU GPL v3.0 Open-Source လိုင်စင် ကြည့်ရှုရန်"),
+                "BtnConvertFonts" => UiLocalizer.Pick(
+                    "Convert WinInnwa, WinResearcher, CE, and Zawgyi text to Pyidaungsu Unicode without breaking English fonts",
+                    "WinInnwa, WinResearcher, CE နှင့် Zawgyi ဖောင့်များကို အင်္ဂလိပ်ဖောင့်နှင့် ပုံစံမပျက်စေဘဲ Pyidaungsu သို့ တစ်ချက်နှိပ် ပြောင်းလဲရန်"),
+                "BtnNumeralsToMyanmar" => UiLocalizer.Pick(
+                    "Smart convert 0-9 to Myanmar digits ၀-၉ while protecting URLs, emails, ISO-9001, A4, 5G",
+                    "URL, Email, COVID-19, ISO-9001, A4, 5G တို့ကို မထိခိုက်ဘဲ မြန်မာဂဏန်း ပြောင်းလဲရန်"),
+                "BtnCleanPunctuation" => UiLocalizer.Pick(
+                    "Normalize Myanmar comma (၊), full stop (။) spacing, and strip stray ZWSP characters",
+                    "ပုဒ်ထီး (၊)၊ ပုဒ်မ (။) အကွာအဝေးနှင့် မမြင်ရသော ZWSP များကို သန့်စင်ညှိနှိုင်းရန်"),
+                "BtnOpenToolkitPane" => UiLocalizer.Pick(
+                    "Open Kyat amount converter, Myanmar calendar, and official letter tools",
+                    "ကျပ်ငွေ (သိန်း) စာသားပြောင်းစက်၊ မြန်မာသက္ကရာဇ် ပြက္ခဒိန် နှင့် ရုံးစာပြကွက် ဖွင့်ရန်"),
+                "BtnRewriteOfficialProse" => UiLocalizer.Pick(
+                    "Convert colloquial expressions into formal/official Burmese prose in one click (Single Ctrl+Z)",
+                    "စကားပြောဟန် (ပါတယ်၊ တွေ၊ နဲ့၊ ဒီနေ့...) များကို အစိုးရရုံးသုံး စာပေအရေးအသားသို့ တစ်ချက်နှိပ် ပြောင်းလဲရန် (Single Ctrl+Z)"),
+                "BtnInsertOfficialLetter" => UiLocalizer.Pick(
+                    "Insert an official Burmese letter template with Myanmar calendar date at cursor",
+                    "မြန်မာသက္ကရာဇ် ရက်စွဲပါဝင်သော ရုံးစာ ပုံစံကြမ်းကို လက်ရှိနေရာ၌ ထည့်သွင်းရန်"),
+                "BtnExportAuditReport" => UiLocalizer.Pick(
+                    "Generate a printable Myanmar Document Quality Audit Report in Word",
+                    "စာတမ်း၏ စာလုံးပေါင်းနှင့် ရုံးသုံးစံနှုန်း အရည်အသွေး စစ်ဆေးချက် အစီရင်ခံစာ (Word) ထုတ်ယူရန်"),
+                _ => string.Empty
+            };
+        }
+
+        public void OnRibbonToggleLanguage(Office.IRibbonControl control)
+        {
+            ToggleUiLanguageFromUi();
         }
 
         public bool GetFormalStylePressed(Office.IRibbonControl control)
@@ -1618,7 +1774,9 @@ namespace MyanmarSpellChecker.WordAddIn
                     _underlineManager?.StripAllProofingUnderlines(_wordApp.ActiveDocument);
                     _documentScanner?.ClearCachedIssues(_wordApp.ActiveDocument);
                     var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
-                    ctrl?.ShowToastBanner("စစ်ဆေးရေး မျဉ်းလှိုင်းများကို ဖယ်ရှားပြီးပါပြီ။");
+                    ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                        "✓ Cleared temporary proofing underlines.",
+                        "စစ်ဆေးရေး မျဉ်းလှိုင်းများကို ဖယ်ရှားပြီးပါပြီ။"));
                 }
             });
         }

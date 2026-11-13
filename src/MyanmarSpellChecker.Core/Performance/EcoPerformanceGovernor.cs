@@ -340,6 +340,16 @@ namespace MyanmarSpellChecker.Core.Performance
 
         public static string FormatBadgeLabel(EcoModePreference preference, bool currentlyActive)
         {
+            if (Localization.UiLocalizer.IsEnglish)
+            {
+                return preference switch
+                {
+                    EcoModePreference.AlwaysOn => "⚡ Eco: On",
+                    EcoModePreference.Off => "⚡ Eco: Off",
+                    _ => currentlyActive ? "⚡ Eco: Auto✓" : "⚡ Eco: Auto"
+                };
+            }
+
             return preference switch
             {
                 EcoModePreference.AlwaysOn => "⚡ ပေါ့ပါး: ဖွင့်",
@@ -353,6 +363,19 @@ namespace MyanmarSpellChecker.Core.Performance
             var hw = Hardware;
             string ramText = hw.TotalPhysicalRamMb > 0 ? $"{hw.TotalPhysicalRamMb / 1024.0:F1} GB RAM" : "RAM Auto";
             string hwSummary = $"({hw.LogicalCores} Cores, {ramText}{(hw.Is32BitOfficeProcess ? ", 32-bit Office" : string.Empty)})";
+
+            if (Localization.UiLocalizer.IsEnglish)
+            {
+                return preference switch
+                {
+                    EcoModePreference.AlwaysOn =>
+                        $"Eco Mode: Always On {hwSummary}\r\nMinimizes CPU & RAM usage to keep Office smooth on low-spec PCs and large files. (Click to turn Off)",
+                    EcoModePreference.Off =>
+                        $"Eco Mode: Off {hwSummary}\r\nScans with full multi-core performance. (Click to switch to Auto)",
+                    _ =>
+                        $"Eco Mode: Auto {(currentlyActive ? "[Active Now]" : "[Standby]")} {hwSummary}\r\nAutomatically enables gentle CPU/RAM throttling on low-spec PCs or large Word/Excel files."
+                };
+            }
 
             return preference switch
             {

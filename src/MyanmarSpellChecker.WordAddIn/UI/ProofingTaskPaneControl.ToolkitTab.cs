@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
@@ -49,7 +50,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             var lblQHeader = new Label
             {
-                Text = "၁။ စာတမ်းအရည်အသွေး စစ်ဆေးချက် (Quality Scorecard)",
+                Text = UiLocalizer.Pick(
+                    "1. Document Quality Scorecard & Audit",
+                    "၁။ စာတမ်းအရည်အသွေး စစ်ဆေးချက် (Quality Scorecard)"),
                 Font = _fontBodyBold,
                 ForeColor = Color.FromArgb(18, 48, 104),
                 AutoSize = true,
@@ -62,10 +65,14 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             qualityCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             qualityCard.Controls.Add(lblQHeader, 0, qRow++);
 
-            string scoreDigits = MyanmarTraditionalCalendar.ToMyanmarDigits(report.OverallScore);
+            string scoreDigits = UiLocalizer.IsEnglish
+                ? report.OverallScore.ToString()
+                : MyanmarTraditionalCalendar.ToMyanmarDigits(report.OverallScore);
             var lblScoreBadge = new Label
             {
-                Text = $"ရမှတ် {scoreDigits}%  •  {report.GradeLabel}",
+                Text = UiLocalizer.Pick(
+                    $"Score {scoreDigits}%  •  {report.LocalizedGradeLabel}",
+                    $"ရမှတ် {scoreDigits}%  •  {report.GradeLabel}"),
                 Font = _fontCardWord,
                 ForeColor = scoreAccent,
                 BackColor = report.OverallScore >= 90
@@ -81,14 +88,21 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             qualityCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             qualityCard.Controls.Add(lblScoreBadge, 0, qRow++);
 
-            string readMinText = report.EstimatedReadingMinutes < 1.0 && report.MyanmarSyllableCount > 0
-                ? "၁ မိနစ်အောက်"
-                : $"{MyanmarTraditionalCalendar.ToMyanmarDigits((int)Math.Max(0, Math.Round(report.EstimatedReadingMinutes)))} မိနစ်ခန့်";
+            int estMins = (int)Math.Max(0, Math.Round(report.EstimatedReadingMinutes));
+            string readMinText = UiLocalizer.IsEnglish
+                ? (report.EstimatedReadingMinutes < 1.0 && report.MyanmarSyllableCount > 0 ? "< 1 min" : $"~{estMins} min")
+                : (report.EstimatedReadingMinutes < 1.0 && report.MyanmarSyllableCount > 0
+                    ? "၁ မိနစ်အောက်"
+                    : $"{MyanmarTraditionalCalendar.ToMyanmarDigits(estMins)} မိနစ်ခန့်");
             var lblQMetrics = new Label
             {
-                Text = $"• ယူနီကုဒ် သန့်စင်မှု: {report.UnicodePurityPercent:0.#}%   |   ရုံးသုံးဟန်: {report.FormalRegisterPercent:0.#}%\n" +
-                       $"• ဝဏ္ဏ: {MyanmarTraditionalCalendar.ToMyanmarDigits(report.MyanmarSyllableCount)} လုံး  •  စကားလုံး: {MyanmarTraditionalCalendar.ToMyanmarDigits(report.WordCount)}  •  ဖတ်ချိန်: {readMinText}\n" +
-                       $"• တွေ့ရှိချက်: စာလုံးပေါင်း ({MyanmarTraditionalCalendar.ToMyanmarDigits(report.SpellingIssueCount)})၊ သဒ္ဒါ/ဟန် ({MyanmarTraditionalCalendar.ToMyanmarDigits(report.GrammarIssueCount)})၊ ဖောင့် ({MyanmarTraditionalCalendar.ToMyanmarDigits(report.EncodingIssueCount)})",
+                Text = UiLocalizer.IsEnglish
+                    ? $"• Unicode Purity: {report.UnicodePurityPercent:0.#}%   |   Formal Register: {report.FormalRegisterPercent:0.#}%\n" +
+                      $"• Syllables: {report.MyanmarSyllableCount:N0}  •  Words: {report.WordCount:N0}  •  Read Time: {readMinText}\n" +
+                      $"• Findings: Spelling ({report.SpellingIssueCount}), Grammar/Style ({report.GrammarIssueCount}), Encoding ({report.EncodingIssueCount})"
+                    : $"• ယူနီကုဒ် သန့်စင်မှု: {report.UnicodePurityPercent:0.#}%   |   ရုံးသုံးဟန်: {report.FormalRegisterPercent:0.#}%\n" +
+                      $"• ဝဏ္ဏ: {MyanmarTraditionalCalendar.ToMyanmarDigits(report.MyanmarSyllableCount)} လုံး  •  စကားလုံး: {MyanmarTraditionalCalendar.ToMyanmarDigits(report.WordCount)}  •  ဖတ်ချိန်: {readMinText}\n" +
+                      $"• တွေ့ရှိချက်: စာလုံးပေါင်း ({MyanmarTraditionalCalendar.ToMyanmarDigits(report.SpellingIssueCount)})၊ သဒ္ဒါ/ဟန် ({MyanmarTraditionalCalendar.ToMyanmarDigits(report.GrammarIssueCount)})၊ ဖောင့် ({MyanmarTraditionalCalendar.ToMyanmarDigits(report.EncodingIssueCount)})",
                 Font = _fontSmall,
                 ForeColor = Color.FromArgb(48, 58, 74),
                 AutoSize = true,
@@ -114,7 +128,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             qBtnGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62F));
             qBtnGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            var btnRefreshScore = CreatePillButton("⟳ ပြန်တွက်မည်", Color.FromArgb(240, 244, 250), Color.FromArgb(35, 55, 88), Color.FromArgb(210, 220, 236), _fontSmallBold);
+            var btnRefreshScore = CreatePillButton(
+                UiLocalizer.Pick("⟳ Refresh", "⟳ ပြန်တွက်မည်"),
+                Color.FromArgb(240, 244, 250), Color.FromArgb(35, 55, 88), Color.FromArgb(210, 220, 236), _fontSmallBold);
             btnRefreshScore.Click += (s, e) =>
             {
                 if (RequestRefreshQualityReport != null)
@@ -123,11 +139,15 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                     if (_latestQualityReport?.OfficialLetterAudit != null)
                         _latestOfficialAudit = _latestQualityReport.OfficialLetterAudit;
                     RenderToolkitWorkspaceView();
-                    ShowToastBanner("✓ စာတမ်းအရည်အသွေး ရမှတ်ကို အသစ်ပြန်လည် တွက်ချက်ပြီးပါပြီ။");
+                    ShowToastBanner(UiLocalizer.Pick(
+                        "✓ Document Quality Scorecard refreshed.",
+                        "✓ စာတမ်းအရည်အသွေး ရမှတ်ကို အသစ်ပြန်လည် တွက်ချက်ပြီးပါပြီ။"));
                 }
             };
 
-            var btnExportCert = CreatePillButton("✦ အစီရင်ခံစာ ထုတ်မည် (Word)", Color.FromArgb(22, 78, 166), Color.White, Color.FromArgb(18, 66, 145), _fontSmallBold);
+            var btnExportCert = CreatePillButton(
+                UiLocalizer.Pick("✦ Export Audit Report (Word)", "✦ အစီရင်ခံစာ ထုတ်မည် (Word)"),
+                Color.FromArgb(22, 78, 166), Color.White, Color.FromArgb(18, 66, 145), _fontSmallBold);
             btnExportCert.Click += (s, e) => RequestExportAuditCertificate?.Invoke();
 
             qBtnGrid.Controls.Add(btnRefreshScore, 0, 0);
@@ -144,7 +164,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             var lblFHeader = new Label
             {
-                Text = "၂။ ဖောင့်ပြောင်းစက်၊ ကိန်းဂဏန်း နှင့် ပုဒ်ဖြတ် သန့်စင်ရေး",
+                Text = UiLocalizer.Pick(
+                    "2. Font Converter, Numerals & Punctuation Cleaner",
+                    "၂။ ဖောင့်ပြောင်းစက်၊ ကိန်းဂဏန်း နှင့် ပုဒ်ဖြတ် သန့်စင်ရေး"),
                 Font = _fontBodyBold,
                 ForeColor = Color.FromArgb(18, 48, 104),
                 AutoSize = true,
@@ -159,7 +181,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             var lblFHint = new Label
             {
-                Text = "အင်္ဂလိပ်ဖောင့် (Calibri/Arial)၊ စာလုံးအထူ/အစောင်းနှင့် ဇယားကွက်များ မပျက်စီးဘဲ တစ်ချက်နှိပ် ပြောင်းလဲပေးသည် (Ctrl+Z ပြန်ဆုတ်နိုင်သည်)။",
+                Text = UiLocalizer.Pick(
+                    "Converts in one click while preserving English fonts (Calibri/Arial), Bold/Italic, and tables (Ctrl+Z to undo).",
+                    "အင်္ဂလိပ်ဖောင့် (Calibri/Arial)၊ စာလုံးအထူ/အစောင်းနှင့် ဇယားကွက်များ မပျက်စီးဘဲ တစ်ချက်နှိပ် ပြောင်းလဲပေးသည် (Ctrl+Z ပြန်ဆုတ်နိုင်သည်)။"),
                 Font = _fontSmall,
                 ForeColor = Color.FromArgb(68, 78, 94),
                 AutoSize = true,
@@ -174,7 +198,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             var chkSelectionOnly = new CheckBox
             {
-                Text = "ရွေးချယ်ထားသော စာသားသာ ပြောင်းမည် (Selection Only)",
+                Text = UiLocalizer.Pick(
+                    "Apply to Selected Text Only",
+                    "ရွေးချယ်ထားသော စာသားသာ ပြောင်းမည် (Selection Only)"),
                 Checked = _toolkitSelectionOnly,
                 Font = _fontSmallBold,
                 ForeColor = Color.FromArgb(35, 58, 96),
@@ -187,7 +213,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             fontCard.Controls.Add(chkSelectionOnly, 0, fRow++);
 
             var btnConvertFonts = CreatePillButton(
-                "⇄ WinInnwa / Zawgyi ➔ Pyidaungsu ပြောင်းမည်",
+                UiLocalizer.Pick(
+                    "⇄ Convert WinInnwa / Zawgyi ➔ Pyidaungsu",
+                    "⇄ WinInnwa / Zawgyi ➔ Pyidaungsu ပြောင်းမည်"),
                 Color.FromArgb(20, 82, 174),
                 Color.White,
                 Color.FromArgb(16, 68, 150),
@@ -212,7 +240,11 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             var btnToMmDigits = CreatePillButton("0-9 ➔ ၀-၉ (Smart)", Color.FromArgb(236, 244, 255), Color.FromArgb(18, 68, 150), Color.FromArgb(190, 212, 246), _fontSmallBold);
             btnToMmDigits.Click += (s, e) => RequestFormatNumerals?.Invoke(true, _toolkitSelectionOnly);
-            _toolTip.SetToolTip(btnToMmDigits, "URL, Email, COVID-19, ISO-9001, A4, 5G တို့ကို မထိခိုက်ဘဲ မြန်မာဂဏန်း ပြောင်းပေးသည်");
+            _toolTip.SetToolTip(
+                btnToMmDigits,
+                UiLocalizer.Pick(
+                    "Converts numerals to Myanmar digits while preserving URLs, emails, COVID-19, ISO-9001, A4 & 5G codes",
+                    "URL, Email, COVID-19, ISO-9001, A4, 5G တို့ကို မထိခိုက်ဘဲ မြန်မာဂဏန်း ပြောင်းပေးသည်"));
 
             var btnToAsciiDigits = CreatePillButton("၀-၉ ➔ 0-9", Color.FromArgb(242, 245, 250), Color.FromArgb(48, 58, 74), Color.FromArgb(214, 222, 234), _fontSmallBold);
             btnToAsciiDigits.Click += (s, e) => RequestFormatNumerals?.Invoke(false, _toolkitSelectionOnly);
@@ -223,7 +255,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             fontCard.Controls.Add(numFmtGrid, 0, fRow++);
 
             var btnCleanPunct = CreatePillButton(
-                "✨ ပုဒ်ဖြတ် (၊ / ။) အကွာအဝေး နှင့် ZWSP သန့်စင်မည်",
+                UiLocalizer.Pick(
+                    "✨ Clean Punctuation (၊ / ။) Spacing & ZWSP",
+                    "✨ ပုဒ်ဖြတ် (၊ / ။) အကွာအဝေး နှင့် ZWSP သန့်စင်မည်"),
                 Color.FromArgb(235, 248, 240),
                 Color.FromArgb(18, 108, 52),
                 Color.FromArgb(182, 226, 198),
@@ -242,7 +276,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             var lblRwHeader = new Label
             {
-                Text = "၂(ခ)။ စကားပြောဟန် ➔ ရုံးသုံး/စာပေဟန် အလိုအလျောက်ပြောင်းစက်",
+                Text = UiLocalizer.Pick(
+                    "2B. Colloquial ➔ Official / Literary Style Rewriter",
+                    "၂(ခ)။ စကားပြောဟန် ➔ ရုံးသုံး/စာပေဟန် အလိုအလျောက်ပြောင်းစက်"),
                 Font = _fontBodyBold,
                 ForeColor = Color.FromArgb(64, 34, 128),
                 AutoSize = true,
@@ -257,7 +293,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             var lblRwHint = new Label
             {
-                Text = "နေ့စဉ် အပြောစကား (ပါတယ်၊ တွေ၊ နဲ့၊ ဒီနေ့၊ မရှိဘူး၊ ဆိုရင်၊ လို့...) များကို အစိုးရရုံးသုံး စာပေအရေးအသားသို့ တစ်ချက်တည်းဖြင့် ပြောင်းလဲပေးသည် (ဟိုတယ်၊ ချို့တဲ့ စသည့် မူရင်းဝေါဟာရများကို မထိခိုက်ပါ)။",
+                Text = UiLocalizer.Pick(
+                    "Converts spoken particles (ပါတယ်, တွေ, နဲ့, ဒီနေ့, မရှိဘူး, ဆိုရင်, လို့...) into formal official/literary Burmese without corrupting lexical roots like ဟိုတယ် or ချို့တဲ့.",
+                    "နေ့စဉ် အပြောစကား (ပါတယ်၊ တွေ၊ နဲ့၊ ဒီနေ့၊ မရှိဘူး၊ ဆိုရင်၊ လို့...) များကို အစိုးရရုံးသုံး စာပေအရေးအသားသို့ တစ်ချက်တည်းဖြင့် ပြောင်းလဲပေးသည် (ဟိုတယ်၊ ချို့တဲ့ စသည့် မူရင်းဝေါဟာရများကို မထိခိုက်ပါ)။"),
                 Font = _fontSmall,
                 ForeColor = Color.FromArgb(68, 78, 94),
                 AutoSize = true,
@@ -286,7 +324,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             OfficialRewriteResult initialRw = MyanmarOfficialRewriter.ConvertToOfficialProse(_rewriterInputSample);
             var lblRwPreview = new Label
             {
-                Text = $"ရုံးသုံးဟန် ({initialRw.ReplacementCount} နေရာ ပြောင်းလဲပြီး):\n{initialRw.RewrittenText}",
+                Text = UiLocalizer.Pick(
+                    $"Official Style ({initialRw.ReplacementCount} replacement(s)):\n{initialRw.RewrittenText}",
+                    $"ရုံးသုံးဟန် ({initialRw.ReplacementCount} နေရာ ပြောင်းလဲပြီး):\n{initialRw.RewrittenText}"),
                 Font = _fontSmallBold,
                 ForeColor = Color.FromArgb(54, 28, 114),
                 BackColor = Color.FromArgb(245, 241, 255),
@@ -301,7 +341,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             {
                 _rewriterInputSample = txtRwInput.Text;
                 OfficialRewriteResult rw = MyanmarOfficialRewriter.ConvertToOfficialProse(_rewriterInputSample);
-                lblRwPreview.Text = $"ရုံးသုံးဟန် ({rw.ReplacementCount} နေရာ ပြောင်းလဲပြီး):\n{rw.RewrittenText}";
+                lblRwPreview.Text = UiLocalizer.Pick(
+                    $"Official Style ({rw.ReplacementCount} replacement(s)):\n{rw.RewrittenText}",
+                    $"ရုံးသုံးဟန် ({rw.ReplacementCount} နေရာ ပြောင်းလဲပြီး):\n{rw.RewrittenText}");
             };
             rewriteCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             rewriteCard.Controls.Add(lblRwPreview, 0, rwRow++);
@@ -320,7 +362,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             rwBtnGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             var btnCopyRewritten = CreatePillButton(
-                "ကူးယူမည်",
+                UiLocalizer.Pick("Copy Preview", "ကူးယူမည်"),
                 Color.FromArgb(243, 240, 252),
                 Color.FromArgb(62, 34, 124),
                 Color.FromArgb(208, 198, 242),
@@ -333,19 +375,25 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                     if (!string.IsNullOrEmpty(rw.RewrittenText))
                     {
                         Clipboard.SetText(rw.RewrittenText);
-                        ShowToastBanner("✓ ရုံးသုံး/စာပေဟန် စာသားကို ကူးယူပြီးပါပြီ။");
+                        ShowToastBanner(UiLocalizer.Pick(
+                            "✓ Official/literary prose copied to clipboard.",
+                            "✓ ရုံးသုံး/စာပေဟန် စာသားကို ကူးယူပြီးပါပြီ။"));
                     }
                 }
                 catch { }
             };
 
             var btnRewriteDoc = CreatePillButton(
-                "✦ စာတမ်း၌ ရုံးသုံးဟန် ပြောင်းမည်",
+                UiLocalizer.Pick("✦ Rewrite in Document", "✦ စာတမ်း၌ ရုံးသုံးဟန် ပြောင်းမည်"),
                 Color.FromArgb(92, 52, 168),
                 Color.White,
                 Color.FromArgb(74, 40, 142),
                 _fontSmallBold);
-            _toolTip.SetToolTip(btnRewriteDoc, "စာတမ်းတစ်ခုလုံး သို့မဟုတ် ရွေးချယ်ထားသော စာသားရှိ အပြောစကားများကို ရုံးသုံးစာပေဟန်သို့ ပြောင်းလဲရန် (Single Ctrl+Z)");
+            _toolTip.SetToolTip(
+                btnRewriteDoc,
+                UiLocalizer.Pick(
+                    "Convert conversational expressions across the document or selection into formal official prose (Single Ctrl+Z)",
+                    "စာတမ်းတစ်ခုလုံး သို့မဟုတ် ရွေးချယ်ထားသော စာသားရှိ အပြောစကားများကို ရုံးသုံးစာပေဟန်သို့ ပြောင်းလဲရန် (Single Ctrl+Z)"));
             btnRewriteDoc.Click += (s, e) => RequestRewriteToOfficialStyle?.Invoke(_toolkitSelectionOnly);
 
             rwBtnGrid.Controls.Add(btnCopyRewritten, 0, 0);
@@ -363,7 +411,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             var lblNHeader = new Label
             {
-                Text = "၃။ ကျပ်ငွေ (သိန်း) နှင့် ကိန်းဂဏန်း စာသားပြောင်းစက်",
+                Text = UiLocalizer.Pick(
+                    "3. Kyat (သိန်း) & Number-to-Words Converter",
+                    "၃။ ကျပ်ငွေ (သိန်း) နှင့် ကိန်းဂဏန်း စာသားပြောင်းစက်"),
                 Font = _fontBodyBold,
                 ForeColor = Color.FromArgb(14, 86, 78),
                 AutoSize = true,
@@ -391,14 +441,14 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             bool isBanking = _numberMode == NumberConversionMode.BankingKyatLakh;
             var btnModeBank = CreatePillButton(
-                "ဘဏ်/ငွေစာရင်း (သိန်း)",
+                UiLocalizer.Pick("Banking / Kyat (သိန်း)", "ဘဏ်/ငွေစာရင်း (သိန်း)"),
                 isBanking ? Color.FromArgb(16, 122, 108) : Color.FromArgb(240, 244, 249),
                 isBanking ? Color.White : Color.FromArgb(48, 58, 74),
                 isBanking ? Color.FromArgb(16, 122, 108) : Color.FromArgb(214, 222, 232),
                 isBanking ? _fontSmallBold : _fontSmall);
 
             var btnModeCard = CreatePillButton(
-                "အထွေထွေ (သန်း)",
+                UiLocalizer.Pick("General (သန်း)", "အထွေထွေ (သန်း)"),
                 !isBanking ? Color.FromArgb(16, 122, 108) : Color.FromArgb(240, 244, 249),
                 !isBanking ? Color.White : Color.FromArgb(48, 58, 74),
                 !isBanking ? Color.FromArgb(16, 122, 108) : Color.FromArgb(214, 222, 232),
@@ -416,7 +466,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             var lblNumPreview = new Label
             {
                 Text = initialConv.Success
-                    ? $"စာသား: {initialConv.BurmeseWords}\nဘောင်ချာ: {initialConv.VoucherInlineText}"
+                    ? UiLocalizer.Pick(
+                        $"Words: {initialConv.BurmeseWords}\nVoucher: {initialConv.VoucherInlineText}",
+                        $"စာသား: {initialConv.BurmeseWords}\nဘောင်ချာ: {initialConv.VoucherInlineText}")
                     : initialConv.ErrorMessage,
                 Font = _fontSmallBold,
                 ForeColor = initialConv.Success ? Color.FromArgb(14, 88, 78) : Color.FromArgb(172, 68, 16),
@@ -435,8 +487,12 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 NumberConversionResult r = MyanmarNumberToWordsConverter.Convert(_numberInputSample, _numberMode);
                 lblNumPreview.Text = r.Success
                     ? (_numberMode == NumberConversionMode.BankingKyatLakh
-                        ? $"စာသား: {r.BurmeseWords}\nဘောင်ချာ: {r.VoucherInlineText}"
-                        : $"ရိုးရိုးကိန်းဂဏန်း: {r.BurmeseWords}\nမြန်မာဂဏန်း: {r.NormalizedMyanmarDigits}")
+                        ? UiLocalizer.Pick(
+                            $"Words: {r.BurmeseWords}\nVoucher: {r.VoucherInlineText}",
+                            $"စာသား: {r.BurmeseWords}\nဘောင်ချာ: {r.VoucherInlineText}")
+                        : UiLocalizer.Pick(
+                            $"Cardinal Words: {r.BurmeseWords}\nMyanmar Digits: {r.NormalizedMyanmarDigits}",
+                            $"ရိုးရိုးကိန်းဂဏန်း: {r.BurmeseWords}\nမြန်မာဂဏန်း: {r.NormalizedMyanmarDigits}"))
                     : r.ErrorMessage;
                 lblNumPreview.ForeColor = r.Success ? Color.FromArgb(14, 88, 78) : Color.FromArgb(172, 68, 16);
             };
@@ -478,24 +534,37 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             numBtnGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36F));
             numBtnGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            var btnCopyNum = CreatePillButton("ကူးယူ", Color.FromArgb(242, 245, 250), Color.FromArgb(48, 58, 74), Color.FromArgb(215, 222, 232), _fontSmall);
+            var btnCopyNum = CreatePillButton(
+                UiLocalizer.Pick("Copy", "ကူးယူ"),
+                Color.FromArgb(242, 245, 250), Color.FromArgb(48, 58, 74), Color.FromArgb(215, 222, 232), _fontSmall);
             btnCopyNum.Click += (s, e) =>
             {
                 var r = MyanmarNumberToWordsConverter.Convert(_numberInputSample, _numberMode);
                 if (r.Success)
                 {
-                    try { Clipboard.SetText(r.BurmeseWords); ShowToastBanner("✓ ကျပ်ငွေ/ကိန်းဂဏန်း စာသားကို ကူးယူပြီးပါပြီ။"); } catch { }
+                    try
+                    {
+                        Clipboard.SetText(r.BurmeseWords);
+                        ShowToastBanner(UiLocalizer.Pick(
+                            "✓ Myanmar number words copied to clipboard.",
+                            "✓ ကျပ်ငွေ/ကိန်းဂဏန်း စာသားကို ကူးယူပြီးပါပြီ။"));
+                    }
+                    catch { }
                 }
             };
 
-            var btnInsWords = CreatePillButton("စာသား ထည့် ➔", Color.FromArgb(234, 248, 245), Color.FromArgb(14, 96, 86), Color.FromArgb(178, 224, 214), _fontSmallBold);
+            var btnInsWords = CreatePillButton(
+                UiLocalizer.Pick("Insert Words ➔", "စာသား ထည့် ➔"),
+                Color.FromArgb(234, 248, 245), Color.FromArgb(14, 96, 86), Color.FromArgb(178, 224, 214), _fontSmallBold);
             btnInsWords.Click += (s, e) =>
             {
                 var r = MyanmarNumberToWordsConverter.Convert(_numberInputSample, _numberMode);
                 if (r.Success) RequestInsertWordAtCursor?.Invoke(r.BurmeseWords);
             };
 
-            var btnInsVoucher = CreatePillButton("ဘောင်ချာ ➔", Color.FromArgb(16, 122, 108), Color.White, Color.FromArgb(12, 98, 86), _fontSmallBold);
+            var btnInsVoucher = CreatePillButton(
+                UiLocalizer.Pick("Voucher ➔", "ဘောင်ချာ ➔"),
+                Color.FromArgb(16, 122, 108), Color.White, Color.FromArgb(12, 98, 86), _fontSmallBold);
             btnInsVoucher.Click += (s, e) =>
             {
                 var r = MyanmarNumberToWordsConverter.Convert(_numberInputSample, NumberConversionMode.BankingKyatLakh);
@@ -518,7 +587,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             var lblOHeader = new Label
             {
-                Text = "၄။ မြန်မာသက္ကရာဇ် ပြက္ခဒိန် နှင့် ရုံးစာ ပုံစံခွက်များ",
+                Text = UiLocalizer.Pick(
+                    "4. Myanmar Calendar & Official Letter Templates",
+                    "၄။ မြန်မာသက္ကရာဇ် ပြက္ခဒိန် နှင့် ရုံးစာ ပုံစံခွက်များ"),
                 Font = _fontBodyBold,
                 ForeColor = Color.FromArgb(128, 68, 8),
                 AutoSize = true,
@@ -546,8 +617,11 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 string extra = !string.IsNullOrEmpty(info.SabbathLabel)
                     ? $" • {info.SabbathLabel}"
                     : (!string.IsNullOrEmpty(info.AstrologicalNote) ? $" • {info.AstrologicalNote}" : string.Empty);
-                return $"ရုံးစာရက်စွဲ: {info.OfficialMyanmarDateText} ({info.WeekdayBurmese}နေ့)\n" +
-                       $"သာသနာနှစ်: {MyanmarTraditionalCalendar.ToMyanmarDigits(info.SasanaYear)} ခုနှစ် • {info.YearTypeLabel}{extra}";
+                return UiLocalizer.Pick(
+                    $"Myanmar Date: {info.OfficialMyanmarDateText} ({info.WeekdayBurmese}နေ့)\n" +
+                    $"Sasana Year: {MyanmarTraditionalCalendar.ToMyanmarDigits(info.SasanaYear)} • {info.YearTypeLabel}{extra}",
+                    $"ရုံးစာရက်စွဲ: {info.OfficialMyanmarDateText} ({info.WeekdayBurmese}နေ့)\n" +
+                    $"သာသနာနှစ်: {MyanmarTraditionalCalendar.ToMyanmarDigits(info.SasanaYear)} ခုနှစ် • {info.YearTypeLabel}{extra}");
             };
 
             var lblCalPreview = new Label
@@ -588,14 +662,18 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             dateInsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
             dateInsGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            var btnInsMmDate = CreatePillButton("မြန်မာရက်စွဲ ထည့် ➔", Color.FromArgb(254, 245, 228), Color.FromArgb(138, 72, 8), Color.FromArgb(238, 208, 162), _fontSmallBold);
+            var btnInsMmDate = CreatePillButton(
+                UiLocalizer.Pick("Myanmar Date ➔", "မြန်မာရက်စွဲ ထည့် ➔"),
+                Color.FromArgb(254, 245, 228), Color.FromArgb(138, 72, 8), Color.FromArgb(238, 208, 162), _fontSmallBold);
             btnInsMmDate.Click += (s, e) =>
             {
                 var info = MyanmarTraditionalCalendar.FromGregorian(_selectedCalendarDate);
                 RequestInsertWordAtCursor?.Invoke(info.OfficialMyanmarDateText);
             };
 
-            var btnInsDualDate = CreatePillButton("နှစ်မျိုးတွဲ ရက်စွဲ ➔", Color.FromArgb(182, 102, 14), Color.White, Color.FromArgb(156, 86, 10), _fontSmallBold);
+            var btnInsDualDate = CreatePillButton(
+                UiLocalizer.Pick("Dual Official Date ➔", "နှစ်မျိုးတွဲ ရက်စွဲ ➔"),
+                Color.FromArgb(182, 102, 14), Color.White, Color.FromArgb(156, 86, 10), _fontSmallBold);
             btnInsDualDate.Click += (s, e) =>
             {
                 var info = MyanmarTraditionalCalendar.FromGregorian(_selectedCalendarDate);
@@ -609,7 +687,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             var lblTplSub = new Label
             {
-                Text = "ရုံးသုံး စံပုံစံခွက် (Pyidaungsu ဖောင့်ဖြင့် အသင့်ထည့်သွင်းရန်) —",
+                Text = UiLocalizer.Pick(
+                    "Official Burmese Templates (inserted in Pyidaungsu font) —",
+                    "ရုံးသုံး စံပုံစံခွက် (Pyidaungsu ဖောင့်ဖြင့် အသင့်ထည့်သွင်းရန်) —"),
                 Font = _fontSmallBold,
                 ForeColor = Color.FromArgb(72, 82, 96),
                 AutoSize = true,
@@ -636,16 +716,24 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             tplGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             tplGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            var btnTplLetter = CreatePillButton("✦ ရုံးစာ ပုံစံကြမ်း", Color.FromArgb(240, 245, 255), Color.FromArgb(20, 68, 148), Color.FromArgb(196, 214, 245), _fontSmallBold);
+            var btnTplLetter = CreatePillButton(
+                UiLocalizer.Pick("✦ Official Letter", "✦ ရုံးစာ ပုံစံကြမ်း"),
+                Color.FromArgb(240, 245, 255), Color.FromArgb(20, 68, 148), Color.FromArgb(196, 214, 245), _fontSmallBold);
             btnTplLetter.Click += (s, e) => RequestInsertOfficialTemplate?.Invoke(OfficialTemplateKind.MinistryOfficialLetter, _selectedCalendarDate);
 
-            var btnTplGazette = CreatePillButton("✦ အမိန့်ကြော်ငြာစာ", Color.FromArgb(240, 245, 255), Color.FromArgb(20, 68, 148), Color.FromArgb(196, 214, 245), _fontSmallBold);
+            var btnTplGazette = CreatePillButton(
+                UiLocalizer.Pick("✦ Gazette Notice", "✦ အမိန့်ကြော်ငြာစာ"),
+                Color.FromArgb(240, 245, 255), Color.FromArgb(20, 68, 148), Color.FromArgb(196, 214, 245), _fontSmallBold);
             btnTplGazette.Click += (s, e) => RequestInsertOfficialTemplate?.Invoke(OfficialTemplateKind.GazetteNotification, _selectedCalendarDate);
 
-            var btnTplMinutes = CreatePillButton("✦ အစည်းအဝေးမှတ်တမ်း", Color.FromArgb(240, 245, 255), Color.FromArgb(20, 68, 148), Color.FromArgb(196, 214, 245), _fontSmallBold);
+            var btnTplMinutes = CreatePillButton(
+                UiLocalizer.Pick("✦ Meeting Minutes", "✦ အစည်းအဝေးမှတ်တမ်း"),
+                Color.FromArgb(240, 245, 255), Color.FromArgb(20, 68, 148), Color.FromArgb(196, 214, 245), _fontSmallBold);
             btnTplMinutes.Click += (s, e) => RequestInsertOfficialTemplate?.Invoke(OfficialTemplateKind.MeetingMinutes, _selectedCalendarDate);
 
-            var btnValidateLetter = CreatePillButton("✓ ရုံးစာ (၇) ချက် စစ်မည်", Color.FromArgb(232, 246, 238), Color.FromArgb(18, 108, 52), Color.FromArgb(178, 224, 194), _fontSmallBold);
+            var btnValidateLetter = CreatePillButton(
+                UiLocalizer.Pick("✓ 7-Point Letter Check", "✓ ရုံးစာ (၇) ချက် စစ်မည်"),
+                Color.FromArgb(232, 246, 238), Color.FromArgb(18, 108, 52), Color.FromArgb(178, 224, 194), _fontSmallBold);
             btnValidateLetter.Click += (s, e) =>
             {
                 if (RequestValidateOfficialLetter != null)
@@ -665,7 +753,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             if (_latestOfficialAudit != null && _latestOfficialAudit.Items.Count > 0)
             {
                 var sbAudit = new System.Text.StringBuilder();
-                sbAudit.AppendLine($"ရုံးစာ ဖွဲ့စည်းပုံ စစ်ဆေးချက် ({_latestOfficialAudit.SummaryStatus}) —");
+                sbAudit.AppendLine(UiLocalizer.Pick(
+                    $"Official Letter Structure Audit ({_latestOfficialAudit.SummaryStatus}) —",
+                    $"ရုံးစာ ဖွဲ့စည်းပုံ စစ်ဆေးချက် ({_latestOfficialAudit.SummaryStatus}) —"));
                 foreach (var chk in _latestOfficialAudit.Items)
                 {
                     string mark = chk.Passed ? "✓" : (chk.IsAdvisory ? "ℹ" : "✗");

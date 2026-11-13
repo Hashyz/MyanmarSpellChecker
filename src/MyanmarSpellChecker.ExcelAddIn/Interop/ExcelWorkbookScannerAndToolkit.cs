@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
@@ -504,7 +505,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             state.TotalChunksPlanned = state.Chunks.Count;
             if (!state.WasPartialAutoScan && state.TotalChunksPlanned > 1)
             {
-                ScanProgressChanged?.Invoke(5, "⏳ အကွက်များ ဖတ်ယူစစ်ဆေးနေသည်...");
+                ScanProgressChanged?.Invoke(
+                    5,
+                    UiLocalizer.Pick("⏳ Reading spreadsheet cells...", "⏳ အကွက်များ ဖတ်ယူစစ်ဆေးနေသည်..."));
             }
 
             _activeExtractState = state;
@@ -962,7 +965,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                                 PostExcelProgressFromBackground(
                                     state.Generation,
                                     pct,
-                                    $"⏳ အကွက်များ စစ်ဆေးနေသည်... {Math.Min(99, (state.ChunksProcessedCount * 100) / Math.Max(1, state.TotalChunksPlanned))}%");
+                                    UiLocalizer.Pick(
+                                        $"⏳ Checking cells... {Math.Min(99, (state.ChunksProcessedCount * 100) / Math.Max(1, state.TotalChunksPlanned))}%",
+                                        $"⏳ အကွက်များ စစ်ဆေးနေသည်... {Math.Min(99, (state.ChunksProcessedCount * 100) / Math.Max(1, state.TotalChunksPlanned))}%"));
                             }
                         }
                     }
@@ -1275,7 +1280,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
             if (!IsExcelReadyForInterop(_excelApp))
             {
-                errorMessage = "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် ပြင်ဆင်၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။";
+                errorMessage = UiLocalizer.Pick(
+                    "⚠ Cannot apply fix while editing an Excel cell — press Enter or Esc first.",
+                    "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် ပြင်ဆင်၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။");
                 return false;
             }
 
@@ -1292,14 +1299,18 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 Excel.Range cell = (Excel.Range)ws.Cells[item.Row, item.Column];
                 if (IsSingleCellFormula(cell))
                 {
-                    errorMessage = $"⚠ {item.DisplayLocation} သည် Formula အကွက်ဖြစ်သဖြင့် တွက်ချက်မှုမပျက်စေရန် အလိုအလျောက် ကာကွယ်ထားပါသည်။";
+                    errorMessage = UiLocalizer.Pick(
+                        $"⚠ {item.DisplayLocation} is a Formula cell and is automatically protected.",
+                        $"⚠ {item.DisplayLocation} သည် Formula အကွက်ဖြစ်သဖြင့် တွက်ချက်မှုမပျက်စေရန် အလိုအလျောက် ကာကွယ်ထားပါသည်။");
                     return false;
                 }
 
                 string? liveText = cell.Value2 as string;
                 if (string.IsNullOrEmpty(liveText))
                 {
-                    errorMessage = $"⚠ {item.DisplayLocation} ရှိ စာသား ပြောင်းလဲသွားပြီဖြစ်သဖြင့် ပြန်လည်စစ်ဆေးပေးပါ။";
+                    errorMessage = UiLocalizer.Pick(
+                        $"⚠ Cell text in {item.DisplayLocation} has changed — please re-scan.",
+                        $"⚠ {item.DisplayLocation} ရှိ စာသား ပြောင်းလဲသွားပြီဖြစ်သဖြင့် ပြန်လည်စစ်ဆေးပေးပါ။");
                     return false;
                 }
 
@@ -1313,7 +1324,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                         allItems,
                         out string updatedText))
                 {
-                    errorMessage = $"⚠ {item.DisplayLocation} အတွင်း \"{item.Issue.OriginalText}\" နေရာကို ရှာမတွေ့တော့ပါ။";
+                    errorMessage = UiLocalizer.Pick(
+                        $"⚠ Could not locate \"{item.Issue.OriginalText}\" inside {item.DisplayLocation}.",
+                        $"⚠ {item.DisplayLocation} အတွင်း \"{item.Issue.OriginalText}\" နေရာကို ရှာမတွေ့တော့ပါ။");
                     return false;
                 }
 
@@ -1348,13 +1361,17 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             }
             catch (COMException ex) when (IsTransientExcelBusyComError(ex))
             {
-                errorMessage = "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် ပြင်ဆင်၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။";
+                errorMessage = UiLocalizer.Pick(
+                    "⚠ Cannot apply fix while editing an Excel cell — press Enter or Esc first.",
+                    "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် ပြင်ဆင်၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။");
                 return false;
             }
             catch (Exception ex)
             {
                 AddInDiagnostics.LogException("ApplySingleFix", ex);
-                errorMessage = "⚠ အကွက်ပြင်ဆင်စဉ် အခက်အခဲ ဖြစ်ပေါ်ပါသည် (Sheet Lock / Protected Sheet ရှိမရှိ စစ်ဆေးပါ)။";
+                errorMessage = UiLocalizer.Pick(
+                    "⚠ Could not modify the cell (please check if the worksheet is protected).",
+                    "⚠ အကွက်ပြင်ဆင်စဉ် အခက်အခဲ ဖြစ်ပေါ်ပါသည် (Sheet Lock / Protected Sheet ရှိမရှိ စစ်ဆေးပါ)။");
                 return false;
             }
         }
@@ -1364,7 +1381,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             busyWarning = string.Empty;
             if (!IsExcelReadyForInterop(_excelApp))
             {
-                busyWarning = "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် ပြင်ဆင်၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။";
+                busyWarning = UiLocalizer.Pick(
+                    "⚠ Cannot apply fixes while editing an Excel cell — press Enter or Esc first.",
+                    "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် ပြင်ဆင်၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။");
                 return 0;
             }
 
@@ -1411,7 +1430,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
             if (!IsExcelReadyForInterop(_excelApp))
             {
-                busyWarning = "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် ပြင်ဆင်၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။";
+                busyWarning = UiLocalizer.Pick(
+                    "⚠ Cannot apply fixes while editing an Excel cell — press Enter or Esc first.",
+                    "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် ပြင်ဆင်၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။");
                 return 0;
             }
 
@@ -1446,7 +1467,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             busyWarning = string.Empty;
             if (!IsExcelReadyForInterop(_excelApp))
             {
-                busyWarning = "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် ပြင်ဆင်၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။";
+                busyWarning = UiLocalizer.Pick(
+                    "⚠ Cannot apply fixes while editing an Excel cell — press Enter or Esc first.",
+                    "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် ပြင်ဆင်၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။");
                 return 0;
             }
 
@@ -1484,7 +1507,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 wb,
                 wbName,
                 ops,
-                $"တူညီအမှား \"{originalText}\" ➔ \"{replacementText}\"",
+                UiLocalizer.Pick($"Same word \"{originalText}\" ➔ \"{replacementText}\"", $"တူညီအမှား \"{originalText}\" ➔ \"{replacementText}\""),
                 out busyWarning);
             if (count > 0)
             {
@@ -1498,13 +1521,17 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             statusMessage = string.Empty;
             if (!_undoManager.CanUndo)
             {
-                statusMessage = "ပြန်ဆုတ်ရန် (Undo) မှတ်တမ်း မရှိသေးပါ။";
+                statusMessage = UiLocalizer.Pick(
+                    "No undo history available yet.",
+                    "ပြန်ဆုတ်ရန် (Undo) မှတ်တမ်း မရှိသေးပါ။");
                 return false;
             }
 
             if (!IsExcelReadyForInterop(_excelApp))
             {
-                statusMessage = "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် ပြန်ဆုတ်၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။";
+                statusMessage = UiLocalizer.Pick(
+                    "⚠ Cannot undo while editing an Excel cell — press Enter or Esc first.",
+                    "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် ပြန်ဆုတ်၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။");
                 return false;
             }
 
@@ -1552,14 +1579,18 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
                 UndoStateChanged?.Invoke();
                 ScanScopeAsync(CurrentScope);
-                statusMessage = $"✓ မူလအတိုင်း ပြန်ဆုတ်ပြီးပါပြီ ({restoredCells} ကွက် — {batch.Description})။";
+                statusMessage = UiLocalizer.Pick(
+                    $"✓ Reverted changes ({restoredCells} cells — {batch.Description}).",
+                    $"✓ မူလအတိုင်း ပြန်ဆုတ်ပြီးပါပြီ ({restoredCells} ကွက် — {batch.Description})။");
                 return restoredCells > 0;
             }
             catch (Exception ex)
             {
                 AddInDiagnostics.LogException("UndoLastAction", ex);
                 UndoStateChanged?.Invoke();
-                statusMessage = "⚠ ပြန်ဆုတ်စဉ် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။";
+                statusMessage = UiLocalizer.Pick(
+                    "⚠ An error occurred while reverting changes.",
+                    "⚠ ပြန်ဆုတ်စဉ် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။");
                 return false;
             }
         }
@@ -1616,13 +1647,19 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                         });
                 },
                 (cells, changes) => cells > 0
-                    ? $"✓ အကွက် ({cells}) ကွက်ကို Pyidaungsu Unicode သို့ Formula မထိခိုက်ဘဲ ပြောင်းလဲပြီးပါပြီ (↶ ပြန်ဆုတ်နိုင်သည်)။"
-                    : "✓ ပြောင်းလဲရန် WinInnwa / Zawgyi စာသားကွက် မတွေ့ရှိပါ (Formula ကွက်များကို အလိုအလျောက် ချန်လှပ်ထားသည်)။");
+                    ? UiLocalizer.Pick(
+                        $"✓ Converted ({cells}) text cells to Pyidaungsu Unicode without touching formulas (↶ Undo available).",
+                        $"✓ အကွက် ({cells}) ကွက်ကို Pyidaungsu Unicode သို့ Formula မထိခိုက်ဘဲ ပြောင်းလဲပြီးပါပြီ (↶ ပြန်ဆုတ်နိုင်သည်)။")
+                    : UiLocalizer.Pick(
+                        "✓ No WinInnwa / Zawgyi text cells found (Formula cells automatically protected).",
+                        "✓ ပြောင်းလဲရန် WinInnwa / Zawgyi စာသားကွက် မတွေ့ရှိပါ (Formula ကွက်များကို အလိုအလျောက် ချန်လှပ်ထားသည်)။"));
         }
 
         public ExcelToolkitOutcome FormatNumeralsInScope(bool toMyanmarDigits, bool selectionOnly)
         {
-            string label = toMyanmarDigits ? "0-9 ➔ ၀-၉ (စာသားကွက်)" : "၀-၉ ➔ 0-9 (စာသားကွက်)";
+            string label = toMyanmarDigits
+                ? UiLocalizer.Pick("0-9 ➔ ၀-၉ (Text Cells)", "0-9 ➔ ၀-၉ (စာသားကွက်)")
+                : UiLocalizer.Pick("၀-၉ ➔ 0-9 (Text Cells)", "၀-၉ ➔ 0-9 (စာသားကွက်)");
             return ExecuteBlockToolkitTransform(
                 selectionOnly,
                 label,
@@ -1630,34 +1667,46 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                     SpreadsheetProofingHelper.TransformBlockNumerals(
                         wbName, sheetName, baseR, baseC, rows, cols, val2, fml, hasFml, toMyanmarDigits),
                 (cells, changes) => cells > 0
-                    ? $"✓ စာသားကွက် ({cells}) ကွက်ရှိ ဂဏန်း ({changes}) လုံးကို ပြောင်းလဲပြီးပါပြီ — တွက်ချက်မှု ဂဏန်းကွက်နှင့် Formula များကို မထိခိုက်ပါ (↶ ပြန်ဆုတ်နိုင်သည်)။"
-                    : "✓ ပြောင်းလဲရန် မြန်မာစာသားပါ ဂဏန်းကွက် မတွေ့ရှိပါ (တွက်ချက်မှု ကိန်းဂဏန်းနှင့် Formula ကွက်များကို ကာကွယ်ထားသည်)။");
+                    ? UiLocalizer.Pick(
+                        $"✓ Converted ({changes}) digits across ({cells}) text cells — numeric & formula cells untouched (↶ Undo available).",
+                        $"✓ စာသားကွက် ({cells}) ကွက်ရှိ ဂဏန်း ({changes}) လုံးကို ပြောင်းလဲပြီးပါပြီ — တွက်ချက်မှု ဂဏန်းကွက်နှင့် Formula များကို မထိခိုက်ပါ (↶ ပြန်ဆုတ်နိုင်သည်)။")
+                    : UiLocalizer.Pick(
+                        "✓ No Myanmar text cells with convertible digits found (numeric & formula cells protected).",
+                        "✓ ပြောင်းလဲရန် မြန်မာစာသားပါ ဂဏန်းကွက် မတွေ့ရှိပါ (တွက်ချက်မှု ကိန်းဂဏန်းနှင့် Formula ကွက်များကို ကာကွယ်ထားသည်)။"));
         }
 
         public ExcelToolkitOutcome RewriteOfficialProseInScope(bool selectionOnly)
         {
             return ExecuteBlockToolkitTransform(
                 selectionOnly,
-                "ရုံးသုံးစာပေဟန် ပြောင်းလဲမှု",
+                UiLocalizer.Pick("Formal / Official Style Rewrite", "ရုံးသုံးစာပေဟန် ပြောင်းလဲမှု"),
                 (wbName, ws, sheetName, baseR, baseC, rows, cols, val2, fml, hasFml) =>
                     SpreadsheetProofingHelper.TransformBlockOfficialProse(
                         wbName, sheetName, baseR, baseC, rows, cols, val2, fml, hasFml),
                 (cells, changes) => cells > 0
-                    ? $"✓ အကွက် ({cells}) ကွက်ရှိ စကားပြောဟန် ({changes}) နေရာကို ရုံးသုံး/စာပေဟန်သို့ ပြောင်းလဲပြီးပါပြီ (↶ ပြန်ဆုတ်နိုင်သည်)။"
-                    : "✓ ပြောင်းလဲရန် စကားပြောဟန် အသုံးအနှုန်း မတွေ့ရှိပါ (ရုံးသုံးစာပေဟန် အသင့်ဖြစ်ပြီးဖြစ်သည်)။");
+                    ? UiLocalizer.Pick(
+                        $"✓ Rewrote ({changes}) colloquial expressions across ({cells}) cells into formal/official style (↶ Undo available).",
+                        $"✓ အကွက် ({cells}) ကွက်ရှိ စကားပြောဟန် ({changes}) နေရာကို ရုံးသုံး/စာပေဟန်သို့ ပြောင်းလဲပြီးပါပြီ (↶ ပြန်ဆုတ်နိုင်သည်)။")
+                    : UiLocalizer.Pick(
+                        "✓ No colloquial expressions found — cells are already in formal/official style.",
+                        "✓ ပြောင်းလဲရန် စကားပြောဟန် အသုံးအနှုန်း မတွေ့ရှိပါ (ရုံးသုံးစာပေဟန် အသင့်ဖြစ်ပြီးဖြစ်သည်)။"));
         }
 
         public ExcelToolkitOutcome FormatPunctuationInScope(bool selectionOnly)
         {
             return ExecuteBlockToolkitTransform(
                 selectionOnly,
-                "ပုဒ်ဖြတ် ၊ / ။ နှင့် ZWSP ရှင်းလင်းမှု",
+                UiLocalizer.Pick("Punctuation ၊ / ။ & ZWSP Cleanup", "ပုဒ်ဖြတ် ၊ / ။ နှင့် ZWSP ရှင်းလင်းမှု"),
                 (wbName, ws, sheetName, baseR, baseC, rows, cols, val2, fml, hasFml) =>
                     SpreadsheetProofingHelper.TransformBlockPunctuation(
                         wbName, sheetName, baseR, baseC, rows, cols, val2, fml, hasFml),
                 (cells, changes) => cells > 0
-                    ? $"✓ အကွက် ({cells}) ကွက်ရှိ ပုဒ်ဖြတ်ပုဒ်ရပ်နှင့် ZWSP ({changes}) နေရာကို သန့်စင်ညှိနှိုင်းပြီးပါပြီ (↶ ပြန်ဆုတ်နိုင်သည်)။"
-                    : "✓ ပြင်ဆင်ရန် ပုဒ်ဖြတ်ပုဒ်ရပ် (၊ / ။) သို့မဟုတ် ZWSP အမှား မတွေ့ရှိပါ။");
+                    ? UiLocalizer.Pick(
+                        $"✓ Cleaned ({changes}) punctuation/ZWSP occurrences across ({cells}) cells (↶ Undo available).",
+                        $"✓ အကွက် ({cells}) ကွက်ရှိ ပုဒ်ဖြတ်ပုဒ်ရပ်နှင့် ZWSP ({changes}) နေရာကို သန့်စင်ညှိနှိုင်းပြီးပါပြီ (↶ ပြန်ဆုတ်နိုင်သည်)။")
+                    : UiLocalizer.Pick(
+                        "✓ No Myanmar punctuation (၊ / ။) or stray ZWSP issues found.",
+                        "✓ ပြင်ဆင်ရန် ပုဒ်ဖြတ်ပုဒ်ရပ် (၊ / ။) သို့မဟုတ် ZWSP အမှား မတွေ့ရှိပါ။"));
         }
 
         public DocumentQualityReport BuildActiveWorkbookQualityReport(bool forceRefresh = false)
@@ -1843,7 +1892,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
             if (!IsExcelReadyForInterop(_excelApp))
             {
-                statusMessage = "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် ထည့်သွင်း၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။";
+                statusMessage = UiLocalizer.Pick(
+                    "⚠ Cannot insert text while editing an Excel cell — press Enter or Esc first.",
+                    "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် ထည့်သွင်း၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။");
                 return false;
             }
 
@@ -1856,7 +1907,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
                 if (IsSingleCellFormula(cell))
                 {
-                    statusMessage = "⚠ လက်ရှိအကွက်သည် Formula အကွက်ဖြစ်သဖြင့် မပျက်စီးစေရန် ကာကွယ်ထားပါသည် (အခြားအကွက်လွတ် ရွေးချယ်ပါ)။";
+                    statusMessage = UiLocalizer.Pick(
+                        "⚠ Active cell contains a Formula and is protected (please select an empty/text cell).",
+                        "⚠ လက်ရှိအကွက်သည် Formula အကွက်ဖြစ်သဖြင့် မပျက်စီးစေရန် ကာကွယ်ထားပါသည် (အခြားအကွက်လွတ် ရွေးချယ်ပါ)။");
                     return false;
                 }
 
@@ -1875,7 +1928,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
                 _undoManager.PushBatch(new SpreadsheetUndoBatch
                 {
-                    Description = $"{sheetName}!{SpreadsheetProofingHelper.ColumnIndexToLetters(col)}{row} သို့ စာသားထည့်သွင်းမှု",
+                    Description = UiLocalizer.Pick(
+                        $"Insert text into {sheetName}!{SpreadsheetProofingHelper.ColumnIndexToLetters(col)}{row}",
+                        $"{sheetName}!{SpreadsheetProofingHelper.ColumnIndexToLetters(col)}{row} သို့ စာသားထည့်သွင်းမှု"),
                     Entries = new List<CellUndoEntry>
                     {
                         new CellUndoEntry
@@ -1891,13 +1946,17 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 });
 
                 UndoStateChanged?.Invoke();
-                statusMessage = $"✓ {sheetName}!{SpreadsheetProofingHelper.ColumnIndexToLetters(col)}{row} အကွက်သို့ ထည့်သွင်းပြီးပါပြီ (↶ ပြန်ဆုတ်နိုင်သည်)။";
+                statusMessage = UiLocalizer.Pick(
+                    $"✓ Inserted into {sheetName}!{SpreadsheetProofingHelper.ColumnIndexToLetters(col)}{row} (↶ Undo available).",
+                    $"✓ {sheetName}!{SpreadsheetProofingHelper.ColumnIndexToLetters(col)}{row} အကွက်သို့ ထည့်သွင်းပြီးပါပြီ (↶ ပြန်ဆုတ်နိုင်သည်)။");
                 return true;
             }
             catch (Exception ex)
             {
                 AddInDiagnostics.LogException("TryInsertTextIntoActiveCell", ex);
-                statusMessage = "⚠ အကွက်အတွင်း ထည့်သွင်းစဉ် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။";
+                statusMessage = UiLocalizer.Pick(
+                    "⚠ Could not insert text into the active cell.",
+                    "⚠ အကွက်အတွင်း ထည့်သွင်းစဉ် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။");
                 return false;
             }
         }
@@ -1915,7 +1974,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 return new ExcelToolkitOutcome
                 {
                     Success = false,
-                    UserMessage = "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် အသုံးပြု၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။"
+                    UserMessage = UiLocalizer.Pick(
+                        "⚠ Cannot run toolkit while editing an Excel cell — press Enter or Esc first.",
+                        "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် အသုံးပြု၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။")
                 };
             }
 
@@ -1926,7 +1987,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 return new ExcelToolkitOutcome
                 {
                     Success = false,
-                    UserMessage = "⚠ လက်ရှိ ဖွင့်ထားသော Excel Workbook မရှိသေးပါ။"
+                    UserMessage = UiLocalizer.Pick(
+                        "⚠ No active Excel workbook is currently open.",
+                        "⚠ လက်ရှိ ဖွင့်ထားသော Excel Workbook မရှိသေးပါ။")
                 };
             }
 
@@ -2049,7 +2112,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 return new ExcelToolkitOutcome
                 {
                     Success = false,
-                    UserMessage = "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် အသုံးပြု၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။"
+                    UserMessage = UiLocalizer.Pick(
+                        "⚠ Cannot run toolkit while editing an Excel cell — press Enter or Esc first.",
+                        "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် အသုံးပြု၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။")
                 };
             }
             catch (Exception ex)
@@ -2058,7 +2123,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                 return new ExcelToolkitOutcome
                 {
                     Success = false,
-                    UserMessage = "⚠ ပြောင်းလဲစဉ် အခက်အခဲ ဖြစ်ပေါ်ပါသည် (Protected Sheet ဖြစ်နေခြင်း ရှိမရှိ စစ်ဆေးပါ)။"
+                    UserMessage = UiLocalizer.Pick(
+                        "⚠ Could not apply transformation (please check if the worksheet is protected).",
+                        "⚠ ပြောင်းလဲစဉ် အခက်အခဲ ဖြစ်ပေါ်ပါသည် (Protected Sheet ဖြစ်နေခြင်း ရှိမရှိ စစ်ဆေးပါ)။")
                 };
             }
         }
@@ -2229,7 +2296,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                                     {
                                         pumpWatch.Restart();
                                         int pct = Math.Min(98, (processedSoFar * 95) / Math.Max(1, ops.Count));
-                                        ScanProgressChanged?.Invoke(pct, $"⏳ အကွက်များ ပြင်ဆင်နေသည်... {processedSoFar:N0}/{ops.Count:N0}");
+                                        ScanProgressChanged?.Invoke(
+                                            pct,
+                                            UiLocalizer.Pick(
+                                                $"⏳ Updating cells... {processedSoFar:N0}/{ops.Count:N0}",
+                                                $"⏳ အကွက်များ ပြင်ဆင်နေသည်... {processedSoFar:N0}/{ops.Count:N0}"));
                                         Application.DoEvents();
                                     }
                                 }
@@ -2238,7 +2309,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                             {
                                 pumpWatch.Restart();
                                 int pct = Math.Min(98, (processedSoFar * 95) / Math.Max(1, ops.Count));
-                                ScanProgressChanged?.Invoke(pct, $"⏳ အကွက်များ ပြင်ဆင်နေသည်... {processedSoFar:N0}/{ops.Count:N0}");
+                                ScanProgressChanged?.Invoke(
+                                    pct,
+                                    UiLocalizer.Pick(
+                                        $"⏳ Updating cells... {processedSoFar:N0}/{ops.Count:N0}",
+                                        $"⏳ အကွက်များ ပြင်ဆင်နေသည်... {processedSoFar:N0}/{ops.Count:N0}"));
                                 Application.DoEvents();
                             }
 
@@ -2249,7 +2324,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
                 if (executedOps.Count > 0)
                 {
-                    _undoManager.PushOperations($"{undoDescription} ({executedOps.Count} ကွက်)", executedOps);
+                    _undoManager.PushOperations(
+                        UiLocalizer.Pick($"{undoDescription} ({executedOps.Count} cells)", $"{undoDescription} ({executedOps.Count} ကွက်)"),
+                        executedOps);
                     _qualityByWorkbook.Remove(wbName);
                     UndoStateChanged?.Invoke();
                 }
@@ -2258,13 +2335,17 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             }
             catch (COMException ex) when (IsTransientExcelBusyComError(ex))
             {
-                busyWarning = "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် ပြင်ဆင်၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။";
+                busyWarning = UiLocalizer.Pick(
+                    "⚠ Cannot apply fixes while editing an Excel cell — press Enter or Esc first.",
+                    "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် ပြင်ဆင်၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။");
                 return totalChanges;
             }
             catch (Exception ex)
             {
                 AddInDiagnostics.LogException("ApplyCellWriteOperations", ex);
-                busyWarning = "⚠ အကွက်များ ပြင်ဆင်စဉ် အခက်အခဲ ဖြစ်ပေါ်ပါသည် (Protected Sheet ရှိမရှိ စစ်ဆေးပါ)။";
+                busyWarning = UiLocalizer.Pick(
+                    "⚠ Could not update cells (please check if the worksheet is protected).",
+                    "⚠ အကွက်များ ပြင်ဆင်စဉ် အခက်အခဲ ဖြစ်ပေါ်ပါသည် (Protected Sheet ရှိမရှိ စစ်ဆေးပါ)။");
                 return totalChanges;
             }
         }

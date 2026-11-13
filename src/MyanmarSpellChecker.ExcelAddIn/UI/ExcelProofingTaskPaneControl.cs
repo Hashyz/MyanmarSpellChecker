@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Official;
 using MyanmarSpellChecker.Core.Performance;
@@ -86,8 +87,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private readonly Timer _toastTimer;
 
         // Top Navigation & Brand Controls
+        private readonly Label _lblBrandTitle;
         private readonly Label _lblLexiconStats;
+        private readonly Button _btnLangToggle;
         private readonly Button _btnEcoMode;
+        private readonly Button _btnAboutLic;
         private readonly Button _btnTabProofing;
         private readonly Button _btnTabDictionary;
         private readonly Button _btnTabToolkit;
@@ -125,6 +129,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
         // Dictionary Toolbar Controls
         private readonly TextBox _txtDictionarySearch;
+        private readonly Button _btnClearDictSearch;
         private readonly Button _btnDictCatAll;
         private readonly Button _btnDictCatThatpon;
         private readonly Button _btnDictCatAbidan;
@@ -144,6 +149,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
         // Custom Words Toolbar Controls
         private readonly TextBox _txtNewCustomWord;
+        private readonly Button _btnAddCustomWord;
         private readonly Label _lblCustomSummary;
 
         // Main Scrollable Canvas
@@ -160,6 +166,14 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private ExcelScanOutcomeMetadata? _lastScanOutcome;
         private int _undoAvailableCount;
         private string _undoLatestLabel = string.Empty;
+        private bool _hasLoadedLexiconStats;
+        private int _cachedWordCount;
+        private int _cachedOfficialCount;
+        private int _cachedRuleCount;
+        private int _cachedReferenceCount;
+        private int _cachedEncycCount;
+        private EcoModePreference _lastEcoPref = EcoModePreference.Auto;
+        private bool _lastEcoActive;
         private TaskPaneWorkspaceTab _activeTab = TaskPaneWorkspaceTab.Proofing;
         private IssueFilterMode _currentFilter = IssueFilterMode.All;
         private DictionaryCategoryFilter _dictCategoryFilter = DictionaryCategoryFilter.All;
@@ -169,6 +183,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         // Events wired by ExcelThisAddIn
         public event Action<SpreadsheetScanScope>? RequestScanScope;
         public event Action? RequestCancelScan;
+        public event Action? RequestToggleLanguage;
         public event Action? RequestCycleEcoMode;
         public event Action<IssueFilterMode>? RequestFixAllIssues;
         public event Action? RequestUndoLastAction;
@@ -260,17 +275,18 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 }
             };
 
-            // Row 0: Brand Header + Eco Pill + About/License Pill
+            // Row 0: Brand Header + Language Switch Pill + Eco Pill + About/License Pill
             var brandRow = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 3,
+                ColumnCount = 4,
                 RowCount = 1,
                 Margin = new Padding(0, 0, 0, 5)
             };
             brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             brandRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -288,9 +304,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             titleStack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             titleStack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            var lblTitle = new Label
+            _lblBrandTitle = new Label
             {
-                Text = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း (Excel)",
+                Text = UiLocalizer.Pick("Myanmar Spell Checker (Excel)", "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း (Excel)"),
                 Font = _fontBrandTitle,
                 ForeColor = Color.FromArgb(16, 92, 50),
                 AutoSize = true,
@@ -301,7 +317,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             _lblLexiconStats = new Label
             {
-                Text = "Formula-Safe Excel Suite • ထက်ရာဇာ (KU)",
+                Text = UiLocalizer.Pick("Formula-Safe Excel Suite • Htet Yar Zar (KU)", "Formula-Safe Excel Suite • ထက်ရာဇာ (KU)"),
                 Font = _fontBrandStats,
                 ForeColor = Color.FromArgb(88, 100, 118),
                 AutoSize = true,
@@ -309,12 +325,21 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Margin = new Padding(0),
                 Padding = new Padding(6, 0, 4, 2)
             };
-            const string authorCreditTip = "ဖန်တီးသူ - ထက်ရာဇာ (Htet Yar Zar) • M.Sc. Part II Candidate in Geology, ဘူမိဗေဒဌာန၊ ကျောက်ဆည်တက္ကသိုလ် (Kyaukse, Myanmar)";
-            _toolTip.SetToolTip(lblTitle, authorCreditTip);
-            _toolTip.SetToolTip(_lblLexiconStats, authorCreditTip);
 
-            titleStack.Controls.Add(lblTitle, 0, 0);
+            titleStack.Controls.Add(_lblBrandTitle, 0, 0);
             titleStack.Controls.Add(_lblLexiconStats, 0, 1);
+
+            _btnLangToggle = CreatePillButton(
+                UiLocalizer.FormatLanguageBadge(),
+                Color.FromArgb(234, 243, 255),
+                Color.FromArgb(18, 72, 162),
+                Color.FromArgb(182, 206, 245),
+                _fontSmallBold);
+            _btnLangToggle.Dock = DockStyle.None;
+            _btnLangToggle.Anchor = AnchorStyles.Right;
+            _btnLangToggle.Padding = new Padding(6, 3, 6, 3);
+            _btnLangToggle.Margin = new Padding(2, 2, 2, 2);
+            _btnLangToggle.Click += (s, e) => RequestToggleLanguage?.Invoke();
 
             _btnEcoMode = CreatePillButton(
                 EcoPerformanceGovernor.FormatBadgeLabel(EcoModePreference.Auto, false),
@@ -328,22 +353,22 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _btnEcoMode.Margin = new Padding(2, 2, 2, 2);
             _btnEcoMode.Click += (s, e) => RequestCycleEcoMode?.Invoke();
 
-            var btnLic = CreatePillButton(
-                "အချက်အလက် ⓘ",
+            _btnAboutLic = CreatePillButton(
+                UiLocalizer.Pick("About ⓘ", "အချက်အလက် ⓘ"),
                 Color.FromArgb(236, 248, 241),
                 Color.FromArgb(16, 104, 54),
                 Color.FromArgb(178, 218, 194),
                 _fontSmallBold);
-            btnLic.Dock = DockStyle.None;
-            btnLic.Anchor = AnchorStyles.Right;
-            btnLic.Padding = new Padding(8, 3, 8, 3);
-            btnLic.Margin = new Padding(2, 2, 0, 2);
-            btnLic.Click += (s, e) => RequestLicenseDialog?.Invoke();
-            _toolTip.SetToolTip(btnLic, "စနစ်အချက်အလက်၊ ဖန်တီးသူ (ထက်ရာဇာ — ကျောက်ဆည်တက္ကသိုလ်) နှင့် GNU GPL v3.0 Open-Source လိုင်စင်");
+            _btnAboutLic.Dock = DockStyle.None;
+            _btnAboutLic.Anchor = AnchorStyles.Right;
+            _btnAboutLic.Padding = new Padding(8, 3, 8, 3);
+            _btnAboutLic.Margin = new Padding(2, 2, 0, 2);
+            _btnAboutLic.Click += (s, e) => RequestLicenseDialog?.Invoke();
 
             brandRow.Controls.Add(titleStack, 0, 0);
-            brandRow.Controls.Add(_btnEcoMode, 1, 0);
-            brandRow.Controls.Add(btnLic, 2, 0);
+            brandRow.Controls.Add(_btnLangToggle, 1, 0);
+            brandRow.Controls.Add(_btnEcoMode, 2, 0);
+            brandRow.Controls.Add(_btnAboutLic, 3, 0);
 
             // Row 1: 4-Tab Segmented Workspace Switcher
             var tabStrip = new TableLayoutPanel
@@ -628,23 +653,24 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Font = _fontInput,
                 Margin = new Padding(0, 2, 4, 2)
             };
-            _txtDictionarySearch.HandleCreated += (s, e) =>
-                SendMessage(_txtDictionarySearch.Handle, EM_SETCUEBANNER, (IntPtr)1, "စာလုံး / အနက် / စွယ်စုံဗဟုသုတ ရိုက်ရှာပါ...");
+            _txtDictionarySearch.HandleCreated += (s, e) => UpdateCueBanners();
             _txtDictionarySearch.TextChanged += (s, e) =>
             {
                 _searchDebounceTimer.Stop();
                 _searchDebounceTimer.Start();
             };
 
-            var btnClearSearch = CreatePillButton("ရှင်း", Color.FromArgb(242, 244, 248), Color.FromArgb(65, 75, 92), Color.FromArgb(214, 220, 232), _fontSmall);
-            btnClearSearch.Dock = DockStyle.Fill;
-            btnClearSearch.Click += (s, e) =>
+            _btnClearDictSearch = CreatePillButton(
+                UiLocalizer.Pick("Clear", "ရှင်း"),
+                Color.FromArgb(242, 244, 248), Color.FromArgb(65, 75, 92), Color.FromArgb(214, 220, 232), _fontSmall);
+            _btnClearDictSearch.Dock = DockStyle.Fill;
+            _btnClearDictSearch.Click += (s, e) =>
             {
                 _txtDictionarySearch.Clear();
                 _txtDictionarySearch.Focus();
             };
             searchBoxGrid.Controls.Add(_txtDictionarySearch, 0, 0);
-            searchBoxGrid.Controls.Add(btnClearSearch, 1, 0);
+            searchBoxGrid.Controls.Add(_btnClearDictSearch, 1, 0);
 
             var dictChipFlow = new FlowLayoutPanel
             {
@@ -748,8 +774,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Font = _fontInput,
                 Margin = new Padding(0, 2, 4, 2)
             };
-            _txtNewCustomWord.HandleCreated += (s, e) =>
-                SendMessage(_txtNewCustomWord.Handle, EM_SETCUEBANNER, (IntPtr)1, "မှတ်သားလိုသော စာလုံးသစ်...");
+            _txtNewCustomWord.HandleCreated += (s, e) => UpdateCueBanners();
             _txtNewCustomWord.KeyDown += (s, e) =>
             {
                 if (e.KeyCode == Keys.Enter)
@@ -759,10 +784,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 }
             };
 
-            var btnAddCustom = CreateActionButton("+ ထည့်မည်", Color.FromArgb(16, 124, 65), Color.White, Color.FromArgb(14, 102, 53), _fontSmallBold);
-            btnAddCustom.Click += (s, e) => AddNewCustomWordFromInput();
+            _btnAddCustomWord = CreateActionButton(
+                UiLocalizer.Pick("+ Add", "+ ထည့်မည်"),
+                Color.FromArgb(16, 124, 65), Color.White, Color.FromArgb(14, 102, 53), _fontSmallBold);
+            _btnAddCustomWord.Click += (s, e) => AddNewCustomWordFromInput();
             addWordRow.Controls.Add(_txtNewCustomWord, 0, 0);
-            addWordRow.Controls.Add(btnAddCustom, 1, 0);
+            addWordRow.Controls.Add(_btnAddCustomWord, 1, 0);
 
             _lblCustomSummary = new Label
             {
@@ -818,7 +845,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             rootLayout.Controls.Add(_cardsPanel, 0, 1);
             Controls.Add(rootLayout);
 
+            ApplyStaticChromeLabelsAndTooltips();
+            UpdateCueBanners();
             SetEcoModeState(EcoPerformanceGovernor.CurrentPreference, EcoPerformanceGovernor.Hardware.IsLowSpecHardware);
+            SetUndoState(0, string.Empty);
             UpdateTabButtonStyles();
             UpdateStyleModeButtons();
             UpdateScopeButtons();
@@ -827,16 +857,168 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             RenderProofingCards();
         }
 
+        private void UpdateCueBanners()
+        {
+            if (_txtDictionarySearch.IsHandleCreated)
+            {
+                SendMessage(
+                    _txtDictionarySearch.Handle,
+                    EM_SETCUEBANNER,
+                    (IntPtr)1,
+                    UiLocalizer.Pick("Search headword, meaning, or encyclopedia...", "စာလုံး / အနက် / စွယ်စုံဗဟုသုတ ရိုက်ရှာပါ..."));
+            }
+
+            if (_txtNewCustomWord.IsHandleCreated)
+            {
+                SendMessage(
+                    _txtNewCustomWord.Handle,
+                    EM_SETCUEBANNER,
+                    (IntPtr)1,
+                    UiLocalizer.Pick("Enter custom word to save...", "မှတ်သားလိုသော စာလုံးသစ်..."));
+            }
+        }
+
+        private void ApplyStaticChromeLabelsAndTooltips()
+        {
+            _lblBrandTitle.Text = UiLocalizer.Pick(
+                "Myanmar Spell Checker (Excel)",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း (Excel)");
+
+            if (_hasLoadedLexiconStats)
+            {
+                int total = _cachedWordCount + _cachedReferenceCount;
+                _lblLexiconStats.Text = UiLocalizer.Pick(
+                    $"Total {total:N0} entries • {_cachedEncycCount:N0} Knowledge • Htet Yar Zar (KU)",
+                    $"စုစုပေါင်း {total:N0} ပုဒ် • ဗဟုသုတ {_cachedEncycCount:N0} • ထက်ရာဇာ (KU)");
+            }
+            else
+            {
+                _lblLexiconStats.Text = UiLocalizer.Pick(
+                    "Formula-Safe Excel Suite • Htet Yar Zar (KU)",
+                    "Formula-Safe Excel Suite • ထက်ရာဇာ (KU)");
+            }
+
+            string authorTip = UiLocalizer.Pick(
+                "Creator: Htet Yar Zar (ထက်ရာဇာ) • M.Sc. Part II Candidate in Geology, Department of Geology, Kyaukse University (Kyaukse, Myanmar)",
+                "ဖန်တီးသူ - ထက်ရာဇာ (Htet Yar Zar) • M.Sc. Part II Candidate in Geology, ဘူမိဗေဒဌာန၊ ကျောက်ဆည်တက္ကသိုလ် (Kyaukse, Myanmar)");
+            _toolTip.SetToolTip(_lblBrandTitle, authorTip);
+            _toolTip.SetToolTip(_lblLexiconStats, authorTip);
+
+            _btnLangToggle.Text = UiLocalizer.FormatLanguageBadge();
+            _toolTip.SetToolTip(_btnLangToggle, UiLocalizer.FormatLanguageTooltip());
+
+            _btnAboutLic.Text = UiLocalizer.Pick("About ⓘ", "အချက်အလက် ⓘ");
+            _toolTip.SetToolTip(
+                _btnAboutLic,
+                UiLocalizer.Pick(
+                    "System Info, Creator Attribution (Htet Yar Zar — Kyaukse University) & GNU GPL v3.0 Open-Source License",
+                    "စနစ်အချက်အလက်၊ ဖန်တီးသူ (ထက်ရာဇာ — ကျောက်ဆည်တက္ကသိုလ်) နှင့် GNU GPL v3.0 Open-Source လိုင်စင်"));
+
+            _btnTabProofing.Text = UiLocalizer.Pick("Proofing", "စာစစ်");
+            _btnTabDictionary.Text = UiLocalizer.Pick("Dictionary", "အဘိဓာန်");
+            _btnTabToolkit.Text = UiLocalizer.Pick("Toolkit", "ကိရိယာ");
+            _btnTabCustom.Text = UiLocalizer.Pick("Custom", "မှတ်သားစာ");
+
+            _btnStyleGeneral.Text = UiLocalizer.Pick("General Standard", "အထွေထွေ စံသတ်ပုံ");
+            _btnStyleFormal.Text = UiLocalizer.Pick("Formal / Official", "ရုံးသုံး / စာပေဟန်");
+
+            _btnScopeSheet.Text = UiLocalizer.Pick("Active Sheet", "လက်ရှိ Sheet");
+            _btnScopeSelection.Text = UiLocalizer.Pick("Selection", "ရွေးထားကွက်");
+            _btnScopeWorkbook.Text = UiLocalizer.Pick("Workbook", "Workbook လုံး");
+
+            _btnClearUnderlines.Text = UiLocalizer.Pick("Clear Marks", "မျဉ်းရှင်း");
+            _toolTip.SetToolTip(
+                _btnClearUnderlines,
+                UiLocalizer.Pick(
+                    "Clear temporary red/blue/amber proofing underlines from cells (automatically stripped before Save & Print)",
+                    "အကွက်များအတွင်းရှိ စစ်ဆေးရေး အနီ/အပြာ/လိမ္မော် မျဉ်းသားချက်များကို ဖယ်ရှားရန် (Save/Print လုပ်ချိန်တွင်လည်း အလိုအလျောက် ဖယ်ရှားပေးသည်)"));
+
+            _btnStopScan.Text = UiLocalizer.Pick("■ Stop", "■ ရပ်မည်");
+            _toolTip.SetToolTip(
+                _btnStopScan,
+                UiLocalizer.Pick(
+                    "Stop the current sheet/workbook scan immediately",
+                    "လက်ရှိ Sheet/Workbook စစ်ဆေးနေမှုကို ချက်ချင်းရပ်တန့်ရန် (စက်မလေးစေရန်)"));
+
+            _btnClearDictSearch.Text = UiLocalizer.Pick("Clear", "ရှင်း");
+            _btnDictCatAll.Text = UiLocalizer.Pick("All", "အားလုံး");
+            _btnDictCatThatpon.Text = UiLocalizer.Pick("Orthography", "သတ်ပုံကျမ်း");
+            _btnDictCatAbidan.Text = UiLocalizer.Pick("Lexicon", "အဘိဓာန်");
+            _btnDictCatEncyc.Text = UiLocalizer.Pick("Encyclopedia", "စွယ်စုံဗဟုသုတ");
+            _btnDictCatDomain.Text = UiLocalizer.Pick("Domains", "ပညာရပ်");
+            _btnDictCatPropn.Text = UiLocalizer.Pick("Places/Names", "မြို့ရွာ/နိုင်ငံ");
+            _btnDictCatProverb.Text = UiLocalizer.Pick("Proverbs", "စကားပုံ");
+
+            _lblToolkitSummary.Text = UiLocalizer.Pick(
+                "✓ 100% Formula-Safe: Excel formulas (=SUM, =IF, =VLOOKUP) and numeric cells are automatically protected",
+                "✓ Formula (=SUM, =IF, =VLOOKUP) နှင့် ကိန်းဂဏန်းတွက်ချက်မှုများကို 100% အလိုအလျောက် ကာကွယ်ထားသည်");
+
+            _btnAddCustomWord.Text = UiLocalizer.Pick("+ Add", "+ ထည့်မည်");
+            _lblCustomSummary.Text = UiLocalizer.Pick(
+                "Custom words shared automatically across both Microsoft Word and Excel",
+                "Word နှင့် Excel နှစ်မျိုးလုံးတွင် တူညီစွာ မျှဝေမှတ်သားထားသော စာလုံးများ");
+        }
+
+        public void ApplyLocalization()
+        {
+            SuspendLayout();
+            try
+            {
+                ApplyStaticChromeLabelsAndTooltips();
+                UpdateCueBanners();
+                SetEcoModeState(_lastEcoPref, _lastEcoActive);
+                SetUndoState(_undoAvailableCount, _undoLatestLabel);
+                UpdateTabButtonStyles();
+                UpdateStyleModeButtons();
+                UpdateScopeButtons();
+                UpdateFilterPillStyles();
+                UpdateDictionaryCategoryStyles();
+            }
+            finally
+            {
+                ResumeLayout(true);
+            }
+
+            switch (_activeTab)
+            {
+                case TaskPaneWorkspaceTab.Proofing:
+                    RenderProofingCards();
+                    break;
+                case TaskPaneWorkspaceTab.Dictionary:
+                    ExecuteDictionarySearchNow();
+                    break;
+                case TaskPaneWorkspaceTab.Toolkit:
+                    RenderToolkitWorkspace();
+                    break;
+                case TaskPaneWorkspaceTab.CustomWords:
+                    RenderCustomWordsWorkspace();
+                    break;
+            }
+        }
+
         public void SetEngineWarmupState()
         {
-            _lblLexiconStats.Text = "အဘိဓာန်နှင့် သတ်ပုံကျမ်း ဖွင့်လှစ်နေသည်...";
-            _lblSummary.Text = "⏳ နောက်ခံ၌ ဝေါဟာရ (၁၁၈,၆၀၀+) ကို အသင့်ပြင်ဆင်နေပါသည်...";
+            _lblLexiconStats.Text = UiLocalizer.Pick(
+                "Loading offline dictionary & orthography...",
+                "အဘိဓာန်နှင့် သတ်ပုံကျမ်း ဖွင့်လှစ်နေသည်...");
+            _lblSummary.Text = UiLocalizer.Pick(
+                "⏳ Preparing 118,600+ offline lexicon entries in the background...",
+                "⏳ နောက်ခံ၌ ဝေါဟာရ (၁၁၈,၆၀၀+) ကို အသင့်ပြင်ဆင်နေပါသည်...");
         }
 
         public void SetLexiconStats(int wordCount, int officialCount, int ruleCount, int referenceCount, int encycCount)
         {
+            _hasLoadedLexiconStats = true;
+            _cachedWordCount = wordCount;
+            _cachedOfficialCount = officialCount;
+            _cachedRuleCount = ruleCount;
+            _cachedReferenceCount = referenceCount;
+            _cachedEncycCount = encycCount;
+
             int total = wordCount + referenceCount;
-            _lblLexiconStats.Text = $"စုစုပေါင်း {total:N0} ပုဒ် • ဗဟုသုတ {encycCount:N0} • ထက်ရာဇာ (KU)";
+            _lblLexiconStats.Text = UiLocalizer.Pick(
+                $"Total {total:N0} entries • {encycCount:N0} Knowledge • Htet Yar Zar (KU)",
+                $"စုစုပေါင်း {total:N0} ပုဒ် • ဗဟုသုတ {encycCount:N0} • ထက်ရာဇာ (KU)");
         }
 
         public void SetStyleMode(ProofingStyleMode mode)
@@ -856,7 +1038,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _undoAvailableCount = Math.Max(0, undoCount);
             _undoLatestLabel = latestDescription ?? string.Empty;
             _btnUndoLast.Enabled = _undoAvailableCount > 0;
-            _btnUndoLast.Text = _undoAvailableCount > 0 ? $"↶ ပြန်ဆုတ် ({_undoAvailableCount})" : "↶ ပြန်ဆုတ်";
+            _btnUndoLast.Text = _undoAvailableCount > 0
+                ? UiLocalizer.Pick($"↶ Undo ({_undoAvailableCount})", $"↶ ပြန်ဆုတ် ({_undoAvailableCount})")
+                : UiLocalizer.Pick("↶ Undo", "↶ ပြန်ဆုတ်");
             _btnUndoLast.BackColor = _undoAvailableCount > 0
                 ? Color.FromArgb(255, 248, 229)
                 : Color.FromArgb(244, 246, 250);
@@ -866,12 +1050,18 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _toolTip.SetToolTip(
                 _btnUndoLast,
                 _undoAvailableCount > 0
-                    ? $"နောက်ဆုံးပြင်ဆင်ချက်ကို မူလအတိုင်း ပြန်ဆုတ်ရန်: {_undoLatestLabel}"
-                    : "ပြန်ဆုတ်ရန် မှတ်တမ်း မရှိသေးပါ");
+                    ? UiLocalizer.Pick(
+                        $"Revert last spreadsheet edit: {_undoLatestLabel}",
+                        $"နောက်ဆုံးပြင်ဆင်ချက်ကို မူလအတိုင်း ပြန်ဆုတ်ရန်: {_undoLatestLabel}")
+                    : UiLocalizer.Pick(
+                        "No undo history available yet",
+                        "ပြန်ဆုတ်ရန် မှတ်တမ်း မရှိသေးပါ"));
         }
 
         public void SetEcoModeState(EcoModePreference preference, bool currentlyActive)
         {
+            _lastEcoPref = preference;
+            _lastEcoActive = currentlyActive;
             _btnEcoMode.Text = EcoPerformanceGovernor.FormatBadgeLabel(preference, currentlyActive);
             if (currentlyActive)
             {
@@ -899,7 +1089,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             int clamped = Math.Max(0, Math.Min(100, percent));
             _isScanning = true;
             _lblScanProgress.Text = string.IsNullOrWhiteSpace(message)
-                ? $"⏳ စစ်ဆေးနေသည်... ({clamped}%)"
+                ? UiLocalizer.Pick($"⏳ Scanning... ({clamped}%)", $"⏳ စစ်ဆေးနေသည်... ({clamped}%)")
                 : $"{message} ({clamped}%)";
             _pnlScanProgress.Visible = true;
         }
@@ -918,9 +1108,13 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _isScanning = scanning;
             if (scanning)
             {
-                _lblScanProgress.Text = "⏳ Excel အကွက်များကို စတင်စစ်ဆေးနေပါသည်...";
+                _lblScanProgress.Text = UiLocalizer.Pick(
+                    "⏳ Scanning spreadsheet cells...",
+                    "⏳ Excel အကွက်များကို စတင်စစ်ဆေးနေပါသည်...");
                 _pnlScanProgress.Visible = true;
-                _lblSummary.Text = "⏳ Excel အကွက်များကို အမြန်စစ်ဆေးနေပါသည်...";
+                _lblSummary.Text = UiLocalizer.Pick(
+                    "⏳ Scanning spreadsheet cells...",
+                    "⏳ Excel အကွက်များကို အမြန်စစ်ဆေးနေပါသည်...");
                 _lblSummary.ForeColor = Color.FromArgb(24, 90, 188);
             }
             else

@@ -259,6 +259,49 @@ namespace MyanmarSpellChecker.Core.Models
         /// </summary>
         public string PosDisplayLabel => FormatPosTag(PosTag);
 
+        public string LocalizedPosDisplayLabel => FormatLocalizedPosTag(PosTag);
+
+        public static string FormatLocalizedPosTag(string? pos)
+        {
+            if (!Localization.UiLocalizer.IsEnglish)
+                return FormatPosTag(pos);
+
+            if (string.IsNullOrWhiteSpace(pos))
+                return "Official Lexicon";
+
+            switch (pos!.Trim().ToUpperInvariant())
+            {
+                case "N": return "Noun";
+                case "V": return "Verb";
+                case "ADJ": return "Adjective";
+                case "ADV": return "Adverb";
+                case "N/V":
+                case "V/N": return "Noun / Verb";
+                case "V/ADJ":
+                case "ADJ/V": return "Verb / Adjective";
+                case "N/ADJ":
+                case "ADJ/N": return "Noun / Adjective";
+                case "V/ADV":
+                case "ADV/V": return "Verb / Adverb";
+                case "ADJ/ADV":
+                case "ADV/ADJ": return "Adjective / Adverb";
+                case "PRON": return "Pronoun";
+                case "PART": return "Particle";
+                case "POST": return "Postposition";
+                case "CONJ": return "Conjunction";
+                case "INTJ": return "Interjection";
+                case "NUM": return "Numeral / Classifier";
+                case "LOAN": return "Loanword";
+                case "PROPN": return "Proper Noun";
+                case "PROVERB": return "Myanmar Proverb";
+                case "SAYING": return "Myanmar Saying";
+                case "RHETORIC": return "Traditional Rhetoric";
+                case "ENCYC": return "Encyclopedia";
+                case "CUSTOM": return "Custom Word";
+                default: return pos!;
+            }
+        }
+
         public static string FormatPosTag(string? pos)
         {
             if (string.IsNullOrWhiteSpace(pos))

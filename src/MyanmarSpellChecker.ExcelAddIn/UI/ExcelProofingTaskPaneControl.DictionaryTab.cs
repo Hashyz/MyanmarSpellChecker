@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
+using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Models;
 
 namespace MyanmarSpellChecker.ExcelAddIn.UI
@@ -20,7 +21,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 var featured = RequestGetFeaturedKnowledge?.Invoke() ?? new List<DictionaryEntry>();
                 if (featured.Count > 0)
                 {
-                    RenderDictionaryResults("စွယ်စုံဗဟုသုတ (လေ့လာဖွယ်)", featured, 0.2);
+                    RenderDictionaryResults(
+                        UiLocalizer.Pick("Encyclopedia (Featured)", "စွယ်စုံဗဟုသုတ (လေ့လာဖွယ်)"),
+                        featured,
+                        0.2);
                     return;
                 }
             }
@@ -96,7 +100,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             int cardWidth = GetTargetCardWidth();
             int innerWrap = Math.Max(180, cardWidth - 32);
 
-            _lblDictSummary.Text = "သတ်ပုံကျမ်း၊ မြန်မာ-မြန်မာ အဘိဓာန်၊ စွယ်စုံဗဟုသုတ (၂၅,၀၀၀+) နှင့် စကားပုံများ အမြန်ရှာဖွေနိုင်သည်";
+            _lblDictSummary.Text = UiLocalizer.Pick(
+                "Instant offline search across Spelling Lexicon, Myanmar Dictionary, Encyclopedia (25,000+) & Proverbs",
+                "သတ်ပုံကျမ်း၊ မြန်မာ-မြန်မာ အဘိဓာန်၊ စွယ်စုံဗဟုသုတ (၂၅,၀၀၀+) နှင့် စကားပုံများ အမြန်ရှာဖွေနိုင်သည်");
 
             var card = CreateStyledCardContainer(cardWidth, Color.FromArgb(24, 90, 188));
             int r = 0;
@@ -104,7 +110,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             card.Controls.Add(new Label
             {
-                Text = "မြန်မာ-မြန်မာ အဘိဓာန်ကြီး နှင့် စွယ်စုံဗဟုသုတကျမ်း (Excel Offline)",
+                Text = UiLocalizer.Pick(
+                    "Myanmar-Myanmar Dictionary & Offline Encyclopedia (Excel)",
+                    "မြန်မာ-မြန်မာ အဘိဓာန်ကြီး နှင့် စွယ်စုံဗဟုသုတကျမ်း (Excel Offline)"),
                 Font = _fontBodyBold,
                 ForeColor = Color.FromArgb(20, 52, 108),
                 AutoSize = true,
@@ -116,7 +124,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             card.Controls.Add(new Label
             {
-                Text = "• Excel အကွက်တစ်ကွက်ကို ရွေးထားပြီး အဘိဓာန် တက်ဘ်သို့ နှိပ်ပါက ၎င်းစာလုံးကို အလိုအလျောက် ရှာဖွေပေးပါသည်။\n• အောက်ပါ နမူနာခလုတ်များကို နှိပ်၍ စမ်းသပ်ကြည့်ရှုနိုင်ပါသည် —",
+                Text = UiLocalizer.Pick(
+                    "• Select any Excel cell and switch to the Dictionary tab to look up its text automatically.\n• Or click any sample topic below to explore —",
+                    "• Excel အကွက်တစ်ကွက်ကို ရွေးထားပြီး အဘိဓာန် တက်ဘ်သို့ နှိပ်ပါက ၎င်းစာလုံးကို အလိုအလျောက် ရှာဖွေပေးပါသည်။\n• အောက်ပါ နမူနာခလုတ်များကို နှိပ်၍ စမ်းသပ်ကြည့်ရှုနိုင်ပါသည် —"),
                 Font = _fontSmall,
                 ForeColor = Color.FromArgb(58, 68, 84),
                 AutoSize = true,
@@ -166,8 +176,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             int innerWrap = Math.Max(180, cardWidth - 32);
 
             _lblDictSummary.Text = entries.Count > 0
-                ? $"\"{query}\" အတွက် ရလဒ် ({entries.Count}) ပုဒ် တွေ့ရှိသည် ({elapsedMs:0.0} ms)"
-                : $"\"{query}\" နှင့် ကိုက်ညီသော အဘိဓာန်ရလဒ် မတွေ့ရှိပါ";
+                ? UiLocalizer.Pick(
+                    $"Found {entries.Count} result(s) for \"{query}\" ({elapsedMs:0.0} ms)",
+                    $"\"{query}\" အတွက် ရလဒ် ({entries.Count}) ပုဒ် တွေ့ရှိသည် ({elapsedMs:0.0} ms)")
+                : UiLocalizer.Pick(
+                    $"No dictionary entries matched \"{query}\"",
+                    $"\"{query}\" နှင့် ကိုက်ညီသော အဘိဓာန်ရလဒ် မတွေ့ရှိပါ");
 
             if (entries.Count == 0)
             {
@@ -175,7 +189,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 empty.RowStyles.Add(new RowStyle(SizeType.AutoSize));
                 empty.Controls.Add(new Label
                 {
-                    Text = $"\"{query}\" ကို မတွေ့ရှိပါ — စာလုံးပေါင်း အနီးစပ်ဆုံး သို့မဟုတ် အရင်းခံစကားလုံးဖြင့် ပြန်လည်ရှာဖွေကြည့်ပါ။",
+                    Text = UiLocalizer.Pick(
+                        $"No match for \"{query}\" — try searching by root word or approximate spelling.",
+                        $"\"{query}\" ကို မတွေ့ရှိပါ — စာလုံးပေါင်း အနီးစပ်ဆုံး သို့မဟုတ် အရင်းခံစကားလုံးဖြင့် ပြန်လည်ရှာဖွေကြည့်ပါ။"),
                     Font = _fontSmall,
                     ForeColor = Color.FromArgb(88, 68, 28),
                     AutoSize = true,
@@ -197,7 +213,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 int remaining = entries.Count - takeCount;
                 var moreBtn = CreatePillButton(
-                    $"▾ နောက်ထပ် ရလဒ် ({remaining}) ပုဒ် ဆက်လက်ပြသရန်",
+                    UiLocalizer.Pick(
+                        $"▾ Show ({remaining}) more result(s)",
+                        $"▾ နောက်ထပ် ရလဒ် ({remaining}) ပုဒ် ဆက်လက်ပြသရန်"),
                     Color.FromArgb(235, 243, 255),
                     Color.FromArgb(20, 74, 162),
                     Color.FromArgb(190, 212, 246),
@@ -245,7 +263,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             var lblPos = new Label
             {
-                Text = entry.PosDisplayLabel,
+                Text = entry.LocalizedPosDisplayLabel,
                 Font = _fontBrandStats,
                 ForeColor = stripe,
                 AutoSize = true,
@@ -294,7 +312,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
                 card.Controls.Add(new Label
                 {
-                    Text = $"သံတူကြောင်းကွဲ နှိုင်းယှဉ်ချက် — {homo}",
+                    Text = UiLocalizer.Pick(
+                        $"Homophone Comparison — {homo}",
+                        $"သံတူကြောင်းကွဲ နှိုင်းယှဉ်ချက် — {homo}"),
                     Font = _fontBrandStats,
                     ForeColor = Color.FromArgb(148, 86, 8),
                     BackColor = Color.FromArgb(255, 248, 232),
@@ -348,18 +368,30 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             };
 
             string wordToUse = entry.Word;
-            var btnCopy = CreatePillButton("ကူးယူ (Copy)", Color.FromArgb(242, 245, 250), Color.FromArgb(44, 56, 74), Color.FromArgb(212, 220, 232), _fontBrandStats);
+            var btnCopy = CreatePillButton(
+                UiLocalizer.Pick("Copy", "ကူးယူ (Copy)"),
+                Color.FromArgb(242, 245, 250),
+                Color.FromArgb(44, 56, 74),
+                Color.FromArgb(212, 220, 232),
+                _fontBrandStats);
             btnCopy.Click += (s, e) =>
             {
                 try
                 {
                     Clipboard.SetText(wordToUse);
-                    ShowToastBanner($"✓ \"{wordToUse}\" ကို Clipboard သို့ ကူးယူပြီးပါပြီ။");
+                    ShowToastBanner(UiLocalizer.Pick(
+                        $"✓ Copied \"{wordToUse}\" to clipboard.",
+                        $"✓ \"{wordToUse}\" ကို Clipboard သို့ ကူးယူပြီးပါပြီ။"));
                 }
                 catch { }
             };
 
-            var btnInsert = CreatePillButton("+ အကွက်ထဲထည့်မည်", Color.FromArgb(232, 246, 237), Color.FromArgb(16, 102, 52), Color.FromArgb(182, 222, 196), _fontBrandStats);
+            var btnInsert = CreatePillButton(
+                UiLocalizer.Pick("+ Insert into Cell", "+ အကွက်ထဲထည့်မည်"),
+                Color.FromArgb(232, 246, 237),
+                Color.FromArgb(16, 102, 52),
+                Color.FromArgb(182, 222, 196),
+                _fontBrandStats);
             btnInsert.Click += (s, e) => RequestInsertTextIntoCell?.Invoke(wordToUse);
 
             btnRow.Controls.Add(btnCopy);

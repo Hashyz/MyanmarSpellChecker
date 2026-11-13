@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
+using MyanmarSpellChecker.Core.Localization;
 
 namespace MyanmarSpellChecker.ExcelAddIn.UI
 {
@@ -17,12 +18,16 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             if (ok)
             {
                 _txtNewCustomWord.Clear();
-                ShowToastBanner($"✓ \"{word}\" ကို ကိုယ်ပိုင်အဘိဓာန် (Word + Excel) သို့ မှတ်သားပြီးပါပြီ။");
+                ShowToastBanner(UiLocalizer.Pick(
+                    $"✓ Added \"{word}\" to your Personal Dictionary (Word + Excel).",
+                    $"✓ \"{word}\" ကို ကိုယ်ပိုင်အဘိဓာန် (Word + Excel) သို့ မှတ်သားပြီးပါပြီ။"));
                 RenderCustomWordsWorkspace();
             }
             else
             {
-                ShowToastBanner($"⚠ \"{word}\" သည် မှတ်သားပြီးဖြစ်သည် သို့မဟုတ် မြန်မာစာလုံး မဟုတ်ပါ။", isSuccess: false);
+                ShowToastBanner(UiLocalizer.Pick(
+                    $"⚠ \"{word}\" is already saved or does not contain Myanmar script.",
+                    $"⚠ \"{word}\" သည် မှတ်သားပြီးဖြစ်သည် သို့မဟုတ် မြန်မာစာလုံး မဟုတ်ပါ။"), isSuccess: false);
             }
         }
 
@@ -35,7 +40,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             int innerWrap = Math.Max(180, cardWidth - 32);
 
             IReadOnlyList<string> words = RequestGetCustomWords?.Invoke() ?? Array.Empty<string>();
-            _lblCustomSummary.Text = $"မှတ်သားထားသော ဝေါဟာရ ({words.Count}) လုံး — Word နှင့် Excel နှစ်မျိုးလုံး အကျုံးဝင်သည်";
+            _lblCustomSummary.Text = UiLocalizer.Pick(
+                $"Saved personal words ({words.Count}) — shared across Word & Excel",
+                $"မှတ်သားထားသော ဝေါဟာရ ({words.Count}) လုံး — Word နှင့် Excel နှစ်မျိုးလုံး အကျုံးဝင်သည်");
 
             if (words.Count == 0)
             {
@@ -43,7 +50,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 emptyCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
                 emptyCard.Controls.Add(new Label
                 {
-                    Text = "မှတ်သားထားသော ကိုယ်ပိုင်ဝေါဟာရ မရှိသေးပါ။\nအထက်ပါအကွက်တွင် လူအမည်၊ ကုမ္ပဏီအမည်၊ ဌာနအတိုကောက် သို့မဟုတ် အထူးဝေါဟာရများကို ရိုက်ထည့်မှတ်သားနိုင်ပါသည်။",
+                    Text = UiLocalizer.Pick(
+                        "No custom Myanmar words saved yet.\nEnter person names, organization names, abbreviations, or specialized terms above so they won't be flagged in Word or Excel.",
+                        "မှတ်သားထားသော ကိုယ်ပိုင်ဝေါဟာရ မရှိသေးပါ။\nအထက်ပါအကွက်တွင် လူအမည်၊ ကုမ္ပဏီအမည်၊ ဌာနအတိုကောက် သို့မဟုတ် အထူးဝေါဟာရများကို ရိုက်ထည့်မှတ်သားနိုင်ပါသည်။"),
                     Font = _fontSmall,
                     ForeColor = Color.FromArgb(64, 76, 94),
                     AutoSize = true,
@@ -81,13 +90,20 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 };
 
                 string captured = w;
-                var btnRemove = CreatePillButton("ဖျက်မည်", Color.FromArgb(253, 238, 238), Color.FromArgb(175, 28, 28), Color.FromArgb(236, 198, 198), _fontBrandStats);
+                var btnRemove = CreatePillButton(
+                    UiLocalizer.Pick("Remove", "ဖျက်မည်"),
+                    Color.FromArgb(253, 238, 238),
+                    Color.FromArgb(175, 28, 28),
+                    Color.FromArgb(236, 198, 198),
+                    _fontBrandStats);
                 btnRemove.Dock = DockStyle.Right;
                 btnRemove.Click += (s, e) =>
                 {
                     if (RequestRemoveCustomWord?.Invoke(captured) == true)
                     {
-                        ShowToastBanner($"\"{captured}\" ကို ကိုယ်ပိုင်စာလုံးစာရင်းမှ ဖယ်ရှားပြီးပါပြီ။");
+                        ShowToastBanner(UiLocalizer.Pick(
+                            $"Removed \"{captured}\" from Personal Dictionary.",
+                            $"\"{captured}\" ကို ကိုယ်ပိုင်စာလုံးစာရင်းမှ ဖယ်ရှားပြီးပါပြီ။"));
                         RenderCustomWordsWorkspace();
                     }
                 };

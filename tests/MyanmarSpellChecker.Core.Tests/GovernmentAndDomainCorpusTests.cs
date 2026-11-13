@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using MyanmarSpellChecker.Core.Dictionary;
+using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
@@ -1913,10 +1914,23 @@ namespace MyanmarSpellChecker.Core.Tests
                 EcoPerformanceGovernor.SavePreference(cfgFile, EcoModePreference.Auto);
                 Assert.Equal(EcoModePreference.Auto, EcoPerformanceGovernor.LoadSavedPreference(cfgFile));
 
-                Assert.Contains("Auto✓", EcoPerformanceGovernor.FormatBadgeLabel(EcoModePreference.Auto, true));
-                Assert.Contains("ဖွင့်", EcoPerformanceGovernor.FormatBadgeLabel(EcoModePreference.AlwaysOn, true));
-                Assert.Contains("ပိတ်", EcoPerformanceGovernor.FormatBadgeLabel(EcoModePreference.Off, false));
-                Assert.False(string.IsNullOrWhiteSpace(EcoPerformanceGovernor.FormatTooltip(EcoModePreference.Auto, true)));
+                UiLanguage prevLang = UiLocalizer.CurrentLanguage;
+                try
+                {
+                    UiLocalizer.CurrentLanguage = UiLanguage.English;
+                    Assert.Contains("Auto✓", EcoPerformanceGovernor.FormatBadgeLabel(EcoModePreference.Auto, true));
+                    Assert.Contains("On", EcoPerformanceGovernor.FormatBadgeLabel(EcoModePreference.AlwaysOn, true));
+                    Assert.Contains("Off", EcoPerformanceGovernor.FormatBadgeLabel(EcoModePreference.Off, false));
+                    Assert.False(string.IsNullOrWhiteSpace(EcoPerformanceGovernor.FormatTooltip(EcoModePreference.Auto, true)));
+
+                    UiLocalizer.CurrentLanguage = UiLanguage.Myanmar;
+                    Assert.Contains("ဖွင့်", EcoPerformanceGovernor.FormatBadgeLabel(EcoModePreference.AlwaysOn, true));
+                    Assert.Contains("ပိတ်", EcoPerformanceGovernor.FormatBadgeLabel(EcoModePreference.Off, false));
+                }
+                finally
+                {
+                    UiLocalizer.CurrentLanguage = prevLang;
+                }
 
                 // 4. Zero-allocation < 25 ms fast skip on 5,000 non-Myanmar (English/numeric/code) paragraphs
                 string dbPath = Path.Combine(TestPaths.RepoRoot, "data", "mlc_thatpon.db");
@@ -1975,6 +1989,81 @@ namespace MyanmarSpellChecker.Core.Tests
             finally
             {
                 EcoPerformanceGovernor.CurrentPreference = savedPref;
+                try
+                {
+                    if (Directory.Exists(tempDir))
+                        Directory.Delete(tempDir, recursive: true);
+                }
+                catch { }
+            }
+        }
+
+        [Fact]
+        public void V49_DefaultEnglishUiAndLiveLanguageSwitchVerification()
+        {
+            UiLanguage originalLang = UiLocalizer.CurrentLanguage;
+            string tempDir = Path.Combine(Path.GetTempPath(), "MmUiLangTest_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                // 1. Fresh install / missing config file MUST default to English (UiLanguage.English = 0)
+                string missingCfg = Path.Combine(tempDir, "missing_ui_language.txt");
+                Assert.Equal(UiLanguage.English, default(UiLanguage));
+                Assert.Equal(UiLanguage.English, UiLocalizer.LoadSavedLanguage(missingCfg));
+
+                string emptyCfg = Path.Combine(tempDir, "empty_ui_language.txt");
+                File.WriteAllText(emptyCfg, "   ");
+                Assert.Equal(UiLanguage.English, UiLocalizer.LoadSavedLanguage(emptyCfg));
+
+                UiLocalizer.CurrentLanguage = UiLanguage.English;
+                Assert.True(UiLocalizer.IsEnglish);
+                Assert.Equal("Scan Document", UiLocalizer.Pick("Scan Document", "စာတမ်းစစ်မည်"));
+                Assert.Equal("🌐 EN", UiLocalizer.FormatLanguageBadge());
+                Assert.Contains("မြန်မာ", UiLocalizer.FormatLanguageTooltip());
+
+                // 2. Domain UI badges & labels switch cleanly between English and Myanmar
+                var sampleIssue = new ProofingIssue
+                {
+                    OriginalText = "ပီးပီ",
+                    IssueType = ProofingIssueType.SpellingError,
+                    Suggestions = new List<SuggestionCandidate> { new SuggestionCandidate { Replacement = "ပြီးပြီ", Score = 99.0 } }
+                };
+                Assert.Equal("✓ High Certainty (Standard Rule)", sampleIssue.CertaintyBadgeText);
+
+                var qualityReport = new DocumentQualityReport
+                {
+                    OverallScore = 96,
+                    GradeCode = "A+",
+                    GradeLabel = "A+ စံချိန်မီ အထူးကောင်းမွန်"
+                };
+                Assert.Equal("A+ Excellent (Publication Ready)", qualityReport.LocalizedGradeLabel);
+                Assert.Equal("Noun", DictionaryEntry.FormatLocalizedPosTag("N"));
+                Assert.Equal("အာမေဍိတ် (Interjection)", DictionaryEntry.FormatPosTag("INTJ"));
+
+                // 3. Live 1-click toggle to Myanmar + shared Word/Excel persistence round-trip
+                UiLanguage toggled = UiLocalizer.ToggleLanguage();
+                Assert.Equal(UiLanguage.Myanmar, toggled);
+                Assert.False(UiLocalizer.IsEnglish);
+                Assert.Equal("စာတမ်းစစ်မည်", UiLocalizer.Pick("Scan Document", "စာတမ်းစစ်မည်"));
+                Assert.Equal("🌐 မြန်မာ", UiLocalizer.FormatLanguageBadge());
+                Assert.Contains("English", UiLocalizer.FormatLanguageTooltip());
+                Assert.Equal("✓ သေချာ (စံသတ်ပုံ/သဒ္ဒါ)", sampleIssue.CertaintyBadgeText);
+                Assert.Equal("A+ စံချိန်မီ အထူးကောင်းမွန်", qualityReport.LocalizedGradeLabel);
+                Assert.Equal("နာမ် (Noun)", DictionaryEntry.FormatLocalizedPosTag("N"));
+
+                string langFile = Path.Combine(tempDir, "ui_language.txt");
+                UiLocalizer.SaveLanguage(langFile, UiLanguage.Myanmar);
+                Assert.Equal(UiLanguage.Myanmar, UiLocalizer.LoadSavedLanguage(langFile));
+
+                UiLanguage backToEn = UiLocalizer.ToggleLanguage();
+                Assert.Equal(UiLanguage.English, backToEn);
+                UiLocalizer.SaveLanguage(langFile, backToEn);
+                Assert.Equal(UiLanguage.English, UiLocalizer.LoadSavedLanguage(langFile));
+            }
+            finally
+            {
+                UiLocalizer.CurrentLanguage = originalLang;
                 try
                 {
                     if (Directory.Exists(tempDir))

@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
@@ -1204,7 +1205,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         return;
                 }
 
-                ScanProgressChanged?.Invoke(5, "⏳ စာသားဖတ်ယူနေသည်...");
+                ScanProgressChanged?.Invoke(5, UiLocalizer.Pick("⏳ Reading document text...", "⏳ စာသားဖတ်ယူနေသည်..."));
 
                 var snapshotJob = new PendingSnapshotCollectionJob
                 {
@@ -1324,7 +1325,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 else if (job.CurrentParagraphCount > 0)
                 {
                     int pct = Math.Min(18, 4 + (job.NextParagraphOneBased * 14) / Math.Max(1, job.CurrentParagraphCount));
-                    ScanProgressChanged?.Invoke(pct, $"⏳ စာပိုဒ်များ ဖတ်ယူနေသည်... ({job.Snapshots.Count:N0})");
+                    ScanProgressChanged?.Invoke(pct, UiLocalizer.Pick($"⏳ Reading paragraphs... ({job.Snapshots.Count:N0})", $"⏳ စာပိုဒ်များ ဖတ်ယူနေသည်... ({job.Snapshots.Count:N0})"));
                 }
             }
             catch
@@ -1670,7 +1671,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                                 if (nowTick - prevTick >= 120 && Interlocked.CompareExchange(ref lastProgressTick, nowTick, prevTick) == prevTick)
                                 {
                                     int pct = 18 + (done * 60) / Math.Max(1, count);
-                                    PostProgressFromBackground(generation, Math.Min(78, pct), $"⏳ စာလုံးပေါင်း စစ်ဆေးနေသည်... {Math.Min(99, (done * 100) / Math.Max(1, count))}%");
+                                    int dispPct = Math.Min(99, (done * 100) / Math.Max(1, count));
+                                    PostProgressFromBackground(generation, Math.Min(78, pct), UiLocalizer.Pick($"⏳ Checking spelling & grammar... {dispPct}%", $"⏳ စာလုံးပေါင်း စစ်ဆေးနေသည်... {dispPct}%"));
                                 }
                             });
                     }
@@ -1707,7 +1709,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                             {
                                 lastProgressTick = nowTick;
                                 int pct = 18 + ((idx + 1) * 60) / Math.Max(1, count);
-                                PostProgressFromBackground(generation, Math.Min(78, pct), $"⏳ စာလုံးပေါင်း စစ်ဆေးနေသည်... {((idx + 1) * 100) / Math.Max(1, count)}%");
+                                int dispPct = ((idx + 1) * 100) / Math.Max(1, count);
+                                PostProgressFromBackground(generation, Math.Min(78, pct), UiLocalizer.Pick($"⏳ Checking spelling & grammar... {dispPct}%", $"⏳ စာလုံးပေါင်း စစ်ဆေးနေသည်... {dispPct}%"));
                             }
                         }
                     }
@@ -1839,7 +1842,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                             }
                             else
                             {
-                                ScanProgressChanged?.Invoke(84, "⏳ မျဉ်းတားမှတ်သားနေသည်...");
+                                ScanProgressChanged?.Invoke(84, UiLocalizer.Pick("⏳ Applying proofing underlines...", "⏳ မျဉ်းတားမှတ်သားနေသည်..."));
                                 _underlineChunkTimer.Start();
                             }
                         }
@@ -1871,7 +1874,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 else
                 {
                     int pct = 80 + (job.NextOrderCursor * 19) / Math.Max(1, job.ProcessingOrder.Length);
-                    ScanProgressChanged?.Invoke(Math.Min(99, pct), $"⏳ မျဉ်းတားမှတ်သားနေသည်... {Math.Min(99, pct)}%");
+                    int cappedPct = Math.Min(99, pct);
+                    ScanProgressChanged?.Invoke(cappedPct, UiLocalizer.Pick($"⏳ Applying proofing underlines... {cappedPct}%", $"⏳ မျဉ်းတားမှတ်သားနေသည်... {cappedPct}%"));
                 }
             }
             catch
@@ -2035,20 +2039,20 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         private static string GetFriendlyStoryName(Word.WdStoryType storyType, bool inTable)
         {
             if (inTable)
-                return "ဇယားကွက် (Table)";
+                return UiLocalizer.Pick("Table", "ဇယားကွက် (Table)");
 
             switch (storyType)
             {
                 case Word.WdStoryType.wdPrimaryHeaderStory:
                 case Word.WdStoryType.wdFirstPageHeaderStory:
                 case Word.WdStoryType.wdEvenPagesHeaderStory:
-                    return "စာမျက်နှာထိပ်စီး (Header)";
+                    return UiLocalizer.Pick("Header", "စာမျက်နှာထိပ်စီး (Header)");
                 case Word.WdStoryType.wdPrimaryFooterStory:
                 case Word.WdStoryType.wdFirstPageFooterStory:
                 case Word.WdStoryType.wdEvenPagesFooterStory:
-                    return "စာမျက်နှာအောက်ခြေ (Footer)";
+                    return UiLocalizer.Pick("Footer", "စာမျက်နှာအောက်ခြေ (Footer)");
                 default:
-                    return "စာကိုယ် (Body)";
+                    return UiLocalizer.Pick("Body", "စာကိုယ် (Body)");
             }
         }
 

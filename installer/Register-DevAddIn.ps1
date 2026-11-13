@@ -175,6 +175,14 @@ try { [System.IO.File]::Copy($srcFull, [System.IO.Path]::Combine($localAppDir, "
 $localAppSubDir = [System.IO.Path]::Combine($localAppDir, "app")
 if ([System.IO.Directory]::Exists($localAppSubDir)) {
     try { [System.IO.File]::Copy($srcFull, [System.IO.Path]::Combine($localAppSubDir, "mlc_thatpon.db"), $true) } catch { }
+    try {
+        $coreDllLocal = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($excelAddInDll), "MyanmarSpellChecker.Core.dll")
+        if ([System.IO.File]::Exists($coreDllLocal)) {
+            [System.IO.File]::Copy($coreDllLocal, [System.IO.Path]::Combine($localAppSubDir, "MyanmarSpellChecker.Core.dll"), $true)
+        }
+        [System.IO.File]::Copy($wordAddInDll,  [System.IO.Path]::Combine($localAppSubDir, "MyanmarSpellChecker.WordAddIn.dll"),  $true)
+        [System.IO.File]::Copy($excelAddInDll, [System.IO.Path]::Combine($localAppSubDir, "MyanmarSpellChecker.ExcelAddIn.dll"), $true)
+    } catch { }
 }
 
 $progDataDir = [System.IO.Path]::Combine($env:ProgramData, "MyanmarSpellChecker")

@@ -48,8 +48,9 @@ This project is open-source software licensed under the **[GNU General Public Li
 1. **Download or Clone:** Click **`Code ➔ Download ZIP`** on GitHub *(or download `MyanmarSpellChecker-EasySetup-Word-Excel.zip`)* and **Right-click the `.zip` file ➔ `Extract All...`** into a normal folder first.
 2. **Close Microsoft Word and Microsoft Excel** (save any open documents first).
 3. **Double-click `Install-MyanmarSpellChecker.bat`** inside the extracted folder *(or **`Install-EasyUser.bat`** inside the standalone Release ZIP — **no PowerShell commands, no `.NET SDK`, and no Administrator password required!**)*.
-3. A friendly confirmation popup (`✓ အောင်မြင်စွာ ထည့်သွင်းပြီးပါပြီ!`) will appear once the **12.44 MB (`89,578` headwords / `118,664` entries)** offline dictionary and both Word + Excel Add-ins are installed into `%LocalAppData%\MyanmarSpellChecker\app`.
-4. **Open Microsoft Word or Microsoft Excel** — you will see the **`မြန်မာစာ စစ်ဆေးရေး`** Ribbon tab and the **4-Tab Myanmar Proofing Task Pane** docked on the right!
+4. A friendly confirmation popup (`✓ Installed successfully!`) will appear once the **12.44 MB (`89,578` headwords / `118,664` entries)** offline dictionary and both Word + Excel Add-ins are installed into `%LocalAppData%\MyanmarSpellChecker\app`.
+5. **Open Microsoft Word or Microsoft Excel** — you will see the **`Myanmar Proofing`** Ribbon tab and the **4-Tab Myanmar Spell Checker Task Pane** docked on the right!
+   - **Default UI Language is English (`🌐 EN`)** — click **`🌐 EN` ⇄ `🌐 မြန်မာ`** in the Task Pane header (or **`UI: English ➔ မြန်မာ`** on the Ribbon) anytime to switch the entire interface live between **English** and **Myanmar (`မြန်မာ`)** without restarting Word or Excel!
 
 #### Option B — Developer CLI Setup (From `git clone`)
 1. **Clone and build Release binaries** (`data\mlc_thatpon.db` is tracked directly in Git and automatically copied to `bin\Release\net48\`):

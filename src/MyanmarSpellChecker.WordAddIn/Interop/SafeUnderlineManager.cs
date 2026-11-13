@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Forms;
+using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using Word = Microsoft.Office.Interop.Word;
@@ -10,7 +11,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 {
     public sealed class DocumentProofingItem
     {
-        public string StoryName { get; set; } = "စာကိုယ် (Body)";
+        public string StoryName { get; set; } = UiLocalizer.Pick("Body", "စာကိုယ် (Body)");
         public Word.WdStoryType StoryType { get; set; } = Word.WdStoryType.wdMainTextStory;
         public int ParagraphIndex { get; set; }
         public string ParagraphSnippet { get; set; } = string.Empty;
@@ -207,7 +208,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             {
                 if (!insideSharedBatch)
                 {
-                    startedOwnUndo = TryBeginOwnUndoRecord("မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးခြင်း", out undoRecord);
+                    startedOwnUndo = TryBeginOwnUndoRecord(
+                        UiLocalizer.Pick("Myanmar Spell Check", "မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးခြင်း"),
+                        out undoRecord);
                 }
 
                 // Suppress MS Word's built-in English spell-checker ("No suggestions available") on Myanmar paragraphs
@@ -428,7 +431,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             bool startedOwnUndo = false;
             try
             {
-                startedOwnUndo = TryBeginOwnUndoRecord("မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးခြင်း", out undoRecord);
+                startedOwnUndo = TryBeginOwnUndoRecord(
+                    UiLocalizer.Pick("Myanmar Spell Check", "မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးခြင်း"),
+                    out undoRecord);
                 batchAction();
             }
             catch
@@ -619,7 +624,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             bool startedOwnUndo = false;
             try
             {
-                startedOwnUndo = TryBeginOwnUndoRecord($"သတ်ပုံပြင်ဆင်ခြင်း ({replacementText})", out undoRecord);
+                startedOwnUndo = TryBeginOwnUndoRecord(
+                    UiLocalizer.Pick($"Myanmar Fix ({replacementText})", $"သတ်ပုံပြင်ဆင်ခြင်း ({replacementText})"),
+                    out undoRecord);
 
                 Word.Range? r = EnsureTargetRangeResolved(doc, item);
                 if (r != null)
@@ -674,7 +681,11 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             try
             {
                 try { prevScreenUpdating = _app.ScreenUpdating; _app.ScreenUpdating = false; } catch { }
-                startedOwnUndo = TryBeginOwnUndoRecord($"တူညီသောအမှားများ တစ်ပြိုင်နက်ပြင်ဆင်ခြင်း ({originalText} -> {replacementText})", out undoRecord);
+                startedOwnUndo = TryBeginOwnUndoRecord(
+                    UiLocalizer.Pick(
+                        $"Batch Fix Matching ({originalText} -> {replacementText})",
+                        $"တူညီသောအမှားများ တစ်ပြိုင်နက်ပြင်ဆင်ခြင်း ({originalText} -> {replacementText})"),
+                    out undoRecord);
 
                 var matching = items
                     .Where(i => !i.IsResolved &&
@@ -746,7 +757,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             try
             {
                 try { prevScreenUpdating = _app.ScreenUpdating; _app.ScreenUpdating = false; } catch { }
-                startedOwnUndo = TryBeginOwnUndoRecord("မြန်မာစာ အမှားအားလုံး တစ်ပြိုင်နက် ပြင်ဆင်ခြင်း", out undoRecord);
+                startedOwnUndo = TryBeginOwnUndoRecord(
+                    UiLocalizer.Pick("Myanmar Fix All", "မြန်မာစာ အမှားအားလုံး တစ်ပြိုင်နက် ပြင်ဆင်ခြင်း"),
+                    out undoRecord);
 
                 // Sort in reverse order by live Range.Start so earlier replacements never affect later ranges.
                 // Always skip Amber 'အနက်သံသယ (Context Check)' warnings so ambiguous meanings require explicit human approval.
@@ -797,7 +810,11 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     {
                         pumpWatch.Restart();
                         int pct = ((idx + 1) * 95) / Math.Max(1, ordered.Count);
-                        onProgress?.Invoke(pct, $"⏳ ပြင်ဆင်နေသည်... {idx + 1:N0}/{ordered.Count:N0}");
+                        onProgress?.Invoke(
+                            pct,
+                            UiLocalizer.Pick(
+                                $"⏳ Fixing... {idx + 1:N0}/{ordered.Count:N0}",
+                                $"⏳ ပြင်ဆင်နေသည်... {idx + 1:N0}/{ordered.Count:N0}"));
                         Application.DoEvents();
                     }
                 }
@@ -850,7 +867,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             try
             {
                 try { prevScreenUpdating = _app.ScreenUpdating; _app.ScreenUpdating = false; } catch { }
-                startedOwnUndo = TryBeginOwnUndoRecord("မြန်မာစာ စိစစ်ရွေးချယ်ထားသော အမှားများ ပြင်ဆင်ခြင်း", out undoRecord);
+                startedOwnUndo = TryBeginOwnUndoRecord(
+                    UiLocalizer.Pick("Myanmar Fix Approved Issues", "မြန်မာစာ စိစစ်ရွေးချယ်ထားသော အမှားများ ပြင်ဆင်ခြင်း"),
+                    out undoRecord);
 
                 var allList = items as IReadOnlyList<DocumentProofingItem> ?? items.ToList();
                 var ordered = allList
@@ -902,7 +921,11 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     {
                         pumpWatch.Restart();
                         int pct = ((idx + 1) * 95) / Math.Max(1, ordered.Count);
-                        onProgress?.Invoke(pct, $"⏳ ပြင်ဆင်နေသည်... {idx + 1:N0}/{ordered.Count:N0}");
+                        onProgress?.Invoke(
+                            pct,
+                            UiLocalizer.Pick(
+                                $"⏳ Fixing... {idx + 1:N0}/{ordered.Count:N0}",
+                                $"⏳ ပြင်ဆင်နေသည်... {idx + 1:N0}/{ordered.Count:N0}"));
                         Application.DoEvents();
                     }
                 }
@@ -1002,7 +1025,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             try
             {
                 try { prevScreenUpdating = _app.ScreenUpdating; _app.ScreenUpdating = false; } catch { }
-                startedOwnUndo = TryBeginOwnUndoRecord("မြန်မာစာ မျဉ်းလှိုင်းများ ဖယ်ရှားခြင်း", out undoRecord);
+                startedOwnUndo = TryBeginOwnUndoRecord(
+                    UiLocalizer.Pick("Clear Myanmar Proofing Underlines", "မြန်မာစာ မျဉ်းလှိုင်းများ ဖယ်ရှားခြင်း"),
+                    out undoRecord);
 
                 for (int i = _trackedRanges.Count - 1; i >= 0; i--)
                 {
@@ -1070,7 +1095,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             bool startedOwnUndo = false;
             try
             {
-                startedOwnUndo = TryBeginOwnUndoRecord("မြန်မာစာ မျဉ်းလှိုင်းများ ပြန်လည်ဖော်ပြခြင်း", out undoRecord);
+                startedOwnUndo = TryBeginOwnUndoRecord(
+                    UiLocalizer.Pick("Restore Myanmar Proofing Underlines", "မြန်မာစာ မျဉ်းလှိုင်းများ ပြန်လည်ဖော်ပြခြင်း"),
+                    out undoRecord);
 
                 foreach (var tracked in _trackedRanges)
                 {

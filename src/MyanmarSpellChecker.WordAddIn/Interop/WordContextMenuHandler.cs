@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
@@ -547,7 +548,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                     btn.Tag = MenuTag;
                     btn.Style = Office.MsoButtonStyle.msoButtonCaption;
-                    btn.Caption = $"သတ်ပုံအမှန်: {suggestion.DisplayLabel}";
+                    btn.Caption = UiLocalizer.Pick($"Myanmar Fix: {suggestion.DisplayLabel}", $"သတ်ပုံအမှန်: {suggestion.DisplayLabel}");
 
                     string replacementCopy = suggestion.Replacement;
                     btn.Click += (Office.CommandBarButton ctrl, ref bool cancelDefault) =>
@@ -568,7 +569,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                 infoBtn.Tag = MenuTag;
                 infoBtn.Style = Office.MsoButtonStyle.msoButtonCaption;
-                infoBtn.Caption = $"သတ်ပုံသတိပေးချက်: {hitIssue.OriginalText}";
+                infoBtn.Caption = UiLocalizer.Pick($"Spelling Notice: {hitIssue.OriginalText}", $"သတ်ပုံသတိပေးချက်: {hitIssue.OriginalText}");
                 infoBtn.Enabled = false;
                 _activeButtons.Add(infoBtn);
             }
@@ -580,7 +581,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
             ignoreBtn.Tag = MenuTag;
             ignoreBtn.Style = Office.MsoButtonStyle.msoButtonCaption;
-            ignoreBtn.Caption = "ယခုစာတမ်းအတွက်သာ ကျော်မည် (Ignore Once)";
+            ignoreBtn.Caption = UiLocalizer.Pick("Ignore Once (This Document)", "ယခုစာတမ်းအတွက်သာ ကျော်မည် (Ignore Once)");
             ignoreBtn.Click += (Office.CommandBarButton ctrl, ref bool cancelDefault) =>
             {
                 _engine.IgnoreWordInSession(originalWord);
@@ -638,7 +639,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         Office.MsoControlType.msoControlButton, Before: pos++, Temporary: true);
                     lookupBtn.Tag = MenuTag;
                     lookupBtn.Style = Office.MsoButtonStyle.msoButtonCaption;
-                    lookupBtn.Caption = $"အဘိဓာန်နှင့် သတ်ပုံကျမ်း ကြည့်မည်: \"{preview}\"";
+                    lookupBtn.Caption = UiLocalizer.Pick($"Look Up in Myanmar Dictionary: \"{preview}\"", $"အဘိဓာန်နှင့် သတ်ပုံကျမ်း ကြည့်မည်: \"{preview}\"");
                     string qCopy = trimmed;
                     lookupBtn.Click += (Office.CommandBarButton ctrl, ref bool cancelDefault) =>
                     {
@@ -654,10 +655,10 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         Office.MsoControlType.msoControlButton, Before: pos++, Temporary: true);
                     biBtn.Tag = MenuTag;
                     biBtn.Style = Office.MsoButtonStyle.msoButtonCaption;
-                    biBtn.Caption = $"မြန်မာဝေါဟာရ လဲမည် ➔ {mmTarget}";
+                    biBtn.Caption = UiLocalizer.Pick($"Replace with Myanmar Term ➔ {mmTarget}", $"မြန်မာဝေါဟာရ လဲမည် ➔ {mmTarget}");
                     biBtn.Click += (Office.CommandBarButton ctrl, ref bool cancelDefault) =>
                     {
-                        ReplaceRangeWithUndo(targetRange, mmTarget, "အင်္ဂလိပ်မှ မြန်မာဝေါဟာရသို့ လဲလှယ်ခြင်း");
+                        ReplaceRangeWithUndo(targetRange, mmTarget, UiLocalizer.Pick("Replace English with Myanmar Term", "အင်္ဂလိပ်မှ မြန်မာဝေါဟာရသို့ လဲလှယ်ခြင်း"));
                     };
                     _activeButtons.Add(biBtn);
                 }
@@ -669,10 +670,10 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         Office.MsoControlType.msoControlButton, Before: pos++, Temporary: true);
                     synBtn.Tag = MenuTag;
                     synBtn.Style = Office.MsoButtonStyle.msoButtonCaption;
-                    synBtn.Caption = $"ကြောင်းတူသံကွဲ လဲမည် ➔ {syn}";
+                    synBtn.Caption = UiLocalizer.Pick($"Replace with Synonym ➔ {syn}", $"ကြောင်းတူသံကွဲ လဲမည် ➔ {syn}");
                     synBtn.Click += (Office.CommandBarButton ctrl, ref bool cancelDefault) =>
                     {
-                        ReplaceRangeWithUndo(targetRange, syn, $"ကြောင်းတူသံကွဲ လဲလှယ်ခြင်း ({syn})");
+                        ReplaceRangeWithUndo(targetRange, syn, UiLocalizer.Pick($"Replace Synonym ({syn})", $"ကြောင်းတူသံကွဲ လဲလှယ်ခြင်း ({syn})"));
                     };
                     _activeButtons.Add(synBtn);
                 }
@@ -685,10 +686,12 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         Office.MsoControlType.msoControlButton, Before: pos++, Temporary: true);
                     rwBtn.Tag = MenuTag;
                     rwBtn.Style = Office.MsoButtonStyle.msoButtonCaption;
-                    rwBtn.Caption = $"ရုံးသုံးစာပေဟန်သို့ ပြောင်းမည် ({rewrite.ReplacementCount} ချက်): {rwPreview}";
+                    rwBtn.Caption = UiLocalizer.Pick(
+                        $"Rewrite to Official Style ({rewrite.ReplacementCount} change(s)): {rwPreview}",
+                        $"ရုံးသုံးစာပေဟန်သို့ ပြောင်းမည် ({rewrite.ReplacementCount} ချက်): {rwPreview}");
                     rwBtn.Click += (Office.CommandBarButton ctrl, ref bool cancelDefault) =>
                     {
-                        ReplaceRangeWithUndo(targetRange, rwText, "ရုံးသုံးစာပေဟန်သို့ ပြောင်းလဲခြင်း");
+                        ReplaceRangeWithUndo(targetRange, rwText, UiLocalizer.Pick("Rewrite to Official Style", "ရုံးသုံးစာပေဟန်သို့ ပြောင်းလဲခြင်း"));
                     };
                     _activeButtons.Add(rwBtn);
                 }

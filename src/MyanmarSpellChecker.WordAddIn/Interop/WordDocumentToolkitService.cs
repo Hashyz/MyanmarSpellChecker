@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
 using System.Windows.Forms;
+using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
 using MyanmarSpellChecker.Core.Typography;
@@ -39,7 +40,11 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         {
             if (app == null || doc == null)
             {
-                return new ToolkitActionSummary { Success = false, UserMessage = "လက်ရှိဖွင့်ထားသော Word စာတမ်း မတွေ့ရှိပါ။" };
+                return new ToolkitActionSummary
+                {
+                    Success = false,
+                    UserMessage = UiLocalizer.Pick("No active Word document found.", "လက်ရှိဖွင့်ထားသော Word စာတမ်း မတွေ့ရှိပါ။")
+                };
             }
 
             Word.UndoRecord? undo = null;
@@ -55,7 +60,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     undo = app.UndoRecord;
                     if (undo != null && !undo.IsRecordingCustomRecord)
                     {
-                        undo.StartCustomRecord("မြန်မာ ယူနီကုဒ် (Pyidaungsu) ပြောင်းလဲခြင်း");
+                        undo.StartCustomRecord(UiLocalizer.Pick("Convert Legacy Fonts to Pyidaungsu Unicode", "မြန်မာ ယူနီကုဒ် (Pyidaungsu) ပြောင်းလဲခြင်း"));
                         startedUndo = true;
                     }
                 }
@@ -98,8 +103,12 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     Success = true,
                     ChangedCount = convertedRuns,
                     UserMessage = convertedRuns > 0
-                        ? $"✓ Legacy/Zawgyi စာသားအပိုင်း ({convertedRuns}) ခုကို Pyidaungsu ယူနီကုဒ်သို့ မူလစာလုံးအလှမပျက် ပြောင်းလဲပြီးပါပြီ (Ctrl+Z ဖြင့် ပြန်ပြင်နိုင်သည်)။"
-                        : "✓ ဤစာတမ်းသည် မြန်မာယူနီကုဒ် စံနှုန်းနှင့် ကိုက်ညီပြီးဖြစ်ပါသည် (ပြောင်းလဲရန် WinInnwa / Zawgyi မတွေ့ရှိပါ)။"
+                        ? UiLocalizer.Pick(
+                            $"✓ Converted {convertedRuns} Legacy/Zawgyi text span(s) to Pyidaungsu Unicode with formatting preserved (Ctrl+Z to undo).",
+                            $"✓ Legacy/Zawgyi စာသားအပိုင်း ({convertedRuns}) ခုကို Pyidaungsu ယူနီကုဒ်သို့ မူလစာလုံးအလှမပျက် ပြောင်းလဲပြီးပါပြီ (Ctrl+Z ဖြင့် ပြန်ပြင်နိုင်သည်)။")
+                        : UiLocalizer.Pick(
+                            "✓ Document is already 100% Myanmar Unicode compliant (no WinInnwa / Zawgyi text found).",
+                            "✓ ဤစာတမ်းသည် မြန်မာယူနီကုဒ် စံနှုန်းနှင့် ကိုက်ညီပြီးဖြစ်ပါသည် (ပြောင်းလဲရန် WinInnwa / Zawgyi မတွေ့ရှိပါ)။")
                 };
             }
             catch (Exception ex)
@@ -108,7 +117,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 {
                     Success = false,
                     ChangedCount = convertedRuns,
-                    UserMessage = $"⚠ ဖောင့်ပြောင်းလဲရာတွင် အခက်အခဲရှိပါသည်: {ex.Message}"
+                    UserMessage = UiLocalizer.Pick($"⚠ Font conversion error: {ex.Message}", $"⚠ ဖောင့်ပြောင်းလဲရာတွင် အခက်အခဲရှိပါသည်: {ex.Message}")
                 };
             }
             finally
@@ -140,7 +149,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 if (pumpWatch.ElapsedMilliseconds >= 110)
                 {
                     pumpWatch.Restart();
-                    onProgress?.Invoke((i * 95) / Math.Max(1, count), $"⏳ ဖောင့်ပြောင်းလဲနေသည်... {i:N0}/{count:N0}");
+                    onProgress?.Invoke((i * 95) / Math.Max(1, count), UiLocalizer.Pick($"⏳ Converting fonts... {i:N0}/{count:N0}", $"⏳ ဖောင့်ပြောင်းလဲနေသည်... {i:N0}/{count:N0}"));
                     Application.DoEvents();
                 }
                 Word.Range? paraRange = null;
@@ -365,7 +374,11 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         {
             if (app == null || doc == null)
             {
-                return new ToolkitActionSummary { Success = false, UserMessage = "လက်ရှိဖွင့်ထားသော Word စာတမ်း မတွေ့ရှိပါ။" };
+                return new ToolkitActionSummary
+                {
+                    Success = false,
+                    UserMessage = UiLocalizer.Pick("No active Word document found.", "လက်ရှိဖွင့်ထားသော Word စာတမ်း မတွေ့ရှိပါ။")
+                };
             }
 
             Word.UndoRecord? undo = null;
@@ -381,7 +394,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     undo = app.UndoRecord;
                     if (undo != null && !undo.IsRecordingCustomRecord)
                     {
-                        undo.StartCustomRecord(toMyanmarDigits ? "မြန်မာဂဏန်း (၀-၉) ပြောင်းလဲခြင်း" : "အင်္ဂလိပ်ဂဏန်း (0-9) ပြောင်းလဲခြင်း");
+                        undo.StartCustomRecord(toMyanmarDigits
+                            ? UiLocalizer.Pick("Convert to Myanmar Digits (၀-၉)", "မြန်မာဂဏန်း (၀-၉) ပြောင်းလဲခြင်း")
+                            : UiLocalizer.Pick("Convert to ASCII Digits (0-9)", "အင်္ဂလိပ်ဂဏန်း (0-9) ပြောင်းလဲခြင်း"));
                         startedUndo = true;
                     }
                 }
@@ -403,7 +418,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         if (pumpWatch.ElapsedMilliseconds >= 110)
                         {
                             pumpWatch.Restart();
-                            onProgress?.Invoke((i * 95) / Math.Max(1, pCount), $"⏳ ဂဏန်းပြောင်းလဲနေသည်... {i:N0}/{pCount:N0}");
+                            onProgress?.Invoke((i * 95) / Math.Max(1, pCount), UiLocalizer.Pick($"⏳ Converting digits... {i:N0}/{pCount:N0}", $"⏳ ဂဏန်းပြောင်းလဲနေသည်... {i:N0}/{pCount:N0}"));
                             Application.DoEvents();
                         }
                         Word.Range? pRange = null;
@@ -430,19 +445,29 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     }
                 }
 
-                string dirLabel = toMyanmarDigits ? "မြန်မာဂဏန်း (၀-၉)" : "အင်္ဂလိပ်ဂဏန်း (0-9)";
+                string dirLabel = toMyanmarDigits
+                    ? UiLocalizer.Pick("Myanmar digits (၀-၉)", "မြန်မာဂဏန်း (၀-၉)")
+                    : UiLocalizer.Pick("ASCII digits (0-9)", "အင်္ဂလိပ်ဂဏန်း (0-9)");
                 return new ToolkitActionSummary
                 {
                     Success = true,
                     ChangedCount = totalDigitsChanged,
                     UserMessage = totalDigitsChanged > 0
-                        ? $"✓ ဂဏန်းလုံးရေ ({totalDigitsChanged}) လုံးကို {dirLabel} သို့ စနစ်တကျ ပြောင်းလဲပြီးပါပြီ (URL/ISO/COVID ကုဒ်များကို မထိခိုက်စေဘဲ ထိန်းသိမ်းထားသည်)။"
-                        : $"✓ ပြောင်းလဲရန် ဂဏန်း မတွေ့ရှိပါ ({dirLabel} အသင့်ဖြစ်ပြီးဖြစ်သည်)။"
+                        ? UiLocalizer.Pick(
+                            $"✓ Converted {totalDigitsChanged} digit(s) to {dirLabel} (URLs, emails & ISO/COVID codes preserved).",
+                            $"✓ ဂဏန်းလုံးရေ ({totalDigitsChanged}) လုံးကို {dirLabel} သို့ စနစ်တကျ ပြောင်းလဲပြီးပါပြီ (URL/ISO/COVID ကုဒ်များကို မထိခိုက်စေဘဲ ထိန်းသိမ်းထားသည်)။")
+                        : UiLocalizer.Pick(
+                            $"✓ No digits needed conversion (already formatted as {dirLabel}).",
+                            $"✓ ပြောင်းလဲရန် ဂဏန်း မတွေ့ရှိပါ ({dirLabel} အသင့်ဖြစ်ပြီးဖြစ်သည်)။")
                 };
             }
             catch (Exception ex)
             {
-                return new ToolkitActionSummary { Success = false, UserMessage = $"⚠ ဂဏန်းပြောင်းလဲစဉ် အမှားဖြစ်ပေါ်သည်: {ex.Message}" };
+                return new ToolkitActionSummary
+                {
+                    Success = false,
+                    UserMessage = UiLocalizer.Pick($"⚠ Digit conversion error: {ex.Message}", $"⚠ ဂဏန်းပြောင်းလဲစဉ် အမှားဖြစ်ပေါ်သည်: {ex.Message}")
+                };
             }
             finally
             {
@@ -460,7 +485,11 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         {
             if (app == null || doc == null)
             {
-                return new ToolkitActionSummary { Success = false, UserMessage = "လက်ရှိဖွင့်ထားသော Word စာတမ်း မတွေ့ရှိပါ။" };
+                return new ToolkitActionSummary
+                {
+                    Success = false,
+                    UserMessage = UiLocalizer.Pick("No active Word document found.", "လက်ရှိဖွင့်ထားသော Word စာတမ်း မတွေ့ရှိပါ။")
+                };
             }
 
             Word.UndoRecord? undo = null;
@@ -477,7 +506,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     undo = app.UndoRecord;
                     if (undo != null && !undo.IsRecordingCustomRecord)
                     {
-                        undo.StartCustomRecord("ပုဒ်ဖြတ် ၊ / ။ နှင့် ZWSP သန့်စင်ခြင်း");
+                        undo.StartCustomRecord(UiLocalizer.Pick("Clean Punctuation (၊ / ။) & ZWSP", "ပုဒ်ဖြတ် ၊ / ။ နှင့် ZWSP သန့်စင်ခြင်း"));
                         startedUndo = true;
                     }
                 }
@@ -499,7 +528,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         if (pumpWatch.ElapsedMilliseconds >= 110)
                         {
                             pumpWatch.Restart();
-                            onProgress?.Invoke((i * 95) / Math.Max(1, pCount), $"⏳ ပုဒ်ဖြတ်သန့်စင်နေသည်... {i:N0}/{pCount:N0}");
+                            onProgress?.Invoke((i * 95) / Math.Max(1, pCount), UiLocalizer.Pick($"⏳ Cleaning punctuation & ZWSP... {i:N0}/{pCount:N0}", $"⏳ ပုဒ်ဖြတ်သန့်စင်နေသည်... {i:N0}/{pCount:N0}"));
                             Application.DoEvents();
                         }
                         Word.Range? pRange = null;
@@ -533,13 +562,21 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     Success = true,
                     ChangedCount = combined,
                     UserMessage = combined > 0
-                        ? $"✓ ပုဒ်ဖြတ်အကွာအဝေး ({totalPunctFixes}) နေရာ နှင့် မမြင်ရသော ZWSP ({totalZwRemoved}) လုံးကို သန့်စင်ညှိနှိုင်းပြီးပါပြီ (Ctrl+Z ဖြင့် ပြန်ပြင်နိုင်သည်)။"
-                        : "✓ ပုဒ်ဖြတ် (၊ / ။) အကွာအဝေး နှင့် ZWSP များ သန့်စင်မှန်ကန်ပြီး ဖြစ်ပါသည်။"
+                        ? UiLocalizer.Pick(
+                            $"✓ Normalized {totalPunctFixes} punctuation spacing(s) and stripped {totalZwRemoved} invisible ZWSP character(s) (Ctrl+Z to undo).",
+                            $"✓ ပုဒ်ဖြတ်အကွာအဝေး ({totalPunctFixes}) နေရာ နှင့် မမြင်ရသော ZWSP ({totalZwRemoved}) လုံးကို သန့်စင်ညှိနှိုင်းပြီးပါပြီ (Ctrl+Z ဖြင့် ပြန်ပြင်နိုင်သည်)။")
+                        : UiLocalizer.Pick(
+                            "✓ Punctuation spacing (၊ / ။) and invisible ZWSP characters are already clean.",
+                            "✓ ပုဒ်ဖြတ် (၊ / ။) အကွာအဝေး နှင့် ZWSP များ သန့်စင်မှန်ကန်ပြီး ဖြစ်ပါသည်။")
                 };
             }
             catch (Exception ex)
             {
-                return new ToolkitActionSummary { Success = false, UserMessage = $"⚠ ပုဒ်ဖြတ်ညှိနှိုင်းစဉ် အမှားဖြစ်ပေါ်သည်: {ex.Message}" };
+                return new ToolkitActionSummary
+                {
+                    Success = false,
+                    UserMessage = UiLocalizer.Pick($"⚠ Punctuation cleanup error: {ex.Message}", $"⚠ ပုဒ်ဖြတ်ညှိနှိုင်းစဉ် အမှားဖြစ်ပေါ်သည်: {ex.Message}")
+                };
             }
             finally
             {
@@ -695,7 +732,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     undo = app.UndoRecord;
                     if (undo != null && !undo.IsRecordingCustomRecord)
                     {
-                        undo.StartCustomRecord("စကားပြောဟန်မှ ရုံးသုံး/စာပေဟန်သို့ ပြောင်းလဲခြင်း");
+                        undo.StartCustomRecord(UiLocalizer.Pick("Rewrite to Official / Literary Style", "စကားပြောဟန်မှ ရုံးသုံး/စာပေဟန်သို့ ပြောင်းလဲခြင်း"));
                         startedUndo = true;
                     }
                 }
@@ -735,7 +772,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         if (pumpWatch.ElapsedMilliseconds >= 110)
                         {
                             pumpWatch.Restart();
-                            onProgress?.Invoke((done * 95) / Math.Max(1, pCount), $"⏳ ရုံးသုံးဟန် ပြောင်းနေသည်... {done:N0}/{pCount:N0}");
+                            onProgress?.Invoke((done * 95) / Math.Max(1, pCount), UiLocalizer.Pick($"⏳ Rewriting to official style... {done:N0}/{pCount:N0}", $"⏳ ရုံးသုံးဟန် ပြောင်းနေသည်... {done:N0}/{pCount:N0}"));
                             Application.DoEvents();
                         }
                         try

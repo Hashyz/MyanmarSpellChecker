@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
@@ -84,8 +85,11 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         private readonly Timer _toastTimer;
 
         // Top Navigation & Brand Controls
+        private readonly Label _lblBrandTitle;
         private readonly Label _lblLexiconStats;
+        private readonly Button _btnLangToggle;
         private readonly Button _btnEcoMode;
+        private readonly Button _btnAboutLic;
         private readonly Button _btnTabProofing;
         private readonly Button _btnTabDictionary;
         private readonly Button _btnTabToolkit;
@@ -103,6 +107,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         private readonly Label _lblStyleHint;
         private readonly Button _btnScanAll;
         private readonly Button _btnFixAll;
+        private readonly Button _btnClearLines;
         private readonly Button _btnFilterAll;
         private readonly Button _btnFilterSpelling;
         private readonly Button _btnFilterGrammar;
@@ -118,6 +123,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
         // Dictionary Toolbar Controls
         private readonly TextBox _txtDictionarySearch;
+        private readonly Button _btnLookupSelection;
+        private readonly Button _btnClearSearch;
         private readonly Button _btnDictCatAll;
         private readonly Button _btnDictCatThatpon;
         private readonly Button _btnDictCatAbidan;
@@ -139,6 +146,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
         // Custom Words Toolbar Controls
         private readonly TextBox _txtNewCustomWord;
+        private readonly Button _btnAddCustomWord;
         private readonly Label _lblCustomSummary;
 
         // Main Scrollable Canvas
@@ -157,11 +165,21 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         private IssueFilterMode _currentFilter = IssueFilterMode.All;
         private DictionaryCategoryFilter _dictCategoryFilter = DictionaryCategoryFilter.All;
         private ProofingStyleMode _currentStyleMode = ProofingStyleMode.GeneralStandard;
+        private EcoModePreference _lastEcoPref = EcoModePreference.Auto;
+        private bool _lastEcoActive;
+        private bool _isEngineWarmingUp;
+        private bool _hasLexiconStats;
+        private int _lastWordCount;
+        private int _lastOfficialCount;
+        private int _lastRuleCount;
+        private int _lastRefCount;
+        private int _lastEncycCount;
 
         // Events wired by ThisAddIn
         public event Action? RequestFullDocumentScan;
         public event Action? RequestCancelScan;
         public event Action? RequestCycleEcoMode;
+        public event Action? RequestToggleLanguage;
         public event Action<IssueFilterMode>? RequestFixAllIssues;
         public event Action? RequestClearUnderlines;
         public event Action? RequestLicenseDialog;
@@ -249,17 +267,18 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 }
             };
 
-            // Row 0: Brand Header + Eco Pill + About/License Pill
+            // Row 0: Brand Header + Language Pill + Eco Pill + About/License Pill
             var brandRow = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 3,
+                ColumnCount = 4,
                 RowCount = 1,
                 Margin = new Padding(0, 0, 0, 5)
             };
             brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             brandRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -277,9 +296,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             titleStack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             titleStack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            var lblTitle = new Label
+            _lblBrandTitle = new Label
             {
-                Text = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း",
+                Text = UiLocalizer.Pick("Myanmar Spell Checker", "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း"),
                 Font = _fontBrandTitle,
                 ForeColor = Color.FromArgb(18, 48, 102),
                 AutoSize = true,
@@ -290,7 +309,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             _lblLexiconStats = new Label
             {
-                Text = "သတ်ပုံကျမ်း + အဘိဓာန် • ထက်ရာဇာ (KU)",
+                Text = UiLocalizer.Pick("Official Thatpon + Dictionary • Htet Yar Zar (KU)", "သတ်ပုံကျမ်း + အဘိဓာန် • ထက်ရာဇာ (KU)"),
                 Font = _fontBrandStats,
                 ForeColor = Color.FromArgb(88, 100, 118),
                 AutoSize = true,
@@ -298,12 +317,21 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Margin = new Padding(0),
                 Padding = new Padding(6, 0, 4, 2)
             };
-            const string authorCreditTip = "ဖန်တီးသူ - ထက်ရာဇာ (Htet Yar Zar) • M.Sc. Part II Candidate in Geology, ဘူမိဗေဒဌာန၊ ကျောက်ဆည်တက္ကသိုလ် (Kyaukse, Myanmar)";
-            _toolTip.SetToolTip(lblTitle, authorCreditTip);
-            _toolTip.SetToolTip(_lblLexiconStats, authorCreditTip);
 
-            titleStack.Controls.Add(lblTitle, 0, 0);
+            titleStack.Controls.Add(_lblBrandTitle, 0, 0);
             titleStack.Controls.Add(_lblLexiconStats, 0, 1);
+
+            _btnLangToggle = CreatePillButton(
+                UiLocalizer.FormatLanguageBadge(),
+                Color.FromArgb(236, 245, 255),
+                Color.FromArgb(18, 68, 152),
+                Color.FromArgb(188, 210, 244),
+                _fontSmallBold);
+            _btnLangToggle.Dock = DockStyle.None;
+            _btnLangToggle.Anchor = AnchorStyles.Right;
+            _btnLangToggle.Padding = new Padding(6, 3, 6, 3);
+            _btnLangToggle.Margin = new Padding(2, 2, 2, 2);
+            _btnLangToggle.Click += (s, e) => RequestToggleLanguage?.Invoke();
 
             _btnEcoMode = CreatePillButton(
                 EcoPerformanceGovernor.FormatBadgeLabel(EcoModePreference.Auto, false),
@@ -317,22 +345,22 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             _btnEcoMode.Margin = new Padding(2, 2, 2, 2);
             _btnEcoMode.Click += (s, e) => RequestCycleEcoMode?.Invoke();
 
-            var btnLic = CreatePillButton(
-                "အချက်အလက် ⓘ",
+            _btnAboutLic = CreatePillButton(
+                UiLocalizer.Pick("ⓘ About", "အချက်အလက် ⓘ"),
                 Color.FromArgb(240, 245, 255),
                 Color.FromArgb(22, 74, 158),
                 Color.FromArgb(196, 214, 245),
                 _fontSmallBold);
-            btnLic.Dock = DockStyle.None;
-            btnLic.Anchor = AnchorStyles.Right;
-            btnLic.Padding = new Padding(8, 3, 8, 3);
-            btnLic.Margin = new Padding(2, 2, 0, 2);
-            btnLic.Click += (s, e) => RequestLicenseDialog?.Invoke();
-            _toolTip.SetToolTip(btnLic, "စနစ်အချက်အလက်၊ ဖန်တီးသူ (ထက်ရာဇာ — ကျောက်ဆည်တက္ကသိုလ်) နှင့် GNU GPL v3.0 Open-Source လိုင်စင်");
+            _btnAboutLic.Dock = DockStyle.None;
+            _btnAboutLic.Anchor = AnchorStyles.Right;
+            _btnAboutLic.Padding = new Padding(7, 3, 7, 3);
+            _btnAboutLic.Margin = new Padding(2, 2, 0, 2);
+            _btnAboutLic.Click += (s, e) => RequestLicenseDialog?.Invoke();
 
             brandRow.Controls.Add(titleStack, 0, 0);
-            brandRow.Controls.Add(_btnEcoMode, 1, 0);
-            brandRow.Controls.Add(btnLic, 2, 0);
+            brandRow.Controls.Add(_btnLangToggle, 1, 0);
+            brandRow.Controls.Add(_btnEcoMode, 2, 0);
+            brandRow.Controls.Add(_btnAboutLic, 3, 0);
 
             // Row 1: 4-Tab Segmented Workspace Switcher (Proofing | Dictionary | Toolkit | Custom Words)
             var tabStrip = new TableLayoutPanel
@@ -471,13 +499,14 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             _btnFixAll.Click += (s, e) => RequestFixAllIssues?.Invoke(_currentFilter);
             _toolTip.SetToolTip(_btnFixAll, "ရွေးချယ်ထားသော စစ်ထုတ်မှုအလိုက် အမှားများကို တစ်ပြိုင်နက် ပြင်ဆင်ရန် — အနက်သံသယ သတိပြုချက်များကို အလိုအလျောက် မပြင်ဘဲ ချန်ထားပေးသည် (Ctrl+Z တစ်ချက်တည်းဖြင့် ပြန်ပြင်နိုင်သည်)");
 
-            var btnClearLines = CreatePillButton("မျဉ်းရှင်း", Color.FromArgb(242, 244, 248), Color.FromArgb(55, 65, 80), Color.FromArgb(215, 220, 230), _fontSmall);
-            btnClearLines.Click += (s, e) => RequestClearUnderlines?.Invoke();
-            _toolTip.SetToolTip(btnClearLines, "စာတမ်းပေါ်ရှိ စစ်ဆေးရေး မျဉ်းလှိုင်းများကို ဖယ်ရှားရန်");
+            _btnClearLines = CreatePillButton(
+                UiLocalizer.Pick("Clear Marks", "မျဉ်းရှင်း"),
+                Color.FromArgb(242, 244, 248), Color.FromArgb(55, 65, 80), Color.FromArgb(215, 220, 230), _fontSmall);
+            _btnClearLines.Click += (s, e) => RequestClearUnderlines?.Invoke();
 
             actionStrip.Controls.Add(_btnScanAll, 0, 0);
             actionStrip.Controls.Add(_btnFixAll, 1, 0);
-            actionStrip.Controls.Add(btnClearLines, 2, 0);
+            actionStrip.Controls.Add(_btnClearLines, 2, 0);
 
             // Filter Pills + Issue Stepper (All | Spelling | Grammar | Context | ↑ | ↓)
             var filterAndStepRow = new TableLayoutPanel
@@ -623,31 +652,35 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Font = _fontInput,
                 Margin = new Padding(2, 3, 4, 3)
             };
-            _txtDictionarySearch.HandleCreated += (s, e) =>
-            {
-                SendMessage(_txtDictionarySearch.Handle, EM_SETCUEBANNER, (IntPtr)1, "စာလုံးပေါင်း၊ ပညာရပ်/နိုင်ငံ (EN/MM)၊ စကားပုံ ရှာပါ...");
-            };
+            _txtDictionarySearch.HandleCreated += (s, e) => UpdateCueBanners();
             _txtDictionarySearch.TextChanged += (s, e) =>
             {
                 _searchDebounceTimer.Stop();
                 _searchDebounceTimer.Start();
             };
 
-            var btnLookupSelection = CreatePillButton("စာတမ်းမှယူ", Color.FromArgb(234, 243, 255), Color.FromArgb(20, 74, 158), Color.FromArgb(190, 212, 246), _fontSmall);
-            _toolTip.SetToolTip(btnLookupSelection, "စာတမ်းထဲ၌ ရွေးချယ်ထားသော (Highlight) ဝေါဟာရကို အဘိဓာန်၌ ချက်ချင်းရှာရန်");
-            btnLookupSelection.Click += (s, e) =>
+            _btnLookupSelection = CreatePillButton(
+                UiLocalizer.Pick("Selection", "စာတမ်းမှယူ"),
+                Color.FromArgb(234, 243, 255), Color.FromArgb(20, 74, 158), Color.FromArgb(190, 212, 246), _fontSmall);
+            _btnLookupSelection.Click += (s, e) =>
             {
                 string selText = (RequestGetSelectedDocumentText?.Invoke() ?? string.Empty).Trim();
                 if (string.IsNullOrWhiteSpace(selText))
                 {
-                    ShowToastBanner("စာတမ်းထဲ၌ ရှာဖွေလိုသော ဝေါဟာရကို အရင် ရွေးချယ် (Highlight) ပေးပါ။", isSuccess: false);
+                    ShowToastBanner(
+                        UiLocalizer.Pick(
+                            "Please highlight a word in the document first.",
+                            "စာတမ်းထဲ၌ ရှာဖွေလိုသော ဝေါဟာရကို အရင် ရွေးချယ် (Highlight) ပေးပါ။"),
+                        isSuccess: false);
                     return;
                 }
                 OpenDictionaryWithQuery(selText);
             };
 
-            var btnClearSearch = CreatePillButton("ရှင်းမည်", Color.FromArgb(242, 244, 248), Color.FromArgb(50, 60, 76), Color.FromArgb(215, 220, 230), _fontSmall);
-            btnClearSearch.Click += (s, e) =>
+            _btnClearSearch = CreatePillButton(
+                UiLocalizer.Pick("Clear", "ရှင်းမည်"),
+                Color.FromArgb(242, 244, 248), Color.FromArgb(50, 60, 76), Color.FromArgb(215, 220, 230), _fontSmall);
+            _btnClearSearch.Click += (s, e) =>
             {
                 _txtDictionarySearch.Text = string.Empty;
                 ExecuteDictionarySearchNow();
@@ -655,8 +688,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             };
 
             searchInputGrid.Controls.Add(_txtDictionarySearch, 0, 0);
-            searchInputGrid.Controls.Add(btnLookupSelection, 1, 0);
-            searchInputGrid.Controls.Add(btnClearSearch, 2, 0);
+            searchInputGrid.Controls.Add(_btnLookupSelection, 1, 0);
+            searchInputGrid.Controls.Add(_btnClearSearch, 2, 0);
 
             var dictCatRow = new FlowLayoutPanel
             {
@@ -782,10 +815,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Font = _fontInput,
                 Margin = new Padding(2, 3, 5, 3)
             };
-            _txtNewCustomWord.HandleCreated += (s, e) =>
-            {
-                SendMessage(_txtNewCustomWord.Handle, EM_SETCUEBANNER, (IntPtr)1, "ကိုယ်ပိုင်ဝေါဟာရ အသစ်ရိုက်ထည့်ပါ...");
-            };
+            _txtNewCustomWord.HandleCreated += (s, e) => UpdateCueBanners();
             _txtNewCustomWord.KeyDown += (s, e) =>
             {
                 if (e.KeyCode == Keys.Enter)
@@ -795,11 +825,13 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 }
             };
 
-            var btnAddCustom = CreatePillButton("+ မှတ်သားမည်", Color.FromArgb(24, 90, 188), Color.White, Color.FromArgb(20, 76, 162), _fontSmallBold);
-            btnAddCustom.Click += (s, e) => AddManualCustomWordFromInput();
+            _btnAddCustomWord = CreatePillButton(
+                UiLocalizer.Pick("+ Add Word", "+ မှတ်သားမည်"),
+                Color.FromArgb(24, 90, 188), Color.FromArgb(255, 255, 255), Color.FromArgb(20, 76, 162), _fontSmallBold);
+            _btnAddCustomWord.Click += (s, e) => AddManualCustomWordFromInput();
 
             addCustomGrid.Controls.Add(_txtNewCustomWord, 0, 0);
-            addCustomGrid.Controls.Add(btnAddCustom, 1, 0);
+            addCustomGrid.Controls.Add(_btnAddCustomWord, 1, 0);
 
             _lblCustomSummary = new Label
             {
@@ -839,6 +871,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             rootLayout.Controls.Add(_cardsPanel, 0, 1);
 
             Controls.Add(rootLayout);
+            ApplyStaticChromeLabelsAndTooltips();
             SetEcoModeState(EcoPerformanceGovernor.CurrentPreference, EcoPerformanceGovernor.Hardware.IsLowSpecHardware);
             UpdateWorkspaceTabStyles();
             UpdateStyleModeButtons();
@@ -885,20 +918,69 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
         public void SetLexiconStats(int wordCount, int ruleCount)
         {
-            _lblLexiconStats.Text = $"သတ်ပုံကျမ်း ဝေါဟာရ {wordCount:N0} • စည်းမျဉ်း {ruleCount:N0}+ (Offline)";
+            _isEngineWarmingUp = false;
+            _hasLexiconStats = true;
+            _lastWordCount = wordCount;
+            _lastOfficialCount = 0;
+            _lastRuleCount = ruleCount;
+            _lastRefCount = 0;
+            _lastEncycCount = 0;
+            RenderLexiconStatsLabel();
         }
 
         public void SetLexiconStats(int totalWordCount, int officialThatponCount, int ruleCount, int referenceCount = 0, int encyclopediaCount = 0)
         {
-            if (encyclopediaCount > 0)
+            _isEngineWarmingUp = false;
+            _hasLexiconStats = true;
+            _lastWordCount = totalWordCount;
+            _lastOfficialCount = officialThatponCount;
+            _lastRuleCount = ruleCount;
+            _lastRefCount = referenceCount;
+            _lastEncycCount = encyclopediaCount;
+            RenderLexiconStatsLabel();
+        }
+
+        private void RenderLexiconStatsLabel()
+        {
+            if (_isEngineWarmingUp)
             {
-                _lblLexiconStats.Text = $"သတ်ပုံကျမ်း {officialThatponCount:N0} • အဘိဓာန် {totalWordCount:N0} • ဗဟုသုတ {referenceCount:N0} • ထက်ရာဇာ (KU)";
+                _lblLexiconStats.Text = UiLocalizer.Pick(
+                    "Loading offline dictionary & lexicon... (Offline)",
+                    "သတ်ပုံကျမ်းနှင့် စွယ်စုံအဘိဓာန် အသင့်ဖွင့်လှစ်နေပါသည်... (Offline)");
+                return;
+            }
+
+            if (!_hasLexiconStats)
+            {
+                _lblLexiconStats.Text = UiLocalizer.Pick(
+                    "Official Thatpon + Dictionary • Htet Yar Zar (KU)",
+                    "သတ်ပုံကျမ်း + အဘိဓာန် • ထက်ရာဇာ (KU)");
+                return;
+            }
+
+            if (_lastOfficialCount <= 0)
+            {
+                _lblLexiconStats.Text = UiLocalizer.Pick(
+                    $"{_lastWordCount:N0} words • {_lastRuleCount:N0}+ rules (Offline)",
+                    $"သတ်ပုံကျမ်း ဝေါဟာရ {_lastWordCount:N0} • စည်းမျဉ်း {_lastRuleCount:N0}+ (Offline)");
+                return;
+            }
+
+            if (_lastEncycCount > 0)
+            {
+                _lblLexiconStats.Text = UiLocalizer.Pick(
+                    $"Thatpon {_lastOfficialCount:N0} • Dict {_lastWordCount:N0} • Knowledge {_lastRefCount:N0} • Htet Yar Zar (KU)",
+                    $"သတ်ပုံကျမ်း {_lastOfficialCount:N0} • အဘိဓာန် {_lastWordCount:N0} • ဗဟုသုတ {_lastRefCount:N0} • ထက်ရာဇာ (KU)");
             }
             else
             {
-                _lblLexiconStats.Text = referenceCount > 0
-                    ? $"သတ်ပုံကျမ်း {officialThatponCount:N0} • စုစုပေါင်း {totalWordCount:N0} • စကားပုံ {referenceCount:N0} • ထက်ရာဇာ (KU)"
-                    : $"သတ်ပုံကျမ်းဝင် {officialThatponCount:N0} • စုစုပေါင်း {totalWordCount:N0} ပုဒ် • ထက်ရာဇာ (KU)";
+                _lblLexiconStats.Text = _lastRefCount > 0
+                    ? UiLocalizer.Pick(
+                        $"Thatpon {_lastOfficialCount:N0} • Total {_lastWordCount:N0} • Proverbs {_lastRefCount:N0} • Htet Yar Zar (KU)",
+                        $"သတ်ပုံကျမ်း {_lastOfficialCount:N0} • စုစုပေါင်း {_lastWordCount:N0} • စကားပုံ {_lastRefCount:N0} • ထက်ရာဇာ (KU)")
+                    : UiLocalizer.Pick(
+                        $"Official Thatpon {_lastOfficialCount:N0} • Total {_lastWordCount:N0} • Htet Yar Zar (KU)",
+                        $"သတ်ပုံကျမ်းဝင် {_lastOfficialCount:N0} • စုစုပေါင်း {_lastWordCount:N0} ပုဒ် • ထက်ရာဇာ (KU)");
             }
         }
 
@@ -971,16 +1053,21 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
         public void SetEngineWarmupState()
         {
-            _lblLexiconStats.Text = "သတ်ပုံကျမ်းနှင့် စွယ်စုံအဘိဓာန် အသင့်ဖွင့်လှစ်နေပါသည်... (Offline)";
+            _isEngineWarmingUp = true;
+            RenderLexiconStatsLabel();
             if (_activeTab == TaskPaneWorkspaceTab.Proofing)
             {
-                _lblSummary.Text = "⟳ Offline အဘိဓာန် အင်ဂျင်ကို စတင်ချိတ်ဆက်နေပါသည်...";
+                _lblSummary.Text = UiLocalizer.Pick(
+                    "⟳ Connecting offline Myanmar dictionary engine...",
+                    "⟳ Offline အဘိဓာန် အင်ဂျင်ကို စတင်ချိတ်ဆက်နေပါသည်...");
                 _lblSummary.ForeColor = Color.FromArgb(24, 88, 182);
             }
         }
 
         public void SetEcoModeState(EcoModePreference preference, bool currentlyActive)
         {
+            _lastEcoPref = preference;
+            _lastEcoActive = currentlyActive;
             _btnEcoMode.Text = EcoPerformanceGovernor.FormatBadgeLabel(preference, currentlyActive);
             if (currentlyActive)
             {
@@ -1008,7 +1095,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             int clamped = Math.Max(0, Math.Min(100, percent));
             _isScanning = true;
             _lblScanProgress.Text = string.IsNullOrWhiteSpace(message)
-                ? $"⟳ စစ်ဆေးနေသည်... ({clamped}%)"
+                ? UiLocalizer.Pick($"⟳ Scanning... ({clamped}%)", $"⟳ စစ်ဆေးနေသည်... ({clamped}%)")
                 : $"⟳ {message} ({clamped}%)";
             _pnlScanProgress.Visible = true;
         }
@@ -1027,9 +1114,11 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             _isScanning = isScanning;
             if (_isScanning)
             {
-                _lblScanProgress.Text = "⟳ စာတမ်းကို စတင်စစ်ဆေးနေပါသည်...";
+                _lblScanProgress.Text = UiLocalizer.Pick("⟳ Starting document scan...", "⟳ စာတမ်းကို စတင်စစ်ဆေးနေပါသည်...");
                 _pnlScanProgress.Visible = true;
-                _lblSummary.Text = "⟳ စာတမ်းတစ်ခုလုံးကို အသေးစိတ် စစ်ဆေးနေပါသည်...";
+                _lblSummary.Text = UiLocalizer.Pick(
+                    "⟳ Scanning document for spelling, grammar & style...",
+                    "⟳ စာတမ်းတစ်ခုလုံးကို အသေးစိတ် စစ်ဆေးနေပါသည်...");
                 _lblSummary.ForeColor = Color.FromArgb(24, 88, 182);
             }
             else
@@ -1147,15 +1236,178 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         private void UpdateWorkspaceTabStyles()
         {
             int unresolvedCount = _allItems.Count(i => !i.IsResolved);
-            _btnTabProofing.Text = $"စစ်ဆေး ({unresolvedCount})";
+            _btnTabProofing.Text = UiLocalizer.Pick($"Proofing ({unresolvedCount})", $"စစ်ဆေး ({unresolvedCount})");
+            _btnTabDictionary.Text = UiLocalizer.Pick("Dictionary", "အဘိဓာန်");
+            _btnTabToolkit.Text = UiLocalizer.Pick("Toolkit", "ကိရိယာ");
 
             int customCount = RequestGetCustomWords?.Invoke()?.Count ?? 0;
-            _btnTabCustom.Text = customCount > 0 ? $"မှတ်သား ({customCount})" : "မှတ်သား";
+            _btnTabCustom.Text = customCount > 0
+                ? UiLocalizer.Pick($"Custom ({customCount})", $"မှတ်သား ({customCount})")
+                : UiLocalizer.Pick("Custom", "မှတ်သား");
 
             ApplySegmentTabStyle(_btnTabProofing, _activeTab == TaskPaneWorkspaceTab.Proofing);
             ApplySegmentTabStyle(_btnTabDictionary, _activeTab == TaskPaneWorkspaceTab.Dictionary);
             ApplySegmentTabStyle(_btnTabToolkit, _activeTab == TaskPaneWorkspaceTab.Toolkit);
             ApplySegmentTabStyle(_btnTabCustom, _activeTab == TaskPaneWorkspaceTab.CustomWords);
+        }
+
+        private void UpdateCueBanners()
+        {
+            if (_txtDictionarySearch != null && _txtDictionarySearch.IsHandleCreated)
+            {
+                SendMessage(
+                    _txtDictionarySearch.Handle,
+                    EM_SETCUEBANNER,
+                    (IntPtr)1,
+                    UiLocalizer.Pick(
+                        "Search spelling, domains/places (EN/MM), proverbs...",
+                        "စာလုံးပေါင်း၊ ပညာရပ်/နိုင်ငံ (EN/MM)၊ စကားပုံ ရှာပါ..."));
+            }
+
+            if (_txtNewCustomWord != null && _txtNewCustomWord.IsHandleCreated)
+            {
+                SendMessage(
+                    _txtNewCustomWord.Handle,
+                    EM_SETCUEBANNER,
+                    (IntPtr)1,
+                    UiLocalizer.Pick(
+                        "Enter a new custom Myanmar word...",
+                        "ကိုယ်ပိုင်ဝေါဟာရ အသစ်ရိုက်ထည့်ပါ..."));
+            }
+        }
+
+        private void ApplyStaticChromeLabelsAndTooltips()
+        {
+            _lblBrandTitle.Text = UiLocalizer.Pick("Myanmar Spell Checker", "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း");
+            RenderLexiconStatsLabel();
+
+            string authorCreditTip = UiLocalizer.Pick(
+                "Creator: Htet Yar Zar (ထက်ရာဇာ) • M.Sc. Part II Candidate in Geology, Department of Geology, Kyaukse University (Kyaukse, Myanmar)",
+                "ဖန်တီးသူ - ထက်ရာဇာ (Htet Yar Zar) • M.Sc. Part II Candidate in Geology, ဘူမိဗေဒဌာန၊ ကျောက်ဆည်တက္ကသိုလ် (Kyaukse, Myanmar)");
+            _toolTip.SetToolTip(_lblBrandTitle, authorCreditTip);
+            _toolTip.SetToolTip(_lblLexiconStats, authorCreditTip);
+
+            _btnLangToggle.Text = UiLocalizer.FormatLanguageBadge();
+            _toolTip.SetToolTip(_btnLangToggle, UiLocalizer.FormatLanguageTooltip());
+
+            _btnAboutLic.Text = UiLocalizer.Pick("ⓘ About", "အချက်အလက် ⓘ");
+            _toolTip.SetToolTip(
+                _btnAboutLic,
+                UiLocalizer.Pick(
+                    "About, Creator Attribution (Htet Yar Zar — Kyaukse University) & GNU GPL v3.0 Open-Source License",
+                    "စနစ်အချက်အလက်၊ ဖန်တီးသူ (ထက်ရာဇာ — ကျောက်ဆည်တက္ကသိုလ်) နှင့် GNU GPL v3.0 Open-Source လိုင်စင်"));
+
+            _btnStyleGeneral.Text = UiLocalizer.Pick("General Standard", "အထွေထွေ စံသတ်ပုံ");
+            _toolTip.SetToolTip(
+                _btnStyleGeneral,
+                UiLocalizer.Pick(
+                    "General & business Myanmar spelling mode (allows everyday spoken particles like ပါတယ်, တွေ)",
+                    "အများသုံး/လုပ်ငန်းသုံး စံသတ်ပုံစနစ် (ပါတယ်၊ တွေ စသည့် အပြောစကားများကို ခွင့်ပြုသည်)"));
+
+            _btnStyleFormal.Text = UiLocalizer.Pick("Official / Literary", "စာပေ / ရုံးသုံး");
+            _toolTip.SetToolTip(
+                _btnStyleFormal,
+                UiLocalizer.Pick(
+                    "Formal ministry & literary mode (flags colloquial particles: ပါတယ် ➔ ပါသည်, တွေ ➔ များ)",
+                    "အစိုးရရုံးသုံးနှင့် စာပေအရေးအသားစနစ် (ပါတယ် ➔ ပါသည်၊ တွေ ➔ များ ပါ စစ်ဆေးသည်)"));
+
+            _btnScanAll.Text = UiLocalizer.Pick("Scan Document", "စာတမ်းစစ်မည်");
+            _toolTip.SetToolTip(
+                _btnScanAll,
+                UiLocalizer.Pick(
+                    "Scan document body, tables, headers, and footers",
+                    "စာကိုယ်၊ ဇယားကွက်နှင့် ခေါင်းစီး/အောက်ခြေ အားလုံးကို စစ်ဆေးရန်"));
+
+            _toolTip.SetToolTip(
+                _btnFixAll,
+                UiLocalizer.Pick(
+                    "Review and apply fixes for the active filter — leaves names & context warnings unchecked by default (single Ctrl+Z undo)",
+                    "ရွေးချယ်ထားသော စစ်ထုတ်မှုအလိုက် အမှားများကို တစ်ပြိုင်နက် ပြင်ဆင်ရန် — အနက်သံသယ သတိပြုချက်များကို အလိုအလျောက် မပြင်ဘဲ ချန်ထားပေးသည် (Ctrl+Z တစ်ချက်တည်းဖြင့် ပြန်ပြင်နိုင်သည်)"));
+
+            _btnClearLines.Text = UiLocalizer.Pick("Clear Marks", "မျဉ်းရှင်း");
+            _toolTip.SetToolTip(
+                _btnClearLines,
+                UiLocalizer.Pick(
+                    "Remove temporary proofing underlines from the document",
+                    "စာတမ်းပေါ်ရှိ စစ်ဆေးရေး မျဉ်းလှိုင်းများကို ဖယ်ရှားရန်"));
+
+            _toolTip.SetToolTip(
+                _btnFilterContext,
+                UiLocalizer.Pick(
+                    "Context Check (sentence-meaning warnings that require human review)",
+                    "အနက်သံသယ စိစစ်ရန် (ဝါကျအနက်နှင့် တိုက်ဆိုင်စစ်ဆေးရမည့် စကားစပ်သတိပြုချက်များ)"));
+
+            _toolTip.SetToolTip(_btnPrevIssue, UiLocalizer.Pick("Previous issue", "ရှေ့အမှားသို့ သွားရန်"));
+            _toolTip.SetToolTip(_btnNextIssue, UiLocalizer.Pick("Next issue", "နောက်အမှားသို့ သွားရန်"));
+
+            _btnStopScan.Text = UiLocalizer.Pick("■ Stop", "■ ရပ်မည်");
+            _toolTip.SetToolTip(
+                _btnStopScan,
+                UiLocalizer.Pick(
+                    "Stop the active scan immediately",
+                    "လက်ရှိ စစ်ဆေးနေမှုကို ချက်ချင်းရပ်တန့်ရန် (စက်မလေးစေရန်)"));
+
+            _btnLookupSelection.Text = UiLocalizer.Pick("Selection", "စာတမ်းမှယူ");
+            _toolTip.SetToolTip(
+                _btnLookupSelection,
+                UiLocalizer.Pick(
+                    "Look up the currently highlighted word from the document",
+                    "စာတမ်းထဲ၌ ရွေးချယ်ထားသော (Highlight) ဝေါဟာရကို အဘိဓာန်၌ ချက်ချင်းရှာရန်"));
+
+            _btnClearSearch.Text = UiLocalizer.Pick("Clear", "ရှင်းမည်");
+
+            _btnDictCatAll.Text = UiLocalizer.Pick("All", "အားလုံး");
+            _btnDictCatThatpon.Text = UiLocalizer.Pick("Thatpon", "သတ်ပုံကျမ်း");
+            _btnDictCatAbidan.Text = UiLocalizer.Pick("Dictionary", "အဘိဓာန်");
+            _btnDictCatEncyc.Text = UiLocalizer.Pick("Encyclopedia", "စွယ်စုံဗဟုသုတ");
+            _btnDictCatDomain.Text = UiLocalizer.Pick("Domains", "ပညာရပ်");
+            _btnDictCatPropn.Text = UiLocalizer.Pick("Places/Names", "နိုင်ငံ/မြို့");
+            _btnDictCatProverb.Text = UiLocalizer.Pick("Proverbs", "စကားပုံ");
+
+            _lblToolkitSummary.Text = UiLocalizer.Pick(
+                "Font Converter, Numerals/Kyat, Myanmar Calendar, Official Letters & Quality Audit",
+                "ဖောင့်ပြောင်း၊ ဂဏန်း/ကျပ်ငွေ၊ မြန်မာသက္ကရာဇ်၊ ရုံးစာ နှင့် အရည်အသွေး စစ်ဆေးချက်");
+
+            _btnAddCustomWord.Text = UiLocalizer.Pick("+ Add Word", "+ မှတ်သားမည်");
+            _lblCustomSummary.Text = UiLocalizer.Pick(
+                "Personal & Organization Custom Dictionary",
+                "ကိုယ်ပိုင် / ရုံးသုံး မှတ်သားဝေါဟာရများ စာရင်း");
+
+            UpdateCueBanners();
+        }
+
+        public void ApplyLocalization()
+        {
+            SuspendLayout();
+            try
+            {
+                ApplyStaticChromeLabelsAndTooltips();
+                SetEcoModeState(_lastEcoPref, _lastEcoActive);
+                UpdateWorkspaceTabStyles();
+                UpdateStyleModeButtons();
+                UpdateFilterButtonStyles();
+                UpdateDictionaryCategoryStyles();
+            }
+            finally
+            {
+                ResumeLayout(true);
+            }
+
+            switch (_activeTab)
+            {
+                case TaskPaneWorkspaceTab.Dictionary:
+                    ExecuteDictionarySearchNow();
+                    break;
+                case TaskPaneWorkspaceTab.Toolkit:
+                    RenderToolkitWorkspaceView();
+                    break;
+                case TaskPaneWorkspaceTab.CustomWords:
+                    RenderCustomWordsView();
+                    break;
+                default:
+                    RefreshProofingCardsFull();
+                    break;
+            }
         }
 
         private void ApplySegmentTabStyle(Button btn, bool active)

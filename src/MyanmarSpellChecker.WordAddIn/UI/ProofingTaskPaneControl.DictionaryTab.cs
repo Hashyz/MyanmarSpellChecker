@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
@@ -26,7 +27,10 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 var featured = RequestGetFeaturedKnowledge?.Invoke() ?? new List<DictionaryEntry>();
                 if (featured.Count > 0)
                 {
-                    RenderDictionarySearchResults("စွယ်စုံဗဟုသုတ (ကျပန်းလေ့လာဖွယ်)", featured, 0.2);
+                    RenderDictionarySearchResults(
+                        UiLocalizer.Pick("Encyclopedia (Featured Knowledge)", "စွယ်စုံဗဟုသုတ (ကျပန်းလေ့လာဖွယ်)"),
+                        featured,
+                        0.2);
                     return;
                 }
                 _txtDictionarySearch.Text = "မြန်မာသဒ္ဒါ";
@@ -129,7 +133,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             _cardsPanel.SuspendLayout();
             DisposeAndClearCardsPanel();
 
-            _lblDictSummary.Text = "မြန်မာ-မြန်မာ အဘိဓာန်ကြီး၊ စွယ်စုံဗဟုသုတကျမ်း (၂၅,၀၀၀+)၊ နိုင်ငံ/ပညာရပ်နှင့် စကားပုံများ အမြန်ရှာဖွေနိုင်သည်";
+            _lblDictSummary.Text = UiLocalizer.Pick(
+                "Search Official Thatpon, Myanmar Dictionary, 25,000+ Encyclopedia articles, places & proverbs",
+                "မြန်မာ-မြန်မာ အဘိဓာန်ကြီး၊ စွယ်စုံဗဟုသုတကျမ်း (၂၅,၀၀၀+)၊ နိုင်ငံ/ပညာရပ်နှင့် စကားပုံများ အမြန်ရှာဖွေနိုင်သည်");
             _lblDictSummary.ForeColor = Color.FromArgb(24, 82, 172);
 
             int cardWidth = GetTargetCardWidth();
@@ -140,7 +146,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             var lblGuideTitle = new Label
             {
-                Text = "မြန်မာ-မြန်မာ အဘိဓာန်ကြီး နှင့် စွယ်စုံဗဟုသုတကျမ်း လမ်းညွှန် (100% Offline)",
+                Text = UiLocalizer.Pick(
+                    "Myanmar Dictionary & Encyclopedia Guide (100% Offline)",
+                    "မြန်မာ-မြန်မာ အဘိဓာန်ကြီး နှင့် စွယ်စုံဗဟုသုတကျမ်း လမ်းညွှန် (100% Offline)"),
                 Font = _fontBodyBold,
                 ForeColor = Color.FromArgb(20, 52, 108),
                 AutoSize = true,
@@ -154,7 +162,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             var lblGuideBody = new Label
             {
-                Text = "• မြန်မာ-မြန်မာ အနက်အဓိပ္ပာယ်အပြည့်အစုံ၊ ကြောင်းတူသံကွဲ (⇄)၊ ဆန့်ကျင်ဘက် (≠)၊ အသံထွက်၊ ရင်းမြစ်၊ သာဓက နှင့် ဆက်စပ်ဝေါဟာရ (→) များကို တစ်နေရာတည်း လေ့လာနိုင်ပါသည်။\n• သိပ္ပံ၊ ဆေးပညာ၊ သမိုင်း၊ စာပေ၊ သဒ္ဒါ၊ ဗုဒ္ဓဘာသာ၊ ဥပဒေ နှင့် ကမ္ဘာ့နိုင်ငံစွယ်စုံ (၂၄၅+) အပါအဝင် စွယ်စုံဗဟုသုတ ဆောင်းပါးပေါင်း (၂၅,၀၀၀+) ကို အင်တာနက်မလိုဘဲ ရှာဖွေဖတ်ရှုနိုင်ပါသည် —",
+                Text = UiLocalizer.Pick(
+                    "• Explore full Myanmar definitions, synonyms (⇄), antonyms (≠), pronunciation, etymology, examples, and related terms (→) in one place.\n• Browse 25,000+ offline encyclopedia articles across science, medicine, geology, history, literature, grammar, law, and 245+ world countries —",
+                    "• မြန်မာ-မြန်မာ အနက်အဓိပ္ပာယ်အပြည့်အစုံ၊ ကြောင်းတူသံကွဲ (⇄)၊ ဆန့်ကျင်ဘက် (≠)၊ အသံထွက်၊ ရင်းမြစ်၊ သာဓက နှင့် ဆက်စပ်ဝေါဟာရ (→) များကို တစ်နေရာတည်း လေ့လာနိုင်ပါသည်။\n• သိပ္ပံ၊ ဆေးပညာ၊ သမိုင်း၊ စာပေ၊ သဒ္ဒါ၊ ဗုဒ္ဓဘာသာ၊ ဥပဒေ နှင့် ကမ္ဘာ့နိုင်ငံစွယ်စုံ (၂၄၅+) အပါအဝင် စွယ်စုံဗဟုသုတ ဆောင်းပါးပေါင်း (၂၅,၀၀၀+) ကို အင်တာနက်မလိုဘဲ ရှာဖွေဖတ်ရှုနိုင်ပါသည် —"),
                 Font = _fontSmall,
                 ForeColor = Color.FromArgb(58, 68, 84),
                 AutoSize = true,
@@ -167,7 +177,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             card.Controls.Add(lblGuideBody, 0, row++);
 
             var btnExploreRandom = CreatePillButton(
-                "🎲 ဗဟုသုတ နှင့် အဘိဓာန် ကျပန်းဖတ်ရှုရန် (Explore Knowledge)",
+                UiLocalizer.Pick(
+                    "🎲 Explore Random Knowledge & Lexicon",
+                    "🎲 ဗဟုသုတ နှင့် အဘိဓာန် ကျပန်းဖတ်ရှုရန် (Explore Knowledge)"),
                 Color.FromArgb(232, 248, 246),
                 Color.FromArgb(12, 96, 92),
                 Color.FromArgb(168, 222, 214),
@@ -178,7 +190,10 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 var featured = RequestGetFeaturedKnowledge?.Invoke() ?? new List<DictionaryEntry>();
                 if (featured.Count > 0)
                 {
-                    RenderDictionarySearchResults("ကျပန်း လေ့လာဖွယ် စွယ်စုံဗဟုသုတ နှင့် အဘိဓာန်", featured, 0.2);
+                    RenderDictionarySearchResults(
+                        UiLocalizer.Pick("Featured Encyclopedia & Dictionary Entries", "ကျပန်း လေ့လာဖွယ် စွယ်စုံဗဟုသုတ နှင့် အဘိဓာန်"),
+                        featured,
+                        0.2);
                 }
             };
             card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -236,8 +251,12 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             string speedSuffix = elapsedMs > 0.0 ? $" ({elapsedMs:0.0} ms)" : string.Empty;
             _lblDictSummary.Text = matches.Count > 0
-                ? $"\"{query}\" အတွက် ရလဒ် ({matches.Count}) ခု တွေ့ရှိသည်{speedSuffix}"
-                : $"\"{query}\" နှင့် ကိုက်ညီသော ရလဒ် မတွေ့ရှိပါ{speedSuffix}";
+                ? UiLocalizer.Pick(
+                    $"Found {matches.Count} result(s) for \"{query}\"{speedSuffix}",
+                    $"\"{query}\" အတွက် ရလဒ် ({matches.Count}) ခု တွေ့ရှိသည်{speedSuffix}")
+                : UiLocalizer.Pick(
+                    $"No results found for \"{query}\"{speedSuffix}",
+                    $"\"{query}\" နှင့် ကိုက်ညီသော ရလဒ် မတွေ့ရှိပါ{speedSuffix}");
             _lblDictSummary.ForeColor = matches.Count > 0
                 ? Color.FromArgb(20, 85, 185)
                 : Color.FromArgb(165, 65, 20);
@@ -250,7 +269,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 var emptyCard = CreateStyledCardContainer(cardWidth, Color.FromArgb(215, 130, 30), isSelectableItem: null);
                 var lblEmpty = new Label
                 {
-                    Text = $"\"{query}\" နှင့် တိုက်ရိုက်ကိုက်ညီသော ဝေါဟာရ မတွေ့ရှိသေးပါ။ စာလုံးအစိတ်အပိုင်း သို့မဟုတ် အသံထွက်တူ စာလုံးဖြင့် ပြန်လည်ရှာဖွေကြည့်ပါ။",
+                    Text = UiLocalizer.Pick(
+                        $"No exact matches found for \"{query}\". Try searching a root syllable, English term, or phonetic spelling.",
+                        $"\"{query}\" နှင့် တိုက်ရိုက်ကိုက်ညီသော ဝေါဟာရ မတွေ့ရှိသေးပါ။ စာလုံးအစိတ်အပိုင်း သို့မဟုတ် အသံထွက်တူ စာလုံးဖြင့် ပြန်လည်ရှာဖွေကြည့်ပါ။"),
                     Font = _fontSmall,
                     ForeColor = Color.FromArgb(70, 78, 92),
                     AutoSize = true,
@@ -288,22 +309,26 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 int dRow = 0;
 
                 string sourceBadge = isEncyc
-                    ? (string.IsNullOrEmpty(entry.SpecializedDomain) ? "စွယ်စုံဗဟုသုတကျမ်း ✓" : $"စွယ်စုံဗဟုသုတ ({entry.SpecializedDomain}) ✓")
+                    ? (string.IsNullOrEmpty(entry.SpecializedDomain)
+                        ? UiLocalizer.Pick("Encyclopedia ✓", "စွယ်စုံဗဟုသုတကျမ်း ✓")
+                        : UiLocalizer.Pick($"Encyclopedia ({entry.SpecializedDomain}) ✓", $"စွယ်စုံဗဟုသုတ ({entry.SpecializedDomain}) ✓"))
                     : (isProverb
-                        ? "မြန်မာစာအဖွဲ့ စံကိုးကား ✓"
+                        ? UiLocalizer.Pick("Official MLC Reference ✓", "မြန်မာစာအဖွဲ့ စံကိုးကား ✓")
                         : (isDomain
-                            ? $"ပညာရပ်ဝေါဟာရ ({entry.SpecializedDomain}) ✓"
+                            ? UiLocalizer.Pick($"Domain Term ({entry.SpecializedDomain}) ✓", $"ပညာရပ်ဝေါဟာရ ({entry.SpecializedDomain}) ✓")
                             : (isPropn
-                                ? "ပထဝီဝင် / ရုံးသုံးအမည်မှန် ✓"
+                                ? UiLocalizer.Pick("Geography / Official Name ✓", "ပထဝီဝင် / ရုံးသုံးအမည်မှန် ✓")
                                 : (entry.IsOfficialThatpon
-                                    ? "သတ်ပုံကျမ်းဝင် ✓"
+                                    ? UiLocalizer.Pick("Official Thatpon ✓", "သတ်ပုံကျမ်းဝင် ✓")
                                     : (string.Equals(entry.PosTag, "CUSTOM", StringComparison.OrdinalIgnoreCase)
-                                        ? "မှတ်သားဝေါဟာရ ★"
-                                        : (string.Equals(entry.PosTag, "LOAN", StringComparison.OrdinalIgnoreCase) ? "မွေးစားဝေါဟာရ" : "ခေတ်သုံး စံဝေါဟာရ"))))));
+                                        ? UiLocalizer.Pick("Custom Word ★", "မှတ်သားဝေါဟာရ ★")
+                                        : (string.Equals(entry.PosTag, "LOAN", StringComparison.OrdinalIgnoreCase)
+                                            ? UiLocalizer.Pick("Loanword", "မွေးစားဝေါဟာရ")
+                                            : UiLocalizer.Pick("Standard Lexicon", "ခေတ်သုံး စံဝေါဟာရ")))))));
 
                 var lblWord = new Label
                 {
-                    Text = $"{entry.Word}   [{entry.PosDisplayLabel}]",
+                    Text = $"{entry.Word}   [{entry.LocalizedPosDisplayLabel}]",
                     Font = _fontCardWord,
                     ForeColor = isEncyc
                         ? Color.FromArgb(10, 78, 96)
@@ -324,7 +349,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
                 string metaText = isRefPhrase
                     ? sourceBadge
-                    : $"{sourceBadge}   •   ဝဏ္ဏခွဲ: {OrthographicDiffExplainer.FormatSyllableBreakdown(entry.Word)}";
+                    : UiLocalizer.Pick(
+                        $"{sourceBadge}   •   Syllables: {OrthographicDiffExplainer.FormatSyllableBreakdown(entry.Word)}",
+                        $"{sourceBadge}   •   ဝဏ္ဏခွဲ: {OrthographicDiffExplainer.FormatSyllableBreakdown(entry.Word)}");
                 var lblMeta = new Label
                 {
                     Text = metaText,
@@ -341,16 +368,20 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 card.Controls.Add(lblMeta, 0, dRow++);
 
                 string cueLabelPrefix = isEncyc
-                    ? "စွယ်စုံဗဟုသုတ အနှစ်ချုပ်"
+                    ? UiLocalizer.Pick("Encyclopedia Summary", "စွယ်စုံဗဟုသုတ အနှစ်ချုပ်")
                     : (isProverb
-                        ? "ဆိုလိုရင်း အဓိပ္ပာယ်"
+                        ? UiLocalizer.Pick("Meaning", "ဆိုလိုရင်း အဓိပ္ပာယ်")
                         : (isDomain
-                            ? "ပညာရပ် အနက် / အသုံး"
-                            : (isPropn ? "ပထဝီဝင် / အချက်အလက်" : "မြန်မာအဘိဓာန် အနက် / အသုံး")));
+                            ? UiLocalizer.Pick("Domain Definition", "ပညာရပ် အနက် / အသုံး")
+                            : (isPropn
+                                ? UiLocalizer.Pick("Geography / Info", "ပထဝီဝင် / အချက်အလက်")
+                                : UiLocalizer.Pick("Definition / Usage", "မြန်မာအဘိဓာန် အနက် / အသုံး"))));
                 var lblCue = new Label
                 {
                     Text = string.IsNullOrWhiteSpace(entry.MeaningCue)
-                        ? "အနက် / အသုံး: မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း စံစာလုံးပေါင်း"
+                        ? UiLocalizer.Pick(
+                            "Usage: Standard Myanmar Language Commission orthography",
+                            "အနက် / အသုံး: မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း စံစာလုံးပေါင်း")
                         : $"{cueLabelPrefix}: {entry.MeaningCue}",
                     Font = _fontBody,
                     ForeColor = Color.FromArgb(42, 52, 68),
@@ -394,7 +425,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                         bool metaExpanded = false;
                         var lblToggleMeta = new Label
                         {
-                            Text = $"▾ အချက်အလက် အပြည့်အစုံကြည့်ရန် ({metaLines.Length} ချက်)",
+                            Text = UiLocalizer.Pick(
+                                $"▾ Show Full Metadata ({metaLines.Length} items)",
+                                $"▾ အချက်အလက် အပြည့်အစုံကြည့်ရန် ({metaLines.Length} ချက်)"),
                             Font = _fontSmallBold,
                             ForeColor = Color.FromArgb(22, 82, 172),
                             AutoSize = true,
@@ -408,8 +441,10 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                             _cardsPanel.SuspendLayout();
                             lblAbidanMeta.Text = metaExpanded ? fullMetaText : collapsedMetaText;
                             lblToggleMeta.Text = metaExpanded
-                                ? "▴ အကျဉ်းချုပ် ပြန်ပိတ်ရန်"
-                                : $"▾ အချက်အလက် အပြည့်အစုံကြည့်ရန် ({metaLines.Length} ချက်)";
+                                ? UiLocalizer.Pick("▴ Collapse Details", "▴ အကျဉ်းချုပ် ပြန်ပိတ်ရန်")
+                                : UiLocalizer.Pick(
+                                    $"▾ Show Full Metadata ({metaLines.Length} items)",
+                                    $"▾ အချက်အလက် အပြည့်အစုံကြည့်ရန် ({metaLines.Length} ချက်)");
                             _cardsPanel.ResumeLayout();
                         };
                         card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -424,7 +459,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 {
                     var lblSynHeader = new Label
                     {
-                        Text = "ကြောင်းတူသံကွဲ (နှိပ်လျှင် ဆက်လက်ရှာဖွေမည်) —",
+                        Text = UiLocalizer.Pick("Synonyms (click to look up) —", "ကြောင်းတူသံကွဲ (နှိပ်လျှင် ဆက်လက်ရှာဖွေမည်) —"),
                         Font = _fontSmallBold,
                         ForeColor = Color.FromArgb(16, 102, 82),
                         AutoSize = true,
@@ -457,7 +492,11 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                             Color.FromArgb(178, 224, 208),
                             _fontSmall);
                         synPill.Dock = DockStyle.None;
-                        _toolTip.SetToolTip(synPill, $"\"{targetSyn}\" ၏ အနက်နှင့် အသုံးကို ဆက်လက်ရှာဖွေရန် နှိပ်ပါ");
+                        _toolTip.SetToolTip(
+                            synPill,
+                            UiLocalizer.Pick(
+                                $"Click to look up \"{targetSyn}\"",
+                                $"\"{targetSyn}\" ၏ အနက်နှင့် အသုံးကို ဆက်လက်ရှာဖွေရန် နှိပ်ပါ"));
                         synPill.Click += (s, e) => OpenDictionaryWithQuery(targetSyn);
                         synFlow.Controls.Add(synPill);
                     }
@@ -473,7 +512,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 {
                     var lblAntHeader = new Label
                     {
-                        Text = "ဆန့်ကျင်ဘက် ဝေါဟာရ (နှိပ်လျှင် ဆက်လက်ရှာဖွေမည်) —",
+                        Text = UiLocalizer.Pick("Antonyms (click to look up) —", "ဆန့်ကျင်ဘက် ဝေါဟာရ (နှိပ်လျှင် ဆက်လက်ရှာဖွေမည်) —"),
                         Font = _fontSmallBold,
                         ForeColor = Color.FromArgb(162, 42, 62),
                         AutoSize = true,
@@ -506,7 +545,11 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                             Color.FromArgb(242, 196, 204),
                             _fontSmall);
                         antPill.Dock = DockStyle.None;
-                        _toolTip.SetToolTip(antPill, $"\"{targetAnt}\" ၏ အနက်နှင့် အသုံးကို ဆက်လက်ရှာဖွေရန် နှိပ်ပါ");
+                        _toolTip.SetToolTip(
+                            antPill,
+                            UiLocalizer.Pick(
+                                $"Click to look up \"{targetAnt}\"",
+                                $"\"{targetAnt}\" ၏ အနက်နှင့် အသုံးကို ဆက်လက်ရှာဖွေရန် နှိပ်ပါ"));
                         antPill.Click += (s, e) => OpenDictionaryWithQuery(targetAnt);
                         antFlow.Controls.Add(antPill);
                     }
@@ -527,7 +570,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                     {
                         var lblRelHeader = new Label
                         {
-                            Text = "ဆက်စပ်ဖတ်ရှုဖွယ် ဗဟုသုတ / ဝေါဟာရ —",
+                            Text = UiLocalizer.Pick("Related Terms & Topics —", "ဆက်စပ်ဖတ်ရှုဖွယ် ဗဟုသုတ / ဝေါဟာရ —"),
                             Font = _fontSmallBold,
                             ForeColor = Color.FromArgb(24, 92, 118),
                             AutoSize = true,
@@ -560,7 +603,11 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                                 Color.FromArgb(182, 218, 234),
                                 _fontSmall);
                             relPill.Dock = DockStyle.None;
-                            _toolTip.SetToolTip(relPill, $"\"{targetRel}\" အကြောင်း ဆက်လက်ဖတ်ရှုရန် နှိပ်ပါ");
+                            _toolTip.SetToolTip(
+                                relPill,
+                                UiLocalizer.Pick(
+                                    $"Click to read about \"{targetRel}\"",
+                                    $"\"{targetRel}\" အကြောင်း ဆက်လက်ဖတ်ရှုရန် နှိပ်ပါ"));
                             relPill.Click += (s, e) => OpenDictionaryWithQuery(targetRel);
                             relFlow.Controls.Add(relPill);
                         }
@@ -575,7 +622,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 {
                     var lblHomo = new Label
                     {
-                        Text = $"အသံတူ/ဆင်တူ သတိပြုရန်: {homophones}",
+                        Text = UiLocalizer.Pick(
+                            $"Homophones / Similar Spelling: {homophones}",
+                            $"အသံတူ/ဆင်တူ သတိပြုရန်: {homophones}"),
                         Font = _fontSmall,
                         ForeColor = Color.FromArgb(145, 82, 12),
                         BackColor = Color.FromArgb(255, 250, 238),
@@ -605,20 +654,22 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
                 string wordToUse = entry.Word;
 
-                var btnCopy = CreatePillButton("ကူးယူမည်", Color.FromArgb(242, 245, 250), Color.FromArgb(48, 58, 74), Color.FromArgb(215, 222, 232), _fontSmall);
+                var btnCopy = CreatePillButton(
+                    UiLocalizer.Pick("Copy", "ကူးယူမည်"),
+                    Color.FromArgb(242, 245, 250), Color.FromArgb(48, 58, 74), Color.FromArgb(215, 222, 232), _fontSmall);
                 btnCopy.Click += (s, e) =>
                 {
                     try
                     {
                         Clipboard.SetText(wordToUse);
-                        btnCopy.Text = "✓ ကူးယူပြီး";
+                        btnCopy.Text = UiLocalizer.Pick("✓ Copied", "✓ ကူးယူပြီး");
                         btnCopy.ForeColor = Color.FromArgb(18, 120, 52);
                     }
                     catch { }
                 };
 
                 var btnInsert = CreatePillButton(
-                    "စာတမ်းသို့ ထည့်မည် ➔",
+                    UiLocalizer.Pick("Insert at Cursor ➔", "စာတမ်းသို့ ထည့်မည် ➔"),
                     Color.FromArgb(235, 244, 255),
                     Color.FromArgb(20, 68, 148),
                     Color.FromArgb(190, 212, 246),
@@ -638,7 +689,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             {
                 int remaining = matches.Count - takeCount;
                 var moreBtn = CreatePillButton(
-                    $"▾ နောက်ထပ် ရလဒ် ({remaining}) ခု ဆက်လက်ပြသရန်",
+                    UiLocalizer.Pick(
+                        $"▾ Show {remaining} More Result(s)",
+                        $"▾ နောက်ထပ် ရလဒ် ({remaining}) ခု ဆက်လက်ပြသရန်"),
                     Color.FromArgb(235, 243, 255),
                     Color.FromArgb(20, 74, 162),
                     Color.FromArgb(190, 212, 246),
