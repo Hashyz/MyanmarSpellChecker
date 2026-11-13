@@ -346,12 +346,16 @@ namespace MyanmarSpellChecker.Core.Dictionary
         private static bool IsEncyclopediaPosTag(string posTag) =>
             string.Equals(posTag, "ENCYC", StringComparison.OrdinalIgnoreCase);
 
+        private static bool IsBilingualLexiconPosTag(string posTag) =>
+            string.Equals(posTag, "EN_LEX", StringComparison.OrdinalIgnoreCase);
+
         private static bool IsReferencePosTag(string posTag) =>
             !string.IsNullOrEmpty(posTag) &&
             (string.Equals(posTag, "ENCYC", StringComparison.OrdinalIgnoreCase) ||
              string.Equals(posTag, "PROVERB", StringComparison.OrdinalIgnoreCase) ||
              string.Equals(posTag, "SAYING", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(posTag, "RHETORIC", StringComparison.OrdinalIgnoreCase));
+             string.Equals(posTag, "RHETORIC", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(posTag, "EN_LEX", StringComparison.OrdinalIgnoreCase));
 
         private static string PoolIfShort(string value, Dictionary<string, string> pool, int maxLen = 64)
         {
@@ -481,7 +485,7 @@ namespace MyanmarSpellChecker.Core.Dictionary
 
         private List<DictionaryEntry> LoadReferenceEntriesOnly(string encryptionPassword)
         {
-            var refEntries = new List<DictionaryEntry>(27000);
+            var refEntries = new List<DictionaryEntry>(72000);
             if (!File.Exists(_databasePath))
                 return refEntries;
 
@@ -547,6 +551,7 @@ namespace MyanmarSpellChecker.Core.Dictionary
             var trie = new MyanmarTrie(bulkCapacity: isFullCorpus);
             int deferredRefCount = 0;
             int deferredEncycCount = 0;
+            int deferredBilingualCount = 0;
 
             WithAuthenticatedReader(encryptionPassword, (reader, isV3, isV4, isV5) =>
             {
@@ -574,6 +579,8 @@ namespace MyanmarSpellChecker.Core.Dictionary
                         deferredRefCount++;
                         if (IsEncyclopediaPosTag(posTag))
                             deferredEncycCount++;
+                        else if (IsBilingualLexiconPosTag(posTag))
+                            deferredBilingualCount++;
                         continue;
                     }
 
@@ -664,6 +671,7 @@ namespace MyanmarSpellChecker.Core.Dictionary
                 trie.AttachLazyReferenceCorpus(
                     deferredRefCount,
                     deferredEncycCount,
+                    deferredBilingualCount,
                     () => LoadReferenceEntriesOnly(encryptionPassword));
             }
 
@@ -714,11 +722,10 @@ namespace MyanmarSpellChecker.Core.Dictionary
             if (!File.Exists(jsonFilePath))
                 return new MasterDictionaryJsonModel();
 
-            byte[] bytes = File.ReadAllBytes(jsonFilePath);
-            using (var ms = new MemoryStream(bytes))
+            using (var fs = new FileStream(jsonFilePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 65536))
             {
                 var serializer = new DataContractJsonSerializer(typeof(MasterDictionaryJsonModel));
-                return (MasterDictionaryJsonModel?)serializer.ReadObject(ms) ?? new MasterDictionaryJsonModel();
+                return (MasterDictionaryJsonModel?)serializer.ReadObject(fs) ?? new MasterDictionaryJsonModel();
             }
         }
     }

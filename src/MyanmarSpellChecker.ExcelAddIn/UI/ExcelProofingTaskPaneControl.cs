@@ -4,8 +4,10 @@ using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using MyanmarSpellChecker.Core.Dictionary;
 using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Models;
+using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
 using MyanmarSpellChecker.Core.Performance;
 using MyanmarSpellChecker.Core.Spreadsheet;
@@ -130,6 +132,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         // Dictionary Toolbar Controls
         private readonly TextBox _txtDictionarySearch;
         private readonly Button _btnClearDictSearch;
+        private readonly Button _btnDictBack;
+        private readonly Button _btnDictForward;
+        private readonly Button _btnDictSaved;
         private readonly Button _btnDictCatAll;
         private readonly Button _btnDictCatThatpon;
         private readonly Button _btnDictCatAbidan;
@@ -178,6 +183,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private TaskPaneWorkspaceTab _activeTab = TaskPaneWorkspaceTab.Proofing;
         private IssueFilterMode _currentFilter = IssueFilterMode.All;
         private DictionaryCategoryFilter _dictCategoryFilter = DictionaryCategoryFilter.All;
+        private readonly List<string> _dictHistory = new List<string>();
+        private int _dictHistoryIndex = -1;
+        private bool _suppressDictHistoryPush;
+        private bool _showingSavedBookmarksView;
         private ProofingStyleMode _currentStyleMode = ProofingStyleMode.GeneralStandard;
         private SpreadsheetScanScope _currentScanScope = SpreadsheetScanScope.ActiveSheet;
 
@@ -203,6 +212,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         public event Func<List<DictionaryEntry>>? RequestGetFeaturedKnowledge;
         public event Func<string, List<string>>? RequestGetSynonyms;
         public event Func<string, List<string>>? RequestGetAntonyms;
+        public event Func<string, List<string>>? RequestGetCollocations;
+        public event Func<IEnumerable<string>, List<DictionaryEntry>>? RequestGetBookmarkedEntries;
         public event Func<string, string>? RequestHomophoneSummary;
         public event Func<string>? RequestGetSelectedCellText;
         public event Func<string>? RequestGetSelectedNumericText;
@@ -645,11 +656,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 ColumnCount = 1,
-                RowCount = 3,
+                RowCount = 4,
                 Visible = false,
                 Margin = new Padding(0)
             };
             _dictionaryToolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            _dictionaryToolbar.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             _dictionaryToolbar.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             _dictionaryToolbar.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             _dictionaryToolbar.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -686,11 +698,54 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _btnClearDictSearch.Height = MeasureSingleLineButtonHeight(_fontSmall, 11);
             _btnClearDictSearch.Click += (s, e) =>
             {
+                _showingSavedBookmarksView = false;
                 _txtDictionarySearch.Clear();
+                ExecuteDictionarySearchNow();
                 _txtDictionarySearch.Focus();
             };
             searchBoxGrid.Controls.Add(_txtDictionarySearch, 0, 0);
             searchBoxGrid.Controls.Add(_btnClearDictSearch, 1, 0);
+
+            // History Navigation & Shared Bookmarks Bar (← Back | Next → | ★ Saved (N))
+            var dictNavGrid = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 3,
+                RowCount = 1,
+                Margin = new Padding(0, 0, 0, 4),
+                Padding = new Padding(0)
+            };
+            dictNavGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 27F));
+            dictNavGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 27F));
+            dictNavGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 46F));
+            dictNavGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            _btnDictBack = CreateChipButton(UiLocalizer.Pick("← Back", "← ရှေ့"));
+            _btnDictBack.BackColor = Color.FromArgb(242, 244, 248);
+            _btnDictBack.ForeColor = Color.FromArgb(148, 156, 168);
+            _btnDictBack.FlatAppearance.BorderColor = Color.FromArgb(215, 220, 230);
+            _btnDictBack.Enabled = false;
+            _btnDictBack.Click += (s, e) => NavigateDictionaryHistory(-1);
+
+            _btnDictForward = CreateChipButton(UiLocalizer.Pick("Next →", "နောက် →"));
+            _btnDictForward.BackColor = Color.FromArgb(242, 244, 248);
+            _btnDictForward.ForeColor = Color.FromArgb(148, 156, 168);
+            _btnDictForward.FlatAppearance.BorderColor = Color.FromArgb(215, 220, 230);
+            _btnDictForward.Enabled = false;
+            _btnDictForward.Click += (s, e) => NavigateDictionaryHistory(+1);
+
+            _btnDictSaved = CreateChipButton(UiLocalizer.Pick("★ Saved (0)", "★ မှတ်သား (0)"));
+            _btnDictSaved.Font = _fontSmallBold;
+            _btnDictSaved.BackColor = Color.FromArgb(255, 248, 230);
+            _btnDictSaved.ForeColor = Color.FromArgb(148, 86, 8);
+            _btnDictSaved.FlatAppearance.BorderColor = Color.FromArgb(242, 214, 152);
+            _btnDictSaved.Click += (s, e) => ToggleSavedBookmarksView();
+
+            dictNavGrid.Controls.Add(_btnDictBack, 0, 0);
+            dictNavGrid.Controls.Add(_btnDictForward, 1, 0);
+            dictNavGrid.Controls.Add(_btnDictSaved, 2, 0);
 
             // Deterministic 2-row Dictionary Category Grid (eliminates FlowLayoutPanel-in-TableLayoutPanel phantom height!)
             var dictCatGrid = new TableLayoutPanel
@@ -781,8 +836,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             };
 
             _dictionaryToolbar.Controls.Add(searchBoxGrid, 0, 0);
-            _dictionaryToolbar.Controls.Add(dictCatGrid, 0, 1);
-            _dictionaryToolbar.Controls.Add(_lblDictSummary, 0, 2);
+            _dictionaryToolbar.Controls.Add(dictNavGrid, 0, 1);
+            _dictionaryToolbar.Controls.Add(dictCatGrid, 0, 2);
+            _dictionaryToolbar.Controls.Add(_lblDictSummary, 0, 3);
 
             // ================= TAB 3 TOOLBAR: EXCEL SPREADSHEET TOOLKIT =================
             _toolkitToolbar = new TableLayoutPanel
@@ -941,6 +997,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             UpdateScopeButtons();
             UpdateFilterPillStyles();
             UpdateDictionaryCategoryStyles();
+            UpdateDictionaryNavButtons();
             RenderProofingCards();
         }
 
@@ -952,7 +1009,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     _txtDictionarySearch.Handle,
                     EM_SETCUEBANNER,
                     (IntPtr)1,
-                    UiLocalizer.Pick("Search headword, meaning, or encyclopedia...", "စာလုံး / အနက် / စွယ်စုံဗဟုသုတ ရိုက်ရှာပါ..."));
+                    UiLocalizer.Pick("Search English, Myanmar, Romanized (mingalaba), Zawgyi...", "အင်္ဂလိပ်/မြန်မာ၊ Romanized (mingalaba)၊ ဇော်ဂျီ ရိုက်ရှာပါ..."));
             }
 
             if (_txtNewCustomWord.IsHandleCreated)
@@ -1028,6 +1085,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     "လက်ရှိ Sheet/Workbook စစ်ဆေးနေမှုကို ချက်ချင်းရပ်တန့်ရန် (စက်မလေးစေရန်)"));
 
             _btnClearDictSearch.Text = UiLocalizer.Pick("Clear", "ရှင်း");
+            UpdateDictionaryNavButtons();
             _btnDictCatAll.Text = UiLocalizer.Pick("All", "အားလုံး");
             _btnDictCatThatpon.Text = UiLocalizer.Pick("Orthography", "သတ်ပုံကျမ်း");
             _btnDictCatAbidan.Text = UiLocalizer.Pick("Lexicon", "အဘိဓာန်");
@@ -1072,7 +1130,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     RenderProofingCards();
                     break;
                 case TaskPaneWorkspaceTab.Dictionary:
-                    ExecuteDictionarySearchNow();
+                    UpdateDictionaryNavButtons();
+                    if (_showingSavedBookmarksView)
+                        RenderSavedBookmarksView();
+                    else
+                        ExecuteDictionarySearchNow();
                     break;
                 case TaskPaneWorkspaceTab.Toolkit:
                     RenderToolkitWorkspace();
@@ -1243,10 +1305,15 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
         public void OpenDictionaryWithQuery(string? query = null)
         {
+            _showingSavedBookmarksView = false;
+            _dictCategoryFilter = DictionaryCategoryFilter.All;
+            UpdateDictionaryCategoryStyles();
             SwitchWorkspaceTab(TaskPaneWorkspaceTab.Dictionary);
             if (!string.IsNullOrWhiteSpace(query))
             {
+                _searchDebounceTimer.Stop();
                 _txtDictionarySearch.Text = query!.Trim();
+                _searchDebounceTimer.Stop();
                 ExecuteDictionarySearchNow();
             }
             _txtDictionarySearch.Focus();
@@ -1270,10 +1337,19 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     RenderProofingCards();
                     break;
                 case TaskPaneWorkspaceTab.Dictionary:
+                    UpdateDictionaryNavButtons();
+                    if (_showingSavedBookmarksView)
+                    {
+                        RenderSavedBookmarksView();
+                        break;
+                    }
                     if (string.IsNullOrWhiteSpace(_txtDictionarySearch.Text))
                     {
                         string sel = RequestGetSelectedCellText?.Invoke() ?? string.Empty;
-                        if (!string.IsNullOrWhiteSpace(sel) && SpreadsheetProofingHelper.ContainsMyanmarScript(sel) && sel.Length <= 36)
+                        if (!string.IsNullOrWhiteSpace(sel) &&
+                            (SpreadsheetProofingHelper.ContainsMyanmarScript(sel) || sel.Any(char.IsLetter)) &&
+                            sel.Length <= 36 &&
+                            sel.IndexOf('\n') < 0)
                         {
                             _txtDictionarySearch.Text = sel;
                         }
@@ -1488,6 +1564,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 _btnAddCustomWord.Height = auxBtnH;
 
                 int chipBtnH = MeasureSingleLineButtonHeight(_fontSmall, 10);
+                _btnDictBack.Height = chipBtnH;
+                _btnDictForward.Height = chipBtnH;
+                _btnDictSaved.Height = chipBtnH;
                 _btnDictCatAll.Height = chipBtnH;
                 _btnDictCatThatpon.Height = chipBtnH;
                 _btnDictCatAbidan.Height = chipBtnH;

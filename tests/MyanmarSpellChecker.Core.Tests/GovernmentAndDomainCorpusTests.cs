@@ -1691,6 +1691,10 @@ namespace MyanmarSpellChecker.Core.Tests
                 };
             }
 
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
             var swBook = System.Diagnostics.Stopwatch.StartNew();
             var perParaIssues = new IReadOnlyList<ProofingIssue>[paragraphCount];
             System.Threading.Tasks.Parallel.For(
@@ -2344,6 +2348,122 @@ namespace MyanmarSpellChecker.Core.Tests
                 Assert.Contains("UiFontCache.GetWindowDpi", addInSrc, StringComparison.Ordinal);
                 Assert.Contains("UiFontCache.GetWindowWidthPx", addInSrc, StringComparison.Ordinal);
                 Assert.Contains("_settledPaneWidthHwnds", addInSrc, StringComparison.Ordinal);
+            }
+        }
+
+        [Fact]
+        public void V53_BilingualLexiconPhoneticsCollocationsRomanizedZawgyiAndBookmarksVerification()
+        {
+            string repoRoot = TestPaths.RepoRoot;
+            string dbPath = Path.Combine(repoRoot, "data", "mlc_thatpon.db");
+            Assert.True(File.Exists(dbPath));
+
+            // 1. Verify compact encrypted DB size (<= 22 MB) & zero active spellcheck headword inflation
+            double dbSizeMb = new FileInfo(dbPath).Length / (1024.0 * 1024.0);
+            Assert.True(dbSizeMb <= 22.0, $"Expected mlc_thatpon.db <= 22 MB, got {dbSizeMb:F2} MB");
+
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            MyanmarTrie trie = repo.LoadIntoTrie(AntiTamperGuard.ReconstructProtectedFallbackKey());
+            var engine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+
+            Assert.True(trie.WordCount >= 95000, $"Expected >= 95,000 active Myanmar headwords, got {trie.WordCount}");
+            Assert.True(trie.BilingualLexiconCount >= 55000, $"Expected >= 55,000 lazy EN_LEX bilingual entries, got {trie.BilingualLexiconCount}");
+
+            // 2. Verify English -> Myanmar bilingual lookups + Official Thatpon orthography sanitization
+            var abandonHits = engine.SearchDictionary("abandon", 20);
+            Assert.Contains(abandonHits, e => e.IsBilingualLexiconEntry && string.Equals(e.Word, "abandon", StringComparison.OrdinalIgnoreCase));
+
+            var negotiateHits = engine.SearchDictionary("negotiate", 20);
+            Assert.NotEmpty(negotiateHits);
+
+            var procrastinateHits = engine.SearchDictionary("procrastinate", 20);
+            Assert.Contains(procrastinateHits, e => string.Equals(e.Word, "procrastinate", StringComparison.OrdinalIgnoreCase));
+
+            var knottyHits = engine.SearchDictionary("a knotty problem", 10);
+            var knottyEntry = Assert.Single(knottyHits, e => string.Equals(e.Word, "a knotty problem", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(
+                UnicodeNormalizer.NormalizeCanonicalOrder("ရှုပ်ထွေး"),
+                UnicodeNormalizer.NormalizeCanonicalOrder(knottyEntry.MeaningCue),
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                UnicodeNormalizer.NormalizeCanonicalOrder("ရုပ်ထွေး"),
+                UnicodeNormalizer.NormalizeCanonicalOrder(knottyEntry.MeaningCue),
+                StringComparison.Ordinal);
+
+            var eatHits = engine.SearchDictionary("eat", 25);
+            Assert.Contains(eatHits, e => e.IsBilingualLexiconEntry && string.Equals(e.Word, "eat", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(eatHits, e => !e.IsReferenceEntry && UnicodeNormalizer.NormalizeCanonicalOrder(e.Word) == UnicodeNormalizer.NormalizeCanonicalOrder("စား"));
+
+            // 3. Verify Dual Spoken Burmese + Easy Romanization + IPA & Offline TTS sanitizer
+            var thatponPron = MyanmarPhoneticTranscriber.GetPronunciation("သတ်ပုံ");
+            Assert.True(thatponPron.HasValue);
+            Assert.Equal("သပ်-ပုံ", thatponPron.SpokenBurmese);
+            Assert.Equal("that-pon", thatponPron.EasyRomanization);
+            Assert.Equal("θaʔ.bòʊɴ", thatponPron.Ipa);
+            string dualLine = MyanmarPhoneticTranscriber.FormatCompactDualLine(thatponPron, englishUi: true);
+            Assert.Contains("သပ်-ပုံ", dualLine, StringComparison.Ordinal);
+            Assert.Contains("that-pon", dualLine, StringComparison.Ordinal);
+
+            var g2pPron = MyanmarPhoneticTranscriber.GetPronunciation("ကစား", "ga- za: [gə zá]");
+            Assert.True(g2pPron.HasValue);
+            Assert.False(string.IsNullOrWhiteSpace(g2pPron.SpokenBurmese));
+            Assert.False(string.IsNullOrWhiteSpace(g2pPron.EasyRomanization));
+            Assert.Equal("gə.zá", g2pPron.Ipa);
+
+            Assert.Equal("eat", OfflineSpeechService.CleanSpeakableEnglishTerm("eat; consume (food)"));
+
+            // 4. Verify Smart Search: Romanized Burmese ("mingalaba", "thatpon", "kyaukse") + Auto Zawgyi -> Unicode
+            var mingalabaHits = engine.SearchDictionary("mingalaba", 20);
+            Assert.Contains(mingalabaHits, e =>
+                UnicodeNormalizer.NormalizeCanonicalOrder(e.Word) == UnicodeNormalizer.NormalizeCanonicalOrder("မင်္ဂလာပါ"));
+
+            var thatponRomanHits = engine.SearchDictionary("thatpon", 20);
+            Assert.Contains(thatponRomanHits, e =>
+                UnicodeNormalizer.NormalizeCanonicalOrder(e.Word) == UnicodeNormalizer.NormalizeCanonicalOrder("သတ်ပုံ"));
+
+            var kyaukseRomanHits = engine.SearchDictionary("kyaukse", 25);
+            Assert.Contains(kyaukseRomanHits, e =>
+                UnicodeNormalizer.NormalizeCanonicalOrder(e.Word).StartsWith(UnicodeNormalizer.NormalizeCanonicalOrder("ကျောက်ဆည်"), StringComparison.Ordinal));
+
+            string zawgyiPanyar = "\u1015\u100A\u102C\u1031\u101B\u1038"; // Zawgyi for ပညာရေး
+            string normPanyar = MyanmarTrie.NormalizeSearchQuery(zawgyiPanyar, out bool wasZawgyi);
+            Assert.True(wasZawgyi);
+            Assert.Equal(UnicodeNormalizer.NormalizeCanonicalOrder("ပညာရေး"), normPanyar);
+            var zawgyiHits = engine.SearchDictionary(zawgyiPanyar, 15);
+            Assert.Contains(zawgyiHits, e =>
+                UnicodeNormalizer.NormalizeCanonicalOrder(e.Word) == UnicodeNormalizer.NormalizeCanonicalOrder("ပညာရေး"));
+
+            // 5. Verify Real-World Corpus Collocations Explorer
+            var collocations = engine.GetTopCollocations("စီမံ", 6);
+            Assert.NotEmpty(collocations);
+            Assert.All(collocations, c =>
+                Assert.Contains(UnicodeNormalizer.NormalizeCanonicalOrder("စီမံ"), UnicodeNormalizer.NormalizeCanonicalOrder(c), StringComparison.Ordinal));
+
+            // 6. Verify Live-Synced Word/Excel DictionaryBookmarkStore + LookupBookmarkedEntries
+            string tempBookmarkFile = Path.Combine(Path.GetTempPath(), $"msc_bookmarks_v53_{Guid.NewGuid():N}.txt");
+            try
+            {
+                var wordStore = new DictionaryBookmarkStore(tempBookmarkFile);
+                var excelStore = new DictionaryBookmarkStore(tempBookmarkFile);
+
+                Assert.True(wordStore.ToggleBookmark("သတ်ပုံ"));
+                Assert.True(wordStore.ToggleBookmark("abandon"));
+                Assert.Equal(2, excelStore.Count);
+                Assert.True(excelStore.IsBookmarked("သတ်ပုံ"));
+                Assert.True(excelStore.IsBookmarked("ABANDON"));
+
+                var resolvedBookmarks = engine.LookupBookmarkedEntries(excelStore.GetBookmarkedWords());
+                Assert.Equal(2, resolvedBookmarks.Count);
+                Assert.Contains(resolvedBookmarks, e => UnicodeNormalizer.NormalizeCanonicalOrder(e.Word) == UnicodeNormalizer.NormalizeCanonicalOrder("သတ်ပုံ"));
+                Assert.Contains(resolvedBookmarks, e => string.Equals(e.Word, "abandon", StringComparison.OrdinalIgnoreCase));
+
+                Assert.False(excelStore.ToggleBookmark("abandon"));
+                Assert.Equal(1, wordStore.Count);
+            }
+            finally
+            {
+                if (File.Exists(tempBookmarkFile))
+                    File.Delete(tempBookmarkFile);
             }
         }
     }

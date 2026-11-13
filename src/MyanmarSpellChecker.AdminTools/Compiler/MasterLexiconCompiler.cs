@@ -1492,8 +1492,9 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 }
             }
 
-            // G. Parse myG2P Pronunciation Lexicon (24,802 entries — words, compounds & IPA pronunciations)
+            // G. Parse myG2P Pronunciation Lexicon (24,802 entries — words, compounds, sandhi romanizations & IPA pronunciations)
             string myG2pPath = Path.Combine(sourcesDir, "dictionaries", "myg2p_v2.txt");
+            var myG2pPronMap = new Dictionary<string, string>(25000, StringComparer.Ordinal);
             int myG2pAdded = 0;
             if (File.Exists(myG2pPath))
             {
@@ -1506,8 +1507,19 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     if (rawWord.IndexOf('.') >= 0 || rawWord.IndexOf(' ') >= 0) continue;
                     string w = NormalizeMyanmar(rawWord);
                     if (!IsCleanHeadword(w)) continue;
-                    string ipa = (cols.Length >= 5 && !string.IsNullOrWhiteSpace(cols[4])) ? cols[4].Trim() : cols[3].Trim();
-                    string pronCue = string.IsNullOrEmpty(ipa) ? "" : ("အသံထွက်: /" + ipa + "/");
+                    string roman = cols[3].Trim();
+                    string ipa = (cols.Length >= 5 && !string.IsNullOrWhiteSpace(cols[4])) ? cols[4].Trim() : "";
+                    string g2pStructured = !string.IsNullOrEmpty(roman) && !string.IsNullOrEmpty(ipa)
+                        ? (roman + " [" + ipa + "]")
+                        : (!string.IsNullOrEmpty(ipa) ? ipa : roman);
+                    if (!string.IsNullOrEmpty(g2pStructured) && !myG2pPronMap.ContainsKey(w))
+                    {
+                        myG2pPronMap[w] = g2pStructured;
+                    }
+
+                    string pronCue = string.IsNullOrEmpty(ipa)
+                        ? (string.IsNullOrEmpty(roman) ? "" : ("အသံထွက်: " + roman))
+                        : ("အသံထွက်: /" + ipa + "/");
 
                     EntryItem existing;
                     if (map.TryGetValue(w, out existing))
@@ -1625,7 +1637,32 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 }
             }
 
-            // J. Parse Ornagai Myanmar-English Dictionary (52,604 Zawgyi rows -> Convert to Unicode -> Enrich Definitions & Modern Words!)
+            // J. Parse Ornagai Myanmar-English Dictionary (52,604 Zawgyi rows -> Convert to Unicode -> Enrich Definitions, Multi-Sense Glosses & EN_LEX!)
+            var mmToEnGlossList = new Dictionary<string, List<string>>(42000, StringComparer.Ordinal);
+            var ornagaiEnBuckets = new Dictionary<string, List<(string Pos, string MmGloss)>>(28000, StringComparer.OrdinalIgnoreCase);
+
+            void AddMmEnglishSense(string mmWord, string enSense)
+            {
+                if (string.IsNullOrWhiteSpace(mmWord) || string.IsNullOrWhiteSpace(enSense))
+                    return;
+                string cleanEn = enSense.Trim();
+                if (cleanEn.Length < 2 || cleanEn.Length > 60 || VulgarOrnagaiEnglishRegex.IsMatch(cleanEn))
+                    return;
+                if (!mmToEnGlossList.TryGetValue(mmWord, out var list))
+                {
+                    list = new List<string>(3);
+                    mmToEnGlossList[mmWord] = list;
+                }
+                if (list.Count >= 4)
+                    return;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (string.Equals(list[i], cleanEn, StringComparison.OrdinalIgnoreCase))
+                        return;
+                }
+                list.Add(cleanEn);
+            }
+
             string ornagaiPath = Path.Combine(sourcesDir, "dictionaries", "ornagai_mmtab.tsv");
             int ornagaiEnriched = 0;
             int ornagaiAdded = 0;
@@ -1645,12 +1682,25 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     string mappedPos = MapOrnagaiPos(rawPos);
                     string engCue = string.IsNullOrEmpty(rawPos) ? engWord : (engWord + " (" + rawPos + ")");
 
-                    string uniGloss = ConvertZawgyi(cols[0]);
+                    string uniGloss = NormalizeMyanmar(ConvertZawgyi(cols[0]).Trim());
+                    if (!string.IsNullOrEmpty(uniGloss))
+                    {
+                        if (!ornagaiEnBuckets.TryGetValue(engWord, out var obList))
+                        {
+                            obList = new List<(string Pos, string MmGloss)>(2);
+                            ornagaiEnBuckets[engWord] = obList;
+                        }
+                        if (obList.Count < 4)
+                            obList.Add((rawPos, uniGloss));
+                    }
+
                     string[] parts = uniGloss.Split(new char[] { '၊', ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
                     for (int pi = 0; pi < parts.Length; pi++)
                     {
                         string w = NormalizeMyanmar(parts[pi].Trim());
                         if (w.IndexOf(' ') >= 0 || !IsCleanHeadword(w)) continue;
+
+                        AddMmEnglishSense(w, engCue);
 
                         EntryItem existing;
                         if (map.TryGetValue(w, out existing))
@@ -2218,12 +2268,15 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                                 uhsPaliEnriched++;
                             }
                         }
-                        if (!string.IsNullOrEmpty(uEng) && !VulgarOrnagaiEnglishRegex.IsMatch(uEng) &&
-                            (string.IsNullOrEmpty(exUhs.MeaningCue) ||
-                             exUhs.MeaningCue == "ခေတ်သုံး မြန်မာဝေါဟာရ" ||
-                             exUhs.MeaningCue == "မြန်မာပေါင်းစပ်ဝေါဟာရ"))
+                        if (!string.IsNullOrEmpty(uEng) && !VulgarOrnagaiEnglishRegex.IsMatch(uEng))
                         {
-                            exUhs.MeaningCue = uEng;
+                            AddMmEnglishSense(w, uEng);
+                            if (string.IsNullOrEmpty(exUhs.MeaningCue) ||
+                                exUhs.MeaningCue == "ခေတ်သုံး မြန်မာဝေါဟာရ" ||
+                                exUhs.MeaningCue == "မြန်မာပေါင်းစပ်ဝေါဟာရ")
+                            {
+                                exUhs.MeaningCue = uEng;
+                            }
                         }
                         if (!string.IsNullOrEmpty(uPos) && (string.IsNullOrEmpty(exUhs.PosTag) || exUhs.PosTag == "N/V"))
                         {
@@ -2905,7 +2958,19 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     string ek = egLine.Substring(0, tabIdx).Trim();
                     string mv = egLine.Substring(tabIdx + 1).Trim();
                     if (ek.Length >= 2 && mv.Length >= 2 && !enToMmGlossMap.ContainsKey(ek))
+                    {
                         enToMmGlossMap[ek] = mv;
+                        if (!VulgarOrnagaiEnglishRegex.IsMatch(ek))
+                        {
+                            string[] wParts = mv.Split(new char[] { '၊', '။', ',', ';', '•' }, StringSplitOptions.RemoveEmptyEntries);
+                            for (int wpi = 0; wpi < wParts.Length; wpi++)
+                            {
+                                string candMm = NormalizeMyanmar(wParts[wpi].Trim());
+                                if (candMm.Length >= 1 && candMm.IndexOf(' ') < 0 && map.ContainsKey(candMm))
+                                    AddMmEnglishSense(candMm, ek);
+                            }
+                        }
+                    }
                 }
             }
 
@@ -3454,6 +3519,184 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
             }
             Console.WriteLine("  - V16 Offline Myanmar Encyclopedic Knowledge Corpus: +" + encyclopediaArticlesAdded + " ENCYC articles.");
 
+            // V23 Hybrid Smart Merge:
+            // (1) Enrich canonical Myanmar headwords in-place with myG2P sandhi pronunciations & deduplicated English glosses (0 duplicate headwords!)
+            // (2) Compile Orthography-Sanitized Lazy Bilingual English-to-Myanmar Reference Lexicon (PosTag = "EN_LEX")
+            int g2pNotesEnriched = 0;
+            int bilingualNotesEnriched = 0;
+            for (int i = 0; i < allEntries.Count; i++)
+            {
+                var ce = allEntries[i];
+                if (ce.PosTag == "ENCYC" || ce.PosTag == "PROVERB" || ce.PosTag == "SAYING" || ce.PosTag == "RHETORIC" || ce.PosTag == "EN_LEX")
+                    continue;
+
+                string curUsage = ce.UsageNote ?? string.Empty;
+                string g2pVal;
+                if (curUsage.IndexOf("အသံထွက်:", StringComparison.Ordinal) < 0 &&
+                    myG2pPronMap.TryGetValue(ce.Word, out g2pVal) &&
+                    !string.IsNullOrEmpty(g2pVal))
+                {
+                    curUsage = string.IsNullOrEmpty(curUsage)
+                        ? ("အသံထွက်: " + g2pVal)
+                        : (curUsage + " | အသံထွက်: " + g2pVal);
+                    g2pNotesEnriched++;
+                }
+
+                bool foreignPropn = ce.PosTag == "PROPN" &&
+                    curUsage.IndexOf("မြန်မာနိုင်ငံ", StringComparison.Ordinal) < 0 &&
+                    curUsage.IndexOf("မြို့နယ်", StringComparison.Ordinal) < 0;
+                if (!foreignPropn &&
+                    curUsage.IndexOf("အင်္ဂလိပ်", StringComparison.Ordinal) < 0 &&
+                    mmToEnGlossList.TryGetValue(ce.Word, out var enGlosses) &&
+                    enGlosses.Count > 0)
+                {
+                    string joinedEn = string.Join("; ", enGlosses);
+                    curUsage = string.IsNullOrEmpty(curUsage)
+                        ? ("အင်္ဂလိပ်အနက်: " + joinedEn)
+                        : (curUsage + " | အင်္ဂလိပ်အနက်: " + joinedEn);
+                    bilingualNotesEnriched++;
+                }
+
+                ce.UsageNote = curUsage;
+            }
+
+            // Build Official Thatpon orthography sanitizer lookup for EN_LEX Myanmar definitions
+            var defWrongFixes = new List<(string Wrong, string Right)>(cleanRules.Count + 4);
+            defWrongFixes.Add((NormalizeMyanmar("ပုတ်ကိုယ်"), NormalizeMyanmar("ပုဂ္ဂိုလ်")));
+            defWrongFixes.Add((NormalizeMyanmar("ရုပ်ထွေး"), NormalizeMyanmar("ရှုပ်ထွေး")));
+            for (int ri = 0; ri < cleanRules.Count; ri++)
+            {
+                string wf = cleanRules[ri].WrongForm;
+                string cf = cleanRules[ri].CorrectForm;
+                if (!string.IsNullOrEmpty(wf) && !string.IsNullOrEmpty(cf) && wf.Length >= 4 && !string.Equals(wf, cf, StringComparison.Ordinal))
+                {
+                    defWrongFixes.Add((wf, cf));
+                }
+            }
+
+            string SanitizeBilingualMmText(string rawMm)
+            {
+                if (string.IsNullOrWhiteSpace(rawMm))
+                    return string.Empty;
+                string s = rawMm.Replace("`", "").Replace("´", "").Replace("\r", " ").Replace("\n", " ");
+                s = NormalizeMyanmar(s);
+                for (int fi = 0; fi < defWrongFixes.Count; fi++)
+                {
+                    if (s.IndexOf(defWrongFixes[fi].Wrong, StringComparison.Ordinal) >= 0)
+                        s = s.Replace(defWrongFixes[fi].Wrong, defWrongFixes[fi].Right);
+                }
+                s = Regex.Replace(s, @"\s{2,}", " ").Trim();
+                return s;
+            }
+
+            var allEnKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string k in enToMmGlossMap.Keys) allEnKeys.Add(k);
+            foreach (string k in ornagaiEnBuckets.Keys) allEnKeys.Add(k);
+
+            Regex validEnHeadwordRx = new Regex(@"^[A-Za-z][A-Za-z0-9'\- ]{1,46}$", RegexOptions.Compiled);
+            Regex placeholderNoiseRx = new Regex(@"\b(?:sth|sb|ones|busive)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+            var stopLinkParticles = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "သည်", "သော", "ခြင်း", "မှု", "ရာ", "၌", "တွင်", "ကို", "နှင့်", "၏", "မှ", "သို့", "ဖြင့်", "အား", "ဟု", "၍", "လည်း", "ပါ", "သည့်", "ဖြစ်", "ရှိ", "ရန်", "သူ", "အရာ"
+            };
+
+            int enLexAdded = 0;
+            foreach (string rawEnKey in allEnKeys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+            {
+                string enKey = Regex.Replace(rawEnKey.Trim(), @"\s{2,}", " ");
+                if (!validEnHeadwordRx.IsMatch(enKey) || placeholderNoiseRx.IsMatch(enKey) || VulgarOrnagaiEnglishRegex.IsMatch(enKey))
+                    continue;
+
+                // Keep up to 4-word English idioms/phrasal verbs ("break the ice", "a change of heart"), skip long sentence fragments
+                int spaceCnt = 0;
+                for (int ci = 0; ci < enKey.Length; ci++)
+                    if (enKey[ci] == ' ') spaceCnt++;
+                if (spaceCnt > 3)
+                    continue;
+
+                var senses = new List<string>(4);
+                void AddSenseUnique(string candidateSense)
+                {
+                    if (string.IsNullOrWhiteSpace(candidateSense) || senses.Count >= 3)
+                        return;
+                    string cs = candidateSense.Trim().TrimEnd('•', ';', ',');
+                    if (cs.Length < 1 || !hasMyanmarConsonantRx.IsMatch(cs))
+                        return;
+                    for (int si = 0; si < senses.Count; si++)
+                    {
+                        if (string.Equals(senses[si], cs, StringComparison.Ordinal) ||
+                            senses[si].IndexOf(cs, StringComparison.Ordinal) >= 0)
+                            return;
+                    }
+                    senses.Add(cs);
+                }
+
+                if (ornagaiEnBuckets.TryGetValue(rawEnKey, out var ornList))
+                {
+                    for (int oi = 0; oi < ornList.Count && senses.Count < 3; oi++)
+                    {
+                        string cleanOrn = SanitizeBilingualMmText(ornList[oi].MmGloss);
+                        if (!string.IsNullOrEmpty(cleanOrn))
+                        {
+                            string posPrefix = !string.IsNullOrEmpty(ornList[oi].Pos) ? ("[" + ornList[oi].Pos + "] ") : "";
+                            AddSenseUnique(posPrefix + cleanOrn);
+                        }
+                    }
+                }
+
+                string wikGloss;
+                if (enToMmGlossMap.TryGetValue(rawEnKey, out wikGloss) && !string.IsNullOrEmpty(wikGloss))
+                {
+                    string[] wikParts = wikGloss.Split(new[] { " • " }, StringSplitOptions.RemoveEmptyEntries);
+                    for (int wi = 0; wi < wikParts.Length && senses.Count < 3; wi++)
+                    {
+                        string cleanWik = SanitizeBilingualMmText(wikParts[wi]);
+                        if (cleanWik.Length > 105)
+                            cleanWik = cleanWik.Substring(0, 102).TrimEnd() + "…";
+                        AddSenseUnique(cleanWik);
+                    }
+                }
+
+                if (senses.Count == 0)
+                    continue;
+
+                string finalCue = string.Join(" • ", senses);
+                if (finalCue.Length > 165)
+                    finalCue = finalCue.Substring(0, 162).TrimEnd() + "…";
+
+                // Extract up to 3 verified canonical Myanmar headwords for 1-click jump pills
+                var crossLinks = new List<string>(3);
+                string[] linkTokens = finalCue.Split(new char[] { '၊', '။', ',', ';', '•', ' ', '(', ')', '[', ']', '—', '/' }, StringSplitOptions.RemoveEmptyEntries);
+                for (int li = 0; li < linkTokens.Length && crossLinks.Count < 3; li++)
+                {
+                    string tok = linkTokens[li].Trim();
+                    if (tok.Length >= 2 &&
+                        !stopLinkParticles.Contains(tok) &&
+                        map.ContainsKey(tok) &&
+                        !crossLinks.Contains(tok))
+                    {
+                        crossLinks.Add(tok);
+                    }
+                }
+
+                string linkNote = crossLinks.Count > 0
+                    ? ("ကြောင်းတူသံကွဲ: " + string.Join("၊ ", crossLinks))
+                    : string.Empty;
+
+                allEntries.Add(new EntryItem
+                {
+                    Word = enKey.ToLowerInvariant(),
+                    PosTag = "EN_LEX",
+                    MeaningCue = finalCue,
+                    UsageNote = linkNote,
+                    Frequency = ornagaiEnBuckets.ContainsKey(rawEnKey) ? 30 : 18,
+                    IsOfficialThatpon = false
+                });
+                enLexAdded++;
+            }
+            Console.WriteLine(string.Format("  - V23 Bilingual & Phonetic Upgrade: +{0} G2P pronunciations | +{1} MM->EN headword glosses | +{2} EN_LEX English->Myanmar entries!",
+                g2pNotesEnriched, bilingualNotesEnriched, enLexAdded));
+
             // Final enterprise hygiene pass: strip any sensitive English words (e.g. botanical '(bastard oleaster)' / 'bastard orca') from MeaningCue
             Regex parenSensitiveEnRx = new Regex(@"\([^)]*\b(arse|arsehole|asshole|bitch|fuck|shit|bastard|whore|slut|cunt|mistress|snob)\b[^)]*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
             for (int i = 0; i < allEntries.Count; i++)
@@ -3473,86 +3716,116 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
             int officialCount = allEntries.Where(e => e.IsOfficialThatpon).Select(e => e.Word).Distinct(StringComparer.Ordinal).Count();
             int uniqueWords = allEntries.Select(e => e.Word).Distinct(StringComparer.Ordinal).Count();
 
-            // Write formatted UTF-8 JSON
-            var sb = new StringBuilder(allEntries.Count * 170 + topBigrams.Count * 65);
-            sb.AppendLine("{");
-            sb.AppendLine("  \"Standard\": \"မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း (462-Page Complete Book) + မြန်မာအဘိဓာန် + ဦးဟုတ်စိန် + MOFA/GAD Gazetteer + V11 5-Domain Suite + V16 Massive Myanmar-to-Myanmar Knowledge & Encyclopedia (25,000 ENCYC)\",");
-            sb.AppendLine("  \"Version\": \"2026.16\",");
-            sb.AppendLine("  \"TotalEntries\": " + allEntries.Count + ",");
-            sb.AppendLine("  \"UniqueHeadwords\": " + uniqueWords + ",");
-            sb.AppendLine("  \"OfficialThatponUniqueWords\": " + officialCount + ",");
-            sb.AppendLine("  \"TotalOrthographyRules\": " + cleanRules.Count + ",");
-            sb.AppendLine("  \"TotalContextRules\": " + cleanCtxRules.Count + ",");
-            sb.AppendLine("  \"TotalWordBigrams\": " + topBigrams.Count + ",");
-            sb.AppendLine("  \"Entries\": [");
-            for (int i = 0; i < allEntries.Count; i++)
+            // Write compact UTF-8 JSON directly via buffered StreamWriter (0 MB LOH allocation & GitHub < 100 MB compliant)
+            using (var sw = new StreamWriter(outputJsonPath, append: false, new UTF8Encoding(false), bufferSize: 65536))
             {
-                var e = allEntries[i];
-                string comma = (i == allEntries.Count - 1) ? "" : ",";
-                sb.Append("    { \"Word\": \"").Append(EscapeJson(e.Word))
-                  .Append("\", \"MeaningCue\": \"").Append(EscapeJson(e.MeaningCue))
-                  .Append("\", \"PosTag\": \"").Append(EscapeJson(e.PosTag));
-                if (!string.IsNullOrEmpty(e.UsageNote))
+                sw.WriteLine("{");
+                sw.WriteLine("  \"Standard\": \"မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း (462-Page Complete Book) + မြန်မာအဘိဓာန် + ဦးဟုတ်စိန် + MOFA/GAD Gazetteer + V11 5-Domain Suite + V16 Encyclopedia + V23 Bilingual EN-MM & myG2P Suite\",");
+                sw.WriteLine("  \"Version\": \"2026.23\",");
+                sw.WriteLine("  \"TotalEntries\": " + allEntries.Count + ",");
+                sw.WriteLine("  \"UniqueHeadwords\": " + uniqueWords + ",");
+                sw.WriteLine("  \"OfficialThatponUniqueWords\": " + officialCount + ",");
+                sw.WriteLine("  \"TotalOrthographyRules\": " + cleanRules.Count + ",");
+                sw.WriteLine("  \"TotalContextRules\": " + cleanCtxRules.Count + ",");
+                sw.WriteLine("  \"TotalWordBigrams\": " + topBigrams.Count + ",");
+                sw.WriteLine("  \"Entries\": [");
+                for (int i = 0; i < allEntries.Count; i++)
                 {
-                    sb.Append("\", \"UsageNote\": \"").Append(EscapeJson(e.UsageNote));
+                    var e = allEntries[i];
+                    string comma = (i == allEntries.Count - 1) ? "" : ",";
+                    sw.Write("{\"Word\":\"");
+                    sw.Write(EscapeJson(e.Word));
+                    sw.Write("\",\"MeaningCue\":\"");
+                    sw.Write(EscapeJson(e.MeaningCue));
+                    sw.Write("\",\"PosTag\":\"");
+                    sw.Write(EscapeJson(e.PosTag));
+                    if (!string.IsNullOrEmpty(e.UsageNote))
+                    {
+                        sw.Write("\",\"UsageNote\":\"");
+                        sw.Write(EscapeJson(e.UsageNote));
+                    }
+                    sw.Write('\"');
+                    if (e.Frequency != 0)
+                    {
+                        sw.Write(",\"Frequency\":");
+                        sw.Write(e.Frequency);
+                    }
+                    if (e.IsOfficialThatpon)
+                    {
+                        sw.Write(",\"IsOfficialThatpon\":true");
+                    }
+                    sw.Write('}');
+                    sw.WriteLine(comma);
                 }
-                sb.Append("\", \"Frequency\": ").Append(e.Frequency)
-                  .Append(", \"IsOfficialThatpon\": ").Append(e.IsOfficialThatpon ? "true" : "false")
-                  .AppendLine(" }" + comma);
-            }
-            sb.AppendLine("  ],");
-            sb.AppendLine("  \"OrthographyRules\": [");
-            for (int i = 0; i < cleanRules.Count; i++)
-            {
-                var r = cleanRules[i];
-                string comma = (i == cleanRules.Count - 1) ? "" : ",";
-                sb.Append("    { \"WrongForm\": \"").Append(EscapeJson(r.WrongForm))
-                  .Append("\", \"CorrectForm\": \"").Append(EscapeJson(r.CorrectForm))
-                  .Append("\", \"Category\": \"").Append(EscapeJson(r.Category))
-                  .Append("\", \"Explanation\": \"").Append(EscapeJson(r.Explanation))
-                  .AppendLine("\" }" + comma);
-            }
-            sb.AppendLine("  ],");
-            sb.AppendLine("  \"ContextRules\": [");
-            for (int i = 0; i < cleanCtxRules.Count; i++)
-            {
-                var cr = cleanCtxRules[i];
-                string comma = (i == cleanCtxRules.Count - 1) ? "" : ",";
-                sb.Append("    { \"WrongForm\": \"").Append(EscapeJson(cr.WrongForm))
-                  .Append("\", \"CorrectForm\": \"").Append(EscapeJson(cr.CorrectForm))
-                  .Append("\", \"TriggerWords\": \"").Append(EscapeJson(cr.TriggerWords));
-                if (!string.IsNullOrEmpty(cr.AntiTriggerWords))
+                sw.WriteLine("  ],");
+                sw.WriteLine("  \"OrthographyRules\": [");
+                for (int i = 0; i < cleanRules.Count; i++)
                 {
-                    sb.Append("\", \"AntiTriggerWords\": \"").Append(EscapeJson(cr.AntiTriggerWords));
+                    var r = cleanRules[i];
+                    string comma = (i == cleanRules.Count - 1) ? "" : ",";
+                    sw.Write("{\"WrongForm\":\"");
+                    sw.Write(EscapeJson(r.WrongForm));
+                    sw.Write("\",\"CorrectForm\":\"");
+                    sw.Write(EscapeJson(r.CorrectForm));
+                    sw.Write("\",\"Category\":\"");
+                    sw.Write(EscapeJson(r.Category));
+                    sw.Write("\",\"Explanation\":\"");
+                    sw.Write(EscapeJson(r.Explanation));
+                    sw.Write("\"}");
+                    sw.WriteLine(comma);
                 }
-                sb.Append("\", \"Direction\": \"").Append(EscapeJson(cr.Direction))
-                  .Append("\", \"Window\": ").Append(cr.Window);
-                if (cr.IsWarningOnly)
+                sw.WriteLine("  ],");
+                sw.WriteLine("  \"ContextRules\": [");
+                for (int i = 0; i < cleanCtxRules.Count; i++)
                 {
-                    sb.Append(", \"IsWarningOnly\": true");
+                    var cr = cleanCtxRules[i];
+                    string comma = (i == cleanCtxRules.Count - 1) ? "" : ",";
+                    sw.Write("{\"WrongForm\":\"");
+                    sw.Write(EscapeJson(cr.WrongForm));
+                    sw.Write("\",\"CorrectForm\":\"");
+                    sw.Write(EscapeJson(cr.CorrectForm));
+                    sw.Write("\",\"TriggerWords\":\"");
+                    sw.Write(EscapeJson(cr.TriggerWords));
+                    if (!string.IsNullOrEmpty(cr.AntiTriggerWords))
+                    {
+                        sw.Write("\",\"AntiTriggerWords\":\"");
+                        sw.Write(EscapeJson(cr.AntiTriggerWords));
+                    }
+                    sw.Write("\",\"Direction\":\"");
+                    sw.Write(EscapeJson(cr.Direction));
+                    sw.Write("\",\"Window\":");
+                    sw.Write(cr.Window);
+                    if (cr.IsWarningOnly)
+                    {
+                        sw.Write(",\"IsWarningOnly\":true");
+                    }
+                    if (cr.SkipParticles)
+                    {
+                        sw.Write(",\"SkipParticles\":true");
+                    }
+                    sw.Write(",\"Explanation\":\"");
+                    sw.Write(EscapeJson(cr.Explanation));
+                    sw.Write("\"}");
+                    sw.WriteLine(comma);
                 }
-                if (cr.SkipParticles)
+                sw.WriteLine("  ],");
+                sw.WriteLine("  \"WordBigrams\": [");
+                for (int i = 0; i < topBigrams.Count; i++)
                 {
-                    sb.Append(", \"SkipParticles\": true");
+                    var bg = topBigrams[i];
+                    string comma = (i == topBigrams.Count - 1) ? "" : ",";
+                    sw.Write("{\"LeftWord\":\"");
+                    sw.Write(EscapeJson(bg.LeftWord));
+                    sw.Write("\",\"RightWord\":\"");
+                    sw.Write(EscapeJson(bg.RightWord));
+                    sw.Write("\",\"Count\":");
+                    sw.Write(bg.Count);
+                    sw.Write('}');
+                    sw.WriteLine(comma);
                 }
-                sb.Append(", \"Explanation\": \"").Append(EscapeJson(cr.Explanation))
-                  .AppendLine("\" }" + comma);
+                sw.WriteLine("  ]");
+                sw.WriteLine("}");
             }
-            sb.AppendLine("  ],");
-            sb.AppendLine("  \"WordBigrams\": [");
-            for (int i = 0; i < topBigrams.Count; i++)
-            {
-                var bg = topBigrams[i];
-                string comma = (i == topBigrams.Count - 1) ? "" : ",";
-                sb.Append("    { \"LeftWord\": \"").Append(EscapeJson(bg.LeftWord))
-                  .Append("\", \"RightWord\": \"").Append(EscapeJson(bg.RightWord))
-                  .Append("\", \"Count\": ").Append(bg.Count)
-                  .AppendLine(" }" + comma);
-            }
-            sb.AppendLine("  ]");
-            sb.AppendLine("}");
-
-            File.WriteAllText(outputJsonPath, sb.ToString(), new UTF8Encoding(false));
             Console.WriteLine(string.Format("[+] Book Part 1 lines: {0} | Collocations: {1} | Paren variants: {2} | Classifier stems: {3}",
                 bookLinesParsed, bookCollocationsExtracted, bookParenVariantsExtracted, bookStemsExtracted));
             Console.WriteLine(string.Format("[+] Book Part 2 (ခွဲထား) NEW Official Words: {0} | Homophone Cues Enriched: {1} | Arrow Rules: {2}",

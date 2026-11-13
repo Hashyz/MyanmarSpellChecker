@@ -15,7 +15,7 @@ namespace MyanmarSpellChecker.Core.Nlp
     {
         // Zawgyi-specific codepoints (U+1033, U+1034, U+105A, U+1060..U+1097), visual-order E/Ra before consonant, Zawgyi 'မ်ား'/'ဥပေဒ', bare Zawgyi 'င္' coda, Zawgyi '\u1039' + Consonant + Ya-pin '\u103A', or Zawgyi asat (\u1039 before အ/tone/E/vowel/boundary)
         private static readonly Regex ZawgyiPattern = new Regex(
-            @"[\u1033\u1034\u105A\u1060-\u1097]|(?:^|[\s\u1038\u103A\u104A\u104B(\[""'“‘/])\u1031[\u1000-\u1021\u103B-\u103E]|(?:^|[\s\u104A\u104B(\[""'“‘/])\u103B[\u1000-\u1021]|[\u102D-\u1030\u1032\u1036]\u1031[\u1000-\u1021]|\u1039(?=[\s\u104A\u104B\u1037\u1038\u1031\u103B\u1021\u1023-\u102A\u104C-\u104F)\]}""'”’/]|$)|(?<!\u1004\u103A)\u1004\u1039[\u1000-\u1021]|\u1039[\u1000-\u1021]\u103A(?![\u1037-\u1039])|\u1019\u103A\u102C\u1038|\u1025\u1015\u1031\u1012",
+            @"[\u1033\u1034\u105A\u1060-\u1097]|(?:^|[\s\u1038\u103A\u104A\u104B(\[""'“‘/])\u1031[\u1000-\u1021\u103B-\u103E]|(?:^|[\s\u104A\u104B(\[""'“‘/])\u103B[\u1000-\u1021]|[\u102B-\u1030\u1032\u1036\u1037]\u1031[\u1000-\u1021\u103B-\u103E]|\u1039(?=[\s\u104A\u104B\u1037\u1038\u1031\u103B\u1021\u1023-\u102A\u104C-\u104F)\]}""'”’/]|$)|(?<!\u1004\u103A)\u1004\u1039[\u1000-\u1021]|\u1039[\u1000-\u1021]\u103A(?![\u1037-\u1039])|\u1019\u103A\u102C\u1038|\u1025\u1015\u1031\u1012",
             RegexOptions.Compiled);
 
         // Unambiguous Pyidaungsu Unicode 5.1+ structural markers inside a Myanmar token (impossible in Zawgyi-One: logical E before AA/tone/end, Unicode kinzi \u1004\u103A\u1039, Unicode Ha-hto \u103E, or non-Ya-pin coda + Unicode asat \u103A)

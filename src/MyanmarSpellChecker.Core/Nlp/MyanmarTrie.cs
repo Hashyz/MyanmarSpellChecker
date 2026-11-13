@@ -267,8 +267,11 @@ namespace MyanmarSpellChecker.Core.Nlp
         private readonly Dictionary<string, List<DictionaryEntry>> _lexicalHeadwordSyllableIndex = new Dictionary<string, List<DictionaryEntry>>(StringComparer.Ordinal);
         private readonly Dictionary<string, List<DictionaryEntry>> _lexicalCueSyllableIndex = new Dictionary<string, List<DictionaryEntry>>(StringComparer.Ordinal);
         private readonly Dictionary<string, List<DictionaryEntry>> _referenceExactIndex = new Dictionary<string, List<DictionaryEntry>>(StringComparer.Ordinal);
+        private readonly Dictionary<string, List<DictionaryEntry>> _bilingualExactIndex = new Dictionary<string, List<DictionaryEntry>>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, List<DictionaryEntry>> _referenceSyllableIndex = new Dictionary<string, List<DictionaryEntry>>(StringComparer.Ordinal);
         private readonly Dictionary<string, List<DictionaryEntry>> _referenceCueSyllableIndex = new Dictionary<string, List<DictionaryEntry>>(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<string, List<string>> _collocationCache = new ConcurrentDictionary<string, List<string>>(StringComparer.Ordinal);
+        private List<DictionaryEntry>? _featuredEncycPool;
         private int _featuredRotationCursor;
 
         private static readonly HashSet<string> CueStopSyllables = new HashSet<string>(StringComparer.Ordinal)
@@ -310,13 +313,23 @@ namespace MyanmarSpellChecker.Core.Nlp
         public int SpecializedDomainCount { get; private set; }
         public int ReferenceCount => _referenceCorpus.Count + Volatile.Read(ref _deferredReferenceCount);
         public int EncyclopediaCount { get; private set; }
+        public int BilingualLexiconCount { get; private set; }
 
-        internal void AttachLazyReferenceCorpus(int deferredRefCount, int deferredEncycCount, Func<List<DictionaryEntry>> loader)
+        internal void AttachLazyReferenceCorpus(
+            int deferredRefCount,
+            int deferredEncycCount,
+            int deferredBilingualCount,
+            Func<List<DictionaryEntry>> loader)
         {
             _deferredReferenceCount = deferredRefCount;
             EncyclopediaCount += deferredEncycCount;
+            BilingualLexiconCount += deferredBilingualCount;
+            _featuredEncycPool = null;
             _lazyReferenceLoader = loader;
         }
+
+        internal void AttachLazyReferenceCorpus(int deferredRefCount, int deferredEncycCount, Func<List<DictionaryEntry>> loader) =>
+            AttachLazyReferenceCorpus(deferredRefCount, deferredEncycCount, 0, loader);
 
         private void EnsureReferenceCorpusLoaded()
         {
@@ -392,6 +405,9 @@ namespace MyanmarSpellChecker.Core.Nlp
             {
                 if (entry.IsEncyclopediaEntry)
                     EncyclopediaCount++;
+                else if (entry.IsBilingualLexiconEntry)
+                    BilingualLexiconCount++;
+                _featuredEncycPool = null;
                 _referenceCorpus.Add(entry);
                 return;
             }
@@ -1203,26 +1219,57 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (count <= 0)
                 return results;
 
-            int seedCursor = Interlocked.Add(ref _featuredRotationCursor, 37) & int.MaxValue;
+            int seedCursor = Interlocked.Add(ref _featuredRotationCursor, 997) & int.MaxValue;
             int encycTarget = Math.Max(1, (count * 2) / 3);
             EnsureReferenceCorpusLoaded();
-            if (_referenceCorpus.Count > 0)
+
+            List<DictionaryEntry>? pool = _featuredEncycPool;
+            if (pool == null)
             {
-                int totalRef = _referenceCorpus.Count;
-                int stride = Math.Max(17, totalRef / Math.Max(1, encycTarget + 3));
-                int cursor = seedCursor % totalRef;
-                int scanned = 0;
-                while (results.Count < encycTarget && scanned < totalRef)
+                lock (_searchIndexLock)
                 {
-                    var cand = _referenceCorpus[cursor];
-                    if (cand.IsEncyclopediaEntry && !string.IsNullOrEmpty(cand.MeaningCue) && !string.IsNullOrEmpty(cand.KnowledgeSummary))
+                    pool = _featuredEncycPool;
+                    if (pool == null)
+                    {
+                        var built = new List<DictionaryEntry>();
+                        for (int ri = 0; ri < _referenceCorpus.Count; ri++)
+                        {
+                            var cand = _referenceCorpus[ri];
+                            if (cand.IsEncyclopediaEntry &&
+                                !string.IsNullOrEmpty(cand.MeaningCue) &&
+                                !string.IsNullOrEmpty(cand.KnowledgeSummary))
+                            {
+                                built.Add(cand);
+                            }
+                        }
+                        _featuredEncycPool = built;
+                        pool = built;
+                    }
+                }
+            }
+
+            if (pool.Count > 0)
+            {
+                int totalPool = pool.Count;
+                int target = Math.Min(encycTarget, totalPool);
+                int stride = Math.Max(31, totalPool / Math.Max(1, target + 3));
+                if (stride % 2 == 0)
+                    stride++;
+
+                int cursor = seedCursor % totalPool;
+                var picked = new HashSet<string>(StringComparer.Ordinal);
+                int scanned = 0;
+                while (results.Count < target && scanned < totalPool)
+                {
+                    var cand = pool[cursor];
+                    if (picked.Add(cand.Word))
                     {
                         results.Add(cand);
-                        cursor = (cursor + stride) % totalRef;
+                        cursor = (cursor + stride) % totalPool;
                     }
                     else
                     {
-                        cursor = (cursor + 1) % totalRef;
+                        cursor = (cursor + 1) % totalPool;
                     }
                     scanned++;
                 }
@@ -1280,6 +1327,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             _lexicalHeadwordSyllableIndex.Clear();
             _lexicalCueSyllableIndex.Clear();
             _referenceExactIndex.Clear();
+            _bilingualExactIndex.Clear();
             _referenceSyllableIndex.Clear();
             _referenceCueSyllableIndex.Clear();
 
@@ -1311,6 +1359,43 @@ namespace MyanmarSpellChecker.Core.Nlp
                 if (!ContainsWordAndCue(bucket, entry.Word, entry.MeaningCue))
                 {
                     bucket.Add(entry);
+                }
+            }
+
+            void IndexUsageNoteLatinTokens(string usageNote, DictionaryEntry entry)
+            {
+                int segStart = 0;
+                while (segStart < usageNote.Length)
+                {
+                    int pipeIdx = usageNote.IndexOf('|', segStart);
+                    int segEnd = pipeIdx >= 0 ? pipeIdx : usageNote.Length;
+                    while (segStart < segEnd && char.IsWhiteSpace(usageNote[segStart]))
+                        segStart++;
+
+                    if (segStart < segEnd)
+                    {
+                        string seg = usageNote.Substring(segStart, segEnd - segStart);
+                        // Skip myG2P romanized pronunciation segments ("အသံထွက်: khwei: za: ...") so phonetic syllables do not pollute English search
+                        if (!seg.StartsWith("အသံထွက်:", StringComparison.Ordinal))
+                        {
+                            foreach (Match m in AsciiTokenExtractRegex.Matches(seg))
+                            {
+                                string tok = m.Value.TrimEnd('-');
+                                AddLatinToken(tok, entry);
+                                int dashIdx = tok.IndexOf('-');
+                                if (dashIdx > 0)
+                                {
+                                    AddLatinToken(tok.Substring(0, dashIdx), entry);
+                                    if (dashIdx + 1 < tok.Length)
+                                        AddLatinToken(tok.Substring(dashIdx + 1), entry);
+                                }
+                            }
+                        }
+                    }
+
+                    if (pipeIdx < 0)
+                        break;
+                    segStart = pipeIdx + 1;
                 }
             }
 
@@ -1377,18 +1462,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     // 1. Index ASCII / ISO / CallingCode tokens across MeaningCue & UsageNote (which includes EnglishName)
                     if (!string.IsNullOrEmpty(e.UsageNote))
                     {
-                        foreach (Match m in AsciiTokenExtractRegex.Matches(e.UsageNote))
-                        {
-                            string tok = m.Value.TrimEnd('-');
-                            AddLatinToken(tok, e);
-                            int dashIdx = tok.IndexOf('-');
-                            if (dashIdx > 0)
-                            {
-                                AddLatinToken(tok.Substring(0, dashIdx), e);
-                                if (dashIdx + 1 < tok.Length)
-                                    AddLatinToken(tok.Substring(dashIdx + 1), e);
-                            }
-                        }
+                        IndexUsageNoteLatinTokens(e.UsageNote, e);
 
                         // 2. Index bi-directional Burmese synonyms (ကြောင်းတူသံကွဲ:)
                         if (e.UsageNote.IndexOf("ကြောင်းတူသံကွဲ:", StringComparison.Ordinal) >= 0)
@@ -1457,16 +1531,37 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            // 4. Index Offline Classical & Encyclopedic Reference Corpus (_referenceCorpus) for < 1.5 ms lookup
+            // 4. Index Offline Classical, Encyclopedic & Bilingual Reference Corpus (_referenceCorpus) for < 1.5 ms lookup
             for (int ri = 0; ri < _referenceCorpus.Count; ri++)
             {
                 var refEntry = _referenceCorpus[ri];
+                if (refEntry.IsBilingualLexiconEntry)
+                {
+                    if (!_bilingualExactIndex.TryGetValue(refEntry.Word, out var exBiList))
+                    {
+                        exBiList = new List<DictionaryEntry>(1);
+                        _bilingualExactIndex[refEntry.Word] = exBiList;
+                    }
+                    exBiList.Add(refEntry);
+
+                    foreach (Match m in AsciiTokenExtractRegex.Matches(refEntry.Word))
+                    {
+                        AddLatinToken(m.Value.TrimEnd('-'), refEntry);
+                    }
+                    continue;
+                }
+
                 if (!_referenceExactIndex.TryGetValue(refEntry.Word, out var exRefList))
                 {
                     exRefList = new List<DictionaryEntry>(1);
                     _referenceExactIndex[refEntry.Word] = exRefList;
                 }
                 exRefList.Add(refEntry);
+
+                foreach (Match wm in AsciiTokenExtractRegex.Matches(refEntry.Word))
+                {
+                    AddLatinToken(wm.Value.TrimEnd('-'), refEntry);
+                }
 
                 localSylSeen.Clear();
                 ExtractMyanmarSyllableUnits(refEntry.Word, scratchUnits);
@@ -1481,10 +1576,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
                 if (!string.IsNullOrEmpty(refEntry.UsageNote))
                 {
-                    foreach (Match m in AsciiTokenExtractRegex.Matches(refEntry.UsageNote))
-                    {
-                        AddLatinToken(m.Value.TrimEnd('-'), refEntry);
-                    }
+                    IndexUsageNoteLatinTokens(refEntry.UsageNote, refEntry);
                 }
                 if (!string.IsNullOrEmpty(refEntry.MeaningCue))
                 {
@@ -1597,13 +1689,164 @@ namespace MyanmarSpellChecker.Core.Nlp
         public IEnumerable<DictionaryEntry> GetAllEntries() =>
             _exactWordIndex.Values.SelectMany(x => x);
 
+        /// <summary>
+        /// Normalizes a Dictionary Search query, automatically converting legacy Zawgyi-One text into canonical Myanmar Unicode 5.1+.
+        /// </summary>
+        public static string NormalizeSearchQuery(string query, out bool convertedFromZawgyi)
+        {
+            convertedFromZawgyi = false;
+            if (string.IsNullOrWhiteSpace(query))
+                return string.Empty;
+
+            string trimmed = query.Trim();
+            if (UnicodeNormalizer.IsZawgyiText(trimmed))
+            {
+                string converted = UnicodeNormalizer.NormalizeCanonicalOrder(
+                    UnicodeNormalizer.FixLookalikeCharacters(
+                        UnicodeNormalizer.ConvertZawgyiToUnicode(trimmed)));
+                convertedFromZawgyi = !string.Equals(converted, trimmed, StringComparison.Ordinal);
+                return converted;
+            }
+
+            return UnicodeNormalizer.NormalizeCanonicalOrder(UnicodeNormalizer.FixLookalikeCharacters(trimmed));
+        }
+
+        /// <summary>
+        /// Returns top real-world Myanmar corpus collocations (common partner phrases) for <paramref name="word"/>
+        /// using the in-memory 110,000+ word bigram corpus with zero permanent extra index RAM.
+        /// </summary>
+        public List<string> GetTopCollocations(string word, int maxCount = 6)
+        {
+            if (string.IsNullOrWhiteSpace(word) || _wordBigramIndex.Count == 0 || maxCount <= 0)
+                return new List<string>(0);
+
+            string norm = UnicodeNormalizer.NormalizeCanonicalOrder(UnicodeNormalizer.FixLookalikeCharacters(word.Trim()));
+            if (norm.Length == 0)
+                return new List<string>(0);
+
+            if (maxCount == 6 && _collocationCache.TryGetValue(norm, out var cached))
+                return cached;
+
+            var scored = new List<(string Phrase, int Count)>(16);
+            foreach (var kvp in _wordBigramIndex)
+            {
+                string left = kvp.Key.Left;
+                string right = kvp.Key.Right;
+                if (string.Equals(left, norm, StringComparison.Ordinal))
+                {
+                    if (!CueStopSyllables.Contains(right) && !string.Equals(right, norm, StringComparison.Ordinal) && right.Length >= 1)
+                        scored.Add((left + " " + right, kvp.Value));
+                }
+                else if (string.Equals(right, norm, StringComparison.Ordinal))
+                {
+                    if (!CueStopSyllables.Contains(left) && !string.Equals(left, norm, StringComparison.Ordinal) && left.Length >= 1)
+                        scored.Add((left + " " + right, kvp.Value));
+                }
+            }
+
+            scored.Sort((a, b) => b.Count.CompareTo(a.Count));
+            var result = new List<string>(Math.Min(maxCount, scored.Count));
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < scored.Count && result.Count < maxCount; i++)
+            {
+                if (seen.Add(scored[i].Phrase))
+                    result.Add(scored[i].Phrase);
+            }
+
+            if (maxCount == 6)
+            {
+                if (_collocationCache.Count > 512)
+                    _collocationCache.Clear();
+                _collocationCache[norm] = result;
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Resolves saved bookmark headwords (both Myanmar and English EN_LEX) into rich <see cref="DictionaryEntry"/> cards in saved order.
+        /// </summary>
+        public List<DictionaryEntry> LookupBookmarkedEntries(IEnumerable<string> words)
+        {
+            var results = new List<DictionaryEntry>();
+            if (words == null)
+                return results;
+
+            EnsureSearchAndSynonymIndexBuilt();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (string raw in words)
+            {
+                if (string.IsNullOrWhiteSpace(raw))
+                    continue;
+
+                string norm = NormalizeSearchQuery(raw, out _);
+                if (string.IsNullOrEmpty(norm))
+                    continue;
+
+                if (_exactWordIndex.TryGetValue(norm, out var mmList) && mmList.Count > 0)
+                {
+                    var best = mmList
+                        .OrderByDescending(x => x.IsOfficialThatpon)
+                        .ThenByDescending(x => !string.IsNullOrEmpty(x.UsageNote))
+                        .ThenByDescending(x => !string.IsNullOrEmpty(x.MeaningCue))
+                        .First();
+                    if (seen.Add($"{best.Word}|{best.PosTag}"))
+                        results.Add(best);
+                    continue;
+                }
+
+                if (_bilingualExactIndex.TryGetValue(norm, out var biList) && biList.Count > 0)
+                {
+                    var bestBi = biList[0];
+                    if (seen.Add($"{bestBi.Word}|{bestBi.PosTag}"))
+                        results.Add(bestBi);
+                    continue;
+                }
+
+                if (_referenceExactIndex.TryGetValue(norm, out var refList) && refList.Count > 0)
+                {
+                    var bestRef = refList[0];
+                    if (seen.Add($"{bestRef.Word}|{bestRef.PosTag}"))
+                        results.Add(bestRef);
+                }
+            }
+
+            return results;
+        }
+
+        private static bool HasExactEnglishSenseMatch(string enField, string queryNorm)
+        {
+            if (string.IsNullOrEmpty(enField) || string.IsNullOrEmpty(queryNorm))
+                return false;
+
+            if (string.Equals(enField, queryNorm, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            string[] senses = enField.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < senses.Length; i++)
+            {
+                string s = senses[i].Trim();
+                int parenIdx = s.IndexOf('(');
+                if (parenIdx > 0)
+                    s = s.Substring(0, parenIdx).Trim();
+                if (s.StartsWith("to ", StringComparison.OrdinalIgnoreCase) && s.Length > 3)
+                    s = s.Substring(3).Trim();
+
+                if (string.Equals(s, queryNorm, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return false;
+        }
+
         public List<DictionaryEntry> SearchDictionary(string query, int maxResults = 35)
         {
             var results = new List<DictionaryEntry>();
             if (string.IsNullOrWhiteSpace(query))
                 return results;
 
-            string norm = UnicodeNormalizer.NormalizeCanonicalOrder(UnicodeNormalizer.FixLookalikeCharacters(query.Trim()));
+            string norm = NormalizeSearchQuery(query, out _);
             var seen = new HashSet<string>(StringComparer.Ordinal);
 
             void AddUnique(DictionaryEntry e)
@@ -1663,6 +1906,82 @@ namespace MyanmarSpellChecker.Core.Nlp
                 {
                     if (candidateSeen.Add($"{ce.Word}|{ce.PosTag}|{ce.MeaningCue}"))
                         candidatePool.Add(ce);
+                }
+
+                // O(1) exact bilingual English headword / idiom lookup + direct canonical Myanmar cross-links
+                var directBiTargetWords = new HashSet<string>(StringComparer.Ordinal);
+                void TryLinkMyanmarTarget(string mw)
+                {
+                    if (string.IsNullOrEmpty(mw) || directBiTargetWords.Count >= 12)
+                        return;
+                    if (_exactWordIndex.TryGetValue(mw, out var mmEntries))
+                    {
+                        directBiTargetWords.Add(mw);
+                        DictionaryEntry? bestMm = null;
+                        for (int m = 0; m < mmEntries.Count; m++)
+                        {
+                            var cand = mmEntries[m];
+                            if (bestMm == null ||
+                                (cand.IsOfficialThatpon && !bestMm.IsOfficialThatpon) ||
+                                (cand.IsOfficialThatpon == bestMm.IsOfficialThatpon &&
+                                 !string.IsNullOrEmpty(cand.UsageNote) && string.IsNullOrEmpty(bestMm.UsageNote)))
+                            {
+                                bestMm = cand;
+                            }
+                        }
+                        if (bestMm != null)
+                            AddCandidate(bestMm);
+                    }
+                }
+
+                void CollectMyanmarTargetsFromText(string text)
+                {
+                    if (string.IsNullOrEmpty(text) || directBiTargetWords.Count >= 12)
+                        return;
+
+                    int idx = 0;
+                    while (idx < text.Length && directBiTargetWords.Count < 12)
+                    {
+                        while (idx < text.Length &&
+                               !(text[idx] >= '\u1000' && text[idx] <= '\u109F' && text[idx] != '\u104A' && text[idx] != '\u104B'))
+                        {
+                            idx++;
+                        }
+                        if (idx >= text.Length)
+                            break;
+
+                        int start = idx;
+                        while (idx < text.Length &&
+                               text[idx] >= '\u1000' && text[idx] <= '\u109F' && text[idx] != '\u104A' && text[idx] != '\u104B')
+                        {
+                            idx++;
+                        }
+
+                        string run = UnicodeNormalizer.NormalizeCanonicalOrder(text.Substring(start, idx - start).Trim());
+                        if (run.Length == 0)
+                            continue;
+
+                        TryLinkMyanmarTarget(run);
+
+                        // Strip Burmese dictionary citation suffixes ("သည်", "ခြင်း", "သော") -> canonical verb/adjective headwords (e.g. "စားသည်" -> "စား")
+                        if (run.Length > 3 && run.EndsWith("သည်", StringComparison.Ordinal))
+                            TryLinkMyanmarTarget(run.Substring(0, run.Length - 3));
+                        else if (run.Length > 5 && run.EndsWith("ခြင်း", StringComparison.Ordinal))
+                            TryLinkMyanmarTarget(run.Substring(0, run.Length - 5));
+                        else if (run.Length > 3 && run.EndsWith("သော", StringComparison.Ordinal))
+                            TryLinkMyanmarTarget(run.Substring(0, run.Length - 3));
+                    }
+                }
+
+                if (_bilingualExactIndex.TryGetValue(norm, out var exactBiEntries))
+                {
+                    for (int i = 0; i < exactBiEntries.Count; i++)
+                    {
+                        var biEntry = exactBiEntries[i];
+                        AddCandidate(biEntry);
+                        CollectMyanmarTargetsFromText(biEntry.Synonyms);
+                        CollectMyanmarTargetsFromText(biEntry.MeaningCue);
+                    }
                 }
 
                 var qTokens = new List<string>();
@@ -1744,10 +2063,30 @@ namespace MyanmarSpellChecker.Core.Nlp
                         continue;
                     }
 
+                    if (e.IsBilingualLexiconEntry)
+                    {
+                        if (string.Equals(e.Word, norm, StringComparison.OrdinalIgnoreCase))
+                        {
+                            exactEnMatches.Add(e);
+                        }
+                        else if (e.Word.StartsWith(norm, StringComparison.OrdinalIgnoreCase) ||
+                                 e.Word.IndexOf(norm, StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            partialEnMatches.Add(e);
+                        }
+                        continue;
+                    }
+
+                    if (directBiTargetWords.Contains(e.Word))
+                    {
+                        exactEnMatches.Add(e);
+                        continue;
+                    }
+
                     string enField = e.EnglishName;
                     if (!string.IsNullOrEmpty(enField))
                     {
-                        if (string.Equals(enField, norm, StringComparison.OrdinalIgnoreCase) ||
+                        if (HasExactEnglishSenseMatch(enField, norm) ||
                             enField.StartsWith(norm + " ", StringComparison.OrdinalIgnoreCase) ||
                             enField.IndexOf(parenToken, StringComparison.OrdinalIgnoreCase) >= 0)
                         {
@@ -1780,23 +2119,113 @@ namespace MyanmarSpellChecker.Core.Nlp
                     }
                 }
 
+                // Collect Romanized Burmese matches ("mingalaba" -> မင်္ဂလာပါ, "thatpon" -> သတ်ပုံ, "kyaukse" -> ကျောက်ဆည်)
+                var romanizedMatches = new List<DictionaryEntry>();
+                if (!isCallingCodeQuery && qTokens.Count <= 3)
+                {
+                    var directRomWords = MyanmarPhoneticTranscriber.GetDirectRomanizedCandidates(norm);
+                    var romScratchSyls = new List<string>(6);
+                    for (int ri = 0; ri < directRomWords.Count; ri++)
+                    {
+                        string dirWord = UnicodeNormalizer.NormalizeCanonicalOrder(directRomWords[ri]);
+                        bool foundExactDir = false;
+                        if (_exactWordIndex.TryGetValue(dirWord, out var dirList))
+                        {
+                            foundExactDir = true;
+                            foreach (var de in dirList
+                                .OrderByDescending(x => x.IsOfficialThatpon)
+                                .ThenByDescending(x => !string.IsNullOrEmpty(x.UsageNote)))
+                            {
+                                directBiTargetWords.Add(de.Word);
+                                exactEnMatches.Add(de);
+                                romanizedMatches.Add(de);
+                            }
+                        }
+                        if (_referenceExactIndex.TryGetValue(dirWord, out var refDirList))
+                        {
+                            foundExactDir = true;
+                            for (int rdi = 0; rdi < refDirList.Count; rdi++)
+                            {
+                                directBiTargetWords.Add(refDirList[rdi].Word);
+                                exactEnMatches.Add(refDirList[rdi]);
+                                romanizedMatches.Add(refDirList[rdi]);
+                            }
+                        }
+                        if (!foundExactDir)
+                        {
+                            ExtractMyanmarSyllableUnits(dirWord, romScratchSyls);
+                            if (romScratchSyls.Count > 0 && _lexicalHeadwordSyllableIndex.TryGetValue(romScratchSyls[0], out var sylBucket))
+                            {
+                                foreach (var pe in sylBucket
+                                    .Where(x => x.Word.StartsWith(dirWord, StringComparison.Ordinal))
+                                    .OrderBy(x => x.Word.Length)
+                                    .ThenByDescending(x => x.Frequency)
+                                    .Take(5))
+                                {
+                                    directBiTargetWords.Add(pe.Word);
+                                    exactEnMatches.Add(pe);
+                                    romanizedMatches.Add(pe);
+                                }
+                            }
+                        }
+                    }
+
+                    var pKeys = MyanmarPhoneticTranscriber.TryBuildPhoneticKeysFromRomanized(norm);
+                    var phoneticPool = new List<DictionaryEntry>();
+                    for (int pi = 0; pi < pKeys.Count; pi++)
+                    {
+                        var bucket = LookupSingleOrListIndex(_phoneticIndex, pKeys[pi]);
+                        for (int bi = 0; bi < bucket.Count; bi++)
+                            phoneticPool.Add(bucket[bi]);
+                    }
+
+                    foreach (var pe in phoneticPool
+                        .OrderByDescending(x => x.Frequency)
+                        .ThenByDescending(x => x.IsOfficialThatpon)
+                        .ThenBy(x => x.Word.Length)
+                        .Take(10))
+                    {
+                        romanizedMatches.Add(pe);
+                    }
+                }
+
+                // If query is not an exact English word (e.g. arbitrary romanized Burmese like "kazar"), put Romanized Burmese matches #1!
+                if (exactEnMatches.Count == 0 && romanizedMatches.Count > 0)
+                {
+                    for (int ri = 0; ri < romanizedMatches.Count && results.Count < maxResults; ri++)
+                        AddUnique(romanizedMatches[ri]);
+                }
+
                 foreach (var e in exactEnMatches
-                    .OrderByDescending(x => !string.IsNullOrEmpty(x.EnglishName) && string.Equals(x.EnglishName, norm, StringComparison.OrdinalIgnoreCase))
-                    .ThenByDescending(x => !string.IsNullOrEmpty(x.EnglishName) &&
-                        (x.EnglishName.IndexOf(parenToken, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                         x.EnglishName.StartsWith(norm + " ", StringComparison.OrdinalIgnoreCase)))
+                    .OrderByDescending(x => x.IsBilingualLexiconEntry && string.Equals(x.Word, norm, StringComparison.OrdinalIgnoreCase))
+                    .ThenByDescending(x => HasExactEnglishSenseMatch(x.EnglishName, norm) || directBiTargetWords.Contains(x.Word))
                     .ThenByDescending(x => x.IsProperNoun || x.IsSpecializedDomain)
-                    .ThenBy(x => x.Word.Length)
-                    .ThenByDescending(x => x.Frequency))
+                    .ThenByDescending(x => x.IsOfficialThatpon)
+                    .ThenByDescending(x => x.Frequency)
+                    .ThenBy(x => x.Word.Length))
                 {
                     AddUnique(e);
                     if (results.Count >= maxResults) break;
                 }
 
+                // Also surface top Romanized Burmese matches right after exact English matches (for ambiguous short tokens like "sin"/"sat")
+                if (exactEnMatches.Count > 0 && romanizedMatches.Count > 0 && results.Count < maxResults)
+                {
+                    int romCap = Math.Min(5, maxResults - results.Count);
+                    int romAdded = 0;
+                    for (int ri = 0; ri < romanizedMatches.Count && romAdded < romCap; ri++)
+                    {
+                        int before = results.Count;
+                        AddUnique(romanizedMatches[ri]);
+                        if (results.Count > before) romAdded++;
+                    }
+                }
+
                 if (results.Count < maxResults)
                 {
                     foreach (var e in partialEnMatches
-                        .OrderByDescending(x => x.IsProperNoun || x.IsSpecializedDomain)
+                        .OrderByDescending(x => x.IsBilingualLexiconEntry && x.Word.StartsWith(norm, StringComparison.OrdinalIgnoreCase))
+                        .ThenByDescending(x => x.IsProperNoun || x.IsSpecializedDomain)
                         .ThenByDescending(x => x.Frequency)
                         .ThenBy(x => x.Word.Length))
                     {

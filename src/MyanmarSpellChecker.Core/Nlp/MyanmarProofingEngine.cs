@@ -369,6 +369,20 @@ namespace MyanmarSpellChecker.Core.Nlp
             finally { _lexiconRwLock.ExitReadLock(); }
         }
 
+        public List<string> GetTopCollocations(string word, int maxCount = 6)
+        {
+            _lexiconRwLock.EnterReadLock();
+            try { return _trie.GetTopCollocations(word, maxCount); }
+            finally { _lexiconRwLock.ExitReadLock(); }
+        }
+
+        public List<DictionaryEntry> LookupBookmarkedEntries(IEnumerable<string> words)
+        {
+            _lexiconRwLock.EnterReadLock();
+            try { return _trie.LookupBookmarkedEntries(words); }
+            finally { _lexiconRwLock.ExitReadLock(); }
+        }
+
         public List<DictionaryEntry> GetFeaturedKnowledgeEntries(int count = 8)
         {
             _lexiconRwLock.EnterReadLock();

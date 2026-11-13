@@ -57,11 +57,16 @@ with the following additional requirements:
    credit to Htet Yar Zar (ထက်ရာဇာ), Department of Geology, Kyaukse University.
    Modified versions must be clearly marked as changed from the original.
 
-3. Linguistic Reference Acknowledgements:
+3. Linguistic & Open Lexicon Acknowledgements:
    Orthographic and lexical standards referenced by this software honor the
    published reference works of the Myanmar Language Commission
    ("မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း" and "မြန်မာအဘိဓာန်"), U Hoke Sein Pali-Myanmar
-   lexicography, and scholarly Geology & Earth Sciences terminology curated at
-   the Department of Geology, Kyaukse University.
+   & Adoniram Judson Public Domain lexicography, open-licensed bilingual and
+   phonetic corpora sanitized against Official Thatpon orthography (including
+   Ornagai English-Myanmar Dictionary under GNU GPLv3, English/Myanmar
+   Wiktionary extracts under CC BY-SA 4.0, and the myG2P Burmese Grapheme-to-
+   Phoneme lexicon), MIMU / GAD geographic standards, and scholarly Geology &
+   Earth Sciences terminology curated at the Department of Geology, Kyaukse
+   University.
 ================================================================================
 

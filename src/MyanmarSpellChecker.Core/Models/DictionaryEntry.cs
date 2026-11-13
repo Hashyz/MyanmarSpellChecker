@@ -80,9 +80,14 @@ namespace MyanmarSpellChecker.Core.Models
         public bool IsEncyclopediaEntry => string.Equals(PosTag, "ENCYC", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
+        /// True when this entry is a lazy-loaded English-to-Myanmar bilingual lexicon entry (EN_LEX).
+        /// </summary>
+        public bool IsBilingualLexiconEntry => string.Equals(PosTag, "EN_LEX", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
         /// True when this entry is stored in the reference/knowledge corpus rather than single-word spellcheck lattice anchors.
         /// </summary>
-        public bool IsReferenceEntry => IsProverbOrSayingEntry || IsEncyclopediaEntry;
+        public bool IsReferenceEntry => IsProverbOrSayingEntry || IsEncyclopediaEntry || IsBilingualLexiconEntry;
 
         /// <summary>
         /// True when this entry is an official geographic toponym, sovereign country, city, township, or proper noun.
@@ -92,7 +97,7 @@ namespace MyanmarSpellChecker.Core.Models
         /// <summary>
         /// True when this entry belongs to one of the specialized professional/scholarly lexicons.
         /// </summary>
-        public bool IsSpecializedDomain => !IsEncyclopediaEntry && !string.IsNullOrEmpty(SpecializedDomain);
+        public bool IsSpecializedDomain => !IsEncyclopediaEntry && !IsBilingualLexiconEntry && !string.IsNullOrEmpty(SpecializedDomain);
 
         /// <summary>
         /// True when structured မြန်မာအဘိဓာန်, encyclopedic, or geographic metadata is available.
@@ -297,6 +302,7 @@ namespace MyanmarSpellChecker.Core.Models
                 case "SAYING": return "Myanmar Saying";
                 case "RHETORIC": return "Traditional Rhetoric";
                 case "ENCYC": return "Encyclopedia";
+                case "EN_LEX": return "English ⇄ Myanmar";
                 case "CUSTOM": return "Custom Word";
                 default: return pos!;
             }
@@ -335,9 +341,72 @@ namespace MyanmarSpellChecker.Core.Models
                 case "SAYING": return "မြန်မာဆိုရိုးစကား (Saying)";
                 case "RHETORIC": return "စကားကြီးဆယ်မျိုး (Rhetoric)";
                 case "ENCYC": return "စွယ်စုံဗဟုသုတ (Encyclopedia)";
+                case "EN_LEX": return "အင်္ဂလိပ် ⇄ မြန်မာ (EN-MM)";
                 case "CUSTOM": return "မှတ်သားဝေါဟာရ (Custom)";
                 default: return pos!;
             }
+        }
+
+        /// <summary>
+        /// Splits multi-sense definitions cleanly into numbered senses ("1. ...", "2. ...") when 2+ distinct senses exist.
+        /// </summary>
+        public System.Collections.Generic.IReadOnlyList<string> GetFormattedSenses()
+        {
+            if (string.IsNullOrWhiteSpace(MeaningCue))
+                return Array.Empty<string>();
+
+            string raw = MeaningCue.Trim();
+            string[] rawParts;
+            if (raw.IndexOf(" • ", StringComparison.Ordinal) >= 0)
+            {
+                rawParts = raw.Split(new[] { " • " }, StringSplitOptions.RemoveEmptyEntries);
+            }
+            else if (raw.IndexOf("؛", StringComparison.Ordinal) >= 0 || raw.IndexOf("; ", StringComparison.Ordinal) >= 0)
+            {
+                rawParts = raw.Split(new[] { "; " }, StringSplitOptions.RemoveEmptyEntries);
+            }
+            else
+            {
+                return new[] { raw };
+            }
+
+            var cleaned = new System.Collections.Generic.List<string>(rawParts.Length);
+            var seen = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < rawParts.Length; i++)
+            {
+                string part = rawParts[i].Trim();
+                if (part.Length == 0)
+                    continue;
+
+                // Strip leading existing numbering like "1. " or "၁။ " before re-numbering consistently
+                int dotIdx = part.IndexOf(". ", StringComparison.Ordinal);
+                if (dotIdx > 0 && dotIdx <= 2 && char.IsDigit(part[0]))
+                {
+                    part = part.Substring(dotIdx + 2).Trim();
+                }
+
+                if (part.Length > 0 && seen.Add(part))
+                    cleaned.Add(part);
+            }
+
+            if (cleaned.Count <= 1)
+                return cleaned.Count == 1 ? new[] { cleaned[0] } : new[] { raw };
+
+            var numbered = new string[cleaned.Count];
+            for (int i = 0; i < cleaned.Count; i++)
+            {
+                numbered[i] = (i + 1).ToString() + ". " + cleaned[i];
+            }
+            return numbered;
+        }
+
+        /// <summary>
+        /// Returns a clean English headword or primary English translation suitable for offline SAPI TTS playback, or empty if none.
+        /// </summary>
+        public string GetSpeakableEnglishText()
+        {
+            return Dictionary.OfflineSpeechService.CleanSpeakableEnglishTerm(
+                IsBilingualLexiconEntry ? Word : EnglishName);
         }
     }
 }

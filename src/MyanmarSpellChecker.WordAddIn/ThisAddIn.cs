@@ -1070,6 +1070,10 @@ namespace MyanmarSpellChecker.WordAddIn
                 _proofingEngine?.GetSynonyms(word, 8) ?? new List<string>();
             ctrl.RequestGetAntonyms += word =>
                 _proofingEngine?.GetAntonyms(word, 8) ?? new List<string>();
+            ctrl.RequestGetCollocations += word =>
+                _proofingEngine?.GetTopCollocations(word, 6) ?? new List<string>();
+            ctrl.RequestGetBookmarkedEntries += words =>
+                _proofingEngine?.LookupBookmarkedEntries(words) ?? new List<DictionaryEntry>();
             ctrl.RequestGetFeaturedKnowledge += () =>
                 _proofingEngine?.GetFeaturedKnowledgeEntries(8) ?? new List<DictionaryEntry>();
             ctrl.RequestGetSelectedDocumentText += () =>
