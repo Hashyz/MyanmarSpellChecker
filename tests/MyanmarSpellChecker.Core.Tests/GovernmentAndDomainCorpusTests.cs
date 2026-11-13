@@ -2925,5 +2925,140 @@ namespace MyanmarSpellChecker.Core.Tests
             var symmetricCleanIssues = engine.CheckText("ဖုန်းစာတို ပေးပို့၍ လေဘေးသင့်ပြည်သူများအတွက် ရေစုပ်ပန့်၊ ထုတ်ကုန်ပစ္စည်းနှင့် အရေးပေါ်ဆန်ရိက္ခာများ ထောက်ပံ့သည်။");
             Assert.Empty(symmetricCleanIssues);
         }
+
+        [Fact]
+        public void V58_MyanmarNationalRegistrationCardCodeValidationGate()
+        {
+            string dbPath = Path.Combine(TestPaths.RepoRoot, "data", "mlc_thatpon.db");
+            Assert.True(File.Exists(dbPath), "Compiled mlc_thatpon.db must exist for V58 NRC validation.");
+
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            MyanmarTrie trie = repo.LoadIntoTrie(AntiTamperGuard.ReconstructProtectedFallbackKey());
+            var engine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // 1. All Real-World Myanmar NRC Formats (Full, Slash 'ဇဗသ/နိုင်', Split-Column, Dotted, Spaced, ASCII-Digit & All Card Types) = 0 False Positives
+            string[] validNrcInputs =
+            {
+                "ဇဗသ/နိုင်",
+                "ခမသ/နိုင်",
+                "ဥကတ/နိုင်",
+                "ကဘလ/နိုင်",
+                "ပတယ/နိုင်",
+                "၉/ဇဗသ(နိုင်)၁၂၃၄၅၆",
+                "၉/ဥတသ(နိုင်)၁၂၃၄၅၆",
+                "၉/ဒကသ(နိုင်)၁၂၃၄၅၆",
+                "၉/ပဗသ(နိုင်)၁၂၃၄၅၆",
+                "၉/ဇယသ(နိုင်)၁၂၃၄၅၆",
+                "၉/ပမန(နိုင်)၁၂၃၄၅၆",
+                "၉/လဝန(နိုင်)၁၂၃၄၅၆",
+                "၉/တကန(နိုင်)၁၂၃၄၅၆",
+                "၉/ကဆန(နိုင်)၁၂၃၄၅၆",
+                "၉/ပဥလ(နိုင်)၁၂၃၄၅၆",
+                "၉/ညဥန(နိုင်)၁၂၃၄၅၆",
+                "၉/တတဥ(နိုင်)၁၂၃၄၅၆",
+                "၁၂/ဥကတ(နိုင်)၀၁၂၃၄၅",
+                "12/ဥကတ(နိုင်)012345",
+                "၁၂/ဥကမ(နိုင်)၁၂၃၄၅၆",
+                "၁၂/ဒဂဆ(နိုင်)၁၂၃၄၅၆",
+                "၁၂/တတထ(နိုင်)၁၂၃၄၅၆",
+                "၄/ထတလ(နိုင်)၁၂၃၄၅၆",
+                "၅/ဘတလ(နိုင်)၁၂၃၄၅၆",
+                "၇/နတလ(နိုင်)၁၂၃၄၅၆",
+                "၇/ပတလ(နိုင်)၁၂၃၄၅၆",
+                "၁၁/ကတလ(နိုင်)၁၂၃၄၅၆",
+                "၁၃/ကတလ(နိုင်)၁၂၃၄၅၆",
+                "၁၃/တလန(နိုင်)၁၂၃၄၅၆",
+                "၉/ဇဗသ/နိုင်/၁၂၃၄၅၆",
+                "ဇဗသ(နိုင်)၁၂၃၄၅၆",
+                "၉/ဇဗသ(ဧည့်)၁၂၃၄၅၆",
+                "၉/ဇဗသ(ပြု)၁၂၃၄၅၆",
+                "၉/ဇဗသ(သာသနာ)၁၂၃၄၅၆",
+                "၉/ဇဗသ(သာ)၁၂၃၄၅၆",
+                "၉/ဇဗသ(ယာယီ)၁၂၃၄၅၆",
+                "၉/ဇဗသ(စ)၁၂၃၄၅၆",
+                "ဇဗသ/စ",
+                "ဇဗသ/န",
+                "ဇ.ဗ.သ/နိုင်",
+                "၉/ဇ.ဗ.သ(နိုင်)၁၂၃၄၅၆",
+                "ဇ ဗ သ/နိုင်",
+                "၉/ဇ ဗ သ(နိုင်)၁၂၃၄၅၆",
+                "ဇဗသ",
+                "ဥကတ",
+                "ခမသ",
+                "နိုင်ငံသားစိစစ်ရေးကတ်ပြားအမှတ် ၉/ဇဗသ(နိုင်)၁၂၃၄၅၆ နှင့် ၁၂/ဥကတ(နိုင်)၀၁၂၃၄၅ ကိုင်ဆောင်သူများ စာရင်းသွင်းပြီးဖြစ်သည်။"
+            };
+
+            foreach (string validInput in validNrcInputs)
+            {
+                var issues = engine.CheckText(validInput);
+                Assert.True(
+                    issues.Count == 0,
+                    $"Expected 0 issues on valid NRC input '{validInput}', got: {string.Join("; ", issues.Select(i => $"{i.IssueType}:{i.OriginalText}->{i.Suggestions.FirstOrDefault()?.Replacement}"))}");
+            }
+
+            // 2. Seed-Only Fallback Mode Must Also Pass 'ဇဗသ/နိုင်', '၁၂/ဥကတ(နိုင်)၀၁၂၃၄၅', and '၄/ထတလ(နိုင်)၁၂၃၄၅၆' With 0 False Positives
+            var seedTrie = new MyanmarTrie();
+            foreach (var se in SeedDictionaryProvider.GetOfficialSeedEntries())
+                seedTrie.InsertEntry(se);
+            foreach (var sr in SeedDictionaryProvider.GetOfficialOrthographyRules())
+                seedTrie.InsertOrthographyRule(sr);
+            var seedEngine = new MyanmarProofingEngine(seedTrie, ProofingStyleMode.FormalOfficial);
+
+            foreach (string seedInput in new[] { "ဇဗသ/နိုင်", "၉/ဇဗသ(နိုင်)၁၂၃၄၅၆", "၁၂/ဥကတ(နိုင်)၀၁၂၃၄၅", "၄/ထတလ(နိုင်)၁၂၃၄၅၆", "ခမသ/နိုင်", "ဇဗသ/စ" })
+            {
+                Assert.Empty(seedEngine.CheckText(seedInput));
+            }
+
+            // 3. Real NRC Clerical Typos Caught & Repaired with MOIP Precision
+            var nrcClericalTypos = new (string WrongInput, string ExpectedTokenRepair)[]
+            {
+                ("၉/လ၀န(နိုင်)၁၂၃၄၅၆", "လဝန"),
+                ("၁၂/ဦကတ(နိုင်)၁၂၃၄၅၆", "ဥကတ"),
+                ("၉/ဦတသ(နိုင်)၁၂၃၄၅၆", "ဥတသ"),
+                ("၉/ပဦလ(နိုင်)၁၂၃၄၅၆", "ပဥလ"),
+                ("၁၂/ဉကတ(နိုင်)၁၂၃၄၅၆", "ဥကတ"),
+                ("ဇဘသ/နိုင်", "ဇဗသ"),
+                ("ပဘသ/နိုင်", "ပဗသ"),
+                ("ဇဗသ/နိင်", "နိုင်"),
+                ("၉/ဇဗသ(နိင်)၁၂၃၄၅၆", "နိုင်"),
+                ("၉/ဇဗသ(နိုင)၁၂၃၄၅၆", "နိုင်"),
+                ("၉/ဇဗသ(ဧည်)၁၂၃၄၅၆", "ဧည့်"),
+                ("၉/ဇဗသ(ပြူ)၁၂၃၄၅၆", "ပြု"),
+                ("ဇဗသ/ပြူ", "ပြု"),
+                ("၉/ဇဗသ(ယာရီ)၁၂၃၄၅၆", "ယာယီ"),
+                ("၁ဝ/မလမ(နိုင်)၁၂၃၄၅၆", "၁၀"),
+                ("၉/ဇဗသ(နိုင်)ဝ၁၂၃၄၅", "၀၁၂၃၄၅"),
+                ("၁၅/ဇဗသ(နိုင်)၁၂၃၄၅၆", "၁၂")
+            };
+
+            foreach (var (wrongInput, expectedRepair) in nrcClericalTypos)
+            {
+                var issues = engine.CheckText(wrongInput);
+                Assert.NotEmpty(issues);
+                string normExpected = UnicodeNormalizer.NormalizeCanonicalOrder(expectedRepair);
+                Assert.Contains(
+                    issues.SelectMany(x => x.Suggestions),
+                    s => UnicodeNormalizer.NormalizeCanonicalOrder(s.Replacement) == normExpected);
+            }
+
+            // 4. Bilingual Myanmar & English NRC Dictionary Search ('ဇဗသ', 'ZaBaTha', '၉/ဇဗသ(နိုင်)၁၂၃၄၅၆', '12/ဥကတ(နိုင်)012345')
+            var searchMm = trie.SearchDictionary("ဇဗသ", 10);
+            Assert.NotEmpty(searchMm);
+            Assert.Equal("ဇဗသ", searchMm[0].Word);
+            Assert.Contains("ဇမ္ဗူသီရိ", searchMm[0].MeaningCue);
+
+            var searchEn = trie.SearchDictionary("ZaBaTha", 10);
+            Assert.NotEmpty(searchEn);
+            Assert.Contains(searchEn, e => e.MeaningCue.IndexOf("ဇမ္ဗူသီရိ", StringComparison.Ordinal) >= 0);
+
+            var searchFullMm = trie.SearchDictionary("၉/ဇဗသ(နိုင်)၁၂၃၄၅၆", 10);
+            Assert.NotEmpty(searchFullMm);
+            Assert.Equal("ဇဗသ", searchFullMm[0].Word);
+
+            var searchFullOkkala = trie.SearchDictionary("12/ဥကတ(နိုင်)012345", 10);
+            Assert.NotEmpty(searchFullOkkala);
+            Assert.Equal("ဥကတ", searchFullOkkala[0].Word);
+            Assert.Contains("တောင်ဥက္ကလာပ", searchFullOkkala[0].MeaningCue);
+        }
     }
 }

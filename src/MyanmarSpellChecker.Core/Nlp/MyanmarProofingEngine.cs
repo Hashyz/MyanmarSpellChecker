@@ -1623,9 +1623,11 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            // Official administrative, tax-form, court-docket & municipal plot initialisms made of bare Myanmar consonants
-            // (e.g. 'ရပ/၄', 'တတ-၅၃/၁၀', 'ပတခ(ဝင)-၁', '၁၂/ကခဂ') — prevents Dropped-Asat Tier 1b from turning 'ရပ' -> 'ရပ်' or 'တတ' -> 'တတ်'
-            if (m >= 1 && m <= 5 && IsGovernmentCodeInitialismRun(fullText, tokens, runStart, runEnd))
+            // Official administrative, tax-form, court-docket, municipal plot & MOIP NRC initialisms made of bare Myanmar letters
+            // (e.g. 'ရပ/၄', 'တတ-၅၃/၁၀', 'ပတခ(ဝင)-၁', '၁၂/ဥကတ(နိုင်)၁၂၃၄၅၆', 'ဇဗသ/နိုင်', 'ဇ.ဗ.သ/နိုင်')
+            if (m >= 1 && m <= 5 &&
+                (IsGovernmentCodeInitialismRun(fullText, tokens, runStart, runEnd) ||
+                 IsValidNrcCardTypeMarkerRun(fullText, tokens, runStart, runEnd)))
             {
                 return;
             }
@@ -2509,14 +2511,66 @@ namespace MyanmarSpellChecker.Core.Nlp
         }
 
         private static readonly Regex GovCodeRightContextRegex = new Regex(
-            @"^[ \t]*(?:[-–/][ \t]*[\u1040-\u10490-9]|[\(（][\u1000-\u1021]{1,5}[\)）][ \t]*[-–/])",
+            @"^[ \t]*(?:[-–/\\][ \t]*[\u1040-\u10490-9]|[\(（][\u1000-\u1021\u1025]{1,5}[\)）][ \t]*[-–/\\]|(?:[ \t.]+[\u1000-\u1021\u1025]){0,3}[ \t]*(?:[-–/\\][ \t]*(?:နိုင်|နိင်|နိုင|ဧည့်|ဧည့်|ဧည်|ပြု|ပြူ|သာသနာ့?|သာ|သ|ယာယီ|ယာရီ|စ|န|[NEPTYS])(?![\u1000-\u103F])|[\(（][ \t]*(?:နိုင်|နိင်|နိုင|ဧည့်|ဧည့်|ဧည်|ပြု|ပြူ|သာသနာ့?|သာ|သ|ယာယီ|ယာရီ|စ|န|[NEPTYS])[ \t]*[\)）]))",
             RegexOptions.Compiled);
 
         private static readonly Regex GovCodeLeftContextRegex = new Regex(
-            @"[\u1040-\u10490-9][ \t]*[-–/][ \t]*$",
+            @"[\u1040-\u10490-9][ \t]*[-–/\\][ \t]*(?:[\u1000-\u1021\u1025][ \t]*\.[ \t]*){0,3}$",
             RegexOptions.Compiled);
 
-        private static bool IsGovernmentCodeInitialismRun(
+        private static readonly Regex NrcCardTypeLeftContextRegex = new Regex(
+            @"[\u1000-\u1021\u1025](?:[ \t.]*[\u1000-\u1021\u1025]){1,3}[ \t]*[\(（/\\–-][ \t]*$",
+            RegexOptions.Compiled);
+
+        private static readonly HashSet<string> ValidNrcCardTypeForms = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "နိုင်", "ဧည့်", "ပြု", "သာသနာ", "သာ", "သ", "ယာယီ", "စ", "န"
+        };
+
+        private bool IsValidNrcCardTypeMarkerRun(
+            string fullText,
+            List<SyllableToken> tokens,
+            int runStart,
+            int runEnd)
+        {
+            int runLen = runEnd - runStart;
+            if (runLen < 1 || runLen > 3)
+                return false;
+
+            for (int i = runStart; i < runEnd; i++)
+            {
+                if (UnicodeNormalizer.HasLookalikeError(tokens[i].Text, out _, out _))
+                    return false;
+            }
+
+            string spanNorm = runLen == 1
+                ? tokens[runStart].NormalizedText
+                : ConcatNormalizedTokens(tokens, runStart, runLen);
+
+            if (!ValidNrcCardTypeForms.Contains(spanNorm) || _trie.TryGetWrongFormRule(spanNorm, out _))
+                return false;
+
+            int startChar = tokens[runStart].StartIndex;
+            int endChar = tokens[runEnd - 1].StartIndex + tokens[runEnd - 1].Length;
+            if (startChar < 3)
+                return false;
+
+            int leftStart = Math.Max(0, startChar - 16);
+            string leftSlice = fullText.Substring(leftStart, startChar - leftStart);
+            if (!NrcCardTypeLeftContextRegex.IsMatch(leftSlice))
+                return false;
+
+            if (endChar < fullText.Length)
+            {
+                char nextCh = fullText[endChar];
+                if (nextCh >= '\u1000' && nextCh <= '\u103F')
+                    return false;
+            }
+
+            return true;
+        }
+
+        private bool IsGovernmentCodeInitialismRun(
             string fullText,
             List<SyllableToken> tokens,
             int runStart,
@@ -2525,18 +2579,28 @@ namespace MyanmarSpellChecker.Core.Nlp
             for (int i = runStart; i < runEnd; i++)
             {
                 string norm = tokens[i].NormalizedText;
-                if (norm.Length != 1 || norm[0] < '\u1000' || norm[0] > '\u1021')
+                if (norm.Length != 1)
+                    return false;
+                char ch0 = norm[0];
+                if (!((ch0 >= '\u1000' && ch0 <= '\u1021') || ch0 == '\u1025'))
                     return false;
                 if (UnicodeNormalizer.HasLookalikeError(tokens[i].Text, out _, out _))
                     return false;
             }
+
+            int runLen = runEnd - runStart;
+            string spanNorm = runLen == 1
+                ? tokens[runStart].NormalizedText
+                : ConcatNormalizedTokens(tokens, runStart, runLen);
+            if (_trie.TryGetWrongFormRule(spanNorm, out _))
+                return false;
 
             int startChar = tokens[runStart].StartIndex;
             int endChar = tokens[runEnd - 1].StartIndex + tokens[runEnd - 1].Length;
 
             if (endChar < fullText.Length)
             {
-                int rightLen = Math.Min(14, fullText.Length - endChar);
+                int rightLen = Math.Min(22, fullText.Length - endChar);
                 string rightSlice = fullText.Substring(endChar, rightLen);
                 if (GovCodeRightContextRegex.IsMatch(rightSlice))
                     return true;
@@ -2547,7 +2611,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     (fullText[endChar] == ')' || fullText[endChar] == '）') &&
                     endChar + 1 < fullText.Length)
                 {
-                    int afterParenLen = Math.Min(10, fullText.Length - (endChar + 1));
+                    int afterParenLen = Math.Min(14, fullText.Length - (endChar + 1));
                     string afterParen = fullText.Substring(endChar + 1, afterParenLen);
                     if (GovCodeRightContextRegex.IsMatch(afterParen))
                         return true;
@@ -2556,7 +2620,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             if (startChar >= 2)
             {
-                int leftStart = Math.Max(0, startChar - 10);
+                int leftStart = Math.Max(0, startChar - 16);
                 string leftSlice = fullText.Substring(leftStart, startChar - leftStart);
                 if (GovCodeLeftContextRegex.IsMatch(leftSlice))
                     return true;

@@ -754,6 +754,27 @@ namespace MyanmarSpellChecker.Core.Nlp
             @"(?<=[\u1000-\u103F])(?<!အ|မ)(?<Target>ခဲ့နေ)(?=(?:ပါသည်|ပါတယ်|သည်|တယ်)(?=\s|$|[\u104A\u104B]))",
             RegexOptions.Compiled);
 
+        // 4l. V29 Official Myanmar National Registration Card (NRC / နိုင်ငံသားစိစစ်ရေးကတ်ပြား) Span Shield & Slot Validation
+        private static readonly Regex ValidNrcCodeSpanPattern = new Regex(
+            @"(?:[၀-၉0-9]{1,2}[ \t]*[-–/\\][ \t]*[\u1000-\u1021\u1025](?:[ \t.]*[\u1000-\u1021\u1025]){1,3}|[\u1000-\u1021\u1025](?:[ \t.]*[\u1000-\u1021\u1025]){1,3}[ \t]*(?:[\(（][ \t]*(?:နိုင်|နိင်|နိုင|ဧည့်|ဧည့်|ဧည်|ပြု|ပြူ|သာသနာ့?|သာ|သ|ယာယီ|ယာရီ|စ|န|[NEPTYS])[ \t]*[\)）]|[-–/\\][ \t]*(?:နိုင်|နိင်|နိုင|ဧည့်|ဧည့်|ဧည်|ပြု|ပြူ|သာသနာ့?|သာ|သ|ယာယီ|ယာရီ|စ|န|[NEPTYS])(?![\u1000-\u103F])))",
+            RegexOptions.Compiled);
+
+        private static readonly Regex MisspelledNrcCardTypePattern = new Regex(
+            @"(?:(?:[၀-၉0-9]{1,2}[ \t]*[-–/\\][ \t]*)?[\u1000-\u1021\u1025](?:[ \t.]*[\u1000-\u1021\u1025]){1,3}[ \t]*[\(（][ \t]*(?<Target1>ပြူ|သာသနာ့)[ \t]*[\)）]|(?:[၀-၉0-9]{1,2}[ \t]*[-–/\\][ \t]*)?[\u1000-\u1021\u1025](?:[ \t.]*[\u1000-\u1021\u1025]){1,3}[ \t]*[-–/\\][ \t]*(?<Target2>ပြူ|သာသနာ့)(?=[ \t]*(?:[-–/\\]|[၀-၉0-9]|$|[\s,၊။\)\]])))",
+            RegexOptions.Compiled);
+
+        private static readonly Regex MisusedWaInNrcStatePattern = new Regex(
+            @"(?<![\u1000-\u10490-9])(?<Target>[\u1041-\u1049]*\u101D[\u1040-\u1049\u101D]*)(?=[ \t]*[-–/\\][ \t]*[\u1000-\u1021\u1025]{2,4}[ \t]*[\(（/\\–-])",
+            RegexOptions.Compiled);
+
+        private static readonly Regex MisusedWaInNrcSerialPattern = new Regex(
+            @"(?:[\(（][ \t]*(?:နိုင်|ဧည့်|ဧည့်|ပြု|သာသနာ|သာ|သ|ယာယီ|စ|န|[NEPTYS])[ \t]*[\)）][ \t]*[-–/\\]?[ \t]*|[-–/\\][ \t]*(?:နိုင်|ဧည့်|ဧည့်|ပြု|သာသနာ|သာ|သ|ယာယီ|စ|န|[NEPTYS])[ \t]*[-–/\\][ \t]*)(?<Target>(?=[\u1040-\u1049\u101D]*\u101D)(?=[\u1040-\u1049\u101D]*[\u1040-\u1049])[\u1040-\u1049\u101D]{5,7})(?![\u1000-\u10490-9])",
+            RegexOptions.Compiled);
+
+        private static readonly Regex FullNrcStateRangeCheckPattern = new Regex(
+            @"(?<![\u1000-\u10490-9])(?<State>[၀-၉0-9]{1,3})[ \t]*[-–/\\][ \t]*[\u1000-\u1021\u1025]{2,4}[ \t]*(?:[\(（][ \t]*(?:နိုင်|ဧည့်|ဧည့်|ပြု|သာသနာ|သာ|သ|ယာယီ|စ|န|[NEPTYS])[ \t]*[\)）]|[-–/\\][ \t]*(?:နိုင်|ဧည့်|ဧည့်|ပြု|သာသနာ|သာ|သ|ယာယီ|စ|န|[NEPTYS])[ \t]*[-–/\\])[ \t]*[၀-၉0-9]{5,7}",
+            RegexOptions.Compiled);
+
         private static readonly char[] ZeroWidthOrDottedChars = { '\u200B', '\u200C', '\u200D', '\uFEFF', '\u25CC' };
         private static readonly char[] MyanmarDigitsChars = { '\u1040', '\u1041', '\u1042', '\u1043', '\u1044', '\u1045', '\u1046', '\u1047', '\u1048', '\u1049' };
 
@@ -799,6 +820,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             bool hasMa = false;
             bool hasCreakyDot = false;
             bool hasPaukMaGyi = false;
+            bool hasNrcDelimiter = false;
             bool prevWasHorizSpace = false;
             char prevChar = '\0';
 
@@ -817,6 +839,11 @@ namespace MyanmarSpellChecker.Core.Nlp
                     hasSpaceBeforeCombiningMark = true;
                 }
                 prevWasHorizSpace = false;
+
+                if (c == '/' || c == '\\' || c == '(' || c == '（' || c == '-' || c == '–')
+                {
+                    hasNrcDelimiter = true;
+                }
 
                 if (c >= '\u1000' && c <= '\u104F')
                 {
@@ -899,6 +926,90 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
+            // 0e. V29 Official Myanmar NRC Slot Validation (Card-type slot typos '(ပြူ)->(ပြု)', consonant 'ဝ' in NRC digits, & invalid State > 14 / 0)
+            List<(int Start, int End)>? validNrcSpans = null;
+            if (hasNrcDelimiter)
+            {
+                foreach (Match mNrc in ValidNrcCodeSpanPattern.Matches(text))
+                {
+                    validNrcSpans ??= new List<(int Start, int End)>(2);
+                    validNrcSpans.Add((mNrc.Index, mNrc.Index + mNrc.Length));
+                }
+
+                foreach (Match mCard in MisspelledNrcCardTypePattern.Matches(text))
+                {
+                    Group g = mCard.Groups["Target1"].Success ? mCard.Groups["Target1"] : mCard.Groups["Target2"];
+                    string wrongCard = g.Value;
+                    string rightCard = wrongCard == "ပြူ" ? "ပြု" : "သာသနာ";
+                    string cardExplain = wrongCard == "ပြူ"
+                        ? "နိုင်ငံသားစိစစ်ရေးကတ်ပြား အမျိုးအစားသင်္ကေတ (MOIP) စံနှုန်းအရ နိုင်ငံသားပြုခွင့်ရသူအတွက် တစ်ချောင်းငင်ဖြင့် 'ပြု' ဟု ရေးသားရမည် ('ပြူ' မဟုတ်ပါ)။"
+                        : "သာသနာဝင်စိစစ်ရေးကတ်ပြား အမျိုးအစားသင်္ကေတတွင် အောက်မြစ်မပါဘဲ 'သာသနာ' ဟု ရေးသားရမည်။";
+                    AddGrammarOrSpellingIssue(
+                        issues, g.Index, g.Length, wrongCard, rightCard,
+                        ProofingIssueType.SpellingError,
+                        cardExplain,
+                        "နိုင်ငံသားစိစစ်ရေးကတ်ပြား အမျိုးအစားသင်္ကေတ (MOIP)", "N", true,
+                        cardExplain,
+                        "လူဝင်မှုကြီးကြပ်ရေးနှင့် ပြည်သူ့အင်အားဝန်ကြီးဌာန (MOIP) နိုင်ငံသားစိစစ်ရေးကတ်ပြား စံနှုန်း");
+                }
+
+                if (text.IndexOf('\u101D') >= 0)
+                {
+                    foreach (Match mWaSt in MisusedWaInNrcStatePattern.Matches(text))
+                    {
+                        Group g = mWaSt.Groups["Target"];
+                        string fixedSt = g.Value.Replace('\u101D', '\u1040');
+                        AddGrammarOrSpellingIssue(
+                            issues, g.Index, g.Length, g.Value, fixedSt,
+                            ProofingIssueType.LookalikeCharacterError,
+                            $"နိုင်ငံသားစိစစ်ရေးကတ်ပြား တိုင်းဒေသကြီး/ပြည်နယ်ဂဏန်းတွင် ဗျည်း 'ဝ' (U+101D) အစား သုညဂဏန်း '၀' (U+1040) ဖြင့် '{fixedSt}' ဟု ရေးသားရမည်။",
+                            "နိုင်ငံသားစိစစ်ရေးကတ်ပြား ပြည်နယ်/တိုင်းဂဏန်း", "NUM", true,
+                            "ဂဏန်းနေရာတွင် ဗျည်းအက္ခရာ 'ဝ' (U+101D) မှားယွင်းရိုက်နှိပ်မိနေပါသည် — သင်္ချာသုညဂဏန်း '၀' (U+1040) ကို သုံးရမည်။",
+                            "ပြည်ထောင်စုယူနီကုဒ်စံနှုန်း နှင့် MOIP နိုင်ငံသားစိစစ်ရေးကတ်ပြား စံနှုန်း");
+                    }
+
+                    foreach (Match mWaSer in MisusedWaInNrcSerialPattern.Matches(text))
+                    {
+                        Group g = mWaSer.Groups["Target"];
+                        string fixedSer = g.Value.Replace('\u101D', '\u1040');
+                        AddGrammarOrSpellingIssue(
+                            issues, g.Index, g.Length, g.Value, fixedSer,
+                            ProofingIssueType.LookalikeCharacterError,
+                            $"နိုင်ငံသားစိစစ်ရေးကတ်ပြား အမှတ်စဉ်ဂဏန်းအတွင်း ဗျည်း 'ဝ' (U+101D) အစား သုညဂဏန်း '၀' (U+1040) ဖြင့် '{fixedSer}' ဟု ရေးသားရမည်။",
+                            "နိုင်ငံသားစိစစ်ရေးကတ်ပြား အမှတ်စဉ်ဂဏန်း", "NUM", true,
+                            "မှတ်ပုံတင်ဂဏန်း ၆ လုံးအတွင်း ဗျည်းအက္ခရာ 'ဝ' (U+101D) ရောနှောနေပါသည် — သင်္ချာသုညဂဏန်း '၀' (U+1040) ကို သုံးရမည်။",
+                            "ပြည်ထောင်စုယူနီကုဒ်စံနှုန်း နှင့် MOIP နိုင်ငံသားစိစစ်ရေးကတ်ပြား စံနှုန်း");
+                    }
+                }
+
+                foreach (Match mStRange in FullNrcStateRangeCheckPattern.Matches(text))
+                {
+                    Group gSt = mStRange.Groups["State"];
+                    int parsedSt = 0;
+                    bool okSt = true;
+                    for (int si = 0; si < gSt.Value.Length; si++)
+                    {
+                        char sc = gSt.Value[si];
+                        int dVal = (sc >= '\u1040' && sc <= '\u1049') ? (sc - '\u1040')
+                                 : ((sc >= '0' && sc <= '9') ? (sc - '0') : -1);
+                        if (dVal < 0) { okSt = false; break; }
+                        parsedSt = parsedSt * 10 + dVal;
+                    }
+                    if (okSt && (parsedSt < 1 || parsedSt > 14))
+                    {
+                        bool useMmDig = gSt.Value[0] >= '\u1040' && gSt.Value[0] <= '\u1049';
+                        string sampleValid = parsedSt == 0 ? (useMmDig ? "၁" : "1") : (useMmDig ? "၁၂" : "12");
+                        AddGrammarOrSpellingIssue(
+                            issues, gSt.Index, gSt.Length, gSt.Value, sampleValid,
+                            ProofingIssueType.SpellingError,
+                            $"မြန်မာနိုင်ငံ နိုင်ငံသားစိစစ်ရေးကတ်ပြား တိုင်းဒေသကြီး/ပြည်နယ်သင်္ကေတဂဏန်းသည် (၁) မှ (၁၄) အတွင်းသာ ရှိပါသည် — '{gSt.Value}/' သည် တရားဝင်ပြည်နယ်/တိုင်းဂဏန်း မဟုတ်ပါ။",
+                            "ပြည်နယ်/တိုင်းဒေသကြီး သင်္ကေတ (၁ မှ ၁၄)", "NUM", true,
+                            "လူဝင်မှုကြီးကြပ်ရေးနှင့် ပြည်သူ့အင်အားဝန်ကြီးဌာန (MOIP) သတ်မှတ်ချက်အရ ပြည်နယ်နှင့် တိုင်းဒေသကြီး သင်္ကေတဂဏန်းများမှာ ၁ (ကချင်) မှ ၁၄ (ဧရာဝတီ) အထိသာ ရှိပါသည်။",
+                            "လူဝင်မှုကြီးကြပ်ရေးနှင့် ပြည်သူ့အင်အားဝန်ကြီးဌာန (MOIP) စံနှုန်း");
+                    }
+                }
+            }
+
             // 1. 'တ' vs 'တစ်' Numeral Classifier Rules
             if (hasTa)
             {
@@ -919,6 +1030,20 @@ namespace MyanmarSpellChecker.Core.Nlp
                 foreach (Match m in TaNumeralClassifierPattern.Matches(text))
                 {
                     if (OverlapsExistingIssue(issues, m.Index, m.Length)) continue;
+                    if (validNrcSpans != null)
+                    {
+                        bool insideNrc = false;
+                        int mEnd = m.Index + m.Length;
+                        for (int ni = 0; ni < validNrcSpans.Count; ni++)
+                        {
+                            if (m.Index < validNrcSpans[ni].End && mEnd > validNrcSpans[ni].Start)
+                            {
+                                insideNrc = true;
+                                break;
+                            }
+                        }
+                        if (insideNrc) continue;
+                    }
                     string classifier = m.Groups["Classifier"].Value;
                     string correct = "တစ်" + classifier;
                     AddGrammarOrSpellingIssue(

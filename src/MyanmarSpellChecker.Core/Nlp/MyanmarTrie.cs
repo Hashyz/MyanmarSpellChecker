@@ -203,6 +203,10 @@ namespace MyanmarSpellChecker.Core.Nlp
             @"(?:\+[0-9]{1,4}(?:-[0-9]{1,4})?|[A-Za-z][A-Za-z0-9\-]{1,}|[0-9]+[A-Za-z][A-Za-z0-9\-]*)",
             RegexOptions.Compiled);
 
+        private static readonly Regex NrcSearchQueryExtractRegex = new Regex(
+            @"^(?:[၀-၉0-9]{1,2}[ \t]*[-–/\\][ \t]*)?(?<Code>[\u1000-\u1021\u1025\u1026\u1009](?:[ \t.]*[\u1000-\u1021\u1025\u1026\u1009]){1,3})(?:[ \t]*(?:[\(（/\\–-].*))?$",
+            RegexOptions.Compiled);
+
         private static readonly List<DictionaryEntry> EmptyEntryList = new List<DictionaryEntry>(0);
         private static readonly ConcurrentDictionary<string, string> s_strictSkeletonCache = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
         private static readonly ConcurrentDictionary<string, string> s_phoneticSkeletonCache = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
@@ -1881,6 +1885,29 @@ namespace MyanmarSpellChecker.Core.Nlp
                     .ThenByDescending(x => !string.IsNullOrEmpty(x.MeaningCue)))
                 {
                     AddUnique(e);
+                }
+            }
+
+            // 1-NRC. Full or Slash NRC Query Extraction (e.g. '၉/ဇဗသ(နိုင်)၁၂၃၄၅၆', 'ဇဗသ/နိုင်', '၁၂/ဥကတ(နိုင်)၀၁၂၃၄၅', '၉/ဇ.ဗ.သ/နိုင်')
+            if (norm.IndexOf('/') >= 0 || norm.IndexOf('(') >= 0 || norm.IndexOf('（') >= 0 || norm.IndexOf('-') >= 0 || norm.IndexOf('.') >= 0)
+            {
+                Match mNrcQ = NrcSearchQueryExtractRegex.Match(norm);
+                if (mNrcQ.Success)
+                {
+                    string nrcCodeCand = mNrcQ.Groups["Code"].Value.Replace(" ", "").Replace("\t", "").Replace(".", "");
+                    if (_wrongFormIndex.TryGetValue(nrcCodeCand, out var nrcRule) && !string.IsNullOrEmpty(nrcRule.CorrectForm))
+                    {
+                        nrcCodeCand = nrcRule.CorrectForm;
+                    }
+                    if (_exactWordIndex.TryGetValue(nrcCodeCand, out var nrcEntries))
+                    {
+                        foreach (var ne in nrcEntries
+                            .OrderByDescending(x => string.Equals(x.PosTag, "PROPN", StringComparison.Ordinal))
+                            .ThenByDescending(x => x.IsOfficialThatpon))
+                        {
+                            AddUnique(ne);
+                        }
+                    }
                 }
             }
 

@@ -57,7 +57,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
         private static readonly HashSet<string> KnownWrongBlacklist = new HashSet<string>(StringComparer.Ordinal)
         {
             "တယောက်", "တခု", "တဦး", "တဖက်", "တခါ", "တချက်", "တစ်ကယ်", "တစ်ချို့", "တစ်ခြား",
-            "အချိန်မှီ", "မော်တော်ယဉ်", "ကြော်ညာ", "ကြေငြာ", "လက်မတ်", "လတ်မှတ်", "သတ်မတ်", "ပြသနာ", "သဏ္ဍာန်", "ဥက္ကဌ", "ဥကတ", "ပြဌာန်း",
+            "အချိန်မှီ", "မော်တော်ယဉ်", "ကြော်ညာ", "ကြေငြာ", "လက်မတ်", "လတ်မှတ်", "သတ်မတ်", "ပြသနာ", "သဏ္ဍာန်", "ဥက္ကဌ", "ပြဌာန်း",
             "ပါအုန်း", "ပတ်သတ်", "ရမ်ပုံငွေ", "အကျောင်းအရာ", "ရေရွယ်ချက်", "စီပွားရေး", "ပုဂိုလ်", "ကွန်ပြူတာ", "အင်တာနတ်",
             "ဒါပေမယ့်", "သို့ပေမယ့်", "တရ်", "မရ်", "ပီး", "နောက်ပီး", "ဖစ်", "ညာဏ်", "သဘောကြ", "ပတ်ဝန်းကြင်", "လျှက်",
             "ယောကျာ်း", "ပုဇွန်", "စံပင်", "ဦးဂေါင်း", "ဦးနောက်", "ဦးထုတ်", "ဦးစီဌာန", "ဦးသောင်",
@@ -1500,18 +1500,56 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 Upsert(map, homographEntries, officialThatponSet, line, "", pos, true, false);
             }
 
-            // D. Parse Myanmar NRC Townships (330+ official townships)
+            // D. Parse Myanmar NRC Townships (470 official State/Region + Township NRC records across States/Regions 1..14)
             string nrcContent = File.ReadAllText(nrcJsonPath, Encoding.UTF8);
-            Regex nrcMmRegex = new Regex("\"name_mm\"\\s*:\\s*\"\\(([^\\)]+)\\)\\s*([^\"]+)\"", RegexOptions.Compiled);
-            foreach (Match m in nrcMmRegex.Matches(nrcContent))
+            var nrcParsedItems = new List<(int StateNum, string CodeMm, string CodeEn, string TownshipMm)>(512);
+            Regex nrcItemRegex = new Regex(
+                "\"name_en\"\\s*:\\s*\"([^\"]+)\"\\s*,\\s*\"name_mm\"\\s*:\\s*\"([^\"]+)\"\\s*,\\s*\"nrc_code\"\\s*:\\s*\"([^\"]+)\"",
+                RegexOptions.Compiled);
+            Regex nrcParenLeadRx = new Regex(@"^\(([^)]+)\)\s*(.+)$", RegexOptions.Compiled);
+            Regex nrcParenTrailRx = new Regex(@"^([^\(]+)\(([^)]+)\)$", RegexOptions.Compiled);
+            Regex nrcTrailingQualifierRx = new Regex(@"\s*\([^)]*\)\s*$", RegexOptions.Compiled);
+
+            foreach (Match m in nrcItemRegex.Matches(nrcContent))
             {
-                string code = m.Groups[1].Value.Trim();
-                string township = m.Groups[2].Value.Trim();
-                if (township == "မိုးညင်း") township = "မိုးညှင်း"; // Fix NRC source typo: Mohnyin is officially 'မိုးညှင်း'
-                Upsert(map, homographEntries, officialThatponSet, township, "မြန်မာနိုင်ငံ မြို့နယ်/ဒေသအမည်", "N", true, false);
-                Upsert(map, homographEntries, officialThatponSet, township + "မြို့", "မြန်မာနိုင်ငံ မြို့အမည်", "N", true, false);
-                Upsert(map, homographEntries, officialThatponSet, township + "မြို့နယ်", "မြန်မာနိုင်ငံ မြို့နယ်အမည်", "N", true, false);
-                Upsert(map, homographEntries, officialThatponSet, code, "နိုင်ငံသားစိစစ်ရေး မြို့နယ်သင်္ကေတ (" + township + ")", "N", false, false);
+                string rawEn = m.Groups[1].Value.Trim();
+                string rawMm = m.Groups[2].Value.Trim();
+                string rawSt = m.Groups[3].Value.Replace("*", "").Trim();
+                int stNum;
+                if (!int.TryParse(rawSt, out stNum) || stNum < 1 || stNum > 14)
+                    continue;
+
+                string code = "";
+                string township = "";
+                Match mp1 = nrcParenLeadRx.Match(rawMm);
+                if (mp1.Success)
+                {
+                    code = NormalizeMyanmar(mp1.Groups[1].Value.Trim().Replace('\u1040', '\u101D'));
+                    township = NormalizeMyanmar(mp1.Groups[2].Value.Trim().Replace('\u1040', '\u101D'));
+                }
+                else
+                {
+                    Match mp2 = nrcParenTrailRx.Match(rawMm);
+                    if (mp2.Success)
+                    {
+                        code = NormalizeMyanmar(mp2.Groups[1].Value.Trim().Replace('\u1040', '\u101D'));
+                        township = NormalizeMyanmar(mp2.Groups[2].Value.Trim().Replace('\u1040', '\u101D'));
+                    }
+                }
+
+                if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(township))
+                    continue;
+                if (township == "မိုးညင်း") township = "မိုးညှင်း";
+
+                nrcParsedItems.Add((stNum, code, rawEn, township));
+
+                string baseTownship = nrcTrailingQualifierRx.Replace(township, "").Trim();
+                if (!string.IsNullOrEmpty(baseTownship) && baseTownship.IndexOf(',') < 0 && baseTownship.IndexOf(' ') < 0)
+                {
+                    Upsert(map, homographEntries, officialThatponSet, baseTownship, "မြန်မာနိုင်ငံ မြို့နယ်/ဒေသအမည်", "N", true, false);
+                    Upsert(map, homographEntries, officialThatponSet, baseTownship + "မြို့", "မြန်မာနိုင်ငံ မြို့အမည်", "N", true, false);
+                    Upsert(map, homographEntries, officialThatponSet, baseTownship + "မြို့နယ်", "မြန်မာနိုင်ငံ မြို့နယ်အမည်", "N", true, false);
+                }
             }
 
             // E. Parse Standardized Loanwords (loan_words.yaml)
@@ -2756,6 +2794,118 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 }
             }
             Console.WriteLine("  - V13-V15 Books, Encyclopedia, News & *.gov.mm Docs Lexicon: +" + govDocsAdded + " new headwords, " + govDocsEnriched + " enriched.");
+
+            // M1.10. Ingest V29 Official MOIP / GAD Myanmar National Registration Card (NRC) Township Codes (470 State/Township pairs -> 351 distinct codes)
+            // Ingested AFTER officialPurityKeys so bare consonant initialisms never block unrelated multi-syllable vocabulary, while setting PosTag="PROPN" & IsOfficialThatpon=true!
+            string ToMyanmarDigitsLocal(int num)
+            {
+                string ascii = num.ToString(CultureInfo.InvariantCulture);
+                var sbDig = new StringBuilder(ascii.Length);
+                for (int di = 0; di < ascii.Length; di++)
+                {
+                    char dc = ascii[di];
+                    sbDig.Append((dc >= '0' && dc <= '9') ? (char)('\u1040' + (dc - '0')) : dc);
+                }
+                return sbDig.ToString();
+            }
+
+            var nrcByCode = new Dictionary<string, List<(int StateNum, string CodeEn, string TownshipMm)>>(StringComparer.Ordinal);
+            for (int ni = 0; ni < nrcParsedItems.Count; ni++)
+            {
+                var item = nrcParsedItems[ni];
+                if (!IsCleanHeadword(item.CodeMm))
+                    continue;
+                List<(int StateNum, string CodeEn, string TownshipMm)> bucket;
+                if (!nrcByCode.TryGetValue(item.CodeMm, out bucket))
+                {
+                    bucket = new List<(int StateNum, string CodeEn, string TownshipMm)>(2);
+                    nrcByCode[item.CodeMm] = bucket;
+                }
+                bucket.Add((item.StateNum, item.CodeEn, item.TownshipMm));
+            }
+
+            int nrcCodesRegistered = 0;
+            foreach (var kvpNrc in nrcByCode.OrderBy(k => k.Key, StringComparer.Ordinal))
+            {
+                string codeMm = kvpNrc.Key;
+                var rows = kvpNrc.Value.OrderBy(x => x.StateNum).ThenBy(x => x.TownshipMm, StringComparer.Ordinal).ToList();
+                var mmPairLabels = new List<string>(rows.Count);
+                var enCodeLabels = new List<string>(rows.Count);
+                string primaryEn = rows[0].CodeEn;
+
+                for (int ri = 0; ri < rows.Count; ri++)
+                {
+                    string stMm = ToMyanmarDigitsLocal(rows[ri].StateNum);
+                    string twnLabel = rows[ri].TownshipMm.EndsWith("မြို့နယ်", StringComparison.Ordinal) || rows[ri].TownshipMm.IndexOf('(') >= 0
+                        ? rows[ri].TownshipMm
+                        : (rows[ri].TownshipMm + "မြို့နယ်");
+                    string pairDesc = stMm + "/" + codeMm + " (" + twnLabel + ")";
+                    if (!mmPairLabels.Contains(pairDesc))
+                        mmPairLabels.Add(pairDesc);
+
+                    string enPair = rows[ri].StateNum.ToString(CultureInfo.InvariantCulture) + "/" + rows[ri].CodeEn;
+                    if (!string.IsNullOrEmpty(rows[ri].CodeEn) && !enCodeLabels.Contains(enPair))
+                        enCodeLabels.Add(enPair);
+                }
+
+                string nrcCue = "နိုင်ငံသားစိစစ်ရေးကတ်ပြား မြို့နယ်သင်္ကေတ — " + string.Join("၊ ", mmPairLabels);
+                string enSummary = !string.IsNullOrEmpty(primaryEn)
+                    ? (primaryEn + " (" + string.Join(", ", enCodeLabels.Take(4)) + ")")
+                    : string.Join(", ", enCodeLabels.Take(4));
+                string nrcNote = "အင်္ဂလိပ်သင်္ကေတ: " + enSummary +
+                                 " | ကတ်အမျိုးအစား: (နိုင်)/(ဧည့်)/(ပြု)/(သာသနာ)/(ယာယီ)/(စ)" +
+                                 " | အာဏာပိုင်စံနှုန်း: လူဝင်မှုကြီးကြပ်ရေးနှင့် ပြည်သူ့အင်အားဝန်ကြီးဌာန (MOIP / GAD)";
+
+                officialThatponSet.Add(codeMm);
+
+                EntryItem existingNrc;
+                if (map.TryGetValue(codeMm, out existingNrc))
+                {
+                    existingNrc.IsOfficialThatpon = true;
+                    existingNrc.Frequency = Math.Max(existingNrc.Frequency, 220);
+                    if (!string.IsNullOrEmpty(existingNrc.MeaningCue) &&
+                        existingNrc.MeaningCue.IndexOf("နိုင်ငံသားစိစစ်ရေး", StringComparison.Ordinal) < 0)
+                    {
+                        homographEntries.Add(new EntryItem
+                        {
+                            Word = codeMm,
+                            MeaningCue = nrcCue,
+                            PosTag = "PROPN",
+                            UsageNote = nrcNote,
+                            Frequency = 220,
+                            IsOfficialThatpon = true
+                        });
+                    }
+                    else
+                    {
+                        existingNrc.PosTag = "PROPN";
+                        existingNrc.MeaningCue = nrcCue;
+                        existingNrc.UsageNote = nrcNote;
+                    }
+                }
+                else
+                {
+                    map[codeMm] = new EntryItem
+                    {
+                        Word = codeMm,
+                        MeaningCue = nrcCue,
+                        PosTag = "PROPN",
+                        UsageNote = nrcNote,
+                        Frequency = 220,
+                        IsOfficialThatpon = true
+                    };
+                }
+
+                if (!string.IsNullOrEmpty(primaryEn) && !ornagaiEnBuckets.ContainsKey(primaryEn))
+                {
+                    ornagaiEnBuckets[primaryEn] = new List<(string Pos, string MmGloss)>(1)
+                    {
+                        ("NRC", codeMm + " — " + string.Join("၊ ", mmPairLabels.Take(3)))
+                    };
+                }
+                nrcCodesRegistered++;
+            }
+            Console.WriteLine("  - V29 Official MOIP/GAD NRC Township Codes: +" + nrcCodesRegistered + " distinct PROPN codes (" + nrcParsedItems.Count + " State/Township pairs).");
 
             for (int i = 0; i < homographEntries.Count; i++)
             {

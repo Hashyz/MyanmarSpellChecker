@@ -123,7 +123,21 @@ namespace MyanmarSpellChecker.Core.Dictionary
                 new DictionaryEntry { Word = "အမယ်", MeaningCue = "အမျိုး~ / မိခင်", PosTag = "N" },
                 new DictionaryEntry { Word = "တချို့", MeaningCue = "အချို့ (သတ်ပုံကျမ်း)", PosTag = "PRON" },
                 new DictionaryEntry { Word = "တခြား", MeaningCue = "အခြား (သတ်ပုံကျမ်း)", PosTag = "ADJ" },
-                new DictionaryEntry { Word = "၎င်း", MeaningCue = "ထိုအရာ / ယင်း (ရုံးသုံးသင်္ကေတ U+104E)", PosTag = "PRON" }
+                new DictionaryEntry { Word = "၎င်း", MeaningCue = "ထိုအရာ / ယင်း (ရုံးသုံးသင်္ကေတ U+104E)", PosTag = "PRON" },
+
+                // Official Myanmar National Registration Card (NRC / နိုင်ငံသားစိစစ်ရေးကတ်ပြား) Card Types & Core Township Codes
+                new DictionaryEntry { Word = "နိုင်", MeaningCue = "နိုင်ငံသားစိစစ်ရေးကတ်ပြားသင်္ကေတ (နိုင်) / စွမ်းဆောင်~သည်", PosTag = "N/PART", IsOfficialThatpon = true, Frequency = 500 },
+                new DictionaryEntry { Word = "ဧည့်", MeaningCue = "ဧည့်နိုင်ငံသားကတ်ပြားသင်္ကေတ (ဧည့်) / ~သည်", PosTag = "N", IsOfficialThatpon = true, Frequency = 250 },
+                new DictionaryEntry { Word = "ပြု", MeaningCue = "နိုင်ငံသားပြုခွင့်ရသူကတ်ပြားသင်္ကေတ (ပြု) / ဆောင်ရွက်~လုပ်သည်", PosTag = "V/N", IsOfficialThatpon = true, Frequency = 400 },
+                new DictionaryEntry { Word = "သာသနာ", MeaningCue = "သာသနာဝင်စိစစ်ရေးကတ်ပြားသင်္ကေတ (သာသနာ)", PosTag = "N", IsOfficialThatpon = true, Frequency = 300 },
+                new DictionaryEntry { Word = "သာ", MeaningCue = "သာသနာဝင်ကတ်ပြားအတိုကောက် (သာ) / ပို၍ကောင်းမွန်~သည်", PosTag = "PART/V", IsOfficialThatpon = true, Frequency = 400 },
+                new DictionaryEntry { Word = "ယာယီ", MeaningCue = "ယာယီသက်သေခံလက်မှတ်သင်္ကေတ (ယာယီ) / အခိုက်အတန့်", PosTag = "ADJ/N", IsOfficialThatpon = true, Frequency = 260 },
+                new DictionaryEntry { Word = "ဇဗသ", MeaningCue = "နိုင်ငံသားစိစစ်ရေးကတ်ပြား မြို့နယ်သင်္ကေတ — ၉/ဇဗသ (ဇမ္ဗူသီရိမြို့နယ်)", PosTag = "PROPN", UsageNote = "အင်္ဂလိပ်သင်္ကေတ: ZaBaTha (9/ZaBaTha) | အာဏာပိုင်စံနှုန်း: MOIP / GAD", IsOfficialThatpon = true, Frequency = 220 },
+                new DictionaryEntry { Word = "ဥတသ", MeaningCue = "နိုင်ငံသားစိစစ်ရေးကတ်ပြား မြို့နယ်သင်္ကေတ — ၉/ဥတသ (ဥတ္တရသီရိမြို့နယ်)", PosTag = "PROPN", UsageNote = "အင်္ဂလိပ်သင်္ကေတ: OuTaTha (9/OuTaTha) | အာဏာပိုင်စံနှုန်း: MOIP / GAD", IsOfficialThatpon = true, Frequency = 220 },
+                new DictionaryEntry { Word = "ဥကတ", MeaningCue = "နိုင်ငံသားစိစစ်ရေးကတ်ပြား မြို့နယ်သင်္ကေတ — ၁၂/ဥကတ (တောင်ဥက္ကလာပမြို့နယ်)", PosTag = "PROPN", UsageNote = "အင်္ဂလိပ်သင်္ကေတ: OuKaTa (12/OuKaTa) | အာဏာပိုင်စံနှုန်း: MOIP / GAD", IsOfficialThatpon = true, Frequency = 220 },
+                new DictionaryEntry { Word = "ကဆန", MeaningCue = "နိုင်ငံသားစိစစ်ရေးကတ်ပြား မြို့နယ်သင်္ကေတ — ၉/ကဆန (ကျောက်ဆည်မြို့နယ်)", PosTag = "PROPN", UsageNote = "အင်္ဂလိပ်သင်္ကေတ: KaSaNa (9/KaSaNa) | အာဏာပိုင်စံနှုန်း: MOIP / GAD", IsOfficialThatpon = true, Frequency = 220 },
+                new DictionaryEntry { Word = "ပဥလ", MeaningCue = "နိုင်ငံသားစိစစ်ရေးကတ်ပြား မြို့နယ်သင်္ကေတ — ၉/ပဥလ (ပြင်ဦးလွင်မြို့နယ်)", PosTag = "PROPN", UsageNote = "အင်္ဂလိပ်သင်္ကေတ: PaOuLa (9/PaOuLa) | အာဏာပိုင်စံနှုန်း: MOIP / GAD", IsOfficialThatpon = true, Frequency = 220 },
+                new DictionaryEntry { Word = "ခမသ", MeaningCue = "နိုင်ငံသားစိစစ်ရေးကတ်ပြား မြို့နယ်သင်္ကေတ — ၉/ခမသ (ချမ်းမြသာစည်မြို့နယ်)", PosTag = "PROPN", UsageNote = "အင်္ဂလိပ်သင်္ကေတ: KhaMaTha (9/KhaMaTha) | အာဏာပိုင်စံနှုန်း: MOIP / GAD", IsOfficialThatpon = true, Frequency = 220 }
             };
         }
 
@@ -228,6 +242,55 @@ namespace MyanmarSpellChecker.Core.Dictionary
                     CorrectForm = "စိစစ်",
                     Category = "Spelling",
                     Explanation = "သေချာစွာ စစ်ဆေးခြင်းကို 'စိစစ်' (လုံးကြီးတင်) ဖြင့် ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "နိင်",
+                    CorrectForm = "နိုင်",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်းနှင့် နိုင်ငံသားစိစစ်ရေးကတ်ပြား (နိုင်) စံနှုန်းအရ တစ်ချောင်းငင်ပါဝင်လျက် 'နိုင်' ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "နိုင",
+                    CorrectForm = "နိုင်",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်းနှင့် နိုင်ငံသားစိစစ်ရေးကတ်ပြား (နိုင်) စံနှုန်းအရ ငသတ်ပါဝင်လျက် 'နိုင်' ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "ဧည်",
+                    CorrectForm = "ဧည့်",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်းနှင့် ဧည့်နိုင်ငံသားကတ်ပြား (ဧည့်) စံနှုန်းအရ အောက်မြစ်ပါဝင်လျက် 'ဧည့်' ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "ဦကတ",
+                    CorrectForm = "ဥကတ",
+                    Category = "Spelling",
+                    Explanation = "နိုင်ငံသားစိစစ်ရေးကတ်ပြား မြို့နယ်သင်္ကေတ (MOIP) စံနှုန်းအရ တောင်ဥက္ကလာပမြို့နယ် သင်္ကေတကို သရမပါသော မူရင်းအက္ခရာ 'ဥ' ဖြင့် 'ဥကတ' (၁၂/ဥကတ) ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "ဦတသ",
+                    CorrectForm = "ဥတသ",
+                    Category = "Spelling",
+                    Explanation = "နိုင်ငံသားစိစစ်ရေးကတ်ပြား မြို့နယ်သင်္ကေတ (MOIP) စံနှုန်းအရ ဥတ္တရသီရိမြို့နယ် သင်္ကေတကို သရမပါသော မူရင်းအက္ခရာ 'ဥ' ဖြင့် 'ဥတသ' (၉/ဥတသ) ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "ဇဘသ",
+                    CorrectForm = "ဇဗသ",
+                    Category = "Spelling",
+                    Explanation = "နိုင်ငံသားစိစစ်ရေးကတ်ပြား မြို့နယ်သင်္ကေတ (MOIP) စံနှုန်းအရ ဇမ္ဗူသီရိမြို့နယ် သင်္ကေတကို ဗထက်ခြိုက် ('ဗ') ဖြင့် 'ဇဗသ' (၉/ဇဗသ) ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "ပဘသ",
+                    CorrectForm = "ပဗသ",
+                    Category = "Spelling",
+                    Explanation = "နိုင်ငံသားစိစစ်ရေးကတ်ပြား မြို့နယ်သင်္ကေတ (MOIP) စံနှုန်းအရ ပုဗ္ဗသီရိမြို့နယ် သင်္ကေတကို ဗထက်ခြိုက် ('ဗ') ဖြင့် 'ပဗသ' (၉/ပဗသ) ဟု ရေးသားရမည်။"
                 }
             };
         }
