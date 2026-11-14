@@ -265,6 +265,29 @@ namespace MyanmarSpellChecker.Core.Nlp
             return false;
         }
 
+        private void TryBoostOmittedToneCandidate(List<SuggestionCandidate> results, string rawTrimmed, string candidateWord)
+        {
+            string normCand = UnicodeNormalizer.NormalizeCanonicalOrder(candidateWord);
+            if (!_trie.TryGetExactEntries(normCand, out var entries) || entries == null || entries.Count == 0)
+                return;
+
+            int maxFreq = 0;
+            bool isOfficial = false;
+            for (int i = 0; i < entries.Count; i++)
+            {
+                if (entries[i].Frequency > maxFreq)
+                    maxFreq = entries[i].Frequency;
+                if (entries[i].IsOfficialThatpon)
+                    isOfficial = true;
+            }
+
+            if (!isOfficial || maxFreq < 15)
+                return;
+
+            double score = 99.5 + Math.Min(2.9, Math.Log10(maxFreq + 1) * 0.9);
+            AddOrUpdateEnrichedCandidate(results, rawTrimmed, normCand, score);
+        }
+
         private List<SuggestionCandidate> GetSuggestionsInternal(string misspelledWord, int maxResults, bool allowCompositional)
         {
             var results = new List<SuggestionCandidate>();
@@ -323,6 +346,18 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (hasExactLookalikeFix)
             {
                 AddOrUpdateEnrichedCandidate(results, rawTrimmed, lookalikeFixed, 102.5);
+            }
+
+            // 2b. Omitted trailing tone mark ('း' U+1038 or '့' U+1037) on an otherwise intact Official Thatpon word
+            //     (e.g. 'လမ်' -> 'လမ်း' in 'ဘုရင့်နောင်လမ်' must rank above destructive coda deletion 'လမ် -> လ'!)
+            if (!hasExplicitWrongRule && lookalikeFixed.Length >= 2)
+            {
+                char tailCh = lookalikeFixed[lookalikeFixed.Length - 1];
+                if (tailCh != '\u1037' && tailCh != '\u1038')
+                {
+                    TryBoostOmittedToneCandidate(results, rawTrimmed, lookalikeFixed + "\u1038");
+                    TryBoostOmittedToneCandidate(results, rawTrimmed, lookalikeFixed + "\u1037");
+                }
             }
 
             bool isBareInitialismQuery = IsBareConsonantInitialismQuery(lookalikeFixed);

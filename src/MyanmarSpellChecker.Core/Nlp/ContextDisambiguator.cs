@@ -1982,6 +1982,17 @@ namespace MyanmarSpellChecker.Core.Nlp
                         int rightBg = canUseRight ? trie.GetBigramCount(cand.Word, contentNextW) : 0;
                         int totalBg = leftBg + rightBg;
 
+                        // Never mutate a middle syllable glued contiguously inside an unspaced multi-syllable compound/proper noun
+                        // (e.g. 'မကျီးစဥ်' where 'မ + ကြီး' has high bigrams in general prose, while 'ကြီး' has 0 support with the glued right stem!)
+                        char prevCh = tok.StartIndex > 0 ? text[tok.StartIndex - 1] : '\0';
+                        bool gluedLeftInRun = prevCh >= '\u1000' && prevCh <= '\u109F' && prevCh != '\u104A' && prevCh != '\u104B';
+                        int tokEndChar = tok.StartIndex + tok.Length;
+                        char nextCh = tokEndChar < text.Length ? text[tokEndChar] : '\0';
+                        bool gluedRightInRun = nextCh >= '\u1000' && nextCh <= '\u109F' && nextCh != '\u104A' && nextCh != '\u104B' &&
+                                               (string.IsNullOrEmpty(nextW) || !GenericSyntacticParticles.Contains(nextW));
+                        if (gluedLeftInRun && gluedRightInRun && (leftBg == 0 || rightBg == 0))
+                            continue;
+
                         bool hasStrongBigramProof = isHighFreqRealWord
                             ? ((leftBg >= 85 && rightBg >= 85) || totalBg >= 680)
                             : (isMediumFreqRealWord

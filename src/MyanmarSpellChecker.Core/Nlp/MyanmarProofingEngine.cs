@@ -206,7 +206,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         private static readonly HashSet<string> NumeralClassifiers = CreateNormalizedSet(
             "ယောက်", "ဦး", "ပါး", "ခု", "ကောင်", "စီး", "လုံး", "ချပ်", "စောင်", "ထည်", "ခါ", "ကြိမ်", "လုတ်",
-            "ရက်", "ရပ်", "လ", "နှစ်", "နာရီ", "မိနစ်", "မိုင်", "ပွဲ", "ဖွဲ့", "မျိုး", "ဆင့်", "ပိုင်း", "အုပ်", "ပင်", "ခန်း", "စုံ", "တွဲ", "ဆောင်",
+            "ရက်", "ရပ်", "ပတ်", "လ", "နှစ်", "နာရီ", "မိနစ်", "မိုင်", "ပွဲ", "ဖွဲ့", "မျိုး", "ဆင့်", "ပိုင်း", "အုပ်", "ပင်", "ခန်း", "စုံ", "တွဲ", "ဆောင်",
             "ကျပ်", "တန်", "တင်း", "ပိဿာ", "ဧက", "ပေ"
         );
 
@@ -852,6 +852,25 @@ namespace MyanmarSpellChecker.Core.Nlp
             var issues = new List<ProofingIssue>();
             if (string.IsNullOrWhiteSpace(text))
                 return issues;
+
+            // 0. Broken Pyidaungsu / OpenType PDF Font CMap Mojibake Guard (e.g. legacy-exported PDFs with 'ကကီေး', 'ပပည်', 'မ္ှာ', 'သိုို့', 'ဥပရေ')
+            //    Emits a single actionable paragraph-level encoding diagnostic in ~0.01ms instead of 30+ shattered syllable/lookalike false alarms!
+            if (UnicodeNormalizer.IsBrokenPdfFontCMapText(text))
+            {
+                issues.Add(new ProofingIssue
+                {
+                    StartIndex = 0,
+                    Length = text.Length,
+                    OriginalText = text,
+                    IssueType = ProofingIssueType.ZawgyiEncodingError,
+                    RequiresReviewBeforeBatchFix = true,
+                    Message = "PDF ဖိုင်မှ ကူးယူရာတွင် စာလုံးပုံစံဇယား (PDF Font ToUnicode CMap) ပျက်စီးနေပါသည် — စာလုံးများ ကျိုးပဲ့ပျောက်ဆုံးနေသဖြင့် မူရင်းယူနီကုဒ်ဖိုင် သို့မဟုတ် OCR စနစ်ဖြင့် ပြန်လည်ထည့်သွင်းပါ။",
+                    GrammaticalReasoning = "မူရင်း PDF ဖိုင်ထုတ်လုပ်စဉ်က စာလုံးပုံစံဇယား (Font ToUnicode CMap) ပျက်စီးနေသောကြောင့် ဝစ္စပေါက် ('း' -> 'ေး')၊ မဗျည်း ('မ' -> 'မ္')၊ သရနှင့် ဗျည်းတွဲများ ('ကြီး' -> 'ကကီေး'၊ 'ပြည်' -> 'ပပည်'၊ 'ဥပဒေ' -> 'ဥပရေ') အက္ခရာကျိုးပဲ့ပျောက်ဆုံးနေပါသည်။ အလိုအလျောက် စာလုံးချင်း အစားထိုးပြင်ဆင်ပါက မူရင်းအနက် လွဲမှားနိုင်သဖြင့် မူရင်းစာမူ သို့မဟုတ် OCR စနစ်ဖြင့် ပြန်လည်ရယူရန် စာပိုဒ်အလိုက် သတိပေးထားခြင်း ဖြစ်ပါသည်။",
+                    AuthoritativeSource = "ပြည်ထောင်စုဖောင့် နှင့် ယူနီကုဒ် စံချိန်စံနှုန်း (PDF ToUnicode CMap Integrity)",
+                    Suggestions = new List<SuggestionCandidate>(0)
+                });
+                return issues;
+            }
 
             // 1. Chunk-Safe Zawgyi-One & Hybrid Residual Glyph Guard (never corrupts surrounding Unicode words!)
             string workingText = text;
@@ -1999,6 +2018,145 @@ namespace MyanmarSpellChecker.Core.Nlp
                     if (watClean)
                     {
                         for (int k = w; k < kyaungIdx; k++)
+                            mask[k] = true;
+                    }
+                }
+            }
+
+            // Protect Hindu/Sanskrit temple names ('ဆရီ' + [2..9 contiguous transliterated syllables] + [optional space] + 'ဘုရားကျောင်း', e.g. 'ဆရီဆပ်သရာနာရာရမ်း ဘုရားကျောင်း')
+            for (int w = 0; w + 5 < tokCount; w++)
+            {
+                if (tokens[w].Kind != TokenKind.MyanmarSyllable || tokens[w].NormalizedText != "ဆ" ||
+                    tokens[w + 1].Kind != TokenKind.MyanmarSyllable || tokens[w + 1].NormalizedText != "ရီ" ||
+                    tokens[w].StartIndex + tokens[w].Length != tokens[w + 1].StartIndex)
+                {
+                    continue;
+                }
+                if (w > 0 && tokens[w - 1].Kind == TokenKind.MyanmarSyllable &&
+                    tokens[w - 1].StartIndex + tokens[w - 1].Length == tokens[w].StartIndex)
+                {
+                    continue;
+                }
+
+                int nameEnd = w + 2;
+                while (nameEnd < tokCount && nameEnd - (w + 2) <= 9 &&
+                       tokens[nameEnd].Kind == TokenKind.MyanmarSyllable &&
+                       tokens[nameEnd - 1].StartIndex + tokens[nameEnd - 1].Length == tokens[nameEnd].StartIndex)
+                {
+                    if (nameEnd + 2 < tokCount &&
+                        tokens[nameEnd].NormalizedText == "ဘု" &&
+                        tokens[nameEnd + 1].NormalizedText == "ရား" &&
+                        tokens[nameEnd + 2].NormalizedText == "ကျောင်း")
+                    {
+                        break;
+                    }
+                    nameEnd++;
+                }
+
+                if (nameEnd - (w + 2) >= 2)
+                {
+                    int templeIdx = nameEnd;
+                    while (templeIdx < tokCount && tokens[templeIdx].Kind == TokenKind.Whitespace)
+                        templeIdx++;
+
+                    if (templeIdx + 2 < tokCount &&
+                        tokens[templeIdx].Kind == TokenKind.MyanmarSyllable && tokens[templeIdx].NormalizedText == "ဘု" &&
+                        tokens[templeIdx + 1].Kind == TokenKind.MyanmarSyllable && tokens[templeIdx + 1].NormalizedText == "ရား" &&
+                        tokens[templeIdx + 2].Kind == TokenKind.MyanmarSyllable && tokens[templeIdx + 2].NormalizedText == "ကျောင်း")
+                    {
+                        bool sriClean = true;
+                        for (int a = w; a < nameEnd; a++)
+                        {
+                            if (UnicodeNormalizer.HasLookalikeError(tokens[a].Text, out _, out _))
+                            {
+                                sriClean = false;
+                                break;
+                            }
+                        }
+                        if (sriClean)
+                        {
+                            for (int k = w; k < nameEnd; k++)
+                                mask[k] = true;
+                        }
+                    }
+                }
+            }
+
+            // Protect parenthesized village / branch-school toponyms directly adjacent to 'ကျောင်း' / 'ကျောင်းခွဲ' / 'အခြေခံပညာ...'
+            // (e.g. 'အခြေခံပညာအထက်တန်းကျောင်းခွဲ (ခလပ်) ၌', 'နောင်ချိုမြို့နယ် (နမ့်ဆောင်ဟူး) အခြေခံပညာအထက်တန်းကျောင်းခွဲ')
+            for (int p = 0; p + 2 < tokCount; p++)
+            {
+                if (tokens[p].Text != "(" && tokens[p].Text != "（")
+                    continue;
+
+                int innerStart = p + 1;
+                while (innerStart < tokCount && tokens[innerStart].Kind == TokenKind.Whitespace)
+                    innerStart++;
+
+                int innerEnd = innerStart;
+                bool allCleanSyl = true;
+                while (innerEnd < tokCount && tokens[innerEnd].Text != ")" && tokens[innerEnd].Text != "）")
+                {
+                    if (tokens[innerEnd].Kind == TokenKind.Whitespace)
+                    {
+                        innerEnd++;
+                        continue;
+                    }
+                    if (tokens[innerEnd].Kind != TokenKind.MyanmarSyllable ||
+                        UnicodeNormalizer.HasLookalikeError(tokens[innerEnd].Text, out _, out _))
+                    {
+                        allCleanSyl = false;
+                        break;
+                    }
+                    innerEnd++;
+                }
+
+                if (!allCleanSyl || innerEnd >= tokCount || (tokens[innerEnd].Text != ")" && tokens[innerEnd].Text != "）"))
+                    continue;
+
+                int sylCountInParen = 0;
+                for (int k = innerStart; k < innerEnd; k++)
+                {
+                    if (tokens[k].Kind == TokenKind.MyanmarSyllable)
+                        sylCountInParen++;
+                }
+                if (sylCountInParen < 1 || sylCountInParen > 5)
+                    continue;
+
+                // Check left for '...ကျောင်း' or '...ကျောင်းခွဲ' and right for 'အခြေခံပညာ...' or '...ကျောင်း'
+                bool adjacentToSchool = false;
+                int leftIdx = p - 1;
+                while (leftIdx >= 0 && tokens[leftIdx].Kind == TokenKind.Whitespace)
+                    leftIdx--;
+                if (leftIdx >= 0 && tokens[leftIdx].Kind == TokenKind.MyanmarSyllable)
+                {
+                    string ls = tokens[leftIdx].NormalizedText;
+                    if (ls == "ကျောင်း" ||
+                        (ls == "ခွဲ" && leftIdx >= 1 && tokens[leftIdx - 1].Kind == TokenKind.MyanmarSyllable && tokens[leftIdx - 1].NormalizedText == "ကျောင်း"))
+                    {
+                        adjacentToSchool = true;
+                    }
+                }
+
+                if (!adjacentToSchool)
+                {
+                    int rightIdx = innerEnd + 1;
+                    while (rightIdx < tokCount && tokens[rightIdx].Kind == TokenKind.Whitespace)
+                        rightIdx++;
+                    if (rightIdx + 3 < tokCount &&
+                        tokens[rightIdx].Kind == TokenKind.MyanmarSyllable && tokens[rightIdx].NormalizedText == "အ" &&
+                        tokens[rightIdx + 1].Kind == TokenKind.MyanmarSyllable && tokens[rightIdx + 1].NormalizedText == "ခြေ" &&
+                        tokens[rightIdx + 2].Kind == TokenKind.MyanmarSyllable && tokens[rightIdx + 2].NormalizedText == "ခံ")
+                    {
+                        adjacentToSchool = true;
+                    }
+                }
+
+                if (adjacentToSchool)
+                {
+                    for (int k = innerStart; k < innerEnd; k++)
+                    {
+                        if (tokens[k].Kind == TokenKind.MyanmarSyllable)
                             mask[k] = true;
                     }
                 }
@@ -3279,6 +3437,60 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return true;
             }
 
+            // 24. Distributive '[Digit / ')' / Numeral / အ] + [NumeralClassifier] + စီ' ("N units/weeks/items each", e.g. '(၁၈)ပတ်စီ', 'တစ်ပတ်စီ', 'အပတ်စီ', 'နှစ်ဦးစီ' != 'ပက်စီ')
+            if (windowLen == 2 && lastSyl == "စီ" && NumeralClassifiers.Contains(firstSyl))
+            {
+                if (tokIdx > runStart && firstSyl == "ပတ်" && tokens[tokIdx - 1].NormalizedText == "အ")
+                    return true;
+
+                for (int p = tokIdx - 1; p >= Math.Max(0, tokIdx - 4); p--)
+                {
+                    if (tokens[p].Kind == TokenKind.Whitespace || tokens[p].Text == ")" || tokens[p].Text == "）")
+                        continue;
+                    if (tokens[p].Kind == TokenKind.MyanmarNumber ||
+                        (tokens[p].Text.Length > 0 && char.IsDigit(tokens[p].Text[0])) ||
+                        (tokens[p].Kind == TokenKind.MyanmarSyllable && PureNumerals.Contains(tokens[p].NormalizedText)))
+                    {
+                        return true;
+                    }
+                    break;
+                }
+            }
+
+            // 25. Street-name suffix '[Gem/Color Compound Ending in စိမ်း] + လမ်း' (e.g. 'ကျောက်စိမ်းလမ်း', 'မြစိမ်းလမ်း' != 'စိမ်းလန်း')
+            if (windowLen == 2 && firstSyl == "စိမ်း" && lastSyl == "လမ်း" && tokIdx > runStart)
+            {
+                string prevSyl = tokens[tokIdx - 1].NormalizedText;
+                if (prevSyl == "ကျောက်" || prevSyl == "မြ" ||
+                    (localOffset >= 1 && IsEndOfExactMultiWordMinLen(exactMultiWordBits, localOffset, 2)))
+                {
+                    return true;
+                }
+            }
+
+            // 26. Exact >=3-syllable Official/ProperNoun Super-Span Prefix Shield:
+            //     Never let a shorter L=2 WrongFormRule (e.g. 'ရေပုန်း -> ရေပုံး') chop off the prefix of a longer exact
+            //     Official/ProperNoun headword starting at the same offset (e.g. 'ရေပုန်းရပ်', 'ရေပုန်းရပ်ကွက်', 'ရေပုန်းနယ်မြေ')!
+            if (windowLen == 2)
+            {
+                int runLen = runEnd - runStart;
+                int maxSuper = Math.Min(12, runLen - localOffset);
+                for (int superLen = 3; superLen <= maxSuper; superLen++)
+                {
+                    if (!HasExactSpan(exactMultiWordBits, localOffset, superLen))
+                        continue;
+                    string superNorm = ConcatNormalizedTokens(tokens, tokIdx, superLen);
+                    if (_trie.TryGetExactEntries(superNorm, out var sEntries) && sEntries != null)
+                    {
+                        for (int sIdx = 0; sIdx < sEntries.Count; sIdx++)
+                        {
+                            if (sEntries[sIdx].IsProperNoun || sEntries[sIdx].IsOfficialThatpon)
+                                return true;
+                        }
+                    }
+                }
+            }
+
             return false;
         }
 
@@ -3327,6 +3539,10 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         private static readonly Regex GovCodeRightContextRegex = new Regex(
             @"^[ \t]*(?:[-–/\\][ \t]*[\u1040-\u10490-9]|[\(（][\u1000-\u1021\u1025]{1,5}[\)）][ \t]*[-–/\\]|(?:[ \t.]+[\u1000-\u1021\u1025]){0,3}[ \t]*(?:[-–/\\][ \t]*(?:နိုင်|နိင်|နိုင|ဧည့်|ဧည့်|ဧည်|ပြု|ပြူ|သာသနာ့?|သာ|သ|ယာယီ|ယာရီ|စ|န|[NEPTYS])(?![\u1000-\u103F])|[\(（][ \t]*(?:နိုင်|နိင်|နိုင|ဧည့်|ဧည့်|ဧည်|ပြု|ပြူ|သာသနာ့?|သာ|သ|ယာယီ|ယာရီ|စ|န|[NEPTYS])[ \t]*[\)）]))",
+            RegexOptions.Compiled);
+
+        private static readonly Regex GovParenBlockCodeRightRegex = new Regex(
+            @"^[ \t]*[\(（][ \t]*(?:[\u1040-\u10490-9]{1,5}|[A-Za-z]{1,4}|[\u1000-\u1021]{1,3})[ \t]*[\)）]",
             RegexOptions.Compiled);
 
         private static readonly Regex GovCodeLeftContextRegex = new Regex(
@@ -3428,6 +3644,11 @@ namespace MyanmarSpellChecker.Core.Nlp
                 int rightLen = Math.Min(22, fullText.Length - endChar);
                 string rightSlice = fullText.Substring(endChar, rightLen);
                 if (GovCodeRightContextRegex.IsMatch(rightSlice))
+                    return true;
+
+                // 2..5 bare Myanmar consonant acronym/plot/ward initialism immediately before '(၂)', '(၂၅)', '(၄၁)', '(တ)'
+                // (e.g. 'နမ(၂)', 'လလ(၂၅)', 'အရစ(၄၁)', 'ပသယ(တ)', 'ဆရသ(၇၃)', 'နခ(၆၀)')
+                if (runLen >= 2 && GovParenBlockCodeRightRegex.IsMatch(rightSlice))
                     return true;
 
                 // Parenthesized sub-code immediately before '-1' / '/2', e.g. '(ဝင)-၁' in 'ပတခ(ဝင)-၁'

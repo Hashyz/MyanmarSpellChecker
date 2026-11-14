@@ -5001,5 +5001,124 @@ namespace MyanmarSpellChecker.Core.Tests
                 i.IssueType == ProofingIssueType.ContextualMeaningWarning &&
                 i.RequiresReviewBeforeBatchFix);
         }
+
+        [Fact]
+        public void V44_MoeEducationCorpusValidation_EndToEndRegression()
+        {
+            var model = EncryptedDictionaryRepository.ParseFromJsonFile(TestPaths.MasterJsonPath);
+            var trie = new MyanmarTrie();
+            foreach (var se in SeedDictionaryProvider.GetOfficialSeedEntries()) trie.InsertEntry(se);
+            foreach (var sr in SeedDictionaryProvider.GetOfficialOrthographyRules()) trie.InsertOrthographyRule(sr);
+            foreach (var e in model.Entries) trie.InsertEntry(e);
+            foreach (var r in model.OrthographyRules) trie.InsertOrthographyRule(r);
+            if (model.ContextRules != null)
+                foreach (var cr in model.ContextRules) trie.InsertContextualRule(cr);
+            if (model.WordBigrams != null)
+                foreach (var bg in model.WordBigrams) trie.InsertWordBigram(bg.LeftWord, bg.RightWord, bg.Count);
+
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // 1. Corrupted Pyidaungsu PDF ToUnicode CMap Guard (e.g. moe.gov.mm moeLaw_09.pdf)
+            const string brokenPdfParagraph =
+                "အမ္ျိုေးသာေးပညာရရေးဥပရေ (၂၀၁၄ ခုနှစ်၊ ပပည်ရထာင်စုလွှတ်ရတာ် ဥပရေအမ္ှတ် ၄၁။) " +
+                "ဤဥပရေကို အမ္ျိုေးသာေးပညာရရေးဥပရေဟု ရခါ်တွင်ရစရမ္ည်။ သိုို့ရာတွင် နိုင်ငံရတာ်အရပေါ် သစစာရစာင်သိရမ္ည်။";
+            Assert.True(UnicodeNormalizer.IsBrokenPdfFontCMapText(brokenPdfParagraph));
+            var pdfIssues = formalEngine.CheckText(brokenPdfParagraph);
+            var singlePdfDiag = Assert.Single(pdfIssues);
+            Assert.Equal(ProofingIssueType.ZawgyiEncodingError, singlePdfDiag.IssueType);
+            Assert.True(singlePdfDiag.RequiresReviewBeforeBatchFix);
+            Assert.False(singlePdfDiag.IsHighCertaintyPrecheck);
+            Assert.Empty(singlePdfDiag.Suggestions);
+            Assert.False(UnicodeNormalizer.IsBrokenPdfFontCMapText(
+                "အမျိုးသားပညာရေးဥပဒေအရ ကျောင်းသား၊ ကျောင်းသူများ ပညာသင်ကြားရေး ဆောင်ရွက်ပေးလျက်ရှိသည်။"));
+
+            // 2. Pali Ca-vagga lookalike scope & stacked keyboard typos ('မဥ္ဗူသက' -> 'မဉ္ဇူသက', never 'မဉ္ဗူသက'!)
+            var manjusakaHit = Assert.Single(formalEngine.CheckText("အမှတ်(ဒ/၂၆၃၅)၊ မဥ္ဗူသကလမ်း၊ ဒက္ခိဏသီရိမြို့နယ်။"));
+            Assert.Contains("မဉ္ဇူသက", UnicodeNormalizer.NormalizeCanonicalOrder(manjusakaHit.Suggestions[0].Replacement));
+            Assert.DoesNotContain("မဉ္ဗူ", UnicodeNormalizer.NormalizeCanonicalOrder(manjusakaHit.Suggestions[0].Replacement));
+            Assert.True(manjusakaHit.IsHighCertaintyPrecheck);
+
+            var manjuTypoHit = Assert.Single(formalEngine.CheckText("မဥ္မူလမ်း၊ ပျဉ်းမမြိုင်ရပ်ကွက်၊ ကျွန်းလှမြို့။"));
+            Assert.Contains("မဉ္ဇူ", UnicodeNormalizer.NormalizeCanonicalOrder(manjuTypoHit.Suggestions[0].Replacement));
+            Assert.DoesNotContain("မဉ္မူ", UnicodeNormalizer.NormalizeCanonicalOrder(manjuTypoHit.Suggestions[0].Replacement));
+            Assert.True(manjuTypoHit.IsHighCertaintyPrecheck);
+
+            var manjuLookalikeHit = Assert.Single(formalEngine.CheckText("18/B မဥ္ဇူလမ်း၊ ပါရမီ၊ ရန်ကင်းမြို့နယ်။"));
+            Assert.Equal(ProofingIssueType.LookalikeCharacterError, manjuLookalikeHit.IssueType);
+            Assert.Equal("မဉ္ဇူလမ်း", UnicodeNormalizer.NormalizeCanonicalOrder(manjuLookalikeHit.Suggestions[0].Replacement));
+
+            // 3. Bilingual mixed straight/curly quotation mark normalization (never deletes closing curly quote!)
+            const string mixedQuoteSentence =
+                "မြန်မာနိုင်ငံဆိုင်ရာ အိန္ဒိယသံရုံးက \"India: New Horizons for Education and Learning” ခေါင်းစဉ်ဖြင့် ပညာရေးဆွေးနွေးပွဲ ကျင်းပသည်။";
+            var qHit = Assert.Single(formalEngine.CheckText(mixedQuoteSentence));
+            Assert.Equal(ProofingIssueType.PunctuationError, qHit.IssueType);
+            Assert.Equal("\"", qHit.OriginalText);
+            Assert.Equal("“", qHit.Suggestions[0].Replacement);
+            Assert.True(qHit.RequiresReviewBeforeBatchFix);
+
+            // 4. Zero False Positives on MOE curriculum, plot/ward initialisms, Hindu temples, branch-school villages & street names
+            string[] cleanMoeSentences =
+            {
+                "(၁၈)ပတ်စီ ပိုင်းခြားထားပြီး တစ်ပတ်စီနှင့် အပတ်စီ လေ့ကျင့်သင်ကြားပေးသည်။",
+                "အမှတ်(၄၅)၊ နမ(၂)၊ လလ(၂၅)၊ အရစ(၄၁)၊ ပသယ(တ)၊ ဆရသ(၇၃)၊ နခ(၆၀)၊ တောင်ကြီးမြို့။",
+                "ကောင်ရာ(၁၁၅)၊ စီတာပူရပ်ကွက်၊ မြစ်ကြီးနားမြို့။",
+                "ဆရီဆပ်သရာနာရာရမ်း ဘုရားကျောင်းအနီး၊ မင်္ဂလာတောင်ညွန့်မြို့နယ်။",
+                "အခြေခံပညာအထက်တန်းကျောင်းခွဲ (ခလပ်) နှင့် (နမ့်ဆောင်ဟူး) အခြေခံပညာအထက်တန်းကျောင်းခွဲတို့၌ ကျင်းပသည်။",
+                "ရွှေဂူရပ်၊ မတ္တရာမြို့နယ်နှင့် ရေပုန်းရပ်၊ မြိတ်မြို့တို့၌ ဖွင့်လှစ်သည်။",
+                "မင်းကွက်(၂)ရပ်ကွက်၊ ပေါင်းတည်မြို့နှင့် မကျီးစဉ်ရပ်ကွက်၊ စစ်ကိုင်းမြို့။",
+                "မဲဘောင်အပိုင်း(၃)၊ လှာကမြင်ကျေးရွာအုပ်စု၊ ဘားအံမြို့နယ်။",
+                "အမှတ်(၂၁၈/က)၊ ကျောက်စိမ်းလမ်းနှင့် ကွမ်အပ်သားမင်းသားလမ်းမကြီး၊ ဒဂုံမြို့သစ်(ဆိပ်ကမ်း)မြို့နယ်။"
+            };
+            foreach (string clean in cleanMoeSentences)
+            {
+                var fp = formalEngine.CheckText(clean);
+                Assert.True(fp.Count == 0,
+                    $"Expected 0 false positives on MOE sentence '{clean}', got [{string.Join("; ", fp.Select(x => $"{x.OriginalText}=>{x.Suggestions.FirstOrDefault()?.Replacement}"))}]");
+            }
+
+            // Explicit Pepsi beverage loanword phrase still catches 'ပတ်စီအချိုရည် -> ပက်စီအချိုရည်'
+            var pepsiHit = Assert.Single(formalEngine.CheckText("ပတ်စီအချိုရည် သောက်သုံးသည်။"));
+            Assert.Equal("ပက်စီအချိုရည်", UnicodeNormalizer.NormalizeCanonicalOrder(pepsiHit.Suggestions[0].Replacement));
+
+            // 5. Space-split official table compounds in moe.gov.mm private-school registration directories
+            (string Input, string ExpectedJoined)[] spaceSplitTableCases =
+            {
+                ("ချမ်းအေး သာစံမြို့နယ်၌ ဖွင့်လှစ်သည်။", "ချမ်းအေးသာစံ"),
+                ("အမှတ် ၇၃၇၊ အနော် ရထာလမ်းမကြီးအတွင်း၊ လှိုင်သာယာမြို့နယ်။", "အနော်ရထာ"),
+                ("အမှတ်(၈၅/၉)၊ က မ္ဘောဇလမ်း၊ တောင်ကြီးမြို့။", "ကမ္ဘောဇ"),
+                ("အမှတ် ၅၀၉၊ အောက်ပုဇွန် တောင်လမ်း၊ ပုဇွန်တောင်မြို့နယ်။", "အောက်ပုဇွန်တောင်"),
+                ("အမှတ်(၁၄)၊ ရာဇာ ဓိရာဇ်လမ်း၊ မြောက်ဥက္ကလာပမြို့နယ်။", "ရာဇဓိရာဇ်"),
+                ("အမှတ်(၂၀၇)၊ ဒဂုန် ရွှေမြှားလမ်း၊ လှိုင်သာယာမြို့နယ်။", "ဒဂုန်ရွှေမျှား")
+            };
+            foreach (var (input, expectedJoined) in spaceSplitTableCases)
+            {
+                var found = formalEngine.CheckText(input);
+                Assert.Contains(found, i =>
+                    i.Suggestions.Count > 0 &&
+                    UnicodeNormalizer.NormalizeCanonicalOrder(i.Suggestions[0].Replacement) == UnicodeNormalizer.NormalizeCanonicalOrder(expectedJoined) &&
+                    i.IsHighCertaintyPrecheck);
+            }
+
+            // 6. Authentic moe.gov.mm clerical errors caught with exact #1 suggestion & High-Certainty Precheck (☑)
+            (string Input, string ExpectedTop)[] trueMoeCatches =
+            {
+                ("အမျိုးသားသင်ရိုးညွှန်းတမ်းဖြင့် သင်ကြားသော ပုဂ္ဂလိကျောင်းများ ဖွင့်လှစ်သည်။", "ပုဂ္ဂလိကကျောင်း"),
+                ("ပညာရေးဝန်ကြီးဌာန ရုံးအမှတ် (၁၃) ရှိ လျိုပိတ်ဆည်၌ ကျင်းပသည်။", "လျှိုပိတ်ဆည်"),
+                ("အမှတ်(၂၄)၊ မြစပယ်လမ်း၊ မရမ်းကုန်းမြို့နယ်။", "မြစံပယ်လမ်း"),
+                ("မင်းဓမ္မလမ်းနှင့် အောင်သိဒ္ဓီလမ်းထောင့်၊ မရမ်းကုန်းမြို့နယ်။", "အောင်သိဒ္ဓိ"),
+                ("ဘုရင့်နောင်လမ်၊ ဆိပ်ဖြူမြို့။", "ဘုရင့်နောင်လမ်း"),
+                ("အမျိုးသားသင်ရိုးညွှန်တမ်းဖြင့် သင်ကြားပေးသည်။", "သင်ရိုးညွှန်းတမ်း"),
+                ("ရန်ကုန်တက္ကသိုလ် ဘွဲနှင်းသဘင်ခန်းမ၌ ကျင်းပသည်။", "ဘွဲ့နှင်းသဘင်"),
+                ("ရန်ကုန်တက္ကသိုလ်ဝင်းအတွင်းရှိ သစ်ပုတ်ပင်ကြီးသည် ထင်ရှားသည်။", "သစ်ပုပ်ပင်")
+            };
+            foreach (var (input, expectedTop) in trueMoeCatches)
+            {
+                var found = formalEngine.CheckText(input);
+                Assert.Contains(found, i =>
+                    i.Suggestions.Count > 0 &&
+                    UnicodeNormalizer.NormalizeCanonicalOrder(i.Suggestions[0].Replacement) == UnicodeNormalizer.NormalizeCanonicalOrder(expectedTop) &&
+                    i.IsHighCertaintyPrecheck);
+            }
+        }
     }
 }

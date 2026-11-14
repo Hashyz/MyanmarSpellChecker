@@ -448,8 +448,23 @@ namespace MyanmarSpellChecker.Core.Nlp
             RegexOptions.Compiled);
 
         private static readonly Regex BoundStemBrokenCompoundPattern = new Regex(
-            @"(?:(?<Left>အထိမ်း)[ \t]+(?<Right>အမှတ်)|(?<Left>အစည်း)[ \t]+(?<Right>အဝေး)|(?<Left>အခမ်း)[ \t]+(?<Right>အနား)|(?<Left>အစီ)[ \t]+(?<Right>အစဉ်)|(?<Left>အဆောက်)[ \t]+(?<Right>အအုံ)|(?<Left>အချက်)[ \t]+(?<Right>အလက်)|(?<Left>ကိုယ်စား)[ \t]+(?<Right>လှယ်)|(?<Left>တက္က)[ \t]+(?<Right>သိုလ်)|(?<Left>ကွန်ပျူ)[ \t]+(?<Right>တာ)|(?<Left>ပလတ်)[ \t]+(?<Right>စတစ်))(?![\u102B-\u103E]|[\u1000-\u1021]\u103B?[\u1039\u103A])",
+            @"(?:(?<Left>အထိမ်း)[ \t]+(?<Right>အမှတ်)|(?<Left>အစည်း)[ \t]+(?<Right>အဝေး)|(?<Left>အခမ်း)[ \t]+(?<Right>အနား)|(?<Left>အစီ)[ \t]+(?<Right>အစဉ်)|(?<Left>အဆောက်)[ \t]+(?<Right>အအုံ)|(?<Left>အချက်)[ \t]+(?<Right>အလက်)|(?<Left>ကိုယ်စား)[ \t]+(?<Right>လှယ်)|(?<Left>တက္က)[ \t]+(?<Right>သိုလ်)|(?<Left>ကွန်ပျူ)[ \t]+(?<Right>တာ)|(?<Left>ပလတ်)[ \t]+(?<Right>စတစ်)|(?<Left>မြင့်)[ \t]+(?<Right>မိုရ်))(?![\u102B-\u103E]|[\u1000-\u1021]\u103B?[\u1039\u103A])",
             RegexOptions.Compiled);
+
+        private static readonly (Regex Pattern, string Target, string Cue)[] CuratedAddressAndHistoricalBrokenCompounds =
+        {
+            (new Regex(@"အောက်ပုဇွန်[ \t]+တောင်(?=လမ်း)", RegexOptions.Compiled), "အောက်ပုဇွန်တောင်", "ရန်ကုန်မြို့ ပုဇွန်တောင်မြို့နယ်ရှိ အထင်ကရလမ်းမအမည် (~လမ်း)"),
+            (new Regex(@"ပြည်လုံးချမ်း[ \t]+သာ(?![\u1000-\u103F])", RegexOptions.Compiled), "ပြည်လုံးချမ်းသာ", "ရပ်ကွက်/အကွက်/စေတီအမည် (ပြည်လုံးချမ်းသာ)"),
+            (new Regex(@"ကျောက်[ \t]+စိမ်းလမ်း(?![\u102B-\u103E])", RegexOptions.Compiled), "ကျောက်စိမ်းလမ်း", "လမ်းအမည် (ကျောက်စိမ်း + လမ်း)"),
+            (new Regex(@"(?<![\u1000-\u103F])သဲ[ \t]+တောမြို့(?![\u102B-\u103E])", RegexOptions.Compiled), "သဲတောမြို့", "မန္တလေးတိုင်းဒေသကြီး ဝမ်းတွင်းမြို့နယ်ရှိ ရုံးသုံးမြို့အမည်"),
+            (new Regex(@"ရာဇာ?[ \t]+ဓိရာဇ်", RegexOptions.Compiled), "ရာဇဓိရာဇ်", "ဟံသာဝတီဘုရင် ရာဇဓိရာဇ် (သတ်ပုံကျမ်းစံနှုန်း)"),
+            (new Regex(@"ဒဂုန်[ \t]+ရွှေမြှား", RegexOptions.Compiled), "ဒဂုန်ရွှေမျှား", "စာရေးဆရာကြီး ဒဂုန်ရွှေမျှား (~လမ်း)"),
+            (new Regex(@"ရန်အောင်[ \t]+မြင်(?=ရပ်)", RegexOptions.Compiled), "ရန်အောင်မြင်", "ရပ်ကွက်အမည် (ရန်အောင်မြင်ရပ်ကွက်)"),
+            (new Regex(@"မင်းရဲကျော်[ \t]+စွာ(?=လမ်း|ရပ်)", RegexOptions.Compiled), "မင်းရဲကျော်စွာ", "သမိုင်းဝင်မင်းသား/လမ်းအမည် (မင်းရဲကျော်စွာ)"),
+            (new Regex(@"ကွမ်[ \t]+အပ်သားမင်းသား", RegexOptions.Compiled), "ကွမ်အပ်သားမင်းသား", "ဒဂုံမြို့သစ်(ဆိပ်ကမ်း)မြို့နယ်ရှိ လမ်းမကြီးအမည်"),
+            (new Regex(@"(?<![\u1000-\u103F])က[ \t]+မ္ဘောဇ", RegexOptions.Compiled), "ကမ္ဘောဇ", "ကမ္ဘောဇဒေသ/လမ်းအမည် (ကမ္ဘောဇ)"),
+            (new Regex(@"အနော်[ \t]+ရထာ", RegexOptions.Compiled), "အနော်ရထာ", "ပုဂံခေတ် အနော်ရထာမင်းကြီး / အနော်ရထာလမ်း")
+        };
 
         private static HashSet<string> CreateNormalizedSet(params string[] items)
         {
@@ -467,11 +482,11 @@ namespace MyanmarSpellChecker.Core.Nlp
             "အလုပ်သမား", "အလုပ်ချိန်", "မိန်းကလေး", "ယောက်ျားလေး", "သတင်းစာ", "လေယာဉ်", "မော်တော်ယာဉ်",
             "ကွန်ပျူတာ", "တယ်လီဖုန်း", "စာသင်ကျောင်း", "တက္ကသိုလ်", "အစိုးရ", "အစိုးရအဖွဲ့", "ဥပဒေ",
             "ကျန်းမာရေး", "စီးပွားရေး", "လူနာတင်ယာဉ်", "အိမ်စာ", "မီးသတ်ကား", "ဘယ်လို", "ဘာလို့",
-            "တပ်မတော်", "ကိုယ်စားလှယ်", "ပလတ်စတစ်"
+            "တပ်မတော်", "ကိုယ်စားလှယ်", "ပလတ်စတစ်", "မြင့်မိုရ်"
         );
 
         private static readonly Regex SpaceSplitPairCandidateRegex = new Regex(
-            @"(?<![\u1000-\u103F])(?<Target>(?<Left>[\u1000-\u103F]{1,8})[ \t]+(?<Right>[\u1000-\u103F]{1,8}?))(?:ကို|အား|မှ|သို့|နှင့်|နဲ့|သည်|၏|၌|တွင်|က|မှာ|များ|တွေ|အတွက်|အကြောင်း|ဆိုင်ရာ|ဖြင့်)?(?![\u1000-\u103F])",
+            @"(?<![\u1000-\u103F])(?<Target>(?<Left>[\u1000-\u103F]{1,10})[ \t]+(?<Right>[\u1000-\u103F]{1,8}?))(?<Suffix>လမ်းမကြီး|လမ်းသွယ်|လမ်းမ|လမ်း|မြို့နယ်|မြို့|ရပ်ကွက်|ရပ်|ကျေးရွာ|ရွာ|ရေကျော်|ဇုန်|ကို|အား|မှ|သို့|နှင့်|နဲ့|သည်|၏|၌|တွင်|က|မှာ|များ|တွေ|အတွက်|အကြောင်း|ဆိုင်ရာ|ဖြင့်)?(?![\u1000-\u103F])",
             RegexOptions.Compiled);
 
         private static readonly HashSet<string> SpaceSplitBoundaryParticles = CreateNormalizedSet(
@@ -942,7 +957,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                         if (mmRunBeforeHorizSpace > 0)
                         {
                             hasMyanmarSpaceMyanmar = true;
-                            if (mmRunBeforeHorizSpace <= 8)
+                            if (mmRunBeforeHorizSpace <= 12)
                                 hasShortMyanmarBeforeMyanmar = true;
                         }
                     }
@@ -3040,10 +3055,30 @@ namespace MyanmarSpellChecker.Core.Nlp
                     }
                 }
 
+                for (int cIdx = 0; cIdx < CuratedAddressAndHistoricalBrokenCompounds.Length; cIdx++)
+                {
+                    var (pat, targetJoined, cue) = CuratedAddressAndHistoricalBrokenCompounds[cIdx];
+                    foreach (Match m in pat.Matches(text))
+                    {
+                        if (OverlapsExistingIssue(issues, m.Index, m.Length))
+                            continue;
+                        string normTarget = UnicodeNormalizer.NormalizeCanonicalOrder(targetJoined);
+                        AddGrammarOrSpellingIssue(
+                            issues, m.Index, m.Length, m.Value, normTarget,
+                            ProofingIssueType.SpellingError,
+                            $"စာလုံးအတွင်း နေရာလွတ် (Space) ခြားထားခြင်း သို့မဟုတ် စာလုံးပေါင်း လွဲမှားနေပါသည် — '{m.Value}' အစား '{normTarget}' ဟု တစ်ဆက်တည်း ရေးသားရမည်။",
+                            cue, "PROPN", true);
+                    }
+                }
+
                 if (trie != null && hasShortMyanmarBeforeMyanmar)
                 {
                     foreach (Match m in SpaceSplitPairCandidateRegex.Matches(text))
                     {
+                        Group tGrp = m.Groups["Target"];
+                        if (OverlapsExistingIssue(issues, tGrp.Index, tGrp.Length))
+                            continue;
+
                         Group leftGrp = m.Groups["Left"];
                         if (text[leftGrp.Index] == 'မ')
                             continue;
@@ -3056,6 +3091,16 @@ namespace MyanmarSpellChecker.Core.Nlp
                         if (SpaceSplitBoundaryParticles.Contains(rightNorm))
                             continue;
 
+                        string suffixVal = m.Groups["Suffix"].Success
+                            ? UnicodeNormalizer.NormalizeCanonicalOrder(m.Groups["Suffix"].Value)
+                            : string.Empty;
+                        if (suffixVal.Length > 0 &&
+                            trie.ContainsExactWord(leftNorm) &&
+                            trie.ContainsExactWord(rightNorm + suffixVal))
+                        {
+                            continue;
+                        }
+
                         string rawJoined = leftNorm + rightNorm;
                         string joinedNorm = (rightNorm.Length > 0 && rightNorm[0] >= '\u102B' && rightNorm[0] <= '\u103E')
                             ? UnicodeNormalizer.NormalizeCanonicalOrder(rawJoined)
@@ -3066,7 +3111,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                         // Check O(1) dictionary compound existence BEFORE breaking syllables!
                         if (!trie.TryGetExactEntries(joinedNorm, out var jEntries) ||
                             jEntries == null || jEntries.Count == 0 ||
-                            !jEntries[0].IsOfficialThatpon ||
+                            (!jEntries[0].IsOfficialThatpon && !jEntries[0].IsProperNoun) ||
                             jEntries[0].Frequency < 20)
                         {
                             continue;
@@ -3080,7 +3125,6 @@ namespace MyanmarSpellChecker.Core.Nlp
                         if (leftSyls == 0 || rightSyls == 0 || leftSyls > 2 || rightSyls > 2)
                             continue;
 
-                        Group tGrp = m.Groups["Target"];
                         string cue = !string.IsNullOrWhiteSpace(jEntries[0].MeaningCue) ? jEntries[0].MeaningCue : "သတ်ပုံကျမ်းဝင် ပေါင်းစပ်ပုဒ်";
                         AddGrammarOrSpellingIssue(
                             issues, tGrp.Index, tGrp.Length, tGrp.Value, joinedNorm,
@@ -4678,7 +4722,12 @@ namespace MyanmarSpellChecker.Core.Nlp
                         // Balanced straight quotes "..." -> close cleanly
                         openStraightBeforeMmIdx = -1;
                     }
-                    else if (openCurlyIdx < 0 && i + 1 < len && IsMyanmarRunLetterOrMark(text[i + 1]))
+                    else if (openCurlyIdx < 0 &&
+                             !IsInchOrArcsecondSymbol(text, i) &&
+                             (i == 0 || char.IsWhiteSpace(text[i - 1]) || text[i - 1] == '(' || text[i - 1] == '[' ||
+                              text[i - 1] == '\u104A' || text[i - 1] == '\u104B' || text[i - 1] == ':') &&
+                             i + 1 < len &&
+                             (IsMyanmarRunLetterOrMark(text[i + 1]) || char.IsLetterOrDigit(text[i + 1])))
                     {
                         openStraightBeforeMmIdx = i;
                     }

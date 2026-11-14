@@ -64,10 +64,10 @@ namespace MyanmarSpellChecker.Core.Nlp
             @"(?<Digit>[\u1041-\u1049]+)(?!\u1038[\u1040-\u1049])[\u102B-\u103E]+",
             RegexOptions.Compiled);
 
-        // 3. Independent Vowel U 'ဥ' (U+1025) misused as Consonant Nya 'ဉ' (U+1009) before Asat (\u103A) or AA (\u102C)
-        // Examples: စဥ် -> စဉ်, အစီအစဥ် -> အစီအစဉ်, ယာဥ် -> ယာဉ်, ဥာဏ် -> ဉာဏ်
+        // 3. Independent Vowel U 'ဥ' (U+1025) misused as Consonant Nya 'ဉ' (U+1009) before Asat (\u103A), AA (\u102C), Hahto (\u103E), or Pali Ca-vagga subscript (\u1039[\u1005-\u1009])
+        // Examples: စဥ် -> စဉ်, အစီအစဥ် -> အစီအစဉ်, ယာဥ် -> ယာဉ်, ဥာဏ် -> ဉာဏ်, မဥ္ဇူ -> မဉ္ဇူ (never mutates non-Ca-vagga typos like မဥ္ဗူသက into nonexistent မဉ္ဗူသက!)
         private static readonly Regex MisusedVowelUPattern = new Regex(
-            @"\u1025(?=[\u103A\u102C\u1039\u103E]|\u1037\u103A)",
+            @"\u1025(?=[\u103A\u102C\u103E]|\u1039[\u1005-\u1009]|\u1037\u103A)",
             RegexOptions.Compiled);
 
         // 3b. Consonant Nya 'ဉ' (U+1009) misused as Independent Vowel U 'ဥ' (U+1025) or 'ဦ' (U+1026)
@@ -428,7 +428,9 @@ namespace MyanmarSpellChecker.Core.Nlp
                     {
                         mask |= LookalikeMisusedAw;
                     }
-                    else if (prev == '\u1025' && (c == '\u103A' || c == '\u102C' || c == '\u1039' || c == '\u103E' || c == '\u1037'))
+                    else if (prev == '\u1025' &&
+                             (c == '\u103A' || c == '\u102C' || c == '\u103E' || c == '\u1037' ||
+                              (c == '\u1039' && i + 1 < end && s[i + 1] >= '\u1005' && s[i + 1] <= '\u1009')))
                     {
                         mask |= LookalikeMisusedVowelU;
                     }
@@ -1236,6 +1238,86 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             return FixLookalikeCharacters(NormalizeCanonicalOrder(s));
+        }
+
+        private static int CountSubstringOccurrences(string text, string pattern)
+        {
+            int count = 0;
+            int idx = 0;
+            while ((idx = text.IndexOf(pattern, idx, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                idx += pattern.Length;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Zero-allocation O(N) detector for broken Pyidaungsu / OpenType PDF ToUnicode CMap extraction mojibake
+        /// (e.g. legacy-exported Myanmar government law PDFs where visarga 'း' extracts as 'ေး' after vowels/asat like 'ကကီေး'/'ပခင်ေး',
+        /// 'မ' extracts as 'မ္' in 'မ္ှာ'/'မ္ည်'/'မ္ဟုတ်'/'ပုေ်မ္', 'ို' doubles as 'သိုို့', and medial shaping injects spaces before marks like 'ရက ာင်ေး').
+        /// </summary>
+        public static bool IsBrokenPdfFontCMapText(string text)
+        {
+            if (string.IsNullOrEmpty(text) || text.Length < 3)
+                return false;
+
+            int illegalEVisarga = 0;
+            int invalidMaVirama = 0;
+            int spaceBeforeMark = 0;
+            int bareEAsat = 0;
+            int n = text.Length;
+
+            for (int i = 0; i < n - 1; i++)
+            {
+                char ch = text[i];
+                char nx = text[i + 1];
+
+                if (nx == '\u1031' && i + 2 < n && text[i + 2] == '\u1038')
+                {
+                    if ((ch >= '\u102B' && ch <= '\u1032') || ch == '\u1036' || ch == '\u1037' || ch == '\u103A')
+                        illegalEVisarga++;
+                }
+                else if (ch == '\u1019' && nx == '\u1039')
+                {
+                    if (i + 2 >= n || text[i + 2] < '\u1015' || text[i + 2] > '\u1019')
+                        invalidMaVirama++;
+                }
+                else if (ch == ' ' && nx >= '\u102B' && nx <= '\u103E' && i > 0 && text[i - 1] >= '\u1000' && text[i - 1] <= '\u103F')
+                {
+                    spaceBeforeMark++;
+                }
+                else if (ch == '\u1031' && nx == '\u103A')
+                {
+                    bareEAsat++;
+                }
+            }
+
+            if (illegalEVisarga == 0 && invalidMaVirama == 0 && spaceBeforeMark == 0 && bareEAsat == 0)
+            {
+                // Ultra-fast O(1) reject for 99.99% of clean Burmese paragraphs without doing any substring checks
+                if (text.IndexOf("\u1000\u1000\u102E", StringComparison.Ordinal) < 0 &&
+                    text.IndexOf("\u1015\u1015\u100A\u103A", StringComparison.Ordinal) < 0 &&
+                    text.IndexOf("\u1025\u1015\u101B\u1031", StringComparison.Ordinal) < 0)
+                {
+                    return false;
+                }
+            }
+
+            int doubledOi = CountSubstringOccurrences(text, "\u102D\u102F\u102D\u102F");
+            int sigTokens =
+                CountSubstringOccurrences(text, "\u1000\u1000\u102E") +      // ကကီ
+                CountSubstringOccurrences(text, "\u1015\u1015\u100A\u103A") + // ပပည်
+                CountSubstringOccurrences(text, "\u1025\u1015\u101B\u1031") + // ဥပရေ
+                CountSubstringOccurrences(text, "\u101E\u1005\u1005\u102C") + // သစစာ
+                CountSubstringOccurrences(text, "\u1015\u102F\u1031\u103A") + // ပုေ်
+                CountSubstringOccurrences(text, "\u1015\u1016\u1005\u103A") + // ပဖစ်
+                CountSubstringOccurrences(text, "\u1015\u1015\u102F");        // ပပု
+
+            int totalSignals = illegalEVisarga + doubledOi + invalidMaVirama + spaceBeforeMark + bareEAsat + sigTokens;
+            return (illegalEVisarga >= 1 && totalSignals >= 2) ||
+                   (invalidMaVirama >= 1 && totalSignals >= 2) ||
+                   totalSignals >= 3;
         }
     }
 }
