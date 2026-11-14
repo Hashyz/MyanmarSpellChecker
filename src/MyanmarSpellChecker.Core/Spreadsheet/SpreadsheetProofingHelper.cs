@@ -323,7 +323,8 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
             CancellationToken cancellationToken = default,
             int maxIssuesToCollect = int.MaxValue,
             EcoRuntimeBudgets? explicitBudgets = null,
-            IReadOnlyList<(int R1, int C1, int R2, int C2)>? sheetFormulaRects = null)
+            IReadOnlyList<(int R1, int C1, int R2, int C2)>? sheetFormulaRects = null,
+            DocumentConsistencyAccumulator? consistencyAccumulator = null)
         {
             if (engine == null)
                 throw new ArgumentNullException(nameof(engine));
@@ -479,6 +480,8 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                         EcoPerformanceGovernor.MaybeMicroYield(nlpEvaluations, microYieldCadence);
                         cellIssues = engine.CheckText(cellText, cacheParagraph: false);
                     }
+
+                    consistencyAccumulator?.ObserveCell(sheetName ?? string.Empty, sheetRow, sheetCol, cellText, cellIssues);
 
                     if (cellIssues == null || cellIssues.Count == 0)
                         continue;

@@ -1850,6 +1850,29 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     if (generation != Volatile.Read(ref _scanGeneration))
                         return;
 
+                    int existingIssueSum = 0;
+                    for (int i = 0; i < count; i++)
+                    {
+                        if (issuesPerParagraph[i] == null)
+                            issuesPerParagraph[i] = new List<ProofingIssue>(0);
+                        existingIssueSum += issuesPerParagraph[i].Count;
+                    }
+
+                    List<string>? consistencySummaries = null;
+                    if (!wasPartialAutoScan && !wasIssueCapReached && count >= 2)
+                    {
+                        var paraTexts = new string[count];
+                        for (int i = 0; i < count; i++)
+                            paraTexts[i] = snapshots[i].RawText ?? string.Empty;
+
+                        consistencySummaries = DocumentConsistencyAnalyzer.ReconcileAndAnalyzeWordParagraphs(
+                            paraTexts,
+                            issuesPerParagraph,
+                            _engine.StyleMode,
+                            _engine.Trie,
+                            maxConsistencyIssuesToAdd: Math.Max(0, Math.Min(64, maxIssueCap - existingIssueSum)));
+                    }
+
                     var analyzed = new List<(ParagraphSnapshot Snap, List<ProofingIssue> Issues)>(count);
                     var allIssuesFlat = new List<ProofingIssue>(Math.Min(1024, count * 2));
                     // Bound quality-analyzer text builder on massive documents so weak PCs never allocate giant strings on LOH
@@ -1889,7 +1912,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     DocumentQualityReport qualityReport = DocumentQualityAnalyzer.Analyze(
                         plainTextBuilder.ToString(),
                         allIssuesFlat,
-                        _engine);
+                        _engine,
+                        consistencySummaries);
 
                     int underlineCap = budgets.WordVisualUnderlineCap;
 

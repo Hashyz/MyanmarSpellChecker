@@ -4692,5 +4692,204 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.DoesNotContain("_txtDictionarySearch.Text =", wordDictSrc);
             Assert.DoesNotContain("_txtDictionarySearch.Text =", excelDictSrc);
         }
+
+        [Fact]
+        public void V42_SmarterNlpPosHomophones_RepeatedWords_BracketsQuotes_BilingualNumerals_AndDocumentConsistencyGate()
+        {
+            var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
+            var trie = repo.LoadIntoTrie(AntiTamperGuard.ReconstructProtectedFallbackKey());
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+
+            // 1. Module 4m: POS-Syntactic Homophones ('ကျောင်း->ကြောင်း', 'ချင်း->ခြင်း', generalized 'ကျ->ကြ') — deterministic & pre-checked (☑)
+            var kyaung1 = formalEngine.CheckText("စီမံကိန်းလုပ်ငန်းများ ဆောင်ရွက်ခဲ့ကျောင်း တွေ့ရှိရသည်။");
+            var kyaungHit1 = Assert.Single(kyaung1, i => i.OriginalText == "ကျောင်း");
+            Assert.Equal("ကြောင်း", kyaungHit1.Suggestions[0].Replacement);
+            Assert.True(kyaungHit1.IsHighCertaintyPrecheck);
+
+            var kyaung2 = generalEngine.CheckText("အစည်းအဝေး ကျင်းပကျောင်း သိရသည်။");
+            var kyaungHit2 = Assert.Single(kyaung2, i => i.OriginalText == "ကျောင်း");
+            Assert.Equal("ကြောင်း", kyaungHit2.Suggestions[0].Replacement);
+            Assert.True(kyaungHit2.IsHighCertaintyPrecheck);
+
+            var kyaung3 = formalEngine.CheckText("အခက်အခဲ မရှိကျောင်း တင်ပြသည်။");
+            Assert.Contains(kyaung3, i => i.OriginalText == "ကျောင်း" && i.Suggestions[0].Replacement == "ကြောင်း");
+
+            // Genuine school nouns before reporting verbs MUST stay 100% clean
+            Assert.Empty(formalEngine.CheckText("အခြေခံပညာအထက်တန်းကျောင်း ဖွင့်လှစ်ကြောင်း သိရသည်။"));
+            Assert.Empty(formalEngine.CheckText("စာသင်ကျောင်း သိရသည်။"));
+
+            var chin1 = formalEngine.CheckText("စည်းကမ်းများ လိုက်နာချင်းသည် အရေးကြီးပါသည်။");
+            var chinHit1 = Assert.Single(chin1, i => i.OriginalText == "ချင်း");
+            Assert.Equal("ခြင်း", chinHit1.Suggestions[0].Replacement);
+            Assert.True(chinHit1.IsHighCertaintyPrecheck);
+
+            // Reduplicated temporal verbs ('ရောက်ရောက်ချင်း', 'သိသိချင်း') & dictionary headwords ('သီချင်း', 'အချင်းချင်း') MUST stay 100% clean,
+            // while standalone 'သိချင်း' ('song' typo) MUST still be caught as 'သီချင်း'!
+            Assert.Empty(formalEngine.CheckText("နေပြည်တော်သို့ ရောက်ရောက်ချင်း အစည်းအဝေး တက်ရောက်သည်။"));
+            Assert.Empty(formalEngine.CheckText("သတင်း သိသိချင်း အကြောင်းကြားပါသည်။"));
+            Assert.Empty(formalEngine.CheckText("သီချင်းသည် နားထောင်ကောင်းသည်။"));
+            Assert.Empty(formalEngine.CheckText("အချင်းချင်း ကူညီဆောင်ရွက်ကြသည်။"));
+            Assert.Contains(formalEngine.CheckText("သိချင်း နားထောင်သည်။"), i => i.Suggestions.Count > 0 && i.Suggestions[0].Replacement == "သီချင်း");
+
+            var kyaPlural1 = formalEngine.CheckText("သတ်မှတ်စည်းကမ်းများကို တိကျစွာ လိုက်နာကျသည်။");
+            var kyaHit1 = Assert.Single(kyaPlural1, i => i.OriginalText == "ကျ");
+            Assert.Equal("ကြ", kyaHit1.Suggestions[0].Replacement);
+            Assert.True(kyaHit1.IsHighCertaintyPrecheck);
+
+            // Lexical '~ကျ' & directional falling verbs MUST stay 100% clean
+            Assert.Empty(formalEngine.CheckText("ပရိသတ်များ အထူး သဘောကျပါသည်။"));
+            Assert.Empty(formalEngine.CheckText("သစ်ပင်ကြီး လဲကျသည်။"));
+            Assert.Empty(formalEngine.CheckText("မိုးသီးများ ကြွေကျသည်။"));
+
+            // 2. Module 4n: Smart Accidental Repeated Words (Myanmar multi-syllable, function words & English function words — pre-checked ☑)
+            var dupMm = formalEngine.CheckText("ဝန်ကြီးဌာန ဝန်ကြီးဌာန အနေဖြင့် ဆောင်ရွက်သည်။");
+            var dupMmHit = Assert.Single(dupMm, i => i.Suggestions.Count > 0 && i.Suggestions[0].Replacement == "ဝန်ကြီးဌာန");
+            Assert.True(dupMmHit.IsHighCertaintyPrecheck);
+
+            var dupFn = formalEngine.CheckText("ကျောင်းသားများ သည် သည် စာမေးပွဲ ဖြေဆိုကြသည်။");
+            Assert.Contains(dupFn, i => i.Suggestions.Count > 0 && i.Suggestions[0].Replacement == "သည်" && i.IsHighCertaintyPrecheck);
+
+            var dupEn = generalEngine.CheckText("Soundit Campaign ကို in in Yangon ကျင်းပမည်။");
+            Assert.Contains(dupEn, i => string.Equals(i.Suggestions[0].Replacement, "in", StringComparison.OrdinalIgnoreCase) && i.IsHighCertaintyPrecheck);
+
+            // Distributives & reduplicated adverbs MUST NOT be flagged as accidental duplicates
+            Assert.DoesNotContain(formalEngine.CheckText("တစ်ခု တစ်ခု သေချာစွာ စစ်ဆေးပါ။"), i => i.Suggestions.FirstOrDefault()?.PosTag == "DUP");
+            Assert.DoesNotContain(formalEngine.CheckText("တစ်ဦး တစ်ဦး တာဝန်ယူဆောင်ရွက်ရမည်။"), i => i.Suggestions.FirstOrDefault()?.PosTag == "DUP");
+
+            // 3. Module 7b: Unclosed & Mismatched Brackets / Smart Quotations (RequiresReviewBeforeBatchFix = true -> unchecked ☐ by default)
+            var unclosedParen = formalEngine.CheckText("စုစုပေါင်း ကျပ် (၄၅ သိန်း ပေးအပ်မည်။");
+            var parenHit = Assert.Single(unclosedParen, i => i.IssueType == ProofingIssueType.PunctuationError);
+            Assert.True(parenHit.RequiresReviewBeforeBatchFix);
+            Assert.False(parenHit.IsHighCertaintyPrecheck);
+            Assert.EndsWith(")", parenHit.Suggestions[0].Replacement);
+
+            var mismatchBracket = formalEngine.CheckText("အပိုဒ် (က] အရ ဆောင်ရွက်ရမည်။");
+            var mmBracketHit = Assert.Single(mismatchBracket, i => i.IssueType == ProofingIssueType.PunctuationError);
+            Assert.Equal(")", mmBracketHit.Suggestions[0].Replacement);
+            Assert.True(mmBracketHit.RequiresReviewBeforeBatchFix);
+
+            var mismatchQuote = formalEngine.CheckText("ပြည်ထောင်စုဝန်ကြီးက “အားလုံး ပူးပေါင်းဆောင်ရွက်ရမည်\" ဟု ပြောကြားသည်။");
+            var mmQuoteHit = Assert.Single(mismatchQuote, i => i.IssueType == ProofingIssueType.PunctuationError);
+            Assert.Equal("\u201D", mmQuoteHit.Suggestions[0].Replacement);
+            Assert.True(mmQuoteHit.RequiresReviewBeforeBatchFix);
+
+            // Standalone list markers, Wikipedia URLs with parens, and engineering inch marks MUST have 0 bracket/quote false positives
+            Assert.Empty(formalEngine.CheckText("၁) ပညာရေး ၂) ကျန်းမာရေး က) စီးပွားရေး a) စိုက်ပျိုးရေး ii) မွေးမြူရေး တိုးတက်စေရမည်။"));
+            Assert.Empty(formalEngine.CheckText("အသေးစိတ်ကို https://en.wikipedia.org/wiki/Myanmar_(Burma) တွင် ကြည့်ရှုနိုင်ပါသည်။"));
+            Assert.Empty(formalEngine.CheckText("အဆောက်အအုံ အတိုင်းအတာမှာ (၇၃’×၄၃’၆”×၁၁’) ဖြစ်ပါသည်။"));
+
+            // 4. Module 7c & 7d: Space Before ၊/။ (Both Modes) + Smart Bilingual Numeral Shield (FormalOfficial Mode)
+            var spPunct = generalEngine.CheckText("ယနေ့ အစည်းအဝေးတွင် ၊ အားလုံး တက်ရောက်သည် ။");
+            Assert.Equal(2, spPunct.Count(i => i.IssueType == ProofingIssueType.PunctuationError && i.IsHighCertaintyPrecheck));
+
+            // Classical Pali Nissaya lemmas MUST remain 100% clean
+            Assert.Empty(formalEngine.CheckText("ပလိတံ ၊ ညိုသောဆံပင်တို့၏အကြား၌ ရောက်သော ဆံဖြူကို။"));
+            Assert.Empty(formalEngine.CheckText("ပတိရူပေ ၊ သင့်တင့်သော ဂုဏ်သဘော၌။"));
+
+            // Pure-Burmese ASCII numerals flagged in FormalOfficial (unchecked ☐) & clean in isolated GeneralStandard
+            var pureBurmeseAscii = formalEngine.CheckText("၂၀၂၆ ခုနှစ် မေလ 15 ရက်နေ့တွင် ကျောင်းသား 25 ဦး တက်ရောက်သည်။");
+            Assert.Contains(pureBurmeseAscii, i => i.OriginalText == "15" && i.Suggestions[0].Replacement == "၁၅" && i.RequiresReviewBeforeBatchFix && !i.IsHighCertaintyPrecheck);
+            Assert.Contains(pureBurmeseAscii, i => i.OriginalText == "25" && i.Suggestions[0].Replacement == "၂၅" && i.RequiresReviewBeforeBatchFix && !i.IsHighCertaintyPrecheck);
+            Assert.Empty(generalEngine.CheckText("၂၀၂၆ ခုနှစ် မေလ 15 ရက်နေ့တွင် ကျောင်းသား 25 ဦး တက်ရောက်သည်။"));
+
+            // Soundit Myanmar Star Campaign bilingual commercial shield (MUST NOT false-flag English-linked numbers even in FormalOfficial!)
+            string[] sounditBilingualLines =
+            {
+                "ရက်စွဲ : 9.Feb.2026",
+                "တတိယဆု (Performance King) – 1,000,000Ks",
+                "နှစ်သိမ့်ဆု - S30 Max 5 Pcs အား Campaign တွင် ပါဝင်သူများ အနက်မှ Random မဲနှိုက် ရွေးချယ်သွားမည် ဖြစ်သည်။",
+                "Social Media တွင် Post (2) ခု တင်ပေးရမည် ဖြစ်ပါသည်။",
+                "3. Soundit Star Challenge တွင် ပါဝင်လိုသူများသည် Video တင်ပေးရမည်။",
+                "No. 790, Corner of Thamainbayan & U Yazart Street, 35 Qtr, North Dagon, Yangon. Ph No. 09-267455932"
+            };
+            foreach (string line in sounditBilingualLines)
+            {
+                var lineIssues = formalEngine.CheckText(line);
+                Assert.DoesNotContain(lineIssues, i => i.IssueType == ProofingIssueType.NumeralClassifierError || i.IssueType == ProofingIssueType.PunctuationError);
+            }
+
+            // 5. Cross-Paragraph Word Consistency + Multi-Paragraph Speech Reconciliation
+            string[] wordParas =
+            {
+                "ပြည်ထောင်စုဝန်ကြီးက “ပြည်သူများအကျိုးအတွက် ဒစ်ဂျစ်တယ် စီးပွားရေးစနစ်ကို ဖော်ဆောင်ရမည်။",
+                "အားလုံး ဝိုင်းဝန်းကြိုးပမ်းဆောင်ရွက်ကြရမည်” ဟု ယနေ့ နံနက်ပိုင်း အစည်းအဝေးတွင် ပြောကြားသည်။",
+                "ဒစ်ဂျစ်တယ် နည်းပညာနှင့် ဒစ်ဂျစ်တယ် ဝန်ဆောင်မှုများကို ယနေ့ နံနက်ပိုင်း မှစ၍ တိုးချဲ့ဆောင်ရွက်သည်။",
+                "ထို့ပြင် ဒီဂျစ်တယ် စနစ်ဖြင့် မနက်ပိုင်း တွင် စာရင်းသွင်းနိုင်ပြီး မနက်ဖြန် ဆက်လက်စစ်ဆေးမည်။"
+            };
+            var issuesPerPara = wordParas.Select(p => formalEngine.CheckText(p)).ToList();
+            // Before reconciliation, paragraph 0 & 1 had single-paragraph quote warnings
+            Assert.Contains(issuesPerPara[0], i => i.IssueType == ProofingIssueType.PunctuationError);
+            Assert.Contains(issuesPerPara[1], i => i.IssueType == ProofingIssueType.PunctuationError);
+
+            var summaries = DocumentConsistencyAnalyzer.ReconcileAndAnalyzeWordParagraphs(
+                wordParas, issuesPerPara, ProofingStyleMode.FormalOfficial, trie);
+
+            // Multi-paragraph speech (“ ... ”) across paragraphs 0..1 reconciled to 0 quote errors!
+            Assert.DoesNotContain(issuesPerPara[0], i => i.IssueType == ProofingIssueType.PunctuationError);
+            Assert.DoesNotContain(issuesPerPara[1], i => i.IssueType == ProofingIssueType.PunctuationError);
+
+            // Paragraph 3 gets consistency warnings for 'ဒီဂျစ်တယ် -> ဒစ်ဂျစ်တယ်' and 'မနက်ပိုင်း -> နံနက်ပိုင်း', while 'မနက်ဖြန်' is untouched!
+            Assert.Contains(issuesPerPara[3], i =>
+                i.OriginalText == "ဒီဂျစ်တယ်" &&
+                i.Suggestions[0].Replacement == "ဒစ်ဂျစ်တယ်" &&
+                i.IssueType == ProofingIssueType.ContextualMeaningWarning &&
+                i.RequiresReviewBeforeBatchFix &&
+                !i.IsAutoFixSafe);
+            Assert.Contains(issuesPerPara[3], i =>
+                i.OriginalText == "မနက်ပိုင်း" &&
+                i.Suggestions[0].Replacement == "နံနက်ပိုင်း" &&
+                i.IssueType == ProofingIssueType.ContextualMeaningWarning &&
+                i.RequiresReviewBeforeBatchFix);
+            Assert.DoesNotContain(issuesPerPara[3], i => i.OriginalText.Contains("မနက်ဖြန်"));
+            Assert.NotEmpty(summaries);
+
+            // GeneralStandard cross-paragraph numeral consistency (flags pure-Burmese minority script while shielding 'Post (2) ခု')
+            string[] genNumParas =
+            {
+                "ပထမအဖွဲ့တွင် ကျောင်းသား ၁၅ ဦး ပါဝင်ပါတယ်။",
+                "ဒုတိယအဖွဲ့တွင် ဆရာ ၅ ဦး နှင့် ကျောင်းသား ၂၀ ဦး ပါဝင်ပါတယ်။",
+                "တတိယအဖွဲ့တွင် ဝန်ထမ်း 4 ဦး ပါဝင်ပြီး Social Media မှာ Post (2) ခု တင်ထားပါတယ်။"
+            };
+            var genIssuesPerPara = genNumParas.Select(p => generalEngine.CheckText(p)).ToList();
+            DocumentConsistencyAnalyzer.ReconcileAndAnalyzeWordParagraphs(
+                genNumParas, genIssuesPerPara, ProofingStyleMode.GeneralStandard, trie);
+            Assert.Contains(genIssuesPerPara[2], i => i.OriginalText == "4" && i.Suggestions[0].Replacement == "၄" && i.RequiresReviewBeforeBatchFix);
+            Assert.DoesNotContain(genIssuesPerPara[2], i => i.OriginalText == "2");
+
+            // 6. Excel Streaming Cross-Cell Consistency + 1-Click Cell Harmonization + Audit Certificate
+            object?[,] grid = new object?[4, 2]
+            {
+                { "ဗီဒီယို သင်ခန်းစာ (၁)", "ဗဟိုကော်မတီ" },
+                { "ဗီဒီယို သင်ခန်းစာ (၂)", "လုပ်ငန်းကော်မတီ" },
+                { "ဗီဒီယို သင်ခန်းစာ (၃)", "စီမံခန့်ခွဲရေးကော်မတီ" },
+                { "ဗွီဒီယို သင်ခန်းစာ (၄)", "ကြီးကြပ်ရေးကော်မီတီ" }
+            };
+            var excelConsistencyAcc = new DocumentConsistencyAccumulator(ProofingStyleMode.FormalOfficial, trie);
+            var cellHits = SpreadsheetProofingHelper.ScanBlockValues(
+                formalEngine, "CampaignAudit.xlsx", "Sheet1", 1, 1, 4, 2, grid, null, false,
+                consistencyAccumulator: excelConsistencyAcc);
+            var excelConsistencyHits = excelConsistencyAcc.BuildSpreadsheetConsistencyIssues("CampaignAudit.xlsx", 24);
+            cellHits.AddRange(excelConsistencyHits);
+
+            var videoCellIssue = Assert.Single(cellHits, c => c.Row == 4 && c.Column == 1 && c.Issue.OriginalText == "ဗွီဒီယို");
+            Assert.Equal("ဗီဒီယို", videoCellIssue.Issue.Suggestions[0].Replacement);
+            Assert.True(videoCellIssue.Issue.RequiresReviewBeforeBatchFix);
+
+            var committeeCellIssue = Assert.Single(cellHits, c => c.Row == 4 && c.Column == 2 && c.Issue.OriginalText == "ကော်မီတီ");
+            Assert.Equal("ကော်မတီ", committeeCellIssue.Issue.Suggestions[0].Replacement);
+
+            Assert.True(SpreadsheetProofingHelper.ApplySingleIssueReplacement(
+                "ဗွီဒီယို သင်ခန်းစာ (၄)", videoCellIssue, "ဗီဒီယို", cellHits, out string updatedCell));
+            Assert.Equal("ဗီဒီယို သင်ခန်းစာ (၄)", updatedCell);
+
+            // Audit Certificate verification
+            string fullAuditDoc = string.Join("\r\n", wordParas);
+            var qualityReport = DocumentQualityAnalyzer.Analyze(fullAuditDoc, engine: formalEngine);
+            Assert.True(qualityReport.ConsistencyWarningCount >= 2);
+            Assert.NotEmpty(qualityReport.ConsistencySummaries);
+            string certText = DocumentQualityAnalyzer.BuildAuditReportDocumentText("ConsistencyTest.docx", qualityReport);
+            Assert.Contains("အသုံးအနှုန်း ညီညွတ်မှု စိစစ်ချက်", certText);
+        }
     }
 }

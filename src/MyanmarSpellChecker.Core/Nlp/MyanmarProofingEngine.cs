@@ -1185,6 +1185,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
 
                 _trie.MatchSpansAt(tokens, i, count - i, buf);
+                TrySynthesizeProductiveRedupChinSpans(fullText, tokens, i, count, buf);
                 ws.LongestMatchLengths[i] = buf.Count > 0 ? buf[buf.Count - 1].Length : 0;
 
                 for (int s = 0; s < buf.Count; s++)
@@ -1241,6 +1242,131 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
             ws.TokenSpanOffsets[count] = ws.AllTokenSpans.Count;
+        }
+
+        private static readonly List<DictionaryEntry> ProductiveRedupChinEntries = new List<DictionaryEntry>(1)
+        {
+            new DictionaryEntry
+            {
+                Word = "ချင်း",
+                PosTag = "ADV",
+                Frequency = 80,
+                IsOfficialThatpon = true,
+                MeaningCue = "နှစ်ထပ်ကြိယာ/နာမ် အချိန်ပြ·အချင်းချင်းပြ ပစ္စည်း ('~ချင်း')"
+            }
+        };
+
+        private void TrySynthesizeProductiveRedupChinSpans(
+            string fullText,
+            List<SyllableToken> tokens,
+            int startIdx,
+            int count,
+            List<(int Length, List<DictionaryEntry>? Entries, OrthographyRule? WrongRule)> buf)
+        {
+            // 1. Productive 3-syllable '[W][W]ချင်း' (e.g. 'သိသိချင်း', 'တွေ့တွေ့ချင်း', 'မြင်မြင်ချင်း', 'ရရချင်း', 'လူလူချင်း')
+            if (startIdx + 2 < count &&
+                tokens[startIdx].NormalizedText == tokens[startIdx + 1].NormalizedText &&
+                tokens[startIdx + 2].NormalizedText == "ချင်း")
+            {
+                SyllableToken t0 = tokens[startIdx];
+                SyllableToken t1 = tokens[startIdx + 1];
+                SyllableToken t2 = tokens[startIdx + 2];
+                if (t1.Kind == TokenKind.MyanmarSyllable &&
+                    t2.Kind == TokenKind.MyanmarSyllable &&
+                    t1.StartIndex == t0.StartIndex + t0.Length &&
+                    t2.StartIndex == t1.StartIndex + t1.Length &&
+                    !HasCleanSpanOfLength(buf, 3) &&
+                    IsProductiveRedupChinBase(t0.NormalizedText) &&
+                    !UnicodeNormalizer.HasLookalikeErrorSlice(fullText, t0.StartIndex, (t2.StartIndex + t2.Length) - t0.StartIndex))
+                {
+                    InsertSortedSpan(buf, 3, ProductiveRedupChinEntries);
+                }
+            }
+
+            // 2. Productive 5-syllable '[W1 W2][W1 W2]ချင်း' (e.g. 'ရောက်ရှိရောက်ရှိချင်း', 'သိရှိသိရှိချင်း', 'မိတ်ဆွေမိတ်ဆွေချင်း')
+            if (startIdx + 4 < count &&
+                tokens[startIdx + 4].NormalizedText == "ချင်း" &&
+                tokens[startIdx].NormalizedText == tokens[startIdx + 2].NormalizedText &&
+                tokens[startIdx + 1].NormalizedText == tokens[startIdx + 3].NormalizedText)
+            {
+                bool contiguous = true;
+                for (int k = 1; k <= 4; k++)
+                {
+                    SyllableToken prev = tokens[startIdx + k - 1];
+                    SyllableToken cur = tokens[startIdx + k];
+                    if (cur.Kind != TokenKind.MyanmarSyllable || cur.StartIndex != prev.StartIndex + prev.Length)
+                    {
+                        contiguous = false;
+                        break;
+                    }
+                }
+
+                if (contiguous && !HasCleanSpanOfLength(buf, 5))
+                {
+                    SyllableToken t0 = tokens[startIdx];
+                    SyllableToken t4 = tokens[startIdx + 4];
+                    if (IsProductiveRedupChinBase(t0.NormalizedText + tokens[startIdx + 1].NormalizedText) &&
+                        !UnicodeNormalizer.HasLookalikeErrorSlice(fullText, t0.StartIndex, (t4.StartIndex + t4.Length) - t0.StartIndex))
+                    {
+                        InsertSortedSpan(buf, 5, ProductiveRedupChinEntries);
+                    }
+                }
+            }
+        }
+
+        private static bool HasCleanSpanOfLength(
+            List<(int Length, List<DictionaryEntry>? Entries, OrthographyRule? WrongRule)> buf,
+            int targetLength)
+        {
+            for (int i = 0; i < buf.Count; i++)
+            {
+                if (buf[i].Length == targetLength && buf[i].WrongRule == null && buf[i].Entries != null && buf[i].Entries!.Count > 0)
+                    return true;
+            }
+            return false;
+        }
+
+        private static void InsertSortedSpan(
+            List<(int Length, List<DictionaryEntry>? Entries, OrthographyRule? WrongRule)> buf,
+            int length,
+            List<DictionaryEntry> entries)
+        {
+            for (int i = 0; i < buf.Count; i++)
+            {
+                if (buf[i].Length > length)
+                {
+                    buf.Insert(i, (length, entries, null));
+                    return;
+                }
+            }
+            buf.Add((length, entries, null));
+        }
+
+        private bool IsProductiveRedupChinBase(string normBase)
+        {
+            if (string.IsNullOrEmpty(normBase) ||
+                normBase == "ချင်း" || normBase == "ခြင်း" || normBase == "အ" || normBase == "မ" ||
+                GrammaticalParticles.Contains(normBase) || ColloquialParticles.Contains(normBase))
+            {
+                return false;
+            }
+
+            if (!_trie.TryGetExactEntries(normBase, out var entries) || entries == null || entries.Count == 0)
+                return false;
+
+            for (int i = 0; i < entries.Count; i++)
+            {
+                var e = entries[i];
+                if (!e.IsOfficialThatpon && e.Frequency < 8)
+                    continue;
+
+                string pos = (e.PosTag ?? string.Empty).Trim().ToUpperInvariant();
+                if (pos == "PART" || pos == "PRON" || pos == "NUM" || pos == "CONJ" || pos == "INTJ")
+                    continue;
+
+                return true;
+            }
+            return false;
         }
 
         private static bool OverlapsProtectedPersonName(ProofingIssue issue, List<SyllableToken> tokens, bool[] personNameProtected)
@@ -2102,10 +2228,12 @@ namespace MyanmarSpellChecker.Core.Nlp
                     if (len == 2 && tokens[tokIdx].NormalizedText == "ရ" && tokens[tokIdx + 1].NormalizedText == "နေ့" && tokIdx > runStart)
                         continue;
 
-                    // Immediacy construction '[V] + လျှင် + [V] + ချင်း' (e.g. 'သတင်းရလျှင်ရချင်း', 'ရောက်လျှင်ရောက်ချင်း') uses 'ချင်း', never 'ခြင်း'
-                    if (len == 2 && tokens[tokIdx + 1].NormalizedText == "ချင်း" && tokIdx >= runStart + 2 &&
-                        (tokens[tokIdx - 1].NormalizedText == "လျှင်" || tokens[tokIdx - 1].NormalizedText == "ရင်") &&
-                        tokens[tokIdx - 2].NormalizedText == tokens[tokIdx].NormalizedText)
+                    // Immediacy / reciprocal constructions '[V] + [V] + ချင်း' ('သိသိချင်း', 'သတင်းရရချင်း') and '[V] + လျှင် + [V] + ချင်း' ('သတင်းရလျှင်ရချင်း') use 'ချင်း', never 'ခြင်း' or 'သီချင်း'
+                    if (len == 2 && tokens[tokIdx + 1].NormalizedText == "ချင်း" &&
+                        ((tokIdx >= runStart + 1 && tokens[tokIdx - 1].NormalizedText == tokens[tokIdx].NormalizedText) ||
+                         (tokIdx >= runStart + 2 &&
+                          (tokens[tokIdx - 1].NormalizedText == "လျှင်" || tokens[tokIdx - 1].NormalizedText == "ရင်") &&
+                          tokens[tokIdx - 2].NormalizedText == tokens[tokIdx].NormalizedText)))
                     {
                         continue;
                     }

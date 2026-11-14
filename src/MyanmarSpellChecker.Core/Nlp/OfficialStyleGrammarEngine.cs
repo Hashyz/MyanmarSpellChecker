@@ -691,11 +691,67 @@ namespace MyanmarSpellChecker.Core.Nlp
         // Accidental space-separated duplicated postpositions & conjunctions (e.g. 'နှင့် နှင့် -> နှင့်', 'တွင် တွင် -> တွင်')
         private static readonly string[] DuplicatedFunctionWordCandidates =
         {
-            "နှင့်", "တွင်", "၌", "သို့", "အတွက်", "ကြောင့်", "သဖြင့်", "သော်လည်း", "သော", "သည့်", "မည့်", "၍", "၏"
+            "နှင့်", "တွင်", "၌", "သို့", "အတွက်", "ကြောင့်", "သဖြင့်", "သော်လည်း", "သော", "သည့်", "မည့်", "၍", "၏",
+            "သည်", "မည်", "လည်း", "သာ", "ပင်", "ကာ"
         };
 
         private static readonly Regex DuplicatedFunctionWordPattern = new Regex(
-            @"(?<![\u1000-\u103F])(?<Word>နှင့်|တွင်|၌|သို့|အတွက်|ကြောင့်|သဖြင့်|သော်လည်း|သော|သည့်|မည့်|၍|၏)(?<Dup>[ \t]+\k<Word>)(?=\s|$|[\u104A\u104B])");
+            @"(?<![\u1000-\u103F])(?<Word>နှင့်|တွင်|၌|သို့|အတွက်|ကြောင့်|သဖြင့်|သော်လည်း|သော|သည့်|မည့်|၍|၏|သည်|မည်|လည်း|သာ|ပင်|ကာ)(?<Dup>[ \t]+\k<Word>)(?=\s|$|[\u104A\u104B])",
+            RegexOptions.Compiled);
+
+        // 4m. V42 POS-Syntactic Homophone Suffix Tables (Zero-Regex O(N) IndexOf Scanners)
+        private static readonly string[] VerbalAspectBeforeKyaungSuffixes =
+        {
+            "ပြီးဖြစ်", "ပြီဖြစ်", "မည်ဖြစ်", "လျက်ရှိ", "မဟုတ်", "မရှိ", "နိုင်", "သင့်", "ခဲ့", "ဖူး"
+        };
+
+        private static readonly string[] ReportingPredicatesAfterKyaung =
+        {
+            "သိရှိရ", "သိရ", "ပြောကြား", "ပြောဆို", "ပြောသည်", "ပြောတယ်", "တင်ပြ", "ဖော်ပြ",
+            "ကြေညာ", "ထုတ်ပြန်", "တွေ့ရှိရ", "တွေ့ရ", "အသိပေး", "လျှောက်ထား", "အစီရင်ခံ", "ဆိုသည်", "ဆိုတယ်"
+        };
+
+        private static readonly string[] NominalPostpositionsAfterChin =
+        {
+            "ဖြစ်ပါသည်", "ဖြစ်သည်", "အားဖြင့်", "ကြောင့်", "အတွက်", "မပြု", "မရှိ",
+            "သည်", "ကို", "ဖြင့်", "နှင့်", "တွင်", "၌", "မှ"
+        };
+
+        private static readonly string[] PluralVerbClosersAfterKya =
+        {
+            "ပါသည်", "ပါတယ်", "ပါမည်", "ပါမယ်", "ကြောင်း", "သည့်", "မည့်",
+            "သည်", "တယ်", "မည်", "မယ်", "ပြီ", "သော", "၍"
+        };
+
+        private static readonly string[] VerbalAuxStripSuffixes =
+        {
+            "ပေးထား", "လာခဲ့", "သွားခဲ့", "ပြီးစီး", "ခဲ့", "နိုင်", "ပေး", "ထား", "လာ", "သွား", "ရ", "မိ", "လိုက်"
+        };
+
+        private static readonly string[] DirectionalFallVerbEndings =
+        {
+            "ပြုတ်", "လဲ", "ပြို", "ကြွေ", "စီး", "ထိုး", "လိမ့်", "လျှော", "နိမ့်", "လျော့",
+            "ခုန်", "ယို", "ကျိုး", "ပဲ့", "ပျက်", "မြုပ်", "နစ်", "သက်", "ဆင်း", "နေ", "ကျ"
+        };
+
+        // 4n. Smart space-separated multi-syllable duplicate words (e.g. 'ဝန်ကြီးဌာန ဝန်ကြီးဌာန -> ဝန်ကြီးဌာန') & English function words ('the the -> the')
+        private static readonly Regex DuplicatedMultiSyllableMyanmarWordPattern = new Regex(
+            @"(?<![\u1000-\u104F])(?<Word>[\u1000-\u103F]{4,36})(?<Dup>[ \t]+\k<Word>)(?![\u1000-\u104F])",
+            RegexOptions.Compiled);
+
+        private static readonly Regex DuplicatedEnglishFunctionWordPattern = new Regex(
+            @"(?<![A-Za-z0-9'-])(?<Word>the|and|in|of|to|for|is|are|on|at|with|by|from|as|an)(?<Dup>[ \t]+\k<Word>)(?![A-Za-z0-9'-])",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        // 7c. Accidental horizontal space immediately before Myanmar punctuation '၊' / '။' (with Pali Nissaya gloss exemption)
+        private static readonly Regex AccidentalSpaceBeforeMyanmarPunctPattern = new Regex(
+            @"(?<=[\u1000-\u103F\u1040-\u1049\)\]\u201D])(?<Target>[ \t]+(?<Punct>[\u104A\u104B]))",
+            RegexOptions.Compiled);
+
+        // 7d. Pure-Burmese ASCII numerals before unambiguous Myanmar classifiers/date units in Formal/Official mode (shields English-linked numbers)
+        private static readonly Regex PureBurmeseAsciiNumeralPattern = new Regex(
+            @"(?<![A-Za-z0-9_./:@#$\-+%])(?<Num>[0-9]{1,4}(?:,[0-9]{3})*)(?<Gap>\)?[ \t]*)(?<Unit>ခုနှစ်|ပြည့်နှစ်|ရက်နေ့|ရာခိုင်နှုန်း|နာရီ|မိနစ်|ယောက်|ကြိမ်|သောင်း|သိန်း|သန်း|ကျပ်|ဦး|ပါး|ခု|စီး|လုံး|ချပ်|စောင်|ထည်|ဖွဲ့|မျိုး|နှစ်(?!သက်|သိမ့်|လို|မြို့|ထောင်း)|ရက်(?!ကန်း|စက်|ရော|သတ္တ)|လ(?![\u1000-\u103F]))(?![\u102B-\u103E]|[\u1000-\u1021]\u103A|[A-Za-z0-9])",
+            RegexOptions.Compiled);
 
         // 4k. V19 Deep Myanmar Grammar Patterns (မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ နှင့် ရုံးသုံးမြန်မာစာရေးထုံး)
         // 4k-1. WH-Interrogative <-> Polar Question Particle Clash ('*အဘယ်ကြောင့် နောက်ကျပါသလား -> ပါသနည်း/ပါသလဲ', '*ဘာကြောင့် မလာသလား -> သလဲ')
@@ -846,6 +902,11 @@ namespace MyanmarSpellChecker.Core.Nlp
             bool hasCreakyDot = false;
             bool hasPaukMaGyi = false;
             bool hasConsecutiveMyanmarPunct = false;
+            bool hasSpaceBeforeMyanmarPunct = false;
+            bool hasBracketOrSmartQuote = false;
+            bool hasAsciiDigit = false;
+            bool hasAsciiLetter = false;
+            bool hasNonWsBefore = false;
             bool hasNrcDelimiter = false;
             bool hasNrcSlashOrDash = false;
             bool prevWasHorizSpace = false;
@@ -869,6 +930,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     continue;
                 }
 
+                bool wasHorizSpaceBefore = prevWasHorizSpace;
                 int mmDelta = c - '\u1000';
                 if ((uint)mmDelta < 64u)
                 {
@@ -900,6 +962,20 @@ namespace MyanmarSpellChecker.Core.Nlp
                 else if (c == '(' || c == '（')
                 {
                     hasNrcDelimiter = true;
+                    hasBracketOrSmartQuote = true;
+                }
+                else if (c == ')' || c == '）' || c == '[' || c == ']' || c == '【' || c == '】' ||
+                         c == '\u201C' || c == '\u201D' || c == '"')
+                {
+                    hasBracketOrSmartQuote = true;
+                }
+                else if (c >= '0' && c <= '9')
+                {
+                    hasAsciiDigit = true;
+                }
+                else if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))
+                {
+                    hasAsciiLetter = true;
                 }
 
                 if (c >= '\u1000' && c <= '\u104F')
@@ -912,10 +988,12 @@ namespace MyanmarSpellChecker.Core.Nlp
                     {
                         hasPaukMaGyi = true;
                         if (prevChar == '\u104A' || prevChar == '\u104B') hasConsecutiveMyanmarPunct = true;
+                        if (wasHorizSpaceBefore && hasNonWsBefore) hasSpaceBeforeMyanmarPunct = true;
                     }
                     else if (c == '\u104A')
                     {
                         if (prevChar == '\u104A' || prevChar == '\u104B') hasConsecutiveMyanmarPunct = true;
+                        if (wasHorizSpaceBefore && hasNonWsBefore) hasSpaceBeforeMyanmarPunct = true;
                     }
                     else if (c == '\u104E' || c == '\u1044') hasLaKaungTrigger = true;
                     else if (c == '\u1039' && prevChar == '\u103A') hasAsatVirama = true;
@@ -931,6 +1009,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                 {
                     hasZeroWidthOrDotted = true;
                 }
+                if (!char.IsWhiteSpace(c))
+                    hasNonWsBefore = true;
                 prevChar = c;
             }
 
@@ -2397,6 +2477,62 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
+            // 4m. V42 Zero-Regex IndexOf Trie-POS Syntactic Homophone Disambiguation ('ကျောင်း->ကြောင်း', 'ချင်း->ခြင်း', generalized 'ကျ->ကြ')
+            if (ContainsMm(text, mmMask, "ကျောင်း"))
+            {
+                ScanMisusedKyaungNominalizer(text, trie, issues);
+            }
+
+            if (trie != null && ContainsMm(text, mmMask, "ချင်း"))
+            {
+                ScanMisusedChinNominalizer(text, trie, issues);
+            }
+
+            if (trie != null && ContainsMm(text, mmMask, "ကျ"))
+            {
+                ScanMisusedKyaPluralVerb(text, trie, issues);
+            }
+
+            // 4n. V42 Smart Accidental Repeated-Word Detection (Myanmar multi-syllable words & English function words)
+            if (hasMyanmarSpaceMyanmar && MayContainAdjacentDuplicateMyanmarWord(text))
+            {
+                foreach (Match m in DuplicatedMultiSyllableMyanmarWordPattern.Matches(text))
+                {
+                    if (OverlapsExistingIssue(issues, m.Index, m.Length))
+                        continue;
+
+                    string singleWord = m.Groups["Word"].Value;
+                    if (!IsAccidentalDuplicateMyanmarWord(singleWord, trie))
+                        continue;
+
+                    AddGrammarOrSpellingIssue(
+                        issues, m.Index, m.Length, m.Value, singleWord,
+                        ProofingIssueType.OfficialStyleGrammarError,
+                        $"စကားလုံး '{singleWord}' ကို မတော်တဆ နှစ်ကြိမ်ထပ်ရိုက်မိနေပါသည် — '{singleWord}' တစ်ကြိမ်သာ ရေးသားရမည်။",
+                        $"နှစ်ထပ်စာလုံး ဖယ်ရှားရန် ('{singleWord}')", "DUP", true,
+                        $"စာရိုက်ရာတွင် သို့မဟုတ် ကူးယူရာတွင် '{singleWord}' ကို Space ခြား၍ နှစ်ကြိမ်ဆက်တိုက် ထပ်ရေးမိထားခြင်း ဖြစ်ပါသည်။",
+                        "စာတမ်းတည်းဖြတ်ရေးနှင့် ရုံးသုံးမြန်မာစာ စံနှုန်း");
+                }
+            }
+
+            if (hasHorizSpace && hasAsciiLetter && MayContainAdjacentDuplicateAsciiWord(text))
+            {
+                foreach (Match m in DuplicatedEnglishFunctionWordPattern.Matches(text))
+                {
+                    if (OverlapsExistingIssue(issues, m.Index, m.Length))
+                        continue;
+
+                    string singleWord = m.Groups["Word"].Value;
+                    AddGrammarOrSpellingIssue(
+                        issues, m.Index, m.Length, m.Value, singleWord,
+                        ProofingIssueType.OfficialStyleGrammarError,
+                        $"အင်္ဂလိပ် သဒ္ဒါစာလုံး '{singleWord}' နှစ်ထပ်ရိုက်မိနေပါသည် — '{singleWord}' တစ်ကြိမ်သာ ထားရှိရမည်။",
+                        $"Remove duplicate '{singleWord}'", "PART", true,
+                        $"Duplicate function word '{m.Value}' detected across whitespace.",
+                        "Bilingual Document Editing Standard");
+                }
+            }
+
             // 4k. V19 Deep Myanmar Grammar Pattern Checks (O(1) pre-filtered)
             // 4k-1. WH-Interrogative <-> Polar Question Particle Clash ('လား/သလား' vs 'လဲ/သလဲ/သနည်း')
             if (hasVisarga && ContainsMm(text, mmMask, "လား"))
@@ -3196,6 +3332,65 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
+            // 7b. V42 Unclosed & Mismatched Brackets / Smart Quotations (LanguageTool-grade structural check, Myanmar paragraphs only)
+            if (mmMask != 0 && hasBracketOrSmartQuote)
+            {
+                AnalyzeUnpairedBracketsAndQuotes(text, issues);
+            }
+
+            // 7c. V42 Accidental Space Before Myanmar Punctuation ('၊' / '။' — exempts classical Pali Nissaya '<Pali> ၊ <Gloss>')
+            if (hasSpaceBeforeMyanmarPunct)
+            {
+                foreach (Match m in AccidentalSpaceBeforeMyanmarPunctPattern.Matches(text))
+                {
+                    Group g = m.Groups["Target"];
+                    if (OverlapsExistingIssue(issues, g.Index, g.Length))
+                        continue;
+
+                    string punct = m.Groups["Punct"].Value;
+                    if (punct == "\u104A" && IsClassicalPaliNissayaHeadBeforeComma(text, g.Index, trie))
+                        continue;
+
+                    string punctName = punct == "\u104B" ? "ပုဒ်မကြီး ('။')" : "ပုဒ်ကလေး ('၊')";
+                    AddGrammarOrSpellingIssue(
+                        issues, g.Index, g.Length, g.Value, punct,
+                        ProofingIssueType.PunctuationError,
+                        $"{punctName} ရှေ့တွင် Space မခြားရပါ — စာလုံးနှင့်ကပ်၍ '{punct}' ဟု ရေးသားရမည်။",
+                        $"{punctName} ရှေ့ Space ဖယ်ရှားရန်", "PUNCT", true,
+                        $"မြန်မာစာ ပုဒ်ဖြတ်ပုဒ်ရပ်စံနှုန်းအရ {punctName} ကို ရှေ့စာလုံးနှင့် တစ်ဆက်တည်းကပ်၍ ရိုက်နှိပ်ရပြီး ပုဒ်ဖြတ်ပုဒ်ရပ်၏ နောက်၌သာ Space ခြားရသည်။",
+                        "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ နှင့် ရုံးသုံးမြန်မာစာရေးထုံး");
+                }
+            }
+
+            // 7d. V42 Smart Bilingual Numeral Consistency in Formal/Official Mode (flags pure-Burmese ASCII numerals, shields English-linked numbers)
+            if (styleMode == ProofingStyleMode.FormalOfficial && mmMask != 0 && hasAsciiDigit && (trie == null || !IsCleanCanonicalStandaloneNrc(text, trie)))
+            {
+                var quoteSpansForNum = ComputeBalancedQuoteRanges(text);
+                foreach (Match m in PureBurmeseAsciiNumeralPattern.Matches(text))
+                {
+                    Group numGroup = m.Groups["Num"];
+                    if (OverlapsExistingIssue(issues, numGroup.Index, numGroup.Length) ||
+                        IsInsideAnyRange(quoteSpansForNum, numGroup.Index, numGroup.Length))
+                    {
+                        continue;
+                    }
+
+                    if (IsPrecededByEnglishOrTechnicalToken(text, numGroup.Index))
+                        continue;
+
+                    string unit = m.Groups["Unit"].Value;
+                    string mmDigits = ConvertAsciiDigitsToMyanmar(numGroup.Value);
+                    AddGrammarOrSpellingIssue(
+                        issues, numGroup.Index, numGroup.Length, numGroup.Value, mmDigits,
+                        ProofingIssueType.NumeralClassifierError,
+                        $"ရုံးသုံး/စာပေ မြန်မာစာအရေးအသားတွင် မြန်မာမျိုးပြပစ္စည်း/အချိန်ပြပုဒ် ('{unit}') ရှေ့ရှိ ကိန်းဂဏန်းကို မြန်မာဂဏန်း '{mmDigits}' ဖြင့် တစ်ပြေးညီ ရေးသားသင့်ပါသည်။",
+                        $"မြန်မာဂဏန်း ('{mmDigits} {unit}')", "NUM", true,
+                        $"မြန်မာဝါကျသက်သက်အတွင်း အင်္ဂလိပ်ဂဏန်း ('{numGroup.Value}') နှင့် မြန်မာစာ ('{unit}') ရောနှောနေသဖြင့် ရုံးသုံးမြန်မာစာစံနှုန်းအရ မြန်မာဂဏန်း '{mmDigits}' သုံးသင့်ပါသည် (အင်္ဂလိပ်အမှတ်တံဆိပ်/ယူနစ်တွဲများကို အလိုအလျောက် ချန်လှပ်ပေးထားသည်)။",
+                        "ရုံးသုံးမြန်မာစာရေးသားနည်း စံနှုန်း",
+                        requiresReviewBeforeBatchFix: true);
+                }
+            }
+
             return issues;
         }
 
@@ -3622,7 +3817,8 @@ namespace MyanmarSpellChecker.Core.Nlp
             string posTag,
             bool isOfficialThatpon,
             string reasoning = "",
-            string authoritativeSource = "")
+            string authoritativeSource = "",
+            bool requiresReviewBeforeBatchFix = false)
         {
             issues.Add(new ProofingIssue
             {
@@ -3633,6 +3829,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 Message = message,
                 GrammaticalReasoning = reasoning,
                 AuthoritativeSource = authoritativeSource,
+                RequiresReviewBeforeBatchFix = requiresReviewBeforeBatchFix,
                 Suggestions = new List<SuggestionCandidate>
                 {
                     new SuggestionCandidate
@@ -3649,6 +3846,1004 @@ namespace MyanmarSpellChecker.Core.Nlp
                     }
                 }
             });
+        }
+
+        private static void ScanMisusedKyaungNominalizer(string text, MyanmarTrie? trie, List<ProofingIssue> issues)
+        {
+            const string target = "ကျောင်း";
+            int len = text.Length;
+            int searchPos = 0;
+            while (searchPos < len)
+            {
+                int hit = text.IndexOf(target, searchPos, StringComparison.Ordinal);
+                if (hit < 0)
+                    break;
+                searchPos = hit + 7;
+
+                int after = hit + 7;
+                bool isBoundaryAfter = after >= len || char.IsWhiteSpace(text[after]) || text[after] == '\u104A' || text[after] == '\u104B';
+                bool hasReportingPred = HasReportingPredicateAfterKyaung(text, after);
+                bool startsWithHuOrPyaaw = MatchesSliceAt(text, after, "ဟု") || MatchesSliceAt(text, after, "ပြော");
+                if (!isBoundaryAfter && !hasReportingPred && !startsWithHuOrPyaaw)
+                    continue;
+
+                int stemStart = hit;
+                while (stemStart > 0 && IsMyanmarRunLetterOrMark(text[stemStart - 1]))
+                    stemStart--;
+                int stemLen = hit - stemStart;
+                if (stemLen < 4 || stemLen > 40)
+                    continue;
+
+                if (OverlapsExistingIssue(issues, hit, 7) || IsShieldedOfficialWordSpan(text, hit, 7, trie))
+                    continue;
+
+                string stem = text.Substring(stemStart, stemLen);
+
+                bool matchedAspect = false;
+                for (int i = 0; i < VerbalAspectBeforeKyaungSuffixes.Length; i++)
+                {
+                    string sfx = VerbalAspectBeforeKyaungSuffixes[i];
+                    int minLen = (sfx == "မရှိ" || sfx == "မဟုတ်") ? sfx.Length : sfx.Length + 2;
+                    if (stemLen >= minLen && stem.EndsWith(sfx, StringComparison.Ordinal))
+                    {
+                        matchedAspect = true;
+                        break;
+                    }
+                }
+
+                if (matchedAspect)
+                {
+                    if (!HasAnyKnownLexiconSuffixWithEnding(trie, stem, target))
+                    {
+                        AddGrammarOrSpellingIssue(
+                            issues, hit, 7, target, "ကြောင်း",
+                            ProofingIssueType.OfficialStyleGrammarError,
+                            "ကြိယာနောက်ဆက် အကြောင်းအရာပြပစ္စည်းတွင် နာမ် 'ကျောင်း' (ယပင့်) အစား 'ကြောင်း' (ရရစ်) ကို သုံးနှုန်းရမည်။",
+                            "အကြောင်းအရာပြ နာမ်ပြုပစ္စည်း ('~ကြောင်း')", "PART", true,
+                            $"ရှေ့တွင် ကြိယာထောက်ပစ္စည်း ('{stem}-') ရှိနေသဖြင့် စာသင်ကျောင်း/ဘုန်းကြီးကျောင်း အနက်မဟုတ်ဘဲ ဖြစ်စဉ်အကြောင်းအရာကို ညွှန်းဆိုသော နာမ်ပြုပစ္စည်း 'ကြောင်း' (ကကြီးရရစ်) ဖြစ်ရမည်။",
+                            "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ နှင့် မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း");
+                    }
+                    continue;
+                }
+
+                if (trie != null && hasReportingPred && stemLen <= 28 &&
+                    TryExtractTrailingPureVerbStem(trie, stem, target, checkDirectionalFallGuard: false, out string matchedVerb))
+                {
+                    AddGrammarOrSpellingIssue(
+                        issues, hit, 7, target, "ကြောင်း",
+                        ProofingIssueType.OfficialStyleGrammarError,
+                        $"ကြိယာ '{matchedVerb}-' နောက်တွင် အဆို/သတင်းပြကြိယာ လိုက်သဖြင့် 'ကျောင်း' အစား အကြောင်းအရာပြပစ္စည်း 'ကြောင်း' ဟု ရေးသားရမည်။",
+                        $"နာမ်ပြုပစ္စည်း ({matchedVerb}ကြောင်း)", "PART", true,
+                        $"'{matchedVerb}-' သည် ကြိယာပုဒ်ဖြစ်ပြီး နောက်တွင် သတင်းပို့/ပြောကြားခြင်းပြ ကြိယာလိုက်နေသဖြင့် 'ကြောင်း' (ရရစ်) ကိုသာ သုံးနှုန်းရမည်။",
+                        "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ နှင့် မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း");
+                }
+            }
+        }
+
+        private static bool HasReportingPredicateAfterKyaung(string text, int afterIdx)
+        {
+            int len = text.Length;
+            int p = afterIdx;
+            while (p < len && char.IsWhiteSpace(text[p]))
+                p++;
+            if (MatchesSliceAt(text, p, "ဟု"))
+            {
+                p += 2;
+                while (p < len && char.IsWhiteSpace(text[p]))
+                    p++;
+            }
+            if (p >= len)
+                return false;
+
+            for (int i = 0; i < ReportingPredicatesAfterKyaung.Length; i++)
+            {
+                if (MatchesSliceAt(text, p, ReportingPredicatesAfterKyaung[i]))
+                    return true;
+            }
+            return false;
+        }
+
+        private static void ScanMisusedChinNominalizer(string text, MyanmarTrie trie, List<ProofingIssue> issues)
+        {
+            const string target = "ချင်း";
+            int len = text.Length;
+            int searchPos = 0;
+            while (searchPos < len)
+            {
+                int hit = text.IndexOf(target, searchPos, StringComparison.Ordinal);
+                if (hit < 0)
+                    break;
+                searchPos = hit + 5;
+
+                int after = hit + 5;
+                if (!HasNominalPostpositionAfterChin(text, after))
+                    continue;
+
+                int stemStart = hit;
+                while (stemStart > 0 && IsMyanmarRunLetterOrMark(text[stemStart - 1]))
+                    stemStart--;
+                int stemLen = hit - stemStart;
+                if (stemLen < 4 || stemLen > 28)
+                    continue;
+
+                if (OverlapsExistingIssue(issues, hit, 5) || IsShieldedOfficialWordSpan(text, hit, 5, trie))
+                    continue;
+
+                string stem = text.Substring(stemStart, stemLen);
+                if (IsReduplicatedTemporalVerbStem(stem))
+                    continue;
+
+                if (TryExtractTrailingPureVerbStem(trie, stem, target, checkDirectionalFallGuard: false, out string matchedVerb))
+                {
+                    AddGrammarOrSpellingIssue(
+                        issues, hit, 5, target, "ခြင်း",
+                        ProofingIssueType.OfficialStyleGrammarError,
+                        $"ကြိယာ '{matchedVerb}-' ကို နာမ်ပုဒ်အဖြစ် ပြောင်းလဲရာတွင် 'ချင်း' (ယပင့်) အစား နာမ်ပြုပစ္စည်း 'ခြင်း' (ရရစ် — '{matchedVerb}ခြင်း') ကို သုံးနှုန်းရမည်။",
+                        $"ကြိယာနာမ်ပြုပစ္စည်း ({matchedVerb}ခြင်း)", "PART", true,
+                        $"နှစ်ခါထပ် ကြိယာ ('ရောက်ရောက်ချင်း/သိသိချင်း') မဟုတ်ဘဲ ကြိယာ '{matchedVerb}-' နောက်၌ ဝိဘတ်/ဖြစ်ခြင်းပြပုဒ် လိုက်နေသဖြင့် ပြုမူဆောင်ရွက်မှုပြ နာမ်ပြုပစ္စည်း 'ခြင်း' (ခကွေးရရစ်) ဖြစ်ရမည်။",
+                        "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ နှင့် မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း");
+                }
+            }
+        }
+
+        private static bool HasNominalPostpositionAfterChin(string text, int afterIdx)
+        {
+            int len = text.Length;
+            int p = afterIdx;
+            while (p < len && (text[p] == ' ' || text[p] == '\t'))
+                p++;
+            if (p >= len)
+                return false;
+
+            for (int i = 0; i < NominalPostpositionsAfterChin.Length; i++)
+            {
+                string post = NominalPostpositionsAfterChin[i];
+                if (MatchesSliceAt(text, p, post))
+                {
+                    int end = p + post.Length;
+                    if (end >= len)
+                        return true;
+                    char next = text[end];
+                    if (char.IsWhiteSpace(next) || next == '\u104A' || next == '\u104B' ||
+                        next == 'ပ' || next == 'သ' || next == 'တ' || next == 'မ' || next == 'ဘ')
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        private static void ScanMisusedKyaPluralVerb(string text, MyanmarTrie trie, List<ProofingIssue> issues)
+        {
+            const string target = "ကျ";
+            int len = text.Length;
+            int searchPos = 0;
+            while (searchPos < len)
+            {
+                int hit = text.IndexOf(target, searchPos, StringComparison.Ordinal);
+                if (hit < 0)
+                    break;
+                searchPos = hit + 2;
+
+                int after = hit + 2;
+                if (after >= len)
+                    continue;
+
+                // O(1) single-char pre-filter rejects 99.9% of 'ကျ-' words ('ကျင်းပ', 'ကျောင်း', 'ကျေးရွာ', 'ကျော်', 'ကျပ်') in 1 ns
+                char cAfter = text[after];
+                if (cAfter != 'ပ' && cAfter != 'သ' && cAfter != 'တ' && cAfter != 'မ' && cAfter != '၍' && cAfter != 'က')
+                    continue;
+
+                if (!HasPluralVerbCloserAt(text, after))
+                    continue;
+
+                int stemStart = hit;
+                while (stemStart > 0 && IsMyanmarRunLetterOrMark(text[stemStart - 1]))
+                    stemStart--;
+                int stemLen = hit - stemStart;
+                if (stemLen < 4 || stemLen > 28)
+                    continue;
+
+                if (OverlapsExistingIssue(issues, hit, 2) || IsShieldedOfficialWordSpan(text, hit, 2, trie))
+                    continue;
+
+                string stem = text.Substring(stemStart, stemLen);
+                if (TryExtractTrailingPureVerbStem(trie, stem, target, checkDirectionalFallGuard: true, out string matchedVerb))
+                {
+                    AddGrammarOrSpellingIssue(
+                        issues, hit, 2, target, "ကြ",
+                        ProofingIssueType.OfficialStyleGrammarError,
+                        $"ကြိယာ '{matchedVerb}-' နောက်ရှိ အများပြ ကြိယာထောက်ပစ္စည်းတွင် 'ကျ' (ယပင့်) အစား 'ကြ' (ရရစ် — '{matchedVerb}ကြ...') ဟု ရေးသားရမည်။",
+                        $"အများပြ ကြိယာထောက်ပစ္စည်း ({matchedVerb}ကြ~)", "PART", true,
+                        $"'{matchedVerb}-' သည် အပြုကြိယာပုဒ်ဖြစ်ပြီး နောက်တွင် ဝါကျအဆုံးသတ်ပစ္စည်း လိုက်နေသဖြင့် အများပြပစ္စည်း 'ကြ' (ကကြီးရရစ်) ကိုသာ သုံးနှုန်းရမည်။",
+                        "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ နှင့် မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း");
+                }
+            }
+        }
+
+        private static bool HasPluralVerbCloserAt(string text, int afterIdx)
+        {
+            int len = text.Length;
+            for (int i = 0; i < PluralVerbClosersAfterKya.Length; i++)
+            {
+                string closer = PluralVerbClosersAfterKya[i];
+                if (MatchesSliceAt(text, afterIdx, closer))
+                {
+                    int end = afterIdx + closer.Length;
+                    if (end >= len)
+                        return true;
+                    char next = text[end];
+                    if (char.IsWhiteSpace(next) || next == '\u104A' || next == '\u104B')
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static bool MatchesSliceAt(string text, int start, string literal)
+        {
+            return start + literal.Length <= text.Length &&
+                   text[start] == literal[0] &&
+                   string.CompareOrdinal(text, start, literal, 0, literal.Length) == 0;
+        }
+
+        private static bool HasAnyKnownLexiconSuffixWithEnding(MyanmarTrie? trie, string rawStem, string ending)
+        {
+            if (trie == null || string.IsNullOrEmpty(rawStem))
+                return false;
+
+            string normFull = UnicodeNormalizer.NormalizeCanonicalOrder(rawStem + ending);
+            if (trie.ContainsExactWord(normFull))
+                return true;
+
+            var syls = MyanmarSyllableBreaker.BreakIntoSyllables(normFull, isPreNormalized: true);
+            for (int start = 1; start <= syls.Count - 2; start++)
+            {
+                string sub = string.Concat(syls.GetRange(start, syls.Count - start));
+                if (trie.ContainsExactWord(sub))
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool IsPureMultiSyllableVerbInTrie(MyanmarTrie trie, string normCandidate)
+        {
+            if (string.IsNullOrEmpty(normCandidate) || !trie.TryGetExactEntries(normCandidate, out var entries) || entries == null || entries.Count == 0)
+                return false;
+
+            bool hasVerb = false;
+            for (int i = 0; i < entries.Count; i++)
+            {
+                string pos = (entries[i].PosTag ?? string.Empty).Trim().ToUpperInvariant();
+                if (pos == "ENCYC" || pos == "PROVERB")
+                    continue;
+                if (pos == "N" || pos == "N/V" || pos == "PROPER" || pos == "LOAN" || pos == "PART" || pos == "PRON" || pos == "ABB" || pos == "NUM")
+                    return false;
+                if (pos == "V")
+                    hasVerb = true;
+            }
+            return hasVerb;
+        }
+
+        private static bool TryExtractTrailingPureVerbStem(
+            MyanmarTrie trie,
+            string rawStem,
+            string wrongEnding,
+            bool checkDirectionalFallGuard,
+            out string matchedVerb)
+        {
+            matchedVerb = string.Empty;
+            if (string.IsNullOrEmpty(rawStem))
+                return false;
+
+            if (HasAnyKnownLexiconSuffixWithEnding(trie, rawStem, wrongEnding))
+                return false;
+
+            string normStem = UnicodeNormalizer.NormalizeCanonicalOrder(rawStem);
+            string strippedStem = normStem;
+            for (int i = 0; i < VerbalAuxStripSuffixes.Length; i++)
+            {
+                string aux = VerbalAuxStripSuffixes[i];
+                if (strippedStem.Length > aux.Length + 3 && strippedStem.EndsWith(aux, StringComparison.Ordinal))
+                {
+                    strippedStem = strippedStem.Substring(0, strippedStem.Length - aux.Length);
+                    break;
+                }
+            }
+
+            if (checkDirectionalFallGuard)
+            {
+                for (int i = 0; i < DirectionalFallVerbEndings.Length; i++)
+                {
+                    if (normStem.EndsWith(DirectionalFallVerbEndings[i], StringComparison.Ordinal) ||
+                        strippedStem.EndsWith(DirectionalFallVerbEndings[i], StringComparison.Ordinal))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            var syls = MyanmarSyllableBreaker.BreakIntoSyllables(strippedStem, isPreNormalized: true);
+            if (syls.Count < 2)
+                return false;
+
+            // 1. Direct match on full stripped stem (>= 2 syllables)
+            if (IsPureMultiSyllableVerbInTrie(trie, strippedStem))
+            {
+                matchedVerb = strippedStem;
+                return true;
+            }
+
+            // 2. Unspaced [Known Lexicon Object/Prefix] + [2-or-3-syllable Pure Verb] (e.g. 'အစည်းအဝေးကျင်းပကျောင်း')
+            for (int vLen = Math.Min(3, syls.Count - 1); vLen >= 2; vLen--)
+            {
+                int split = syls.Count - vLen;
+                string prefix = string.Concat(syls.GetRange(0, split));
+                string verbTail = string.Concat(syls.GetRange(split, vLen));
+                if (trie.ContainsExactWord(prefix) && IsPureMultiSyllableVerbInTrie(trie, verbTail))
+                {
+                    matchedVerb = verbTail;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsReduplicatedTemporalVerbStem(string rawStem)
+        {
+            string norm = UnicodeNormalizer.NormalizeCanonicalOrder(rawStem);
+            var syls = MyanmarSyllableBreaker.BreakIntoSyllables(norm, isPreNormalized: true);
+            int n = syls.Count;
+            if (n >= 2 && syls[n - 1] == syls[n - 2])
+                return true;
+            if (n >= 4 && syls[n - 4] == syls[n - 2] && syls[n - 3] == syls[n - 1])
+                return true;
+            return false;
+        }
+
+        private static bool MayContainAdjacentDuplicateMyanmarWord(string text)
+        {
+            int len = text.Length;
+            int prevStart = -1;
+            int prevLen = 0;
+            int i = 0;
+            while (i < len)
+            {
+                char c = text[i];
+                if (c >= '\u1000' && c <= '\u103F')
+                {
+                    int start = i;
+                    i++;
+                    while (i < len && text[i] >= '\u1000' && text[i] <= '\u103F')
+                        i++;
+                    int wLen = i - start;
+                    if (wLen >= 4 && wLen == prevLen && text[start] == text[prevStart] &&
+                        string.CompareOrdinal(text, prevStart, text, start, wLen) == 0)
+                    {
+                        return true;
+                    }
+                    prevStart = start;
+                    prevLen = wLen;
+                }
+                else if (c == ' ' || c == '\t')
+                {
+                    i++;
+                }
+                else
+                {
+                    prevStart = -1;
+                    prevLen = 0;
+                    i++;
+                }
+            }
+            return false;
+        }
+
+        private static bool IsAccidentalDuplicateMyanmarWord(string rawWord, MyanmarTrie? trie)
+        {
+            string norm = UnicodeNormalizer.NormalizeCanonicalOrder(rawWord);
+            var syls = MyanmarSyllableBreaker.BreakIntoSyllables(norm, isPreNormalized: true);
+            if (syls.Count < 2)
+                return false;
+
+            // Exempt reduplicated adverbs/ideophones ('ကောင်းကောင်း', 'ဖြည်းဖြည်း') & distributive 'တစ်...' ('တစ်ခု တစ်ခု', 'တစ်ဦး တစ်ဦး')
+            if (syls.Count == 2 && syls[0] == syls[1])
+                return false;
+            if (norm.StartsWith("တစ်", StringComparison.Ordinal) ||
+                norm.StartsWith("အသီး", StringComparison.Ordinal) ||
+                norm.StartsWith("အမျိုး", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            // Exempt 4-syllable lexical reduplications typed with a space (e.g. 'ခဏ ခဏ' -> 'ခဏခဏ')
+            if (trie != null && trie.ContainsExactWord(norm + norm))
+                return false;
+
+            return true;
+        }
+
+        private static bool MayContainAdjacentDuplicateAsciiWord(string text)
+        {
+            int len = text.Length;
+            int prevStart = -1;
+            int prevLen = 0;
+            int i = 0;
+            while (i < len)
+            {
+                char c = text[i];
+                if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))
+                {
+                    int start = i;
+                    i++;
+                    while (i < len && ((text[i] >= 'A' && text[i] <= 'Z') || (text[i] >= 'a' && text[i] <= 'z')))
+                        i++;
+                    int wLen = i - start;
+                    if (wLen >= 2 && wLen <= 4 && wLen == prevLen &&
+                        string.Compare(text, prevStart, text, start, wLen, StringComparison.OrdinalIgnoreCase) == 0)
+                    {
+                        return true;
+                    }
+                    prevStart = start;
+                    prevLen = wLen;
+                }
+                else if (c == ' ' || c == '\t')
+                {
+                    i++;
+                }
+                else
+                {
+                    prevStart = -1;
+                    prevLen = 0;
+                    i++;
+                }
+            }
+            return false;
+        }
+
+        private static bool IsClassicalPaliNissayaHeadBeforeComma(string text, int spaceStartIndex, MyanmarTrie? trie)
+        {
+            if (spaceStartIndex <= 0)
+                return false;
+
+            int tokEnd = spaceStartIndex;
+            int tokStart = tokEnd;
+            while (tokStart > 0 && text[tokStart - 1] >= '\u1000' && text[tokStart - 1] <= '\u103F')
+                tokStart--;
+
+            int tokLen = tokEnd - tokStart;
+            if (tokLen < 2)
+                return false;
+
+            // Must stand at start of paragraph/line or right after sentence boundary (Pali Nissaya '<PaliWord> ၊ <Gloss>')
+            int before = tokStart - 1;
+            while (before >= 0 && (text[before] == ' ' || text[before] == '\t'))
+                before--;
+            if (before >= 0 && text[before] != '\u104B' && text[before] != '\r' && text[before] != '\n')
+                return false;
+
+            // Pali Nissaya lemmas contain zero Burmese non-kinzi killed codas (\u103A) and zero Burmese creaky/visarga tones (\u1037/\u1038)
+            for (int k = tokStart; k < tokEnd; k++)
+            {
+                char ch = text[k];
+                if (ch == '\u1037' || ch == '\u1038')
+                    return false;
+                if (ch == '\u103A' && (k + 1 >= tokEnd || text[k + 1] != '\u1039'))
+                    return false;
+            }
+
+            string normTok = UnicodeNormalizer.NormalizeCanonicalOrder(text.Substring(tokStart, tokLen));
+            if (trie != null && !trie.ContainsExactWord(normTok))
+                return true;
+
+            // Also shield classical Pali Nissaya lemmas that exist in the lexicon (e.g. 'ပတိရူပေ ၊ သင့်တင့်သော ဂုဏ်သဘော၌။')
+            char last = normTok[normTok.Length - 1];
+            if (last == '\u1036' || last == '\u1031')
+                return true;
+            for (int k = 0; k < normTok.Length; k++)
+            {
+                char c = normTok[k];
+                if (c == '\u1039' || (c >= '\u100B' && c <= '\u100F') || c == '\u1020' || c == '\u103F')
+                    return true;
+            }
+            return trie == null && (last == '\u102D' || last == '\u102F');
+        }
+
+        internal static bool IsPrecededByEnglishOrTechnicalToken(string text, int numIndex)
+        {
+            // Guard paragraph-leading numbered list items like '1. ...' or '1) ...'
+            int k = numIndex - 1;
+            int openParensSkipped = 0;
+            while (k >= 0 && (text[k] == ' ' || text[k] == '\t' || ((text[k] == '(' || text[k] == '（') && openParensSkipped < 1)))
+            {
+                if (text[k] == '(' || text[k] == '（')
+                    openParensSkipped++;
+                k--;
+            }
+
+            if (k < 0)
+                return false;
+
+            char prev = text[k];
+            if ((prev >= 'A' && prev <= 'Z') || (prev >= 'a' && prev <= 'z') ||
+                (prev >= '0' && prev <= '9') ||
+                prev == '-' || prev == '–' || prev == '/' || prev == '.' || prev == ':' || prev == '@' || prev == '#' || prev == '$')
+            {
+                return true;
+            }
+
+            // Walk through immediately preceding non-space token to verify it contains no ASCII Latin/digit characters (e.g. 'Post (2) ခု', 'MP4 3 ခု')
+            while (k >= 0 && !char.IsWhiteSpace(text[k]) && text[k] != '\u104A' && text[k] != '\u104B')
+            {
+                char c = text[k];
+                if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))
+                    return true;
+                k--;
+            }
+
+            return false;
+        }
+
+        internal static string ConvertAsciiDigitsToMyanmar(string asciiNum)
+        {
+            char[] buf = asciiNum.ToCharArray();
+            for (int i = 0; i < buf.Length; i++)
+            {
+                if (buf[i] >= '0' && buf[i] <= '9')
+                    buf[i] = (char)('\u1040' + (buf[i] - '0'));
+            }
+            return new string(buf);
+        }
+
+        [ThreadStatic]
+        private static (char Ch, int Index)[]? t_bracketStack;
+
+        private static void AnalyzeUnpairedBracketsAndQuotes(string text, List<ProofingIssue> issues)
+        {
+            int len = text.Length;
+            var bracketStack = t_bracketStack ??= new (char Ch, int Index)[32];
+            int stackCount = 0;
+
+            int i = 0;
+            while (i < len)
+            {
+                char c = text[i];
+
+                // Skip URLs ('http://...', 'https://...', 'www....') so Wikipedia/web URLs with parens never false-trigger
+                if ((c == 'h' || c == 'H' || c == 'w' || c == 'W') && IsUrlStartAt(text, i, out int urlEnd))
+                {
+                    i = urlEnd;
+                    continue;
+                }
+
+                if (c == '(' || c == '[' || c == '（' || c == '【')
+                {
+                    if (stackCount < bracketStack.Length)
+                    {
+                        bracketStack[stackCount++] = (c, i);
+                    }
+                }
+                else if (c == ')' || c == ']' || c == '）' || c == '】')
+                {
+                    if (stackCount == 0)
+                    {
+                        if ((c == ')' || c == '）') && IsStandaloneListMarkerOrEmoticonCloseParen(text, i))
+                        {
+                            i++;
+                            continue;
+                        }
+
+                        if (!OverlapsExistingIssue(issues, i, 1))
+                        {
+                            EmitUnmatchedCloseBracketIssue(text, i, c, issues);
+                        }
+                    }
+                    else
+                    {
+                        var (openCh, openIdx) = bracketStack[--stackCount];
+                        if (!AreMatchingBrackets(openCh, c) && !IsHalfOpenMathInterval(text, openIdx, i, openCh, c))
+                        {
+                            char expectedClose = GetMatchingCloseBracket(openCh);
+                            if (!OverlapsExistingIssue(issues, i, 1))
+                            {
+                                AddGrammarOrSpellingIssue(
+                                    issues, i, 1, c.ToString(), expectedClose.ToString(),
+                                    ProofingIssueType.PunctuationError,
+                                    $"လက်သည်းကွင်း အဖွင့် '{openCh}' နှင့် အပိတ် '{c}' မကိုက်ညီပါ — '{expectedClose}' ဖြင့် ပိတ်ရမည်။",
+                                    $"ကိုက်ညီသော အပိတ်သင်္ကေတ ('{expectedClose}')", "PUNCT", true,
+                                    $"ရှေ့တွင် '{openCh}' ဖြင့် ဖွင့်ထားသဖြင့် တူညီသော အပိတ်သင်္ကေတ '{expectedClose}' ကိုသာ သုံးနှုန်းရမည်။",
+                                    "စာတမ်းဖွဲ့စည်းပုံနှင့် ပုဒ်ဖြတ်ပုဒ်ရပ် စံနှုန်း",
+                                    requiresReviewBeforeBatchFix: true);
+                            }
+                        }
+                    }
+                }
+                i++;
+            }
+
+            for (int s = 0; s < stackCount; s++)
+            {
+                var (openCh, openIdx) = bracketStack[s];
+                if (!OverlapsExistingIssue(issues, openIdx, 1))
+                {
+                    EmitUnclosedOpenBracketIssue(text, openIdx, openCh, issues);
+                }
+            }
+
+            AnalyzeCurlyAndMismatchedQuotes(text, issues);
+        }
+
+        private static void EmitUnmatchedCloseBracketIssue(string text, int closeIdx, char closeCh, List<ProofingIssue> issues)
+        {
+            char expectedOpen = GetMatchingOpenBracket(closeCh);
+            if (closeIdx > 0 && text[closeIdx - 1] == closeCh && !OverlapsExistingIssue(issues, closeIdx - 1, 2))
+            {
+                string dup = new string(closeCh, 2);
+                AddGrammarOrSpellingIssue(
+                    issues, closeIdx - 1, 2, dup, closeCh.ToString(),
+                    ProofingIssueType.PunctuationError,
+                    $"အပိတ်လက်သည်းကွင်း '{dup}' နှစ်ထပ်ရိုက်မိနေပါသည် — '{closeCh}' တစ်ခုသာ ထားရှိရမည်။",
+                    $"နှစ်ထပ် '{closeCh}' ဖယ်ရှားရန်", "PUNCT", true,
+                    $"အဖွင့် '{expectedOpen}' တစ်ခုတည်းသာရှိသဖြင့် အပိတ် '{closeCh}' တစ်ခုပိုနေပါသည်။",
+                    "စာတမ်းဖွဲ့စည်းပုံနှင့် ပုဒ်ဖြတ်ပုဒ်ရပ် စံနှုန်း",
+                    requiresReviewBeforeBatchFix: true);
+                return;
+            }
+
+            if (closeIdx > 0 && !char.IsWhiteSpace(text[closeIdx - 1]) && !OverlapsExistingIssue(issues, closeIdx - 1, 2))
+            {
+                string span = text.Substring(closeIdx - 1, 2);
+                string withoutClose = text[closeIdx - 1].ToString();
+                AddGrammarOrSpellingIssue(
+                    issues, closeIdx - 1, 2, span, withoutClose,
+                    ProofingIssueType.PunctuationError,
+                    $"ရှေ့တွင် အဖွင့် '{expectedOpen}' မပါဘဲ အပိတ် '{closeCh}' တစ်ခုတည်း ဖြစ်နေပါသည် — စိစစ်ပြင်ဆင်ပါ။",
+                    $"ပိုနေသော '{closeCh}' ဖယ်ရှားရန်", "PUNCT", true,
+                    $"ဤစာပိုဒ်အတွင်း အဖွင့်လက်သည်းကွင်း '{expectedOpen}' မတွေ့ရှိရဘဲ အပိတ် '{closeCh}' ပါဝင်နေပါသည်။",
+                    "စာတမ်းဖွဲ့စည်းပုံနှင့် ပုဒ်ဖြတ်ပုဒ်ရပ် စံနှုန်း",
+                    requiresReviewBeforeBatchFix: true);
+            }
+        }
+
+        private static void EmitUnclosedOpenBracketIssue(string text, int openIdx, char openCh, List<ProofingIssue> issues)
+        {
+            char expectedClose = GetMatchingCloseBracket(openCh);
+            int len = text.Length;
+
+            // Find clean natural end before trailing ။ or newline so user gets a 1-click close option while staying unchecked by default
+            int endLimit = len;
+            while (endLimit > openIdx + 1 && (char.IsWhiteSpace(text[endLimit - 1]) || text[endLimit - 1] == '\u104B'))
+                endLimit--;
+
+            int spanLen = endLimit - openIdx;
+            if (spanLen >= 2 && spanLen <= 48 && !OverlapsExistingIssue(issues, openIdx, spanLen))
+            {
+                string rawSpan = text.Substring(openIdx, spanLen);
+                string closedSpan = rawSpan + expectedClose;
+                AddGrammarOrSpellingIssue(
+                    issues, openIdx, spanLen, rawSpan, closedSpan,
+                    ProofingIssueType.PunctuationError,
+                    $"လက်သည်းကွင်း အဖွင့် '{openCh}' ကို ပြန်မပိတ်ရသေးပါ — အပိတ် '{expectedClose}' ထည့်သွင်းရန် စိစစ်ပါ။",
+                    $"အပိတ် '{expectedClose}' ထည့်သွင်းရန်", "PUNCT", true,
+                    $"ဤစာပိုဒ်အတွင်း လက်သည်းကွင်း '{openCh}' ဖွင့်ထားသော်လည်း သက်ဆိုင်ရာ အပိတ် '{expectedClose}' ကျန်ခဲ့ပါသည်။",
+                    "စာတမ်းဖွဲ့စည်းပုံနှင့် ပုဒ်ဖြတ်ပုဒ်ရပ် စံနှုန်း",
+                    requiresReviewBeforeBatchFix: true);
+            }
+            else if (openIdx + 1 < len && !char.IsWhiteSpace(text[openIdx + 1]) && !OverlapsExistingIssue(issues, openIdx, 2))
+            {
+                string rawPair = text.Substring(openIdx, 2);
+                string stripped = text[openIdx + 1].ToString();
+                AddGrammarOrSpellingIssue(
+                    issues, openIdx, 2, rawPair, stripped,
+                    ProofingIssueType.PunctuationError,
+                    $"လက်သည်းကွင်း အဖွင့် '{openCh}' အတွက် အပိတ် '{expectedClose}' မတွေ့ရှိရပါ — စိစစ်ပြင်ဆင်ပါ။",
+                    $"ပိုနေသော '{openCh}' ဖယ်ရှားရန် (သို့မဟုတ် '{expectedClose}' ပိတ်ရန်)", "PUNCT", true,
+                    $"ဤစာပိုဒ်အတွင်း လက်သည်းကွင်း '{openCh}' ဖွင့်ထားသော်လည်း အပိတ် '{expectedClose}' မပါရှိသေးပါ။",
+                    "စာတမ်းဖွဲ့စည်းပုံနှင့် ပုဒ်ဖြတ်ပုဒ်ရပ် စံနှုန်း",
+                    requiresReviewBeforeBatchFix: true);
+            }
+        }
+
+        private static void AnalyzeCurlyAndMismatchedQuotes(string text, List<ProofingIssue> issues)
+        {
+            int len = text.Length;
+            int openCurlyIdx = -1;
+            int openDoubleSingleIdx = -1;
+            int openStraightBeforeMmIdx = -1;
+
+            int i = 0;
+            while (i < len)
+            {
+                char c = text[i];
+                if (c == '\r' || c == '\n')
+                {
+                    openCurlyIdx = -1;
+                    openDoubleSingleIdx = -1;
+                    openStraightBeforeMmIdx = -1;
+                    i++;
+                    continue;
+                }
+
+                // Recognize double single-quotes ‘‘...’’ typed instead of “...”
+                if (c == '\u2018' && i + 1 < len && text[i + 1] == '\u2018')
+                {
+                    openDoubleSingleIdx = i;
+                    i += 2;
+                    continue;
+                }
+                if (c == '\u2019' && i + 1 < len && text[i + 1] == '\u2019')
+                {
+                    openDoubleSingleIdx = -1;
+                    openCurlyIdx = -1;
+                    i += 2;
+                    continue;
+                }
+
+                if (c == '\u201C') // “
+                {
+                    if (openCurlyIdx >= 0)
+                    {
+                        // Previous “ was never closed before a second “ opened!
+                        EmitUnclosedOpenQuoteIssue(text, openCurlyIdx, i, issues);
+                    }
+                    openCurlyIdx = i;
+                    openStraightBeforeMmIdx = -1;
+                }
+                else if (c == '\u201D') // ”
+                {
+                    if (openCurlyIdx >= 0)
+                    {
+                        openCurlyIdx = -1;
+                    }
+                    else if (openDoubleSingleIdx >= 0)
+                    {
+                        openDoubleSingleIdx = -1;
+                    }
+                    else if (openStraightBeforeMmIdx >= 0)
+                    {
+                        // Opened with straight ASCII " and closed with curly ” -> offer converting opening " to “
+                        int sIdx = openStraightBeforeMmIdx;
+                        openStraightBeforeMmIdx = -1;
+                        if (!OverlapsExistingIssue(issues, sIdx, 1))
+                        {
+                            AddGrammarOrSpellingIssue(
+                                issues, sIdx, 1, "\"", "\u201C",
+                                ProofingIssueType.PunctuationError,
+                                "မျက်တောင်အဖွင့် '\"' နှင့် အပိတ် '”' ပုံစံမတူဖြစ်နေပါသည် — အဖွင့် '“' ဖြင့် တစ်ပြေးညီ ရေးသားသင့်ပါသည်။",
+                                "အဖွင့်မျက်တောင် ('“')", "PUNCT", true,
+                                "အပိတ်တွင် ကွေးသောမျက်တောင် ('”' U+201D) သုံးထားသဖြင့် အဖွင့်၌လည်း '“' (U+201C) ကို တစ်ပြေးညီ သုံးနှုန်းရမည်။",
+                                "စာတမ်းဖွဲ့စည်းပုံနှင့် ပုဒ်ဖြတ်ပုဒ်ရပ် စံနှုန်း",
+                                requiresReviewBeforeBatchFix: true);
+                        }
+                    }
+                    else if (!IsInchOrArcsecondSymbol(text, i))
+                    {
+                        if (i > 0 && !char.IsWhiteSpace(text[i - 1]) && !OverlapsExistingIssue(issues, i - 1, 2))
+                        {
+                            AddGrammarOrSpellingIssue(
+                                issues, i - 1, 2, text.Substring(i - 1, 2), text[i - 1].ToString(),
+                                ProofingIssueType.PunctuationError,
+                                "ရှေ့တွင် အဖွင့်မျက်တောင် '“' မပါဘဲ အပိတ်မျက်တောင် '”' တစ်ခုတည်း ဖြစ်နေပါသည် — စိစစ်ပြင်ဆင်ပါ။",
+                                "ပိုနေသော '”' ဖယ်ရှားရန်", "PUNCT", true,
+                                "ဤစာပိုဒ်အတွင်း အဖွင့်မျက်တောင် '“' မပါရှိဘဲ အပိတ်မျက်တောင် '”' သီးသန့်ဖြစ်နေပါသည်။",
+                                "စာတမ်းဖွဲ့စည်းပုံနှင့် ပုဒ်ဖြတ်ပုဒ်ရပ် စံနှုန်း",
+                                requiresReviewBeforeBatchFix: true);
+                        }
+                    }
+                }
+                else if (c == '"')
+                {
+                    if (openCurlyIdx >= 0 && i > openCurlyIdx + 1 && !char.IsWhiteSpace(text[i - 1]) && !IsInchOrArcsecondSymbol(text, i))
+                    {
+                        // Opened with curly “ and closed with straight ASCII " -> offer converting " to ”
+                        openCurlyIdx = -1;
+                        if (!OverlapsExistingIssue(issues, i, 1))
+                        {
+                            AddGrammarOrSpellingIssue(
+                                issues, i, 1, "\"", "\u201D",
+                                ProofingIssueType.PunctuationError,
+                                "အဖွင့်မျက်တောင် '“' နှင့် ကိုက်ညီစေရန် အပိတ်၌ '\"' အစား '”' (အပိတ်မျက်တောင်) သုံးနှုန်းရမည်။",
+                                "အပိတ်မျက်တောင် ('”')", "PUNCT", true,
+                                "ရှေ့တွင် ကွေးသောအဖွင့်မျက်တောင် ('“' U+201C) သုံးထားသဖြင့် အပိတ်၌လည်း '”' (U+201D) ဖြင့် ပိတ်ရမည်။",
+                                "စာတမ်းဖွဲ့စည်းပုံနှင့် ပုဒ်ဖြတ်ပုဒ်ရပ် စံနှုန်း",
+                                requiresReviewBeforeBatchFix: true);
+                        }
+                    }
+                    else if (openStraightBeforeMmIdx >= 0)
+                    {
+                        // Balanced straight quotes "..." -> close cleanly
+                        openStraightBeforeMmIdx = -1;
+                    }
+                    else if (openCurlyIdx < 0 && i + 1 < len && IsMyanmarRunLetterOrMark(text[i + 1]))
+                    {
+                        openStraightBeforeMmIdx = i;
+                    }
+                }
+
+                i++;
+            }
+
+            if (openCurlyIdx >= 0)
+            {
+                EmitUnclosedOpenQuoteIssue(text, openCurlyIdx, len, issues);
+            }
+        }
+
+        private static void EmitUnclosedOpenQuoteIssue(string text, int openIdx, int limitExclusive, List<ProofingIssue> issues)
+        {
+            int endPos = limitExclusive;
+            while (endPos > openIdx + 1 && char.IsWhiteSpace(text[endPos - 1]))
+                endPos--;
+
+            // Place closing ” right before trailing ။ if sentence ends with ။, or at endPos
+            int insertBeforePaukMa = endPos;
+            if (insertBeforePaukMa > openIdx + 1 && text[insertBeforePaukMa - 1] == '\u104B')
+                insertBeforePaukMa--;
+
+            int spanLen = insertBeforePaukMa - openIdx;
+            if (spanLen >= 2 && spanLen <= 64 && !OverlapsExistingIssue(issues, openIdx, spanLen))
+            {
+                string rawSpan = text.Substring(openIdx, spanLen);
+                string closedSpan = rawSpan + "\u201D";
+                AddGrammarOrSpellingIssue(
+                    issues, openIdx, spanLen, rawSpan, closedSpan,
+                    ProofingIssueType.PunctuationError,
+                    "အဖွင့်မျက်တောင် '“' ကို ပြန်မပိတ်ရသေးပါ — အပိတ်မျက်တောင် '”' ထည့်သွင်းရန် စိစစ်ပါ။",
+                    "အပိတ်မျက်တောင် ('”') ထည့်သွင်းရန်", "PUNCT", true,
+                    "ဤစာပိုဒ်အတွင်း မျက်တောင်အဖွင့် ('“' U+201C) ရှိသော်လည်း အပိတ်မျက်တောင် ('”' U+201D) ကျန်ခဲ့ပါသည်။",
+                    "စာတမ်းဖွဲ့စည်းပုံနှင့် ပုဒ်ဖြတ်ပုဒ်ရပ် စံနှုန်း",
+                    requiresReviewBeforeBatchFix: true);
+            }
+            else if (openIdx + 1 < text.Length && !char.IsWhiteSpace(text[openIdx + 1]) && !OverlapsExistingIssue(issues, openIdx, 2))
+            {
+                AddGrammarOrSpellingIssue(
+                    issues, openIdx, 2, text.Substring(openIdx, 2), text[openIdx + 1].ToString(),
+                    ProofingIssueType.PunctuationError,
+                    "အဖွင့်မျက်တောင် '“' အတွက် အပိတ်မျက်တောင် '”' မတွေ့ရှိရပါ — စိစစ်ပြင်ဆင်ပါ။",
+                    "ပိုနေသော '“' ဖယ်ရှားရန် (သို့မဟုတ် '”' ပိတ်ရန်)", "PUNCT", true,
+                    "ဤစာပိုဒ်အတွင်း မျက်တောင်အဖွင့် ('“') ရှိသော်လည်း အပိတ်မျက်တောင် ('”') မပါရှိသေးပါ။",
+                    "စာတမ်းဖွဲ့စည်းပုံနှင့် ပုဒ်ဖြတ်ပုဒ်ရပ် စံနှုန်း",
+                    requiresReviewBeforeBatchFix: true);
+            }
+        }
+
+        private static bool IsInchOrArcsecondSymbol(string text, int quoteIdx)
+        {
+            if (quoteIdx <= 0)
+                return false;
+            char prev = text[quoteIdx - 1];
+            return (prev >= '0' && prev <= '9') || (prev >= '\u1040' && prev <= '\u1049');
+        }
+
+        private static bool IsUrlStartAt(string text, int idx, out int urlEnd)
+        {
+            urlEnd = idx;
+            int rem = text.Length - idx;
+            if (rem < 8)
+                return false;
+
+            bool isUrl = string.Compare(text, idx, "http://", 0, 7, StringComparison.OrdinalIgnoreCase) == 0 ||
+                         string.Compare(text, idx, "https://", 0, 8, StringComparison.OrdinalIgnoreCase) == 0 ||
+                         string.Compare(text, idx, "www.", 0, 4, StringComparison.OrdinalIgnoreCase) == 0;
+            if (!isUrl)
+                return false;
+
+            int k = idx + 4;
+            while (k < text.Length && !char.IsWhiteSpace(text[k]) && text[k] != '\u104A' && text[k] != '\u104B')
+                k++;
+            urlEnd = k;
+            return true;
+        }
+
+        private static bool AreMatchingBrackets(char open, char close)
+        {
+            return (open == '(' && (close == ')' || close == '）')) ||
+                   (open == '（' && (close == '）' || close == ')')) ||
+                   (open == '[' && close == ']') ||
+                   (open == '【' && close == '】');
+        }
+
+        private static char GetMatchingCloseBracket(char open) => open switch
+        {
+            '(' => ')',
+            '（' => '）',
+            '[' => ']',
+            '【' => '】',
+            _ => ')'
+        };
+
+        private static char GetMatchingOpenBracket(char close) => close switch
+        {
+            ')' => '(',
+            '）' => '（',
+            ']' => '[',
+            '】' => '【',
+            _ => '('
+        };
+
+        private static bool IsHalfOpenMathInterval(string text, int openIdx, int closeIdx, char openCh, char closeCh)
+        {
+            if (!((openCh == '[' && closeCh == ')') || (openCh == '(' && closeCh == ']')))
+                return false;
+            int len = closeIdx - openIdx - 1;
+            if (len < 3 || len > 24 || text.IndexOf(',', openIdx + 1, len) < 0)
+                return false;
+            for (int k = openIdx + 1; k < closeIdx; k++)
+            {
+                char ch = text[k];
+                if (!((ch >= '0' && ch <= '9') || (ch >= '\u1040' && ch <= '\u1049') ||
+                      ch == ',' || ch == '.' || ch == '-' || ch == '+' || ch == ' ' || ch == '∞'))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private static bool IsStandaloneListMarkerOrEmoticonCloseParen(string text, int closeIdx)
+        {
+            int k = closeIdx - 1;
+            if (k < 0)
+                return false;
+
+            char prev = text[k];
+            // Emoticons ':)', ';)', '=)'
+            if (prev == ':' || prev == ';' || prev == '=')
+                return true;
+
+            // Digits 1) .. 999) or ၁) .. ၉၉၉)
+            if ((prev >= '0' && prev <= '9') || (prev >= '\u1040' && prev <= '\u1049'))
+            {
+                int start = k;
+                while (start > 0 && (k - start) < 3 &&
+                       ((text[start - 1] >= '0' && text[start - 1] <= '9') || (text[start - 1] >= '\u1040' && text[start - 1] <= '\u1049')))
+                {
+                    start--;
+                }
+                return IsListMarkerLeftBoundary(text, start);
+            }
+
+            // Single ASCII letter a), b) or short Roman numeral i), ii), iii), iv), v), vi)..x)
+            if ((prev >= 'A' && prev <= 'Z') || (prev >= 'a' && prev <= 'z'))
+            {
+                int start = k;
+                while (start > 0 && (k - start) < 3 && IsRomanNumeralChar(text[start - 1]))
+                {
+                    start--;
+                }
+                if (start == k)
+                    return IsListMarkerLeftBoundary(text, start);
+
+                string roman = text.Substring(start, k - start + 1).ToLowerInvariant();
+                if (roman == "ii" || roman == "iii" || roman == "iv" || roman == "vi" || roman == "vii" || roman == "viii" || roman == "ix")
+                    return IsListMarkerLeftBoundary(text, start);
+                return false;
+            }
+
+            // Single Myanmar consonant list marker က), ခ), ဂ), ဃ), င)
+            if (prev >= '\u1000' && prev <= '\u1021')
+            {
+                return IsListMarkerLeftBoundary(text, k);
+            }
+
+            return false;
+        }
+
+        private static bool IsRomanNumeralChar(char c)
+        {
+            char lo = char.ToLowerInvariant(c);
+            return lo == 'i' || lo == 'v' || lo == 'x';
+        }
+
+        private static bool IsListMarkerLeftBoundary(string text, int markerStartIdx)
+        {
+            if (markerStartIdx <= 0)
+                return true;
+            char left = text[markerStartIdx - 1];
+            return char.IsWhiteSpace(left) || left == '\u104A' || left == '\u104B' || left == ':' || left == ';' || left == '—';
         }
 
         private static List<(int Start, int End)>? ComputeBalancedQuoteRanges(string text)

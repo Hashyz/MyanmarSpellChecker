@@ -45,9 +45,11 @@ namespace MyanmarSpellChecker.Core.Official
         public int SpellingIssueCount { get; set; }
         public int GrammarIssueCount { get; set; }
         public int ContextWarningCount { get; set; }
+        public int ConsistencyWarningCount { get; set; }
         public int EncodingIssueCount { get; set; }
         public int TotalIssueCount { get; set; }
 
+        public List<string> ConsistencySummaries { get; set; } = new List<string>();
         public OfficialStructureAuditResult OfficialLetterAudit { get; set; } = new OfficialStructureAuditResult();
         public List<ProofingIssue> TopIssuesSample { get; set; } = new List<ProofingIssue>();
     }
@@ -212,7 +214,8 @@ namespace MyanmarSpellChecker.Core.Official
         public static DocumentQualityReport Analyze(
             string? documentText,
             IReadOnlyList<ProofingIssue>? existingIssues = null,
-            MyanmarProofingEngine? engine = null)
+            MyanmarProofingEngine? engine = null,
+            IReadOnlyList<string>? precomputedConsistencySummaries = null)
         {
             var report = new DocumentQualityReport();
             string text = documentText ?? string.Empty;
@@ -226,6 +229,29 @@ namespace MyanmarSpellChecker.Core.Official
             {
                 report.OfficialLetterAudit = OfficialLetterSuite.ValidateOfficialLetterStructure(string.Empty);
                 return report;
+            }
+
+            if (precomputedConsistencySummaries != null)
+            {
+                report.ConsistencySummaries = new List<string>(precomputedConsistencySummaries);
+            }
+            else if (existingIssues == null)
+            {
+                var consistencyIssues = DocumentConsistencyAnalyzer.AnalyzePlainDocumentConsistency(
+                    text,
+                    issues,
+                    engine?.StyleMode ?? ProofingStyleMode.FormalOfficial,
+                    engine?.Trie,
+                    out var summaries);
+                report.ConsistencySummaries = summaries;
+                if (consistencyIssues.Count > 0)
+                {
+                    var combined = new List<ProofingIssue>(issues.Count + consistencyIssues.Count);
+                    combined.AddRange(issues);
+                    combined.AddRange(consistencyIssues);
+                    combined.Sort((a, b) => a.StartIndex.CompareTo(b.StartIndex));
+                    issues = combined;
+                }
             }
 
             // 1. Paragraphs, Sentences, Latin Words & Register Markers in zero-allocation passes
@@ -254,6 +280,7 @@ namespace MyanmarSpellChecker.Core.Official
             int encodingCount = 0;
             int grammarCount = 0;
             int contextWarningCount = 0;
+            int consistencyCount = 0;
             int spellingCount = 0;
 
             foreach (var iss in issues)
@@ -270,6 +297,10 @@ namespace MyanmarSpellChecker.Core.Official
                 else if (iss.IsContextualWarning)
                 {
                     contextWarningCount++;
+                    if (iss.AuthoritativeSource != null && iss.AuthoritativeSource.IndexOf("ညီညွတ်မှု", StringComparison.Ordinal) >= 0)
+                    {
+                        consistencyCount++;
+                    }
                 }
                 else
                 {
@@ -280,6 +311,7 @@ namespace MyanmarSpellChecker.Core.Official
             report.EncodingIssueCount = encodingCount;
             report.GrammarIssueCount = grammarCount;
             report.ContextWarningCount = contextWarningCount;
+            report.ConsistencyWarningCount = consistencyCount;
             report.SpellingIssueCount = spellingCount;
             report.TotalIssueCount = issues.Count;
             report.TopIssuesSample = issues.Take(15).ToList();
@@ -397,7 +429,11 @@ namespace MyanmarSpellChecker.Core.Official
             sb.AppendLine($"   - ခန့်မှန်း ဖတ်ရှုချိန်                 : {report.EstimatedReadingMinutes:0.0} မိနစ်");
             sb.AppendLine($"   - ပြည်ထောင်စုယူနီကုဒ် သန့်စင်မှုနှုန်း  : {report.UnicodePurityPercent:0.0}%");
             sb.AppendLine($"   - ရုံးသုံးစာပေဟန်ပန် ညီညွတ်မှုနှုန်း     : {report.FormalRegisterPercent:0.0}%");
-            sb.AppendLine($"   - စုစုပေါင်း ပြင်ဆင်ရန် တွေ့ရှိချက်     : {MyanmarTraditionalCalendar.ToMyanmarDigits(report.TotalIssueCount)} ချက် (သတ်ပုံ {MyanmarTraditionalCalendar.ToMyanmarDigits(report.SpellingIssueCount)}၊ သဒ္ဒါ/ဟန်ပန် {MyanmarTraditionalCalendar.ToMyanmarDigits(report.GrammarIssueCount)}၊ ဖောင့်/အက္ခရာ {MyanmarTraditionalCalendar.ToMyanmarDigits(report.EncodingIssueCount)})");
+            sb.AppendLine($"   - စုစုပေါင်း ပြင်ဆင်ရန် တွေ့ရှိချက်     : {MyanmarTraditionalCalendar.ToMyanmarDigits(report.TotalIssueCount)} ချက် (သတ်ပုံ {MyanmarTraditionalCalendar.ToMyanmarDigits(report.SpellingIssueCount)}၊ သဒ္ဒါ/ဟန်ပန် {MyanmarTraditionalCalendar.ToMyanmarDigits(report.GrammarIssueCount)}၊ ဖောင့်/အက္ခရာ {MyanmarTraditionalCalendar.ToMyanmarDigits(report.EncodingIssueCount)}၊ ရှေ့နောက်ညီညွတ်မှု/အနက် {MyanmarTraditionalCalendar.ToMyanmarDigits(report.ContextWarningCount)})");
+            if (report.ConsistencySummaries.Count > 0)
+            {
+                sb.AppendLine($"   - အသုံးအနှုန်း ညီညွတ်မှု စိစစ်ချက်      : {string.Join(" | ", report.ConsistencySummaries)}");
+            }
             sb.AppendLine();
 
             sb.AppendLine("၂။ ရုံးစာ ဖွဲ့စည်းပုံ စံနှုန်း စစ်ဆေးချက် (Official Letter Structure Audit)");

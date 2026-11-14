@@ -144,6 +144,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             public List<SpreadsheetCellIssue> CollectedIssues { get; } = new List<SpreadsheetCellIssue>(256);
             public Dictionary<string, IReadOnlyList<ProofingIssue>> SharedMemo { get; } =
                 new Dictionary<string, IReadOnlyList<ProofingIssue>>(StringComparer.Ordinal);
+            public DocumentConsistencyAccumulator? ConsistencyAccumulator { get; set; }
             public CancellationToken Token { get; set; }
         }
 
@@ -472,6 +473,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             {
                 Generation = generation,
                 WorkbookName = wbName,
+                ConsistencyAccumulator = scope == SpreadsheetScanScope.Selection
+                    ? null
+                    : new DocumentConsistencyAccumulator(_engine.StyleMode, _engine.Trie),
                 Token = cts.Token
             };
 
@@ -1104,7 +1108,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                                         state.Token,
                                         remainingCap,
                                         state.Budgets,
-                                        blk.SheetFormulaRects);
+                                        blk.SheetFormulaRects,
+                                        state.WasPartialAutoScan ? null : state.ConsistencyAccumulator);
 
                                     if (hits.Count > 0)
                                     {
@@ -1239,6 +1244,16 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             {
                 finalIssues = new List<SpreadsheetCellIssue>(state.CollectedIssues);
             }
+            if (!state.WasPartialAutoScan && !state.StopRequestedByIssueCap && state.ConsistencyAccumulator != null)
+            {
+                int maxRemain = Math.Max(0, Math.Min(48, state.Budgets.MaxExcelIssuesPerFullScan - finalIssues.Count));
+                if (maxRemain > 0)
+                {
+                    var consIssues = state.ConsistencyAccumulator.BuildSpreadsheetConsistencyIssues(state.WorkbookName, maxRemain);
+                    if (consIssues.Count > 0)
+                        finalIssues.AddRange(consIssues);
+                }
+            }
             if (finalIssues.Count > 1)
             {
                 finalIssues.Sort(CompareIssuesByLocation);
@@ -1294,6 +1309,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
             var collected = new List<SpreadsheetCellIssue>();
             var sharedMemo = new Dictionary<string, IReadOnlyList<ProofingIssue>>(StringComparer.Ordinal);
+            var consistencyAcc = scope == SpreadsheetScanScope.Selection
+                ? null
+                : new DocumentConsistencyAccumulator(_engine.StyleMode, _engine.Trie);
             int budgetRemaining = MaxCellsPerFullScan;
 
             try
@@ -1328,7 +1346,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                             Excel.Range? used = SafeGetUsedRange(ws);
                             if (used != null)
                             {
-                                ScanWorksheetRangeReadOnly(wbName, ws, used, sharedMemo, collected, ref budgetRemaining);
+                                ScanWorksheetRangeReadOnly(wbName, ws, used, sharedMemo, collected, ref budgetRemaining, consistencyAcc);
                             }
                         }
                     }
@@ -1343,8 +1361,18 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                         Excel.Range? used = SafeGetUsedRange(activeSheet);
                         if (used != null)
                         {
-                            ScanWorksheetRangeReadOnly(wbName, activeSheet, used, sharedMemo, collected, ref budgetRemaining);
+                            ScanWorksheetRangeReadOnly(wbName, activeSheet, used, sharedMemo, collected, ref budgetRemaining, consistencyAcc);
                         }
+                    }
+                }
+
+                if (consistencyAcc != null)
+                {
+                    var consIssues = consistencyAcc.BuildSpreadsheetConsistencyIssues(wbName, 48);
+                    if (consIssues.Count > 0)
+                    {
+                        collected.AddRange(consIssues);
+                        collected.Sort(CompareIssuesByLocation);
                     }
                 }
 
@@ -2574,7 +2602,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             Excel.Range scopeRange,
             Dictionary<string, IReadOnlyList<ProofingIssue>> sharedMemo,
             List<SpreadsheetCellIssue> output,
-            ref int cellBudgetRemaining)
+            ref int cellBudgetRemaining,
+            DocumentConsistencyAccumulator? consistencyAccumulator = null)
         {
             Excel.Range? used = SafeGetUsedRange(ws);
             if (used == null)
@@ -2652,7 +2681,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                             fml,
                             hasFormula,
                             sharedMemo,
-                            sheetFormulaRects: sheetFormulaRects);
+                            sheetFormulaRects: sheetFormulaRects,
+                            consistencyAccumulator: consistencyAccumulator);
 
                         if (hits.Count > 0)
                         {
