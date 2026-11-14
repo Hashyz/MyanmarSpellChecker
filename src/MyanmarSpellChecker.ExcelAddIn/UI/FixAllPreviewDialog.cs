@@ -47,15 +47,19 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
     }
 
     /// <summary>
-    /// High-DPI Safe Fix-All Preview Checklist Dialog for Microsoft Excel.
+    /// High-DPI Safe Fix-All Preview Checklist Dialog for Microsoft Excel (100%–250% DPI deterministic layout).
     /// Pre-checks (☑) 100% deterministic orthography/lookalike/grammar rules while leaving unknown names,
     /// fuzzy guesses, and contextual meaning warnings unchecked (☐) by default so user data is never blindly ruined.
+    /// Uses single-pass O(1) deterministic section bounds so the checklist DataGridView never collapses or overlaps at high DPI.
     /// </summary>
     internal sealed class FixAllPreviewDialog<TPayload> : Form where TPayload : class
     {
         private readonly List<FixPreviewEntry<TPayload>> _allEntries;
         private List<FixPreviewEntry<TPayload>> _visibleEntries;
         private readonly Action<TPayload>? _onNavigateToItem;
+
+        private int _dpi;
+        private bool _inSectionLayout;
 
         private readonly Font _fontTitle;
         private readonly Font _fontSubtitle;
@@ -64,14 +68,35 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private readonly Font _fontBadge;
         private readonly Font _fontMono;
 
-        private DataGridView _grid = null!;
+        private Panel _headerCard = null!;
+        private Label _lblTitle = null!;
+        private Label _lblGuide = null!;
+
+        private Panel _toolBarPanel = null!;
+        private Button _btnSafeOnly = null!;
+        private Button _btnCheckAll = null!;
+        private Button _btnUncheckAll = null!;
+        private Label _lblSearchHint = null!;
         private TextBox _txtSearch = null!;
+
+        private DataGridView _grid = null!;
+        private DataGridViewTextBoxColumn _colCheck = null!;
+        private DataGridViewTextBoxColumn _colLoc = null!;
+        private DataGridViewTextBoxColumn _colOrig = null!;
+        private DataGridViewTextBoxColumn _colRep = null!;
+        private DataGridViewTextBoxColumn _colCert = null!;
+
+        private Panel _detailCard = null!;
         private Label _lblContextPreview = null!;
         private Label _lblExplanation = null!;
         private FlowLayoutPanel _choicesPanel = null!;
-        private Label _lblFooterSummary = null!;
-        private Button _btnConfirm = null!;
         private Button _btnJump = null!;
+
+        private Panel _footerPanel = null!;
+        private Label _lblFooterSummary = null!;
+        private Button _btnCancel = null!;
+        private Button _btnConfirm = null!;
+
         private FixPreviewEntry<TPayload>? _selectedEntry;
         private readonly Timer _searchDebounceTimer;
         private bool _suppressSelectionChanged;
@@ -86,12 +111,13 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _allEntries = entries?.ToList() ?? new List<FixPreviewEntry<TPayload>>();
             _visibleEntries = new List<FixPreviewEntry<TPayload>>(_allEntries);
             _onNavigateToItem = onNavigateToItem;
+            _dpi = UiFontCache.GetEffectiveDpi(this);
 
-            _fontTitle = UiFontCache.GetMyanmar(11.5f, FontStyle.Bold);
-            _fontSubtitle = UiFontCache.GetMyanmar(9.0f, FontStyle.Regular);
-            _fontBody = UiFontCache.GetMyanmar(9.5f, FontStyle.Regular);
-            _fontBodyBold = UiFontCache.GetMyanmar(9.5f, FontStyle.Bold);
-            _fontBadge = UiFontCache.GetMyanmar(8.75f, FontStyle.Bold);
+            _fontTitle = UiFontCache.CreateOwnedMyanmar(11.2f, FontStyle.Bold);
+            _fontSubtitle = UiFontCache.CreateOwnedMyanmar(9.0f, FontStyle.Regular);
+            _fontBody = UiFontCache.CreateOwnedMyanmar(9.5f, FontStyle.Regular);
+            _fontBodyBold = UiFontCache.CreateOwnedMyanmar(9.5f, FontStyle.Bold);
+            _fontBadge = UiFontCache.CreateOwnedMyanmar(8.75f, FontStyle.Bold);
             _fontMono = UiFontCache.GetMonospace(9.0f, FontStyle.Bold);
 
             _searchDebounceTimer = new Timer { Interval = 150 };
@@ -104,7 +130,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             InitializeDialogUi(scopeDisplayTitle);
             PopulateGridRows();
             UpdateSummaryAndButtons();
+            LayoutDialogSections();
         }
+
+        private int S(int logicalPx) => UiFontCache.ScaleLogicalPxForDpi(_dpi, logicalPx);
 
         protected override void Dispose(bool disposing)
         {
@@ -113,6 +142,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 DisposeAndClearChoicesPanel();
                 _searchDebounceTimer.Stop();
                 _searchDebounceTimer.Dispose();
+                _fontTitle.Dispose();
+                _fontSubtitle.Dispose();
+                _fontBody.Dispose();
+                _fontBodyBold.Dispose();
+                _fontBadge.Dispose();
             }
             base.Dispose(disposing);
         }
@@ -122,18 +156,19 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             if (_choicesPanel == null || _choicesPanel.IsDisposed)
                 return;
 
-            while (_choicesPanel.Controls.Count > 0)
+            var snapshot = new Control[_choicesPanel.Controls.Count];
+            _choicesPanel.Controls.CopyTo(snapshot, 0);
+            _choicesPanel.Controls.Clear();
+            for (int i = 0; i < snapshot.Length; i++)
             {
-                int lastIdx = _choicesPanel.Controls.Count - 1;
-                Control child = _choicesPanel.Controls[lastIdx];
-                _choicesPanel.Controls.RemoveAt(lastIdx);
-                child.Dispose();
+                snapshot[i]?.Dispose();
             }
         }
 
         private void InitializeDialogUi(string scopeDisplayTitle)
         {
-            AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleMode = AutoScaleMode.None;
+            DoubleBuffered = true;
             Text = UiLocalizer.Pick(
                 $"Safe Fix-All Review Checklist — {scopeDisplayTitle}",
                 $"အားလုံးမပြင်မီ စိစစ်အတည်ပြုရန် — {scopeDisplayTitle}");
@@ -144,8 +179,15 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             ShowIcon = false;
             KeyPreview = true;
             BackColor = Color.FromArgb(245, 248, 252);
-            ClientSize = new Size(920, 640);
-            MinimumSize = new Size(740, 500);
+
+            Rectangle workArea = Screen.FromPoint(Cursor.Position).WorkingArea;
+            int minW = Math.Min(S(720), Math.Max(S(480), (int)(workArea.Width * 0.72)));
+            int minH = Math.Min(S(500), Math.Max(S(380), (int)(workArea.Height * 0.70)));
+            int targetW = Math.Max(minW, Math.Min(S(980), (int)(workArea.Width * 0.86)));
+            int targetH = Math.Max(minH, Math.Min(S(680), (int)(workArea.Height * 0.85)));
+
+            MinimumSize = new Size(minW, minH);
+            ClientSize = new Size(targetW, targetH);
 
             KeyDown += (s, e) =>
             {
@@ -160,55 +202,25 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             int safeCount = _allEntries.Count(x => x.IsHighCertaintyDefault);
             int reviewCount = totalCount - safeCount;
 
-            var root = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 1,
-                RowCount = 5,
-                Padding = new Padding(14, 12, 14, 12),
-                BackColor = Color.FromArgb(245, 248, 252)
-            };
-            root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 0: Header banner
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 1: Filter & selection bar
-            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f)); // 2: Checklist grid
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 3: Selected row inspector
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // 4: Footer buttons
-
             // 0. Header Banner Card
-            var headerCard = new Panel
+            _headerCard = new Panel
             {
-                Dock = DockStyle.Fill,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                BackColor = Color.White,
-                Padding = new Padding(14, 10, 14, 10),
-                Margin = new Padding(0, 0, 0, 8)
+                BackColor = Color.White
             };
-            headerCard.Paint += (s, e) =>
+            EnableDoubleBuffering(_headerCard);
+            _headerCard.Paint += (s, e) =>
             {
                 using (var pen = new Pen(Color.FromArgb(212, 224, 238)))
                 {
-                    e.Graphics.DrawRectangle(pen, 0, 0, headerCard.Width - 1, headerCard.Height - 1);
+                    e.Graphics.DrawRectangle(pen, 0, 0, _headerCard.Width - 1, _headerCard.Height - 1);
                 }
                 using (var accent = new SolidBrush(Color.FromArgb(20, 122, 75)))
                 {
-                    e.Graphics.FillRectangle(accent, 0, 0, 5, headerCard.Height);
+                    e.Graphics.FillRectangle(accent, 0, 0, Math.Max(4, S(5)), _headerCard.Height);
                 }
             };
 
-            var headerStack = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 1,
-                RowCount = 2,
-                BackColor = Color.Transparent
-            };
-            headerStack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-
-            var lblTitle = new Label
+            _lblTitle = new Label
             {
                 Text = UiLocalizer.Pick(
                     $"Review & Approve Replacements Before Applying ({scopeDisplayTitle})",
@@ -216,11 +228,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Font = _fontTitle,
                 ForeColor = Color.FromArgb(16, 42, 72),
                 AutoSize = true,
-                Dock = DockStyle.Fill,
-                Margin = new Padding(4, 0, 0, 4)
+                BackColor = Color.Transparent
             };
 
-            var lblGuide = new Label
+            _lblGuide = new Label
             {
                 Text = UiLocalizer.Pick(
                     $"✓ High-certainty standard rules ({safeCount}) are pre-checked (☑), while proper names, guesses, and contextual meaning warnings ({reviewCount}) are left unchecked (☐) to protect already-verified cells.",
@@ -228,84 +239,61 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Font = _fontSubtitle,
                 ForeColor = Color.FromArgb(52, 72, 96),
                 AutoSize = true,
-                MaximumSize = new Size(850, 0),
-                Dock = DockStyle.Fill,
-                Margin = new Padding(4, 0, 0, 0)
-            };
-            headerCard.Resize += (s, e) =>
-            {
-                int w = Math.Max(320, headerCard.ClientSize.Width - 36);
-                lblGuide.MaximumSize = new Size(w, 0);
-            };
-
-            headerStack.Controls.Add(lblTitle, 0, 0);
-            headerStack.Controls.Add(lblGuide, 0, 1);
-            headerCard.Controls.Add(headerStack);
-            root.Controls.Add(headerCard, 0, 0);
-
-            // 1. Selection & Search Toolbar
-            var toolRow = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 5,
-                RowCount = 1,
-                Margin = new Padding(0, 0, 0, 8),
                 BackColor = Color.Transparent
             };
-            toolRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            toolRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            toolRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            toolRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-            toolRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 230f));
 
-            var btnSafeOnly = CreateToolbarButton(
+            _headerCard.Controls.Add(_lblTitle);
+            _headerCard.Controls.Add(_lblGuide);
+
+            // 1. Selection & Search Toolbar
+            _toolBarPanel = new Panel
+            {
+                BackColor = Color.Transparent
+            };
+
+            _btnSafeOnly = CreateToolbarButton(
                 UiLocalizer.Pick($"☑ Sure Only ({safeCount})", $"☑ သေချာသည်များသာ ({safeCount})"),
                 Color.FromArgb(224, 245, 233), Color.FromArgb(16, 102, 54), Color.FromArgb(148, 208, 172));
-            btnSafeOnly.Click += (s, e) =>
+            _btnSafeOnly.Click += (s, e) =>
             {
                 foreach (var item in _allEntries)
                     item.IsChecked = item.IsHighCertaintyDefault;
                 RefreshCheckboxColumnValues();
             };
 
-            var btnCheckAll = CreateToolbarButton(
+            _btnCheckAll = CreateToolbarButton(
                 UiLocalizer.Pick($"☑ Select All ({totalCount})", $"☑ အားလုံးရွေး ({totalCount})"),
                 Color.White, Color.FromArgb(28, 56, 92), Color.FromArgb(196, 210, 228));
-            btnCheckAll.Click += (s, e) =>
+            _btnCheckAll.Click += (s, e) =>
             {
                 foreach (var item in _visibleEntries)
                     item.IsChecked = true;
                 RefreshCheckboxColumnValues();
             };
 
-            var btnUncheckAll = CreateToolbarButton(
+            _btnUncheckAll = CreateToolbarButton(
                 UiLocalizer.Pick("☐ Clear All", "☐ အားလုံးဖြုတ်"),
                 Color.White, Color.FromArgb(92, 104, 120), Color.FromArgb(204, 214, 226));
-            btnUncheckAll.Click += (s, e) =>
+            _btnUncheckAll.Click += (s, e) =>
             {
                 foreach (var item in _visibleEntries)
                     item.IsChecked = false;
                 RefreshCheckboxColumnValues();
             };
 
-            var lblSearchHint = new Label
+            _lblSearchHint = new Label
             {
-                Text = UiLocalizer.Pick("Filter —", "ရှာဖွေရန် —"),
+                Text = UiLocalizer.Pick("Filter:", "ရှာဖွေရန် —"),
                 Font = _fontBadge,
                 ForeColor = Color.FromArgb(72, 90, 112),
-                AutoSize = true,
-                Anchor = AnchorStyles.Right,
-                Margin = new Padding(8, 0, 6, 0)
+                AutoSize = false,
+                TextAlign = ContentAlignment.MiddleRight,
+                BackColor = Color.Transparent
             };
 
             _txtSearch = new TextBox
             {
-                Dock = DockStyle.Fill,
-                Font = _fontBody,
-                Anchor = AnchorStyles.Left | AnchorStyles.Right,
-                Margin = new Padding(0, 2, 0, 2)
+                Font = _fontBody
             };
             _txtSearch.HandleCreated += (s, e) =>
                 FixPreviewNativeMethods.SendMessage(
@@ -319,21 +307,18 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 _searchDebounceTimer.Start();
             };
 
-            toolRow.Controls.Add(btnSafeOnly, 0, 0);
-            toolRow.Controls.Add(btnCheckAll, 1, 0);
-            toolRow.Controls.Add(btnUncheckAll, 2, 0);
-            toolRow.Controls.Add(lblSearchHint, 3, 0);
-            toolRow.Controls.Add(_txtSearch, 4, 0);
-            root.Controls.Add(toolRow, 0, 1);
+            _toolBarPanel.Controls.Add(_btnSafeOnly);
+            _toolBarPanel.Controls.Add(_btnCheckAll);
+            _toolBarPanel.Controls.Add(_btnUncheckAll);
+            _toolBarPanel.Controls.Add(_lblSearchHint);
+            _toolBarPanel.Controls.Add(_txtSearch);
 
             // 2. Virtualized Checklist DataGridView (O(1) instant open & zero GDI bloat even on 10,000+ issues)
-            int measuredLineHeight = TextRenderer.MeasureText("မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း", _fontBody).Height;
-            int safeRowHeight = Math.Max(40, measuredLineHeight + 16);
-            int safeHeaderHeight = Math.Max(38, measuredLineHeight + 14);
+            int safeRowHeight = Math.Max(S(38), UiFontCache.MeasureSingleLineButtonHeightForDpi(_dpi, _fontBody, 14));
+            int safeHeaderHeight = Math.Max(S(36), UiFontCache.MeasureSingleLineButtonHeightForDpi(_dpi, _fontBadge, 12));
 
             _grid = new DataGridView
             {
-                Dock = DockStyle.Fill,
                 VirtualMode = true,
                 AllowUserToAddRows = false,
                 AllowUserToDeleteRows = false,
@@ -349,8 +334,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 EnableHeadersVisualStyles = false,
                 ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
                 ColumnHeadersHeight = safeHeaderHeight,
-                Font = _fontBody,
-                Margin = new Padding(0, 0, 0, 8)
+                Font = _fontBody
             };
             _grid.RowTemplate.Height = safeRowHeight;
             EnableDoubleBuffering(_grid);
@@ -361,7 +345,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 ForeColor = Color.FromArgb(20, 44, 76),
                 Font = _fontBadge,
                 Alignment = DataGridViewContentAlignment.MiddleLeft,
-                Padding = new Padding(6, 4, 6, 4),
+                Padding = new Padding(S(6), S(4), S(6), S(4)),
                 WrapMode = DataGridViewTriState.False
             };
 
@@ -372,14 +356,15 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 SelectionBackColor = Color.FromArgb(222, 238, 255),
                 SelectionForeColor = Color.FromArgb(12, 32, 62),
                 Font = _fontBody,
-                Padding = new Padding(6, 2, 6, 2)
+                Padding = new Padding(S(6), S(2), S(6), S(2))
             };
 
-            var colCheck = new DataGridViewTextBoxColumn
+            _colCheck = new DataGridViewTextBoxColumn
             {
                 Name = "ColCheck",
                 HeaderText = UiLocalizer.Pick("Apply", "ပြင်မည်"),
-                Width = 74,
+                Width = S(72),
+                MinimumWidth = S(58),
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
                 DefaultCellStyle = new DataGridViewCellStyle
                 {
@@ -388,11 +373,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 }
             };
 
-            var colLoc = new DataGridViewTextBoxColumn
+            _colLoc = new DataGridViewTextBoxColumn
             {
                 Name = "ColLocation",
                 HeaderText = UiLocalizer.Pick("Cell", "နေရာ (Cell)"),
-                Width = 122,
+                Width = S(132),
+                MinimumWidth = S(96),
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
                 DefaultCellStyle = new DataGridViewCellStyle
                 {
@@ -401,20 +387,22 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 }
             };
 
-            var colOrig = new DataGridViewTextBoxColumn
+            _colOrig = new DataGridViewTextBoxColumn
             {
                 Name = "ColOriginal",
                 HeaderText = UiLocalizer.Pick("Original Text", "မူလစာသား (အမှား/သံသယ)"),
+                MinimumWidth = S(110),
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
-                FillWeight = 34f
+                FillWeight = 36f
             };
 
-            var colRep = new DataGridViewTextBoxColumn
+            _colRep = new DataGridViewTextBoxColumn
             {
                 Name = "ColReplacement",
                 HeaderText = UiLocalizer.Pick("Replacement", "ပြင်ဆင်မည့်စာသား"),
+                MinimumWidth = S(130),
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
-                FillWeight = 38f,
+                FillWeight = 44f,
                 DefaultCellStyle = new DataGridViewCellStyle
                 {
                     Font = _fontBodyBold,
@@ -422,11 +410,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 }
             };
 
-            var colCert = new DataGridViewTextBoxColumn
+            _colCert = new DataGridViewTextBoxColumn
             {
                 Name = "ColCertainty",
                 HeaderText = UiLocalizer.Pick("Certainty Level", "စိတ်ချရမှု အဆင့်"),
-                Width = 225,
+                Width = S(224),
+                MinimumWidth = S(148),
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
                 DefaultCellStyle = new DataGridViewCellStyle
                 {
@@ -435,7 +424,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 }
             };
 
-            _grid.Columns.AddRange(colCheck, colLoc, colOrig, colRep, colCert);
+            _grid.Columns.AddRange(_colCheck, _colLoc, _colOrig, _colRep, _colCert);
 
             _grid.CellValueNeeded += OnGridCellValueNeeded;
             _grid.CellFormatting += OnGridCellFormatting;
@@ -448,37 +437,20 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     UpdateSelectedEntryInspector();
             };
 
-            root.Controls.Add(_grid, 0, 2);
-
             // 3. Selected Row Context & Alternative Choices Inspector Card
-            var detailCard = new Panel
+            _detailCard = new Panel
             {
-                Dock = DockStyle.Fill,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 BackColor = Color.White,
-                Padding = new Padding(12, 8, 12, 8),
-                Margin = new Padding(0, 0, 0, 10)
+                AutoScroll = true
             };
-            detailCard.Paint += (s, e) =>
+            EnableDoubleBuffering(_detailCard);
+            _detailCard.Paint += (s, e) =>
             {
                 using (var pen = new Pen(Color.FromArgb(214, 224, 238)))
                 {
-                    e.Graphics.DrawRectangle(pen, 0, 0, detailCard.Width - 1, detailCard.Height - 1);
+                    e.Graphics.DrawRectangle(pen, 0, 0, _detailCard.Width - 1, _detailCard.Height - 1);
                 }
             };
-
-            var detailLayout = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 2,
-                RowCount = 3,
-                BackColor = Color.Transparent
-            };
-            detailLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-            detailLayout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
             _lblContextPreview = new Label
             {
@@ -488,9 +460,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Font = _fontBodyBold,
                 ForeColor = Color.FromArgb(24, 48, 78),
                 AutoSize = true,
-                MaximumSize = new Size(720, 0),
-                Dock = DockStyle.Fill,
-                Margin = new Padding(0, 0, 8, 4)
+                BackColor = Color.Transparent
             };
 
             _btnJump = CreateToolbarButton(
@@ -512,14 +482,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Font = _fontSubtitle,
                 ForeColor = Color.FromArgb(72, 88, 108),
                 AutoSize = true,
-                MaximumSize = new Size(840, 0),
-                Dock = DockStyle.Fill,
-                Margin = new Padding(0, 0, 0, 4)
+                BackColor = Color.Transparent
             };
 
             _choicesPanel = new FlowLayoutPanel
             {
-                Dock = DockStyle.Fill,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 WrapContents = true,
@@ -528,62 +495,39 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 BackColor = Color.Transparent
             };
 
-            detailCard.Resize += (s, e) =>
-            {
-                int w = Math.Max(300, detailCard.ClientSize.Width - 32);
-                _lblContextPreview.MaximumSize = new Size(Math.Max(260, w - (_btnJump.Visible ? 160 : 0)), 0);
-                _lblExplanation.MaximumSize = new Size(w, 0);
-            };
-
-            detailLayout.Controls.Add(_lblContextPreview, 0, 0);
-            detailLayout.Controls.Add(_btnJump, 1, 0);
-            detailLayout.Controls.Add(_lblExplanation, 0, 1);
-            detailLayout.SetColumnSpan(_lblExplanation, 2);
-            detailLayout.Controls.Add(_choicesPanel, 0, 2);
-            detailLayout.SetColumnSpan(_choicesPanel, 2);
-            detailCard.Controls.Add(detailLayout);
-            root.Controls.Add(detailCard, 0, 3);
+            _detailCard.Controls.Add(_lblContextPreview);
+            _detailCard.Controls.Add(_btnJump);
+            _detailCard.Controls.Add(_lblExplanation);
+            _detailCard.Controls.Add(_choicesPanel);
 
             // 4. Footer Bar
-            var footerBar = new TableLayoutPanel
+            _footerPanel = new Panel
             {
-                Dock = DockStyle.Fill,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 3,
-                RowCount = 1,
-                Margin = new Padding(0),
                 BackColor = Color.Transparent
             };
-            footerBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-            footerBar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            footerBar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
             _lblFooterSummary = new Label
             {
                 Text = string.Empty,
                 Font = _fontBodyBold,
                 ForeColor = Color.FromArgb(28, 52, 82),
-                AutoSize = true,
-                Anchor = AnchorStyles.Left,
-                Margin = new Padding(2, 0, 10, 0)
+                AutoSize = false,
+                AutoEllipsis = true,
+                TextAlign = ContentAlignment.MiddleLeft,
+                BackColor = Color.Transparent
             };
 
-            var btnCancel = new Button
+            _btnCancel = new Button
             {
                 Text = UiLocalizer.Pick("Cancel (Esc)", "မပြင်တော့ပါ (Esc)"),
                 Font = _fontBody,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                Padding = new Padding(14, 6, 14, 6),
-                Margin = new Padding(0, 0, 8, 0),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.White,
                 ForeColor = Color.FromArgb(62, 76, 94),
                 Cursor = Cursors.Hand
             };
-            btnCancel.FlatAppearance.BorderColor = Color.FromArgb(192, 204, 218);
-            btnCancel.Click += (s, e) =>
+            _btnCancel.FlatAppearance.BorderColor = Color.FromArgb(192, 204, 218);
+            _btnCancel.Click += (s, e) =>
             {
                 DialogResult = DialogResult.Cancel;
                 Close();
@@ -593,10 +537,6 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 Text = UiLocalizer.Pick("✓ Apply Selected Fixes", "✓ ရွေးချယ်ထားသည်များကို ပြင်ဆင်မည်"),
                 Font = _fontBodyBold,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                Padding = new Padding(18, 6, 18, 6),
-                Margin = new Padding(0),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(20, 122, 75),
                 ForeColor = Color.White,
@@ -606,13 +546,252 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _btnConfirm.FlatAppearance.MouseOverBackColor = Color.FromArgb(16, 104, 64);
             _btnConfirm.Click += OnConfirmClicked;
 
-            footerBar.Controls.Add(_lblFooterSummary, 0, 0);
-            footerBar.Controls.Add(btnCancel, 1, 0);
-            footerBar.Controls.Add(_btnConfirm, 2, 0);
-            root.Controls.Add(footerBar, 0, 4);
+            _footerPanel.Controls.Add(_lblFooterSummary);
+            _footerPanel.Controls.Add(_btnCancel);
+            _footerPanel.Controls.Add(_btnConfirm);
 
-            Controls.Add(root);
+            Controls.AddRange(new Control[]
+            {
+                _headerCard,
+                _toolBarPanel,
+                _grid,
+                _detailCard,
+                _footerPanel
+            });
+
             UiFontCache.DisableMnemonicsRecursive(this);
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            RefreshDpiIfNeededAndLayout();
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            if (_headerCard != null)
+            {
+                LayoutDialogSections();
+            }
+        }
+
+        private void RefreshDpiIfNeededAndLayout()
+        {
+            int liveDpi = UiFontCache.GetEffectiveDpi(this);
+            if (liveDpi != _dpi && liveDpi > 0)
+            {
+                _dpi = liveDpi;
+                int safeRowHeight = Math.Max(S(38), UiFontCache.MeasureSingleLineButtonHeightForDpi(_dpi, _fontBody, 14));
+                int safeHeaderHeight = Math.Max(S(36), UiFontCache.MeasureSingleLineButtonHeightForDpi(_dpi, _fontBadge, 12));
+                _grid.ColumnHeadersHeight = safeHeaderHeight;
+                _grid.RowTemplate.Height = safeRowHeight;
+                _colCheck.Width = S(72);
+                _colLoc.Width = S(132);
+                _colCert.Width = S(224);
+            }
+            LayoutDialogSections();
+        }
+
+        private Size MeasureSingleLineButtonSize(string text, Font font, int padHorizLogical, int padVertLogical)
+        {
+            Size textSz = TextRenderer.MeasureText(
+                text ?? string.Empty,
+                font,
+                new Size(int.MaxValue, int.MaxValue),
+                TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+            int h = UiFontCache.MeasureSingleLineButtonHeightForDpi(_dpi, font, padVertLogical);
+            int w = textSz.Width + S(padHorizLogical);
+            return new Size(w, h);
+        }
+
+        private void LayoutDialogSections()
+        {
+            if (_inSectionLayout || _headerCard == null || ClientSize.Width <= 40 || ClientSize.Height <= 40)
+                return;
+
+            _inSectionLayout = true;
+            SuspendLayout();
+            try
+            {
+                int cw = ClientSize.Width;
+                int ch = ClientSize.Height;
+                int padX = S(14);
+                int padY = S(12);
+                int gap = S(8);
+                int innerW = Math.Max(S(260), cw - padX * 2);
+
+                // 0. Header Banner Card
+                int headerPadL = S(16);
+                int headerPadR = S(14);
+                int headerPadV = S(9);
+                int headerTextW = Math.Max(S(200), innerW - headerPadL - headerPadR);
+
+                _lblTitle.MaximumSize = new Size(headerTextW, 0);
+                _lblTitle.Location = new Point(headerPadL, headerPadV);
+                Size titlePref = _lblTitle.GetPreferredSize(new Size(headerTextW, 0));
+                _lblTitle.Size = titlePref;
+
+                _lblGuide.MaximumSize = new Size(headerTextW, 0);
+                _lblGuide.Location = new Point(headerPadL, _lblTitle.Bottom + S(3));
+                Size guidePref = _lblGuide.GetPreferredSize(new Size(headerTextW, 0));
+                _lblGuide.Size = guidePref;
+
+                int headerH = Math.Min((int)(ch * 0.24), _lblGuide.Bottom + headerPadV);
+                _headerCard.SetBounds(padX, padY, innerW, Math.Max(S(48), headerH));
+
+                // 1. Toolbar Row
+                Size safeSz = MeasureSingleLineButtonSize(_btnSafeOnly.Text, _fontBadge, 22, 9);
+                Size allSz = MeasureSingleLineButtonSize(_btnCheckAll.Text, _fontBadge, 22, 9);
+                Size clrSz = MeasureSingleLineButtonSize(_btnUncheckAll.Text, _fontBadge, 22, 9);
+                int toolBtnH = Math.Max(safeSz.Height, Math.Max(allSz.Height, clrSz.Height));
+                int btnGap = S(6);
+
+                _btnSafeOnly.SetBounds(0, 0, safeSz.Width, toolBtnH);
+                _btnCheckAll.SetBounds(_btnSafeOnly.Right + btnGap, 0, allSz.Width, toolBtnH);
+                _btnUncheckAll.SetBounds(_btnCheckAll.Right + btnGap, 0, clrSz.Width, toolBtnH);
+
+                Size hintTextSz = TextRenderer.MeasureText(
+                    _lblSearchHint.Text,
+                    _fontBadge,
+                    new Size(int.MaxValue, int.MaxValue),
+                    TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+                int hintW = hintTextSz.Width + S(8);
+                int buttonsRight = _btnUncheckAll.Right;
+                int availRight = innerW - buttonsRight - S(12);
+
+                int toolH;
+                if (availRight >= hintW + S(140))
+                {
+                    int searchW = Math.Min(S(240), availRight - hintW - S(6));
+                    int txtH = _txtSearch.PreferredHeight;
+                    int txtY = Math.Max(0, (toolBtnH - txtH) / 2);
+                    _txtSearch.SetBounds(innerW - searchW, txtY, searchW, txtH);
+                    _lblSearchHint.SetBounds(_txtSearch.Left - hintW - S(4), 0, hintW, toolBtnH);
+                    toolH = Math.Max(toolBtnH, txtH);
+                }
+                else
+                {
+                    int row2Y = toolBtnH + S(6);
+                    int txtH = _txtSearch.PreferredHeight;
+                    int row2H = Math.Max(txtH, S(26));
+                    _lblSearchHint.SetBounds(0, row2Y, hintW, row2H);
+                    int searchX = hintW + S(6);
+                    _txtSearch.SetBounds(searchX, row2Y + Math.Max(0, (row2H - txtH) / 2), Math.Max(S(120), innerW - searchX), txtH);
+                    toolH = row2Y + row2H;
+                }
+                _toolBarPanel.SetBounds(padX, _headerCard.Bottom + gap, innerW, toolH);
+
+                // 4. Footer Bar (anchored at bottom)
+                Size cancelSz = MeasureSingleLineButtonSize(_btnCancel.Text, _fontBody, 28, 12);
+                Size confirmSz = MeasureSingleLineButtonSize(_btnConfirm.Text, _fontBodyBold, 34, 12);
+                int footerH = Math.Max(cancelSz.Height, confirmSz.Height);
+
+                _btnConfirm.SetBounds(innerW - confirmSz.Width, 0, confirmSz.Width, footerH);
+                _btnCancel.SetBounds(_btnConfirm.Left - S(8) - cancelSz.Width, 0, cancelSz.Width, footerH);
+                int summaryAvailW = Math.Max(S(80), _btnCancel.Left - S(12));
+                _lblFooterSummary.SetBounds(S(2), 0, summaryAvailW, footerH);
+
+                int footerTop = ch - padY - footerH;
+                _footerPanel.SetBounds(padX, footerTop, innerW, footerH);
+
+                // Middle Workspace = [_toolBarPanel.Bottom + gap .. footerTop - gap]
+                int middleTop = _toolBarPanel.Bottom + gap;
+                int middleBottom = footerTop - gap;
+                int middleAvailH = Math.Max(S(140), middleBottom - middleTop);
+
+                // 3. Detail Inspector Card (measured & capped at <= 42% of middle workspace so _grid stays prominent)
+                int desiredDetailH = LayoutDetailCardChildren(innerW, reserveScrollbar: false);
+                int maxDetailH = Math.Max(S(88), (int)(middleAvailH * 0.42));
+                int finalDetailH;
+                if (desiredDetailH > maxDetailH)
+                {
+                    LayoutDetailCardChildren(innerW, reserveScrollbar: true);
+                    finalDetailH = maxDetailH;
+                }
+                else
+                {
+                    finalDetailH = Math.Max(S(78), desiredDetailH);
+                }
+
+                int detailTop = middleBottom - finalDetailH;
+                _detailCard.SetBounds(padX, detailTop, innerW, finalDetailH);
+
+                // 2. Checklist DataGridView (receives the entire remaining upper middle area >= 58%)
+                int gridH = Math.Max(S(100), (detailTop - gap) - middleTop);
+                _grid.SetBounds(padX, middleTop, innerW, gridH);
+            }
+            finally
+            {
+                ResumeLayout(false);
+                _inSectionLayout = false;
+            }
+        }
+
+        private int LayoutDetailCardChildren(int cardWidth, bool reserveScrollbar)
+        {
+            int padH = S(12);
+            int padV = S(8);
+            int scrollW = reserveScrollbar ? SystemInformation.VerticalScrollBarWidth + S(4) : 0;
+            int contentW = Math.Max(S(180), cardWidth - padH * 2 - scrollW);
+
+            int topRowBottom = padV;
+            int contextMaxW = contentW;
+
+            if (_btnJump.Visible)
+            {
+                Size jumpSz = MeasureSingleLineButtonSize(_btnJump.Text, _fontBadge, 20, 8);
+                int jumpX = padH + contentW - jumpSz.Width;
+                _btnJump.SetBounds(jumpX, padV, jumpSz.Width, jumpSz.Height);
+                contextMaxW = Math.Max(S(140), contentW - jumpSz.Width - S(10));
+                topRowBottom = Math.Max(topRowBottom, _btnJump.Bottom);
+            }
+
+            _lblContextPreview.MaximumSize = new Size(contextMaxW, 0);
+            _lblContextPreview.Location = new Point(padH, padV);
+            Size ctxPref = _lblContextPreview.GetPreferredSize(new Size(contextMaxW, 0));
+            _lblContextPreview.Size = ctxPref;
+            topRowBottom = Math.Max(topRowBottom, _lblContextPreview.Bottom);
+
+            int curY = topRowBottom + S(4);
+            if (!string.IsNullOrEmpty(_lblExplanation.Text))
+            {
+                _lblExplanation.Visible = true;
+                _lblExplanation.MaximumSize = new Size(contentW, 0);
+                _lblExplanation.Location = new Point(padH, curY);
+                Size expPref = _lblExplanation.GetPreferredSize(new Size(contentW, 0));
+                _lblExplanation.Size = expPref;
+                curY = _lblExplanation.Bottom + S(4);
+            }
+            else
+            {
+                _lblExplanation.Visible = false;
+            }
+
+            if (_choicesPanel.Controls.Count > 0)
+            {
+                _choicesPanel.Visible = true;
+                int maxBtnW = Math.Max(S(140), contentW - S(4));
+                foreach (Control child in _choicesPanel.Controls)
+                {
+                    if (child is WordWrapChoiceButton wrapBtn)
+                    {
+                        wrapBtn.MaximumSize = new Size(maxBtnW, 0);
+                    }
+                }
+                _choicesPanel.MaximumSize = new Size(contentW, 0);
+                _choicesPanel.Location = new Point(padH, curY);
+                Size choicesPref = _choicesPanel.GetPreferredSize(new Size(contentW, 0));
+                _choicesPanel.Size = new Size(contentW, choicesPref.Height);
+                curY = _choicesPanel.Bottom;
+            }
+            else
+            {
+                _choicesPanel.Visible = false;
+            }
+
+            return curY + padV + S(2);
         }
 
         private Button CreateToolbarButton(string text, Color bg, Color fg, Color border)
@@ -621,14 +800,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 Text = text,
                 Font = _fontBadge,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                Padding = new Padding(10, 4, 10, 4),
-                Margin = new Padding(0, 0, 6, 0),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = bg,
                 ForeColor = fg,
-                Cursor = Cursors.Hand
+                Cursor = Cursors.Hand,
+                UseMnemonic = false
             };
             btn.FlatAppearance.BorderColor = border;
             return btn;
@@ -843,8 +1019,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 _btnJump.Enabled = _onNavigateToItem != null;
 
                 string cleanContext = (entry.ContextSnippet ?? string.Empty).Replace("\r", " ").Replace("\n", " ").Trim();
-                if (cleanContext.Length > 180)
-                    cleanContext = MyanmarSpellChecker.Core.Nlp.MyanmarSyllableBreaker.TruncateAtSyllableBoundary(cleanContext, 180, "…");
+                if (cleanContext.Length > 150)
+                    cleanContext = MyanmarSpellChecker.Core.Nlp.MyanmarSyllableBreaker.TruncateAtSyllableBoundary(cleanContext, 150, "…");
 
                 _lblContextPreview.Text = UiLocalizer.Pick(
                     $"[{entry.LocationLabel}] Cell Context — {cleanContext}",
@@ -863,10 +1039,13 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                         Font = _fontBadge,
                         ForeColor = Color.FromArgb(44, 68, 96),
                         AutoSize = true,
-                        Margin = new Padding(0, 6, 8, 2)
+                        UseMnemonic = false,
+                        Margin = new Padding(0, S(5), S(8), S(2))
                     };
                     _choicesPanel.Controls.Add(lblPick);
 
+                    int maxChoiceW = Math.Max(S(240), ClientSize.Width - S(64));
+                    var newControls = new Control[maxChoices];
                     for (int i = 0; i < maxChoices; i++)
                     {
                         SuggestionCandidate cand = sugs[i];
@@ -875,19 +1054,49 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                             ? string.Empty
                             : $" [{TruncateCue(cand.MeaningCue, 34)}]";
 
-                        var btnOpt = new Button
+                        string btnLabel = $"{(isActiveChoice ? "✓ " : string.Empty)}{cand.Replacement}{cueShort}";
+                        Font optFont = isActiveChoice ? _fontBodyBold : _fontSubtitle;
+                        Size singleMeasure = TextRenderer.MeasureText(
+                            btnLabel,
+                            optFont,
+                            new Size(int.MaxValue, int.MaxValue),
+                            TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+
+                        Button btnOpt;
+                        if (singleMeasure.Width + S(24) <= maxChoiceW)
                         {
-                            Text = $"{(isActiveChoice ? "✓ " : string.Empty)}{cand.Replacement}{cueShort}",
-                            Font = isActiveChoice ? _fontBodyBold : _fontSubtitle,
-                            AutoSize = true,
-                            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                            Padding = new Padding(8, 3, 8, 3),
-                            Margin = new Padding(0, 2, 6, 2),
-                            FlatStyle = FlatStyle.Flat,
-                            BackColor = isActiveChoice ? Color.FromArgb(218, 245, 228) : Color.FromArgb(246, 249, 253),
-                            ForeColor = isActiveChoice ? Color.FromArgb(14, 96, 48) : Color.FromArgb(42, 58, 78),
-                            Cursor = Cursors.Hand
-                        };
+                            btnOpt = new Button
+                            {
+                                Text = btnLabel,
+                                Font = optFont,
+                                AutoSize = false,
+                                Size = new Size(
+                                    singleMeasure.Width + S(20),
+                                    UiFontCache.MeasureSingleLineButtonHeightForDpi(_dpi, optFont, 8)),
+                                Margin = new Padding(0, S(2), S(6), S(2)),
+                                FlatStyle = FlatStyle.Flat,
+                                BackColor = isActiveChoice ? Color.FromArgb(218, 245, 228) : Color.FromArgb(246, 249, 253),
+                                ForeColor = isActiveChoice ? Color.FromArgb(14, 96, 48) : Color.FromArgb(42, 58, 78),
+                                Cursor = Cursors.Hand,
+                                UseMnemonic = false
+                            };
+                        }
+                        else
+                        {
+                            btnOpt = new WordWrapChoiceButton
+                            {
+                                Text = btnLabel,
+                                Font = optFont,
+                                MaximumSize = new Size(maxChoiceW, 0),
+                                Padding = new Padding(S(8), S(3), S(8), S(3)),
+                                Margin = new Padding(0, S(2), S(6), S(2)),
+                                FlatStyle = FlatStyle.Flat,
+                                TextAlign = ContentAlignment.MiddleLeft,
+                                BackColor = isActiveChoice ? Color.FromArgb(218, 245, 228) : Color.FromArgb(246, 249, 253),
+                                ForeColor = isActiveChoice ? Color.FromArgb(14, 96, 48) : Color.FromArgb(42, 58, 78),
+                                Cursor = Cursors.Hand
+                            };
+                        }
                         btnOpt.FlatAppearance.BorderColor = isActiveChoice
                             ? Color.FromArgb(92, 184, 128)
                             : Color.FromArgb(204, 214, 228);
@@ -906,14 +1115,17 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                             UpdateSelectedEntryInspector();
                         };
 
-                        _choicesPanel.Controls.Add(btnOpt);
+                        newControls[i] = btnOpt;
                     }
+                    _choicesPanel.Controls.AddRange(newControls);
                 }
             }
             finally
             {
-                _choicesPanel.ResumeLayout();
+                _choicesPanel.ResumeLayout(true);
             }
+
+            LayoutDialogSections();
         }
 
         private void UpdateSummaryAndButtons()
@@ -936,6 +1148,17 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _btnConfirm.BackColor = checkedCount > 0
                 ? Color.FromArgb(20, 122, 75)
                 : Color.FromArgb(172, 182, 194);
+
+            if (_footerPanel != null && _footerPanel.Width > 40)
+            {
+                Size cancelSz = MeasureSingleLineButtonSize(_btnCancel.Text, _fontBody, 28, 12);
+                Size confirmSz = MeasureSingleLineButtonSize(_btnConfirm.Text, _fontBodyBold, 34, 12);
+                int footerH = _footerPanel.Height;
+                int innerW = _footerPanel.Width;
+                _btnConfirm.SetBounds(innerW - confirmSz.Width, 0, confirmSz.Width, footerH);
+                _btnCancel.SetBounds(_btnConfirm.Left - S(8) - cancelSz.Width, 0, cancelSz.Width, footerH);
+                _lblFooterSummary.SetBounds(S(2), 0, Math.Max(S(80), _btnCancel.Left - S(12)), footerH);
+            }
         }
 
         private void OnConfirmClicked(object? sender, EventArgs e)
@@ -976,4 +1199,3 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         }
     }
 }
-

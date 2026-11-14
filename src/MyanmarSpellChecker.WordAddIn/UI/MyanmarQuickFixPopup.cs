@@ -70,7 +70,17 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 ? Color.FromArgb(217, 138, 18)
                 : (isGrammar ? Color.FromArgb(26, 115, 232) : Color.FromArgb(217, 48, 37));
 
-            AutoScaleMode = AutoScaleMode.Dpi;
+            int dpi = UiFontCache.GetEffectiveDpi(this);
+            int minW = UiFontCache.ScaleLogicalPxForDpi(dpi, 380);
+            int minH = UiFontCache.ScaleLogicalPxForDpi(dpi, 120);
+            Rectangle workArea = Screen.FromPoint(Cursor.Position).WorkingArea;
+            int maxW = Math.Min(UiFontCache.ScaleLogicalPxForDpi(dpi, 480), Math.Max(minW, workArea.Width - 24));
+            int maxH = Math.Min(UiFontCache.ScaleLogicalPxForDpi(dpi, 760), Math.Max(minH, workArea.Height - 24));
+            int padH = UiFontCache.ScaleLogicalPxForDpi(dpi, 14);
+            int padTop = UiFontCache.ScaleLogicalPxForDpi(dpi, 13);
+            int padBot = UiFontCache.ScaleLogicalPxForDpi(dpi, 12);
+
+            AutoScaleMode = AutoScaleMode.None;
             DoubleBuffered = true;
             ResizeRedraw = true;
             FormBorderStyle = FormBorderStyle.None;
@@ -82,11 +92,11 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             Font = UiFontCache.GetMyanmar(9.5F, FontStyle.Regular);
             AutoSize = true;
             AutoSizeMode = AutoSizeMode.GrowAndShrink;
-            MinimumSize = new Size(380, 120);
-            MaximumSize = new Size(480, 740);
-            Padding = new Padding(14, 13, 14, 12);
+            MinimumSize = new Size(minW, minH);
+            MaximumSize = new Size(maxW, maxH);
+            Padding = new Padding(padH, padTop, padH, padBot);
 
-            const int innerWrapWidth = 440;
+            int innerWrapWidth = Math.Max(UiFontCache.ScaleLogicalPxForDpi(dpi, 260), maxW - padH * 2 - UiFontCache.ScaleLogicalPxForDpi(dpi, 12));
 
             var root = new TableLayoutPanel
             {
@@ -607,7 +617,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         private Point ComputePopupLocation(Rectangle? wordScreenRect, out int popupW, out int popupH)
         {
             PerformLayout();
-            Size measured = GetPreferredSize(new Size(480, 0));
+            Size measured = GetPreferredSize(new Size(MaximumSize.Width, 0));
             popupW = Math.Max(MinimumSize.Width, Math.Min(MaximumSize.Width, measured.Width));
             popupH = Math.Max(MinimumSize.Height, Math.Min(MaximumSize.Height, measured.Height));
 

@@ -289,10 +289,18 @@ $prebuiltDir = Join-Path $PSScriptRoot "prebuilt"
 New-Item -ItemType Directory -Path $prebuiltDir -Force | Out-Null
 $unlockedCoreSrc = Join-Path $excelBuildOutDir "MyanmarSpellChecker.Core.dll"
 if (-not (Test-Path $unlockedCoreSrc)) { $unlockedCoreSrc = Join-Path $wordBuildOutDir "MyanmarSpellChecker.Core.dll" }
-[System.IO.File]::Copy($unlockedCoreSrc, (Join-Path $prebuiltDir "MyanmarSpellChecker.Core.dll"), $true)
-[System.IO.File]::Copy((Join-Path $wordBuildOutDir "MyanmarSpellChecker.WordAddIn.dll"), (Join-Path $prebuiltDir "MyanmarSpellChecker.WordAddIn.dll"), $true)
-[System.IO.File]::Copy((Join-Path $excelBuildOutDir "MyanmarSpellChecker.ExcelAddIn.dll"), (Join-Path $prebuiltDir "MyanmarSpellChecker.ExcelAddIn.dll"), $true)
-[System.IO.File]::Copy($cerPath, (Join-Path $prebuiltDir "MyanmarSpellChecker-EnterpriseCA.cer"), $true)
+foreach ($pbPair in @(
+    @{ Src = $unlockedCoreSrc; Dst = (Join-Path $prebuiltDir "MyanmarSpellChecker.Core.dll") },
+    @{ Src = (Join-Path $wordBuildOutDir "MyanmarSpellChecker.WordAddIn.dll"); Dst = (Join-Path $prebuiltDir "MyanmarSpellChecker.WordAddIn.dll") },
+    @{ Src = (Join-Path $excelBuildOutDir "MyanmarSpellChecker.ExcelAddIn.dll"); Dst = (Join-Path $prebuiltDir "MyanmarSpellChecker.ExcelAddIn.dll") },
+    @{ Src = $cerPath; Dst = (Join-Path $prebuiltDir "MyanmarSpellChecker-EnterpriseCA.cer") }
+)) {
+    try {
+        [System.IO.File]::Copy($pbPair.Src, $pbPair.Dst, $true)
+    } catch {
+        Write-Host "    [Note] $($pbPair.Dst) is currently loaded by MS Office; keeping signed output at $($pbPair.Src)" -ForegroundColor Yellow
+    }
+}
 
 # Build lock-safe standalone EasySetup .zip archive even if MS Word or Excel is currently open!
 $zipOutPath = Join-Path $artifactsDir "MyanmarSpellChecker-EasySetup-Word-Excel.zip"
