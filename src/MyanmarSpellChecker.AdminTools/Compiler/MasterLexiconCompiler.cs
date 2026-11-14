@@ -2481,6 +2481,8 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
             int abidanPosEnriched = 0;
             int abidanUsageNotesAdded = 0;
             int abidanNewWordsAdded = 0;
+            var authenticMlcAbidanMultiSylCandidates = new HashSet<string>(StringComparer.Ordinal);
+            Regex foreignLoanCodaRx = new Regex(@"[\u1018\u1017\u1012\u1016\u101C\u101E]\u103A", RegexOptions.Compiled);
             string abidanTsvPath = Path.Combine(sourcesDir, "dictionaries", "mlc_mm_to_mm_dictionary.tsv");
             Regex hasMyanmarConsonantRx = new Regex(@"[\u1000-\u102A]", RegexOptions.Compiled);
             Regex startsWithLatinGlossRx = new Regex(@"^[A-Za-z]", RegexOptions.Compiled);
@@ -2496,8 +2498,33 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     string aPos = cols[1].Trim();
                     string aDef = NormalizeMyanmar(cols[2].Trim());
                     string aNote = cols[3].Trim();
+                    bool isMlcAuthorityFlag = cols.Length >= 5 && cols[4].Trim() == "1";
                     if (!IsCleanHeadword(w) || string.IsNullOrEmpty(aDef))
                         continue;
+
+                    if (isMlcAuthorityFlag &&
+                        aPos != "LOAN" && aPos != "PROPN" && aPos != "PART" && aPos != "ENCYC" &&
+                        !foreignLoanCodaRx.IsMatch(w) &&
+                        !HasTrailingInflectionParticle(w) &&
+                        aDef.IndexOf("[အပြော]", StringComparison.Ordinal) < 0 &&
+                        aDef.IndexOf("[ဗန်း]", StringComparison.Ordinal) < 0 &&
+                        aDef.IndexOf("[ရှေး]", StringComparison.Ordinal) < 0 &&
+                        aDef.IndexOf("[ဒေသ]", StringComparison.Ordinal) < 0 &&
+                        aDef.IndexOf("နှင့် အတူတူ", StringComparison.Ordinal) < 0 &&
+                        aDef.IndexOf("နှင့် အတူတူ", StringComparison.Ordinal) < 0 &&
+                        aNote.IndexOf("အင်္ဂလိပ်၊", StringComparison.Ordinal) < 0 &&
+                        aNote.IndexOf("ပြင်သစ်၊", StringComparison.Ordinal) < 0 &&
+                        aNote.IndexOf("ဟိန္ဒီ၊", StringComparison.Ordinal) < 0 &&
+                        aNote.IndexOf("တရုတ်၊", StringComparison.Ordinal) < 0 &&
+                        aNote.IndexOf("မလေး၊", StringComparison.Ordinal) < 0 &&
+                        aNote.IndexOf("ဗဟုသုတ:", StringComparison.Ordinal) < 0)
+                    {
+                        int mlcSyls = CountSyllables(w);
+                        if (mlcSyls >= 3 && mlcSyls <= 7)
+                        {
+                            authenticMlcAbidanMultiSylCandidates.Add(w);
+                        }
+                    }
 
                     EntryItem existingAb;
                     if (map.TryGetValue(w, out existingAb))
@@ -3488,6 +3515,40 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
             if (pollutedWordsToRemove.Count > 0)
             {
                 allEntries.RemoveAll(e => !e.IsOfficialThatpon && pollutedWordsToRemove.Contains(e.Word));
+            }
+
+            // P2a. Promote surviving authentic multi-syllable MLC မြန်မာအဘိဓာန် headwords (zero conflict with 462-page သတ်ပုံကျမ်း purity keys or condemned rules)
+            int promotedMlcAbidanOfficial = 0;
+            for (int ai = 0; ai < allEntries.Count; ai++)
+            {
+                EntryItem abEnt = allEntries[ai];
+                if (abEnt.IsOfficialThatpon)
+                    continue;
+                if (!authenticMlcAbidanMultiSylCandidates.Contains(abEnt.Word))
+                    continue;
+                if (seenWrong.Contains(abEnt.Word) || KnownWrongBlacklist.Contains(abEnt.Word))
+                    continue;
+                if (!officialThatponSet.Contains(abEnt.Word) &&
+                    officialPurityKeys.Contains(ComputeExtendedPuritySkeleton(abEnt.Word)))
+                {
+                    continue;
+                }
+
+                abEnt.IsOfficialThatpon = true;
+                if (abEnt.Frequency < 28)
+                    abEnt.Frequency = 28;
+                EntryItem mapEnt;
+                if (map.TryGetValue(abEnt.Word, out mapEnt))
+                {
+                    mapEnt.IsOfficialThatpon = true;
+                    if (mapEnt.Frequency < 28)
+                        mapEnt.Frequency = 28;
+                }
+                promotedMlcAbidanOfficial++;
+            }
+            if (promotedMlcAbidanOfficial > 0)
+            {
+                Console.WriteLine("  - P2a MLC Abidan Authority Promotion: upgraded " + promotedMlcAbidanOfficial + " multi-syllable မြန်မာအဘိဓာန် headwords to IsOfficialThatpon=true.");
             }
 
             // P2b. V26 Promote up to 650 verified pure-Myanmar Encyclopedia single-word headwords (100% Official သတ်ပုံကျမ်း syllables, 0 condemned substrings)

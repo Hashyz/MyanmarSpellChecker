@@ -78,6 +78,12 @@ namespace MyanmarSpellChecker.Core.Nlp
             "တွေ", "နဲ့", "ဘူး", "ပေါ့", "လား", "လော", "သလော", "နော်", "ဗျ", "ဗျာ", "ရှင်", "ရှင့်", "ရဲ့", "လို့", "တယ်", "မယ်", "ပြီ", "တာ", "တဲ့", "မို့", "လော့"
         );
 
+        // Lexical roots that are homographs of particles when opening a compound (e.g. 'လောလောဆည်->လောလောဆယ်', 'ကာကွည်->ကာကွယ်', 'သာမာန်->သာမန်', 'တာချီလိပ်->တာချီလိတ်'),
+        // permitted into compound repair ONLY when the target candidate preserves firstSyl unchanged and is Official Thatpon
+        private static readonly HashSet<string> LexicalHomographLeadingRoots = CreateNormalizedSet(
+            "လော", "ကာ", "သာ", "တာ", "ပဲ", "ဘူး", "ရှင်", "ဗျာ", "သော", "မယ်", "လား", "ပေါ့"
+        );
+
         // Pure boundary case/sentence particles that must never be absorbed as the end of a repaired compound word
         private static readonly HashSet<string> TrailingBoundaryParticles = CreateNormalizedSet(
             "ကို", "အား", "မှ", "သို့", "နှင့်", "သည်", "၏", "၌", "တွင်", "ဝယ်", "က", "ကနေ",
@@ -3040,10 +3046,33 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (LeadingBoundaryParticles.Contains(firstSyl) ||
-                TrailingBoundaryParticles.Contains(lastSyl))
+            bool mustPreserveFirstSyl = false;
+            if (LeadingBoundaryParticles.Contains(firstSyl))
             {
-                return null;
+                bool allowLexicalHomographStart =
+                    LexicalHomographLeadingRoots.Contains(firstSyl) &&
+                    !ProductiveVerbalAuxiliaries.Contains(lastSyl) &&
+                    lastSyl != "ပေါ့" && lastSyl != "မျိုး" && lastSyl != "သူ" && lastSyl != "စကား" && lastSyl != "ကြောင့်" &&
+                    (firstSyl == "လော"
+                        ? !(startIndex > runStart && tokens[startIndex - 1].NormalizedText == "သ")
+                        : (startIndex == runStart ||
+                           (firstSyl == "ကာ" && tokens[startIndex + 1].NormalizedText.StartsWith("ကွ", StringComparison.Ordinal))));
+                if (!allowLexicalHomographStart)
+                    return null;
+                mustPreserveFirstSyl = true;
+            }
+
+            bool mustPreserveLastSyl = false;
+            if (TrailingBoundaryParticles.Contains(lastSyl))
+            {
+                bool allowTemporalOrRedupLawEnd =
+                    lastSyl == "လော" &&
+                    windowLen >= 3 &&
+                    (tokens[startIndex + windowLen - 2].NormalizedText == "တ" ||
+                     tokens[startIndex + windowLen - 2].NormalizedText == "လော");
+                if (!allowTemporalOrRedupLawEnd)
+                    return null;
+                mustPreserveLastSyl = true;
             }
 
             // Never backward-merge bare prefix 'အ' with the preceding word when 'အ' opens a following nominalization (e.g. 'ရေကြီးမှုကြီးအပြီး' must never turn 'ကြီးအ' into 'ကျီးအ')
@@ -3118,6 +3147,16 @@ namespace MyanmarSpellChecker.Core.Nlp
                 PluralVerbClosers.Contains(tokens[startIndex + windowLen].NormalizedText))
             {
                 return null;
+            }
+
+            // Do not slice plural verb marker 'ကြ' + post-verbal modal/particle chain after a preceding verb (e.g. 'လိုက်နာဆောင်ရွက်ကြရပါမည်' != 'ကြံရာပါ')
+            if (firstSyl == "ကြ" && startIndex > runStart)
+            {
+                string afterKya = tokens[startIndex + 1].NormalizedText;
+                if (PluralVerbClosers.Contains(afterKya) || ProductiveVerbalAuxiliaries.Contains(afterKya))
+                {
+                    return null;
+                }
             }
 
             // Constituent Boundary Guard 1: Do not detach a Numeral Classifier from its preceding Numeral (e.g. 'လေးယောက်' + 'လာ' must not merge 'ယောက်လာ -> ရောက်လာ')
@@ -3623,6 +3662,10 @@ namespace MyanmarSpellChecker.Core.Nlp
                     var e = strictMatches[i];
                     if (e.Word == span.NormalizedText || !IsCompatibleCompoundLength(e, windowLen))
                         continue;
+                    if (mustPreserveFirstSyl && (!e.IsOfficialThatpon || !e.Word.StartsWith(firstSyl, StringComparison.Ordinal)))
+                        continue;
+                    if (mustPreserveLastSyl && (!e.IsOfficialThatpon || !e.Word.EndsWith(lastSyl, StringComparison.Ordinal)))
+                        continue;
                     if (windowLen == 2 && !e.IsOfficialThatpon && e.IsProperNoun && !followedByGeoClassifier)
                         continue;
 
@@ -3662,7 +3705,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             // Tier 3: Generative Noisy-Channel Fuzzy Repair (Phonetic Skeleton + Positional Syllable Anchor Index)
             double bestFuzzyDist = double.MaxValue;
             DictionaryEntry? bestFuzzy = TryFindBestFuzzyCandidate(
-                span.NormalizedText, tokens, startIndex, windowLen, firstSyl, lastSyl, hasExactPrefixCompound, cleanSplitMask, hasCleanLeadingStandalone, bothFullStandaloneInL2, isPartialSliceOfRun, ref hasPreQuery, ref preQuery, out bestFuzzyDist);
+                span.NormalizedText, tokens, startIndex, windowLen, firstSyl, lastSyl, hasExactPrefixCompound, cleanSplitMask, hasCleanLeadingStandalone, bothFullStandaloneInL2, isPartialSliceOfRun, mustPreserveFirstSyl, mustPreserveLastSyl, ref hasPreQuery, ref preQuery, out bestFuzzyDist);
             if (isProductiveANominalization && bestFuzzy != null &&
                 bestFuzzy.Word.IndexOf('\u1039') < 0 &&
                 !AreTrueBurmeseHomophones(span.NormalizedText, bestFuzzy.Word))
@@ -3825,7 +3868,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 if (split >= 2 && rightSyls >= 2)
                 {
                     bool allowMultiMulti =
-                        (AreTrueBurmeseHomophones(spanNorm, candWord) && cand.IsOfficialThatpon && cand.Frequency >= 40) ||
+                        (AreTrueOrPalatalRhymeHomophones(spanNorm, candWord) && cand.IsOfficialThatpon && cand.Frequency >= 40) ||
                         (cand.IsOfficialThatpon && cand.Frequency >= 10 &&
                          _trie.GetBigramCount(leftNorm, rightNorm) == 0 &&
                          ((candWord.StartsWith(leftNorm, StringComparison.Ordinal) &&
@@ -3852,7 +3895,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                             cand.IsOfficialThatpon &&
                             cand.Frequency >= 15 &&
                             _trie.GetBigramCount(leftNorm, rightNorm) == 0 &&
-                            ((AreTrueBurmeseHomophones(leftNorm, candLeft) && IsPureVerbSyllable(leftNorm)) ||
+                            ((AreTrueOrPalatalRhymeHomophones(leftNorm, candLeft) && (IsPureVerbSyllable(leftNorm) || rightNorm == "တလော")) ||
                              ((candLeft == leftNorm + "\u1038" || candLeft == leftNorm + "\u1037") &&
                               (!_trie.HasPosTag(leftNorm, "N") ||
                                _trie.ContainsExactWord(candLeft + tokens[startIndex + 1].NormalizedText))));
@@ -3862,7 +3905,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     else
                     {
                         bool allowCleanModWithTailTypo =
-                            (AreTrueBurmeseHomophones(spanNorm, candWord) && cand.IsOfficialThatpon && cand.Frequency >= 25) ||
+                            (AreTrueOrPalatalRhymeHomophones(spanNorm, candWord) && cand.IsOfficialThatpon && cand.Frequency >= 25) ||
                             (candWord.StartsWith(leftNorm, StringComparison.Ordinal) &&
                              cand.IsOfficialThatpon &&
                              cand.Frequency >= 15 &&
@@ -3875,7 +3918,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
 
                 // Case 3: [Exact Multi-Syllable Stem] + [Clean Full Standalone 1-Syl Word]
-                // (e.g. allows 'မနက်ဖန် -> မနက်ဖြန်', 'ကျန်းမာရေ -> ကျန်းမာရေး', while protecting 'လုပ်ငန်းသစ် != လုပ်ငန်းစဉ်')
+                // (e.g. allows 'မနက်ဖန် -> မနက်ဖြန်', 'ကျန်းမာရေ -> ကျန်းမာရေး', 'လောလောဆည် -> လောလောဆယ်', while protecting 'လုပ်ငန်းသစ် != လုပ်ငန်းစဉ်')
                 if (split >= 2 && rightSyls == 1)
                 {
                     if (candWord.StartsWith(leftNorm, StringComparison.Ordinal))
@@ -3885,7 +3928,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                             candRight.Length > 0 &&
                             cand.IsOfficialThatpon &&
                             cand.Frequency >= 12 &&
-                            ((AreTrueBurmeseHomophones(rightNorm, candRight) && _trie.GetBigramCount(leftNorm, rightNorm) == 0) ||
+                            ((AreTrueOrPalatalRhymeHomophones(rightNorm, candRight) && _trie.GetBigramCount(leftNorm, rightNorm) == 0) ||
                              (candRight == rightNorm + "\u1038" || candRight == rightNorm + "\u1037") ||
                              (rightNorm[0] == candRight[0] && dist <= 0.30 && _trie.GetBigramCount(leftNorm, rightNorm) <= 2));
                         if (!allowTailRepair)
@@ -3894,7 +3937,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     else
                     {
                         bool allowStemTypoWithCleanTail =
-                            (AreTrueBurmeseHomophones(spanNorm, candWord) && cand.IsOfficialThatpon && cand.Frequency >= 25) ||
+                            (AreTrueOrPalatalRhymeHomophones(spanNorm, candWord) && cand.IsOfficialThatpon && cand.Frequency >= 25) ||
                             (candWord.EndsWith(rightNorm, StringComparison.Ordinal) &&
                              spanNorm[0] == candWord[0] &&
                              cand.IsOfficialThatpon &&
@@ -3922,6 +3965,8 @@ namespace MyanmarSpellChecker.Core.Nlp
             bool hasCleanLeadingStandalone,
             bool bothFullStandaloneInL2,
             bool isPartialSliceOfRun,
+            bool mustPreserveFirstSyl,
+            bool mustPreserveLastSyl,
             ref bool hasPreQuery,
             ref SuggestionEngine.PreEncodedQuery preQuery,
             out double bestFuzzyDist)
@@ -3939,8 +3984,11 @@ namespace MyanmarSpellChecker.Core.Nlp
                 f1 = _trie.GetWordFrequency(firstSyl);
                 f2 = _trie.GetWordFrequency(lastSyl);
 
-                if (f1 >= 40 && PostNominalAdjectives.Contains(lastSyl))
+                if ((f1 >= 40 || (_trie.IsStandaloneWord(firstSyl) && f1 >= 5 && _trie.HasPosTag(firstSyl, "N"))) &&
+                    PostNominalAdjectives.Contains(lastSyl))
+                {
                     return null;
+                }
 
                 bothKnownInL2 = _trie.IsValidSingleSyllable(firstSyl) && _trie.IsValidSingleSyllable(lastSyl);
                 if (bothKnownInL2 && bothFullStandaloneInL2 && _trie.GetBigramCount(firstSyl, lastSyl) > 0)
@@ -3988,7 +4036,9 @@ namespace MyanmarSpellChecker.Core.Nlp
                     (hasRightVerbalContext ? 8 : 0) |
                     (followedByGeoClassifier ? 16 : 0) |
                     ((cleanSplitMask & 0x1F) << 5) |
-                    (hasCleanLeadingStandalone ? 1024 : 0));
+                    (hasCleanLeadingStandalone ? 1024 : 0) |
+                    (mustPreserveFirstSyl ? 2048 : 0) |
+                    (mustPreserveLastSyl ? 4096 : 0));
                 fuzzyCacheKey = (sylKey, flags);
                 if (_fuzzyWindowCache.TryGetValue(fuzzyCacheKey, out var cachedHit))
                 {
@@ -4027,6 +4077,11 @@ namespace MyanmarSpellChecker.Core.Nlp
 
                 string w = e.Word;
                 if (w == spanNormalized)
+                    return;
+
+                if (mustPreserveFirstSyl && (!e.IsOfficialThatpon || !w.StartsWith(firstSyl, StringComparison.Ordinal)))
+                    return;
+                if (mustPreserveLastSyl && (!e.IsOfficialThatpon || !w.EndsWith(lastSyl, StringComparison.Ordinal)))
                     return;
 
                 if (enforceAnchorLengthDelta)
@@ -4296,6 +4351,57 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return false;
 
             return MyanmarTrie.ComputeStrictHomophoneKey(a) == MyanmarTrie.ComputeStrictHomophoneKey(b);
+        }
+
+        private static bool AreTrueOrPalatalRhymeHomophones(string a, string b)
+        {
+            if (AreTrueBurmeseHomophones(a, b))
+                return true;
+
+            // Recognize Burmese open/palatal /ɛ/ rhyme homophones between '-ည်' / '-ဉ်' and '-ယ်' (e.g. 'ဆည် <-> ဆယ်', 'လည် <-> လယ်')
+            // without equating '-ယ်' with pure vowel '-ီ' (e.g. 'နီ != နယ်')
+            bool hasYaAsat = a.IndexOf("\u101A\u103A", StringComparison.Ordinal) >= 0 ||
+                            b.IndexOf("\u101A\u103A", StringComparison.Ordinal) >= 0;
+            if (!hasYaAsat)
+                return false;
+
+            if (CountChar(a, '\u103E') != CountChar(b, '\u103E') ||
+                CountChar(a, '\u103D') != CountChar(b, '\u103D') ||
+                CountChar(a, '\u1037') != CountChar(b, '\u1037') ||
+                CountChar(a, '\u1038') != CountChar(b, '\u1038'))
+            {
+                return false;
+            }
+            if ((a.IndexOf('\u1039') >= 0 && a.IndexOf("\u1004\u103A\u1039", StringComparison.Ordinal) < 0) !=
+                (b.IndexOf('\u1039') >= 0 && b.IndexOf("\u1004\u103A\u1039", StringComparison.Ordinal) < 0))
+            {
+                return false;
+            }
+
+            string normA = NormalizePalatalCodaToYaAsat(a);
+            string normB = NormalizePalatalCodaToYaAsat(b);
+            return MyanmarTrie.ComputeStrictHomophoneKey(normA) == MyanmarTrie.ComputeStrictHomophoneKey(normB);
+        }
+
+        private static string NormalizePalatalCodaToYaAsat(string s)
+        {
+            if (string.IsNullOrEmpty(s))
+                return string.Empty;
+            var sb = new StringBuilder(s.Length);
+            sb.Append(s[0]);
+            for (int i = 1; i < s.Length; i++)
+            {
+                char c = s[i];
+                if ((c == '\u100A' || c == '\u1009') && i + 1 < s.Length && s[i + 1] == '\u103A')
+                {
+                    sb.Append('\u101A');
+                }
+                else
+                {
+                    sb.Append(c);
+                }
+            }
+            return sb.ToString();
         }
 
         private static bool SharesSameSecondSyllableOnsetCluster(string inputSecondSyl, string candidateTwoSylWord)

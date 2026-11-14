@@ -137,7 +137,11 @@ namespace MyanmarSpellChecker.Core.Dictionary
                 new DictionaryEntry { Word = "ဥကတ", MeaningCue = "နိုင်ငံသားစိစစ်ရေးကတ်ပြား မြို့နယ်သင်္ကေတ — ၁၂/ဥကတ (တောင်ဥက္ကလာပမြို့နယ်)", PosTag = "PROPN", UsageNote = "အင်္ဂလိပ်သင်္ကေတ: OuKaTa (12/OuKaTa) | အာဏာပိုင်စံနှုန်း: MOIP / GAD", IsOfficialThatpon = true, Frequency = 220 },
                 new DictionaryEntry { Word = "ကဆန", MeaningCue = "နိုင်ငံသားစိစစ်ရေးကတ်ပြား မြို့နယ်သင်္ကေတ — ၉/ကဆန (ကျောက်ဆည်မြို့နယ်)", PosTag = "PROPN", UsageNote = "အင်္ဂလိပ်သင်္ကေတ: KaSaNa (9/KaSaNa) | အာဏာပိုင်စံနှုန်း: MOIP / GAD", IsOfficialThatpon = true, Frequency = 220 },
                 new DictionaryEntry { Word = "ပဥလ", MeaningCue = "နိုင်ငံသားစိစစ်ရေးကတ်ပြား မြို့နယ်သင်္ကေတ — ၉/ပဥလ (ပြင်ဦးလွင်မြို့နယ်)", PosTag = "PROPN", UsageNote = "အင်္ဂလိပ်သင်္ကေတ: PaOuLa (9/PaOuLa) | အာဏာပိုင်စံနှုန်း: MOIP / GAD", IsOfficialThatpon = true, Frequency = 220 },
-                new DictionaryEntry { Word = "ခမသ", MeaningCue = "နိုင်ငံသားစိစစ်ရေးကတ်ပြား မြို့နယ်သင်္ကေတ — ၉/ခမသ (ချမ်းမြသာစည်မြို့နယ်)", PosTag = "PROPN", UsageNote = "အင်္ဂလိပ်သင်္ကေတ: KhaMaTha (9/KhaMaTha) | အာဏာပိုင်စံနှုန်း: MOIP / GAD", IsOfficialThatpon = true, Frequency = 220 }
+                new DictionaryEntry { Word = "ခမသ", MeaningCue = "နိုင်ငံသားစိစစ်ရေးကတ်ပြား မြို့နယ်သင်္ကေတ — ၉/ခမသ (ချမ်းမြသာစည်မြို့နယ်)", PosTag = "PROPN", UsageNote = "အင်္ဂလိပ်သင်္ကေတ: KhaMaTha (9/KhaMaTha) | အာဏာပိုင်စံနှုန်း: MOIP / GAD", IsOfficialThatpon = true, Frequency = 220 },
+                new DictionaryEntry { Word = "လောလောဆယ်", MeaningCue = "လတ်တလော၊ လက်ငင်းကာလ (မြန်မာအဘိဓာန်အမှန် - ယပက်လက်သတ် 'ဆယ်')", PosTag = "ADV", IsOfficialThatpon = true, Frequency = 145 },
+                new DictionaryEntry { Word = "လောလောဆယ်ဆယ်", MeaningCue = "လတ်တလော၊ ယခုလက်ငင်းအချိန် (မြန်မာအဘိဓာန်အမှန် - ယပက်လက်သတ် 'ဆယ်')", PosTag = "ADV", IsOfficialThatpon = true, Frequency = 95 },
+                new DictionaryEntry { Word = "လတ်တလော", MeaningCue = "လက်ငင်း၊ လောလောဆယ် (သတ်ပုံကျမ်းအမှန် - တဝမ်းပူသတ် 'လတ်')", PosTag = "ADV", IsOfficialThatpon = true, Frequency = 155 },
+                new DictionaryEntry { Word = "လောလောလတ်လတ်", MeaningCue = "မကြာသေးမီက ဖြစ်ပျက်ပြီးစ၊ ပူပူနွေးနွေး (သတ်ပုံကျမ်းအမှန် - တဝမ်းပူသတ် 'လတ်')", PosTag = "ADV", IsOfficialThatpon = true, Frequency = 115 }
             };
         }
 
@@ -291,6 +295,34 @@ namespace MyanmarSpellChecker.Core.Dictionary
                     CorrectForm = "ပဗသ",
                     Category = "Spelling",
                     Explanation = "နိုင်ငံသားစိစစ်ရေးကတ်ပြား မြို့နယ်သင်္ကေတ (MOIP) စံနှုန်းအရ ပုဗ္ဗသီရိမြို့နယ် သင်္ကေတကို ဗထက်ခြိုက် ('ဗ') ဖြင့် 'ပဗသ' (၉/ပဗသ) ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "လောလောဆည်",
+                    CorrectForm = "လောလောဆယ်",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာအဖွဲ့ မြန်မာအဘိဓာန်စံနှုန်းအရ လတ်တလော/လက်ငင်းကာလကို ညကြီးသတ် ('ဆည်') မဟုတ်ဘဲ ယပက်လက်သတ်ဖြင့် 'လောလောဆယ်' ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "လောလောဆည်ဆည်",
+                    CorrectForm = "လောလောဆယ်ဆယ်",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာအဖွဲ့ မြန်မာအဘိဓာန်စံနှုန်းအရ လတ်တလောကာလကို ညကြီးသတ် ('ဆည်') မဟုတ်ဘဲ ယပက်လက်သတ်ဖြင့် 'လောလောဆယ်ဆယ်' ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "လက်တလော",
+                    CorrectForm = "လတ်တလော",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ လက်ငင်း/လောလောဆယ်ကာလကို ကကြီးသတ် ('လက်') မဟုတ်ဘဲ တဝမ်းပူသတ်ဖြင့် 'လတ်တလော' ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "လောလောလက်လက်",
+                    CorrectForm = "လောလောလတ်လတ်",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ မကြာသေးမီက ဖြစ်ပျက်ပြီးစ (ပူပူနွေးနွေး) ကို တဝမ်းပူသတ်ဖြင့် 'လောလောလတ်လတ်' ဟု ရေးသားရမည်။"
                 }
             };
         }

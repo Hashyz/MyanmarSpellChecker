@@ -3689,5 +3689,139 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.Contains(byWord["ဩရသ"], e => (e.UsageNote ?? "").Contains("မျိုးပြပစ္စည်း: ယောက်၊ ဦး"));
             Assert.Contains(byWord["အာဂွန်"], e => (e.UsageNote ?? "").Contains("အင်္ဂလိပ်၊ argon"));
         }
+
+        [Fact]
+        public void V63_CompoundHomophoneSplitAndBoundaryParticleGate()
+        {
+            string masterJsonPath = TestPaths.MasterJsonPath;
+            var model = EncryptedDictionaryRepository.ParseFromJsonFile(masterJsonPath);
+
+            var trie = new MyanmarTrie();
+            foreach (var e in model.Entries) trie.InsertEntry(e);
+            foreach (var r in model.OrthographyRules) trie.InsertOrthographyRule(r);
+            foreach (var cr in model.ContextRules) trie.InsertContextualRule(cr);
+            foreach (var bg in model.WordBigrams) trie.InsertWordBigram(bg.LeftWord, bg.RightWord, bg.Count);
+
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // 1. Exact User Screenshot Reproduction ("လောလောဆည်\nလောလောဆယ်") in both FormalOfficial & GeneralStandard
+            string screenshotDoc = "လောလောဆည်\nလောလောဆယ်";
+            foreach (var eng in new[] { formalEngine, generalEngine })
+            {
+                var docIssues = eng.CheckText(screenshotDoc);
+                Assert.Single(docIssues);
+                Assert.Equal(UnicodeNormalizer.NormalizeCanonicalOrder("လောလောဆည်"), UnicodeNormalizer.NormalizeCanonicalOrder(docIssues[0].OriginalText));
+                Assert.Equal(ProofingIssueType.SpellingError, docIssues[0].IssueType);
+                Assert.NotEmpty(docIssues[0].Suggestions);
+                Assert.Equal(UnicodeNormalizer.NormalizeCanonicalOrder("လောလောဆယ်"), UnicodeNormalizer.NormalizeCanonicalOrder(docIssues[0].Suggestions[0].Replacement));
+            }
+
+            Assert.Empty(formalEngine.CheckText("လောလောဆယ် နှင့် လောလောဆယ်ဆယ် ဆောင်ရွက်လျက်ရှိပါသည်။"));
+
+            // 2. Unspaced Clause & Sibling Compound Homophone Typos
+            string unspacedTypos = "ယခုလောလောဆည်တွင် ယနေ့လက်တလောအခြေအနေအရ လောလောလက်လက် ဆောင်ရွက်လျက်ရှိသည်။";
+            var clauseIssues = formalEngine.CheckText(unspacedTypos);
+            Assert.Contains(clauseIssues, i => i.OriginalText == "လောလောဆည်" && i.Suggestions.FirstOrDefault()?.Replacement == "လောလောဆယ်");
+            Assert.Contains(clauseIssues, i => i.OriginalText == "လက်တလော" && i.Suggestions.FirstOrDefault()?.Replacement == "လတ်တလော");
+            Assert.Contains(clauseIssues, i => i.OriginalText == "လောလောလက်လက်" && i.Suggestions.FirstOrDefault()?.Replacement == "လောလောလတ်လတ်");
+
+            Assert.Empty(formalEngine.CheckText("ယခုလောလောဆယ်တွင် ယနေ့လတ်တလောအခြေအနေအရ လောလောလတ်လတ် ဆောင်ရွက်လျက်ရှိသည်။"));
+
+            (string Wrong, string Right)[] siblingPairs =
+            {
+                ("လောလောဆည်ဆည်", "လောလောဆယ်ဆယ်"),
+                ("လက်တလောချင်း", "လတ်တလောချင်း"),
+                ("လက်လက်လောလော", "လတ်လတ်လောလော"),
+                ("အလည်အလတ်", "အလယ်အလတ်"),
+                ("ကာကွည်", "ကာကွယ်")
+            };
+            foreach (var pair in siblingPairs)
+            {
+                var pIss = formalEngine.CheckText(pair.Wrong);
+                Assert.Contains(pIss, i => i.OriginalText == pair.Wrong && i.Suggestions.FirstOrDefault()?.Replacement == pair.Right);
+            }
+
+            // 3. Pure Generative Viterbi Verification (ZERO OrthographyRules — tests boundary-particle & palatal-rhyme homophone engine directly!)
+            var genTrie = new MyanmarTrie();
+            DictionaryEntry[] genLex =
+            {
+                new DictionaryEntry { Word = "ယခု", MeaningCue = "ယခုကာလ", PosTag = "N", Frequency = 400, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "လော", MeaningCue = "လော", PosTag = "PART", Frequency = 40, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "လောလော", MeaningCue = "လောလောပူ", PosTag = "ADV", Frequency = 25, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "ဆည်", MeaningCue = "ရေကာဆည်", PosTag = "N", Frequency = 95, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "လောလောဆယ်", MeaningCue = "လတ်တလော", PosTag = "ADV", Frequency = 65, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "လက်", MeaningCue = "ခြေလက်", PosTag = "N", Frequency = 450, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "တလော", MeaningCue = "ခုတလော", PosTag = "N", Frequency = 25, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "လတ်တလော", MeaningCue = "လက်ငင်း", PosTag = "ADV", Frequency = 120, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "လောလောလတ်လတ်", MeaningCue = "ပူပူနွေးနွေး", PosTag = "ADV", Frequency = 90, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "ရောဂါ", MeaningCue = "အနာရောဂါ", PosTag = "N", Frequency = 250, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "ကာ", MeaningCue = "ကာဆီး", PosTag = "V", Frequency = 120, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "ကွည်", MeaningCue = "ကွည်", PosTag = "N", Frequency = 2, IsOfficialThatpon = false },
+                new DictionaryEntry { Word = "ကာကွယ်", MeaningCue = "တားဆီးစောင့်ရှောက်", PosTag = "V", Frequency = 180, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "ရေး", MeaningCue = "အရေး", PosTag = "N", Frequency = 300, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "တာ", MeaningCue = "အတာ", PosTag = "N", Frequency = 110, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "ချီ", MeaningCue = "ပွေ့ချီ", PosTag = "V", Frequency = 80, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "လိပ်", MeaningCue = "လိပ်သတ္တဝါ", PosTag = "N", Frequency = 60, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "တာချီလိတ်", MeaningCue = "မြို့အမည်", PosTag = "PROPN", Frequency = 95, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "အမှန်", MeaningCue = "အမှန်တရား", PosTag = "N", Frequency = 180, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "ဖြစ်", MeaningCue = "ဖြစ်ပေါ်", PosTag = "V", Frequency = 500, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "သလော", MeaningCue = "အမေးပစ္စည်း", PosTag = "PART", Frequency = 45, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "ဤ", MeaningCue = "ဤအရာ", PosTag = "PRON", Frequency = 250, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "သူ", MeaningCue = "ပုဂ္ဂိုလ်", PosTag = "PRON", Frequency = 400, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "ကား", MeaningCue = "စကားလုံးပစ္စည်း", PosTag = "PART", Frequency = 200, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "မည်သူ", MeaningCue = "အဘယ်သူ", PosTag = "PRON", Frequency = 150, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "ဟုတ်", MeaningCue = "မှန်ကန်", PosTag = "V", Frequency = 250, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "မေးမြန်း", MeaningCue = "မေးမြန်းသည်", PosTag = "V", Frequency = 140, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "သား", MeaningCue = "သားသမီး", PosTag = "N", Frequency = 300, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "သာဖြစ်", MeaningCue = "သာဖြစ်", PosTag = "V", Frequency = 20, IsOfficialThatpon = true },
+                new DictionaryEntry { Word = "ကူညီ", MeaningCue = "ကူညီသည်", PosTag = "V", Frequency = 220, IsOfficialThatpon = true }
+            };
+            foreach (var ge in genLex) genTrie.InsertEntry(ge);
+            var genEngine = new MyanmarProofingEngine(genTrie, ProofingStyleMode.FormalOfficial);
+
+            var g1 = genEngine.CheckText("ယခုလောလောဆည်တွင်");
+            Assert.Single(g1);
+            Assert.Equal("လောလောဆည်", g1[0].OriginalText);
+            Assert.Equal("လောလောဆယ်", g1[0].Suggestions[0].Replacement);
+
+            var g2 = genEngine.CheckText("လက်တလော");
+            Assert.Single(g2);
+            Assert.Equal("လတ်တလော", g2[0].Suggestions[0].Replacement);
+
+            var g3 = genEngine.CheckText("ရောဂါကာကွည်ရေး");
+            Assert.Single(g3);
+            Assert.Equal("ကာကွည်", g3[0].OriginalText);
+            Assert.Equal("ကာကွယ်", g3[0].Suggestions[0].Replacement);
+
+            var g4 = genEngine.CheckText("တာချီလိပ်");
+            Assert.Single(g4);
+            Assert.Equal("တာချီလိတ်", g4[0].Suggestions[0].Replacement);
+
+            // Literary '-လော / -သလော' & 'သားဖြစ်' must produce ZERO false positives!
+            Assert.Empty(genEngine.CheckText("အမှန်ပင် ဖြစ်သလော။ ဤသူကား မည်သူလော။ ဟုတ်သလောဟု မေးမြန်းသည်။ သားဖြစ်သူက ကူညီသည်။"));
+
+            // 4. Zero-DB Seed Fallback Engine Verification
+            var seedTrie = new MyanmarTrie();
+            foreach (var se in MyanmarSpellChecker.Core.Dictionary.SeedDictionaryProvider.GetOfficialSeedEntries()) seedTrie.InsertEntry(se);
+            foreach (var sr in MyanmarSpellChecker.Core.Dictionary.SeedDictionaryProvider.GetOfficialOrthographyRules()) seedTrie.InsertOrthographyRule(sr);
+            var seedEngine = new MyanmarProofingEngine(seedTrie, ProofingStyleMode.FormalOfficial);
+            var seedIssues = seedEngine.CheckText("လောလောဆည်\nလောလောဆယ်");
+            Assert.Single(seedIssues);
+            Assert.Equal("လောလောဆယ်", seedIssues[0].Suggestions[0].Replacement);
+
+            // 5. MLC မြန်မာအဘိဓာန် Authority Promotion & Zero Corpus Contamination
+            Assert.True(trie.TryGetExactEntries("လောလောဆယ်", out var lawEntries) && lawEntries != null && lawEntries.Any(x => x.IsOfficialThatpon));
+            Assert.True(trie.TryGetExactEntries("လောလောဆယ်ဆယ်", out var law2Entries) && law2Entries != null && law2Entries.Any(x => x.IsOfficialThatpon));
+            int distinctOfficial = model.Entries.Where(e => e.IsOfficialThatpon).Select(e => e.Word).Distinct(StringComparer.Ordinal).Count();
+            Assert.True(distinctOfficial >= 27000, $"Expected >= 27,000 Official Thatpon + MLC Abidan headwords, got {distinctOfficial}");
+
+            var contaminated = model.Entries
+                .Where(e => e.Word.Contains("လောလောဆည်") || (e.MeaningCue ?? "").Contains("လောလောဆည်") || (e.UsageNote ?? "").Contains("လောလောဆည်") ||
+                            e.Word.Contains("လက်တလော") || (e.MeaningCue ?? "").Contains("လက်တလော") || (e.UsageNote ?? "").Contains("လက်တလော"))
+                .Select(e => e.Word)
+                .ToList();
+            Assert.True(contaminated.Count == 0, $"Expected 0 corpus occurrences of 'လောလောဆည်'/'လက်တလော', got: {string.Join(", ", contaminated)}");
+        }
     }
 }
