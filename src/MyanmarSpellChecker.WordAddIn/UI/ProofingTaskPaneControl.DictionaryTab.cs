@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using MyanmarSpellChecker.Core.Dictionary;
 using MyanmarSpellChecker.Core.Localization;
@@ -120,14 +122,121 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             }
         }
 
+        private int _dictAsyncSearchVersion;
+
+        private bool ShouldRunDictionaryLookupAsync()
+        {
+            return IsHandleCreated &&
+                   !IsDisposed &&
+                   RequestIsDictionaryIndexReady != null &&
+                   !RequestIsDictionaryIndexReady.Invoke();
+        }
+
+        private void LoadFeaturedKnowledgeWordView(string titleEn, string titleMm, bool fallbackQueryOnEmpty)
+        {
+            int ver = Interlocked.Increment(ref _dictAsyncSearchVersion);
+            if (ShouldRunDictionaryLookupAsync())
+            {
+                _lblDictSummary.Text = UiLocalizer.Pick(
+                    "⏳ Preparing offline dictionary & encyclopedia index (first lookup only)...",
+                    "⏳ အဘိဓာန်နှင့် စွယ်စုံကျမ်း အညွှန်းစနစ် ပြင်ဆင်နေပါသည် (ပထမအကြိမ်သာ)...");
+                _lblDictSummary.ForeColor = Color.FromArgb(24, 82, 172);
+                Task.Run(() =>
+                {
+                    var sw = Stopwatch.StartNew();
+                    var featured = RequestGetFeaturedKnowledge?.Invoke() ?? new List<DictionaryEntry>();
+                    sw.Stop();
+                    try
+                    {
+                        if (!IsDisposed && IsHandleCreated)
+                        {
+                            BeginInvoke((Action)(() =>
+                            {
+                                if (IsDisposed || _activeTab != TaskPaneWorkspaceTab.Dictionary || ver != Volatile.Read(ref _dictAsyncSearchVersion))
+                                    return;
+                                if (featured.Count > 0)
+                                {
+                                    RenderDictionarySearchResults(
+                                        UiLocalizer.Pick(titleEn, titleMm),
+                                        featured,
+                                        sw.Elapsed.TotalMilliseconds,
+                                        InitialDictionaryRenderLimit,
+                                        convertedFromZawgyi: false,
+                                        effectiveQuery: string.Empty,
+                                        isCustomHeaderTitle: true);
+                                }
+                                else if (fallbackQueryOnEmpty)
+                                {
+                                    _txtDictionarySearch.Text = "မြန်မာသဒ္ဒါ";
+                                }
+                            }));
+                        }
+                    }
+                    catch { }
+                });
+                return;
+            }
+
+            var syncSw = Stopwatch.StartNew();
+            var syncFeatured = RequestGetFeaturedKnowledge?.Invoke() ?? new List<DictionaryEntry>();
+            syncSw.Stop();
+            if (syncFeatured.Count > 0)
+            {
+                RenderDictionarySearchResults(
+                    UiLocalizer.Pick(titleEn, titleMm),
+                    syncFeatured,
+                    syncSw.Elapsed.TotalMilliseconds,
+                    InitialDictionaryRenderLimit,
+                    convertedFromZawgyi: false,
+                    effectiveQuery: string.Empty,
+                    isCustomHeaderTitle: true);
+                return;
+            }
+            if (fallbackQueryOnEmpty)
+            {
+                _txtDictionarySearch.Text = "မြန်မာသဒ္ဒါ";
+            }
+        }
+
         private void RenderSavedBookmarksView()
         {
+            int ver = Interlocked.Increment(ref _dictAsyncSearchVersion);
             UpdateDictionaryNavButtons();
             var savedWords = DictionaryBookmarkStore.Shared.GetBookmarkedWords();
+            if (savedWords.Count > 0 && ShouldRunDictionaryLookupAsync())
+            {
+                _lblDictSummary.Text = UiLocalizer.Pick(
+                    "⏳ Preparing saved bookmarks...",
+                    "⏳ မှတ်သားထားသော ဝေါဟာရများ ပြင်ဆင်နေပါသည်...");
+                _lblDictSummary.ForeColor = Color.FromArgb(148, 86, 8);
+                Task.Run(() =>
+                {
+                    var asyncEntries = RequestGetBookmarkedEntries?.Invoke(savedWords) ?? new List<DictionaryEntry>();
+                    try
+                    {
+                        if (!IsDisposed && IsHandleCreated)
+                        {
+                            BeginInvoke((Action)(() =>
+                            {
+                                if (IsDisposed || _activeTab != TaskPaneWorkspaceTab.Dictionary || !_showingSavedBookmarksView || ver != Volatile.Read(ref _dictAsyncSearchVersion))
+                                    return;
+                                RenderSavedBookmarksEntries(asyncEntries);
+                            }));
+                        }
+                    }
+                    catch { }
+                });
+                return;
+            }
+
             var entries = savedWords.Count > 0
                 ? (RequestGetBookmarkedEntries?.Invoke(savedWords) ?? new List<DictionaryEntry>())
                 : new List<DictionaryEntry>();
+            RenderSavedBookmarksEntries(entries);
+        }
 
+        private void RenderSavedBookmarksEntries(List<DictionaryEntry> entries)
+        {
             if (entries.Count == 0)
             {
                 _cardsPanel.SuspendLayout();
@@ -179,20 +288,10 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             if (filter == DictionaryCategoryFilter.EncyclopediaKnowledge && string.IsNullOrWhiteSpace(_txtDictionarySearch.Text))
             {
-                var featured = RequestGetFeaturedKnowledge?.Invoke() ?? new List<DictionaryEntry>();
-                if (featured.Count > 0)
-                {
-                    RenderDictionarySearchResults(
-                        UiLocalizer.Pick("Encyclopedia (Featured Knowledge)", "စွယ်စုံဗဟုသုတ (ကျပန်းလေ့လာဖွယ်)"),
-                        featured,
-                        0.2,
-                        InitialDictionaryRenderLimit,
-                        convertedFromZawgyi: false,
-                        effectiveQuery: string.Empty,
-                        isCustomHeaderTitle: true);
-                    return;
-                }
-                _txtDictionarySearch.Text = "မြန်မာသဒ္ဒါ";
+                LoadFeaturedKnowledgeWordView(
+                    "Encyclopedia (Featured Knowledge)",
+                    "စွယ်စုံဗဟုသုတ (ကျပန်းလေ့လာဖွယ်)",
+                    fallbackQueryOnEmpty: true);
                 return;
             }
             if (filter == DictionaryCategoryFilter.ProverbsAndSayings && string.IsNullOrWhiteSpace(_txtDictionarySearch.Text))
@@ -233,35 +332,18 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             btn.FlatAppearance.BorderColor = selected ? Color.FromArgb(24, 90, 188) : Color.FromArgb(214, 220, 232);
         }
 
-        private void ExecuteDictionarySearchNow()
+        private (List<DictionaryEntry> Filtered, double ElapsedMs) ExecuteDictionaryQueryCore(
+            string query,
+            string effectiveQuery,
+            DictionaryCategoryFilter categoryFilter)
         {
-            if (_activeTab != TaskPaneWorkspaceTab.Dictionary)
-                return;
-
-            _showingSavedBookmarksView = false;
-            string query = _txtDictionarySearch.Text.Trim();
-            if (string.IsNullOrWhiteSpace(query))
-            {
-                UpdateDictionaryNavButtons();
-                RenderDictionaryDiscoveryView();
-                return;
-            }
-
-            if (!_suppressDictHistoryPush)
-            {
-                PushDictionaryHistory(query);
-            }
-            UpdateDictionaryNavButtons();
-
-            string effectiveQuery = MyanmarTrie.NormalizeSearchQuery(query, out bool convertedFromZawgyi);
-
             var sw = Stopwatch.StartNew();
             List<DictionaryEntry> filtered;
-            if (_dictCategoryFilter == DictionaryCategoryFilter.EncyclopediaKnowledge && RequestSearchReferenceCorpus != null)
+            if (categoryFilter == DictionaryCategoryFilter.EncyclopediaKnowledge && RequestSearchReferenceCorpus != null)
             {
                 filtered = RequestSearchReferenceCorpus.Invoke(effectiveQuery, false, true);
             }
-            else if (_dictCategoryFilter == DictionaryCategoryFilter.ProverbsAndSayings && RequestSearchReferenceCorpus != null)
+            else if (categoryFilter == DictionaryCategoryFilter.ProverbsAndSayings && RequestSearchReferenceCorpus != null)
             {
                 filtered = RequestSearchReferenceCorpus.Invoke(effectiveQuery, true, false);
             }
@@ -270,7 +352,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 List<DictionaryEntry> rawMatches = RequestDictionarySearch?.Invoke(query) ?? new List<DictionaryEntry>();
                 filtered = rawMatches;
 
-                switch (_dictCategoryFilter)
+                switch (categoryFilter)
                 {
                     case DictionaryCategoryFilter.OfficialThatpon:
                         filtered = rawMatches.Where(e => !e.IsReferenceEntry && e.IsOfficialThatpon).ToList();
@@ -295,11 +377,71 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 }
             }
             sw.Stop();
+            return (filtered, sw.Elapsed.TotalMilliseconds);
+        }
 
+        private void ExecuteDictionarySearchNow()
+        {
+            if (_activeTab != TaskPaneWorkspaceTab.Dictionary)
+                return;
+
+            int ver = Interlocked.Increment(ref _dictAsyncSearchVersion);
+            _showingSavedBookmarksView = false;
+            string query = _txtDictionarySearch.Text.Trim();
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                UpdateDictionaryNavButtons();
+                RenderDictionaryDiscoveryView();
+                return;
+            }
+
+            if (!_suppressDictHistoryPush)
+            {
+                PushDictionaryHistory(query);
+            }
+            UpdateDictionaryNavButtons();
+
+            string effectiveQuery = MyanmarTrie.NormalizeSearchQuery(query, out bool convertedFromZawgyi);
+            DictionaryCategoryFilter categorySnapshot = _dictCategoryFilter;
+
+            if (ShouldRunDictionaryLookupAsync())
+            {
+                _lblDictSummary.Text = UiLocalizer.Pick(
+                    "⏳ Preparing offline dictionary index (first lookup only)...",
+                    "⏳ အဘိဓာန် အညွှန်းစနစ် ပြင်ဆင်နေပါသည် (ပထမအကြိမ်သာ)...");
+                _lblDictSummary.ForeColor = Color.FromArgb(24, 82, 172);
+                Task.Run(() =>
+                {
+                    var (asyncFiltered, asyncMs) = ExecuteDictionaryQueryCore(query, effectiveQuery, categorySnapshot);
+                    try
+                    {
+                        if (!IsDisposed && IsHandleCreated)
+                        {
+                            BeginInvoke((Action)(() =>
+                            {
+                                if (IsDisposed || _activeTab != TaskPaneWorkspaceTab.Dictionary || _showingSavedBookmarksView || ver != Volatile.Read(ref _dictAsyncSearchVersion))
+                                    return;
+                                RenderDictionarySearchResults(
+                                    query,
+                                    asyncFiltered,
+                                    asyncMs,
+                                    InitialDictionaryRenderLimit,
+                                    convertedFromZawgyi,
+                                    effectiveQuery,
+                                    isCustomHeaderTitle: false);
+                            }));
+                        }
+                    }
+                    catch { }
+                });
+                return;
+            }
+
+            var (filtered, elapsedMs) = ExecuteDictionaryQueryCore(query, effectiveQuery, categorySnapshot);
             RenderDictionarySearchResults(
                 query,
                 filtered,
-                sw.Elapsed.TotalMilliseconds,
+                elapsedMs,
                 InitialDictionaryRenderLimit,
                 convertedFromZawgyi,
                 effectiveQuery,
@@ -365,18 +507,10 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             btnExploreRandom.Margin = new Padding(2, 0, 2, 7);
             btnExploreRandom.Click += (s, e) =>
             {
-                var featured = RequestGetFeaturedKnowledge?.Invoke() ?? new List<DictionaryEntry>();
-                if (featured.Count > 0)
-                {
-                    RenderDictionarySearchResults(
-                        UiLocalizer.Pick("Featured Encyclopedia & Dictionary Entries", "ကျပန်း လေ့လာဖွယ် စွယ်စုံဗဟုသုတ နှင့် အဘိဓာန်"),
-                        featured,
-                        0.2,
-                        InitialDictionaryRenderLimit,
-                        convertedFromZawgyi: false,
-                        effectiveQuery: string.Empty,
-                        isCustomHeaderTitle: true);
-                }
+                LoadFeaturedKnowledgeWordView(
+                    "Featured Encyclopedia & Dictionary Entries",
+                    "ကျပန်း လေ့လာဖွယ် စွယ်စုံဗဟုသုတ နှင့် အဘိဓာန်",
+                    fallbackQueryOnEmpty: false);
             };
             card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             card.Controls.Add(btnExploreRandom, 0, row++);

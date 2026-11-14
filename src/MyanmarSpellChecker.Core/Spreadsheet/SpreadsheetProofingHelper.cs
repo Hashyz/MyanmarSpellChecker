@@ -341,6 +341,9 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                 memo.Clear();
             }
 
+            var trie = engine.Trie;
+            IReadOnlyList<ProofingIssue> sharedEmptyIssues = Array.Empty<ProofingIssue>();
+
             var valArray = rawValue2Block as object?[,];
             var fmlArray = rawFormulaBlock as object?[,];
 
@@ -381,6 +384,9 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                         if (IsFormulaCell(cellVal, cellFml, blockHasFormula))
                             continue;
 
+                        if (OfficialStyleGrammarEngine.IsCleanCanonicalStandaloneNrc(cellText, trie))
+                            continue;
+
                         distinctSet ??= new HashSet<string>(StringComparer.Ordinal);
                         if (distinctSet.Add(cellText))
                         {
@@ -404,7 +410,8 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                                 loopState.Stop();
                                 return;
                             }
-                            computed[idx] = engine.CheckText(unseenList[idx], cacheParagraph: false);
+                            var eval = engine.CheckText(unseenList[idx], cacheParagraph: false);
+                            computed[idx] = eval.Count == 0 ? sharedEmptyIssues : eval;
                         });
 
                     if (cancellationToken.IsCancellationRequested)
@@ -452,9 +459,14 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                     {
                         if (!memo.TryGetValue(cellText, out cellIssues!))
                         {
+                            if (OfficialStyleGrammarEngine.IsCleanCanonicalStandaloneNrc(cellText, trie))
+                            {
+                                continue;
+                            }
                             nlpEvaluations++;
                             EcoPerformanceGovernor.MaybeMicroYield(nlpEvaluations, microYieldCadence);
-                            cellIssues = engine.CheckText(cellText, cacheParagraph: false);
+                            var eval = engine.CheckText(cellText, cacheParagraph: false);
+                            cellIssues = eval.Count == 0 ? sharedEmptyIssues : eval;
                             if (memo.Count < maxMemoEntries)
                             {
                                 memo[cellText] = cellIssues;

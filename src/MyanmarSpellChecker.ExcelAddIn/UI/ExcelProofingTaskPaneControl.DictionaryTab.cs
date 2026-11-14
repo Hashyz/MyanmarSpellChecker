@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using MyanmarSpellChecker.Core.Dictionary;
 using MyanmarSpellChecker.Core.Localization;
@@ -115,14 +117,54 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             }
         }
 
+        private int _dictAsyncSearchVersion;
+
+        private bool ShouldRunDictionaryLookupAsync()
+        {
+            return IsHandleCreated &&
+                   !IsDisposed &&
+                   RequestIsDictionaryIndexReady != null &&
+                   !RequestIsDictionaryIndexReady.Invoke();
+        }
+
         private void RenderSavedBookmarksView()
         {
+            int ver = Interlocked.Increment(ref _dictAsyncSearchVersion);
             UpdateDictionaryNavButtons();
             var savedWords = DictionaryBookmarkStore.Shared.GetBookmarkedWords();
+            if (savedWords.Count > 0 && ShouldRunDictionaryLookupAsync())
+            {
+                _lblDictSummary.Text = UiLocalizer.Pick(
+                    "⏳ Preparing saved bookmarks...",
+                    "⏳ မှတ်သားထားသော ဝေါဟာရများ ပြင်ဆင်နေပါသည်...");
+                Task.Run(() =>
+                {
+                    var asyncEntries = RequestGetBookmarkedEntries?.Invoke(savedWords) ?? new List<DictionaryEntry>();
+                    try
+                    {
+                        if (!IsDisposed && IsHandleCreated)
+                        {
+                            BeginInvoke((Action)(() =>
+                            {
+                                if (IsDisposed || _activeTab != TaskPaneWorkspaceTab.Dictionary || !_showingSavedBookmarksView || ver != Volatile.Read(ref _dictAsyncSearchVersion))
+                                    return;
+                                RenderSavedBookmarksEntries(asyncEntries);
+                            }));
+                        }
+                    }
+                    catch { }
+                });
+                return;
+            }
+
             var entries = savedWords.Count > 0
                 ? (RequestGetBookmarkedEntries?.Invoke(savedWords) ?? new List<DictionaryEntry>())
                 : new List<DictionaryEntry>();
+            RenderSavedBookmarksEntries(entries);
+        }
 
+        private void RenderSavedBookmarksEntries(List<DictionaryEntry> entries)
+        {
             if (entries.Count == 0)
             {
                 _cardsPanel.SuspendLayout();
@@ -172,13 +214,57 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             if (filter == DictionaryCategoryFilter.EncyclopediaKnowledge && string.IsNullOrWhiteSpace(_txtDictionarySearch.Text))
             {
+                int ver = Interlocked.Increment(ref _dictAsyncSearchVersion);
+                if (ShouldRunDictionaryLookupAsync())
+                {
+                    _lblDictSummary.Text = UiLocalizer.Pick(
+                        "⏳ Preparing offline dictionary & encyclopedia index (first lookup only)...",
+                        "⏳ အဘိဓာန်နှင့် စွယ်စုံကျမ်း အညွှန်းစနစ် ပြင်ဆင်နေပါသည် (ပထမအကြိမ်သာ)...");
+                    Task.Run(() =>
+                    {
+                        var sw = Stopwatch.StartNew();
+                        var asyncFeatured = RequestGetFeaturedKnowledge?.Invoke() ?? new List<DictionaryEntry>();
+                        sw.Stop();
+                        try
+                        {
+                            if (!IsDisposed && IsHandleCreated)
+                            {
+                                BeginInvoke((Action)(() =>
+                                {
+                                    if (IsDisposed || _activeTab != TaskPaneWorkspaceTab.Dictionary || ver != Volatile.Read(ref _dictAsyncSearchVersion))
+                                        return;
+                                    if (asyncFeatured.Count > 0)
+                                    {
+                                        RenderDictionaryResults(
+                                            UiLocalizer.Pick("Encyclopedia (Featured)", "စွယ်စုံဗဟုသုတ (လေ့လာဖွယ်)"),
+                                            asyncFeatured,
+                                            sw.Elapsed.TotalMilliseconds,
+                                            InitialDictionaryRenderLimit,
+                                            convertedFromZawgyi: false,
+                                            effectiveQuery: string.Empty,
+                                            isCustomHeaderTitle: true);
+                                    }
+                                    else
+                                    {
+                                        ExecuteDictionarySearchNow();
+                                    }
+                                }));
+                            }
+                        }
+                        catch { }
+                    });
+                    return;
+                }
+
+                var syncSw = Stopwatch.StartNew();
                 var featured = RequestGetFeaturedKnowledge?.Invoke() ?? new List<DictionaryEntry>();
+                syncSw.Stop();
                 if (featured.Count > 0)
                 {
                     RenderDictionaryResults(
                         UiLocalizer.Pick("Encyclopedia (Featured)", "စွယ်စုံဗဟုသုတ (လေ့လာဖွယ်)"),
                         featured,
-                        0.2,
+                        syncSw.Elapsed.TotalMilliseconds,
                         InitialDictionaryRenderLimit,
                         convertedFromZawgyi: false,
                         effectiveQuery: string.Empty,
@@ -209,11 +295,47 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             btn.FlatAppearance.BorderColor = selected ? Color.FromArgb(24, 90, 188) : Color.FromArgb(214, 220, 232);
         }
 
+        private (List<DictionaryEntry> Filtered, double ElapsedMs) ExecuteExcelDictionaryQueryCore(
+            string query,
+            string effectiveQuery,
+            DictionaryCategoryFilter categoryFilter)
+        {
+            var sw = Stopwatch.StartNew();
+            List<DictionaryEntry> filtered;
+            if (categoryFilter == DictionaryCategoryFilter.EncyclopediaKnowledge && RequestSearchReferenceCorpus != null)
+            {
+                filtered = RequestSearchReferenceCorpus.Invoke(effectiveQuery, false, true);
+            }
+            else if (categoryFilter == DictionaryCategoryFilter.ProverbsAndSayings && RequestSearchReferenceCorpus != null)
+            {
+                filtered = RequestSearchReferenceCorpus.Invoke(effectiveQuery, true, false);
+            }
+            else
+            {
+                var raw = RequestDictionarySearch?.Invoke(query) ?? new List<DictionaryEntry>();
+                filtered = categoryFilter switch
+                {
+                    DictionaryCategoryFilter.OfficialThatpon => raw.Where(e => !e.IsReferenceEntry && e.IsOfficialThatpon).ToList(),
+                    DictionaryCategoryFilter.AbidanMeaning => raw.Where(e =>
+                        e.IsBilingualLexiconEntry ||
+                        (!e.IsReferenceEntry && (!string.IsNullOrWhiteSpace(e.MeaningCue) || e.HasAbidanMetadata))).ToList(),
+                    DictionaryCategoryFilter.EncyclopediaKnowledge => raw.Where(e => e.IsEncyclopediaEntry).ToList(),
+                    DictionaryCategoryFilter.SpecializedDomains => raw.Where(e => e.IsSpecializedDomain).ToList(),
+                    DictionaryCategoryFilter.ProperNounsAndPlaces => raw.Where(e => e.IsProperNoun).ToList(),
+                    DictionaryCategoryFilter.ProverbsAndSayings => raw.Where(e => e.IsProverbOrSayingEntry).ToList(),
+                    _ => raw
+                };
+            }
+            sw.Stop();
+            return (filtered, sw.Elapsed.TotalMilliseconds);
+        }
+
         private void ExecuteDictionarySearchNow()
         {
             if (_activeTab != TaskPaneWorkspaceTab.Dictionary)
                 return;
 
+            int ver = Interlocked.Increment(ref _dictAsyncSearchVersion);
             _showingSavedBookmarksView = false;
             string query = _txtDictionarySearch.Text.Trim();
             if (string.IsNullOrWhiteSpace(query))
@@ -230,39 +352,45 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             UpdateDictionaryNavButtons();
 
             string effectiveQuery = MyanmarTrie.NormalizeSearchQuery(query, out bool convertedFromZawgyi);
+            DictionaryCategoryFilter categorySnapshot = _dictCategoryFilter;
 
-            var sw = Stopwatch.StartNew();
-            List<DictionaryEntry> filtered;
-            if (_dictCategoryFilter == DictionaryCategoryFilter.EncyclopediaKnowledge && RequestSearchReferenceCorpus != null)
+            if (ShouldRunDictionaryLookupAsync())
             {
-                filtered = RequestSearchReferenceCorpus.Invoke(effectiveQuery, false, true);
-            }
-            else if (_dictCategoryFilter == DictionaryCategoryFilter.ProverbsAndSayings && RequestSearchReferenceCorpus != null)
-            {
-                filtered = RequestSearchReferenceCorpus.Invoke(effectiveQuery, true, false);
-            }
-            else
-            {
-                var raw = RequestDictionarySearch?.Invoke(query) ?? new List<DictionaryEntry>();
-                filtered = _dictCategoryFilter switch
+                _lblDictSummary.Text = UiLocalizer.Pick(
+                    "⏳ Preparing offline dictionary index (first lookup only)...",
+                    "⏳ အဘိဓာန် အညွှန်းစနစ် ပြင်ဆင်နေပါသည် (ပထမအကြိမ်သာ)...");
+                Task.Run(() =>
                 {
-                    DictionaryCategoryFilter.OfficialThatpon => raw.Where(e => !e.IsReferenceEntry && e.IsOfficialThatpon).ToList(),
-                    DictionaryCategoryFilter.AbidanMeaning => raw.Where(e =>
-                        e.IsBilingualLexiconEntry ||
-                        (!e.IsReferenceEntry && (!string.IsNullOrWhiteSpace(e.MeaningCue) || e.HasAbidanMetadata))).ToList(),
-                    DictionaryCategoryFilter.EncyclopediaKnowledge => raw.Where(e => e.IsEncyclopediaEntry).ToList(),
-                    DictionaryCategoryFilter.SpecializedDomains => raw.Where(e => e.IsSpecializedDomain).ToList(),
-                    DictionaryCategoryFilter.ProperNounsAndPlaces => raw.Where(e => e.IsProperNoun).ToList(),
-                    DictionaryCategoryFilter.ProverbsAndSayings => raw.Where(e => e.IsProverbOrSayingEntry).ToList(),
-                    _ => raw
-                };
+                    var (asyncFiltered, asyncMs) = ExecuteExcelDictionaryQueryCore(query, effectiveQuery, categorySnapshot);
+                    try
+                    {
+                        if (!IsDisposed && IsHandleCreated)
+                        {
+                            BeginInvoke((Action)(() =>
+                            {
+                                if (IsDisposed || _activeTab != TaskPaneWorkspaceTab.Dictionary || _showingSavedBookmarksView || ver != Volatile.Read(ref _dictAsyncSearchVersion))
+                                    return;
+                                RenderDictionaryResults(
+                                    query,
+                                    asyncFiltered,
+                                    asyncMs,
+                                    InitialDictionaryRenderLimit,
+                                    convertedFromZawgyi,
+                                    effectiveQuery,
+                                    isCustomHeaderTitle: false);
+                            }));
+                        }
+                    }
+                    catch { }
+                });
+                return;
             }
-            sw.Stop();
 
+            var (filtered, elapsedMs) = ExecuteExcelDictionaryQueryCore(query, effectiveQuery, categorySnapshot);
             RenderDictionaryResults(
                 query,
                 filtered,
-                sw.Elapsed.TotalMilliseconds,
+                elapsedMs,
                 InitialDictionaryRenderLimit,
                 convertedFromZawgyi,
                 effectiveQuery,
@@ -271,6 +399,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
         private void RenderDictionaryDiscoveryCards()
         {
+            int ver = Interlocked.Increment(ref _dictAsyncSearchVersion);
             _cardsPanel.SuspendLayout();
             DisposeAndClearCardsPanel();
 
@@ -332,6 +461,43 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             card.Controls.Add(sampleFlow, 0, r++);
             _cardsPanel.Controls.Add(card);
+
+            if (ShouldRunDictionaryLookupAsync())
+            {
+                _cardsPanel.ResumeLayout(true);
+                Task.Run(() =>
+                {
+                    var asyncFeatured = RequestGetFeaturedKnowledge?.Invoke() ?? new List<DictionaryEntry>();
+                    try
+                    {
+                        if (!IsDisposed && IsHandleCreated)
+                        {
+                            BeginInvoke((Action)(() =>
+                            {
+                                if (IsDisposed ||
+                                    _activeTab != TaskPaneWorkspaceTab.Dictionary ||
+                                    _showingSavedBookmarksView ||
+                                    !string.IsNullOrWhiteSpace(_txtDictionarySearch.Text) ||
+                                    ver != Volatile.Read(ref _dictAsyncSearchVersion))
+                                {
+                                    return;
+                                }
+
+                                _cardsPanel.SuspendLayout();
+                                int cw = GetTargetCardWidth();
+                                int iw = Math.Max(180, cw - 32);
+                                foreach (var entry in asyncFeatured.Take(5))
+                                {
+                                    _cardsPanel.Controls.Add(BuildDictionaryEntryCard(entry, cw, iw));
+                                }
+                                _cardsPanel.ResumeLayout(true);
+                            }));
+                        }
+                    }
+                    catch { }
+                });
+                return;
+            }
 
             var featured = RequestGetFeaturedKnowledge?.Invoke() ?? new List<DictionaryEntry>();
             foreach (var entry in featured.Take(5))

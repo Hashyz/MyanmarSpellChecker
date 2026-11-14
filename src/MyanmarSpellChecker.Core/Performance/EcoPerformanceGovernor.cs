@@ -25,6 +25,11 @@ namespace MyanmarSpellChecker.Core.Performance
         public long AvailablePhysicalRamMb { get; set; }
         public bool Is32BitOfficeProcess { get; set; }
         public bool IsLowSpecHardware { get; set; }
+
+        public bool IsUltraLowMemoryHost =>
+            Is32BitOfficeProcess ||
+            (TotalPhysicalRamMb > 0 && TotalPhysicalRamMb <= 4_500) ||
+            (AvailablePhysicalRamMb > 0 && AvailablePhysicalRamMb <= 1_024);
     }
 
     public readonly struct EcoRuntimeBudgets

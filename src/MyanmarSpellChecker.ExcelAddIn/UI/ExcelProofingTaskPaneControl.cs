@@ -210,6 +210,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         public event Func<string, List<DictionaryEntry>>? RequestDictionarySearch;
         public event Func<string, bool, bool, List<DictionaryEntry>>? RequestSearchReferenceCorpus;
         public event Func<List<DictionaryEntry>>? RequestGetFeaturedKnowledge;
+        public event Func<bool>? RequestIsDictionaryIndexReady;
         public event Func<string, List<string>>? RequestGetSynonyms;
         public event Func<string, List<string>>? RequestGetAntonyms;
         public event Func<string, List<string>>? RequestGetCollocations;

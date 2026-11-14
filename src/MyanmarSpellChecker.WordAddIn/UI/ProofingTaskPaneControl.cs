@@ -213,6 +213,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         public event Func<IEnumerable<string>, List<DictionaryEntry>>? RequestGetBookmarkedEntries;
         public event Func<string, bool, bool, List<DictionaryEntry>>? RequestSearchReferenceCorpus;
         public event Func<List<DictionaryEntry>>? RequestGetFeaturedKnowledge;
+        public event Func<bool>? RequestIsDictionaryIndexReady;
         public event Func<string>? RequestGetSelectedDocumentText;
         public event Action<bool>? RequestConvertLegacyFonts;
         public event Action<bool, bool>? RequestFormatNumerals;

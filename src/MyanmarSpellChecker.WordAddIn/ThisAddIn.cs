@@ -609,6 +609,7 @@ namespace MyanmarSpellChecker.WordAddIn
 
         private void OnDocumentBeforeClose(Word.Document doc, ref bool cancel)
         {
+            bool willClose = !cancel;
             AddInDiagnostics.SafeExecute("OnDocumentBeforeClose", () =>
             {
                 _lastCheckedLangDocPos = -1;
@@ -616,6 +617,16 @@ namespace MyanmarSpellChecker.WordAddIn
                 _documentScanner?.PurgeDocument(doc);
                 _underlineManager?.PurgeClosedDocument(doc);
                 PruneClosedWindowTaskPanes();
+                try
+                {
+                    if (willClose && (_wordApp?.Documents?.Count ?? 0) <= 1)
+                    {
+                        _proofingEngine?.TrimMemoryCaches(
+                            aggressive: EcoPerformanceGovernor.Hardware.IsUltraLowMemoryHost ||
+                                        EcoPerformanceGovernor.CurrentPreference == EcoModePreference.AlwaysOn);
+                    }
+                }
+                catch { }
             });
         }
 
@@ -936,7 +947,9 @@ namespace MyanmarSpellChecker.WordAddIn
             bool ecoActive = _documentScanner?.IsEcoActive ?? EcoPerformanceGovernor.ComputeBudgets(isLargeFile: false).IsEcoActive;
             if (ecoActive)
             {
-                _proofingEngine?.TrimMemoryCaches();
+                _proofingEngine?.TrimMemoryCaches(
+                    aggressive: EcoPerformanceGovernor.Hardware.IsUltraLowMemoryHost ||
+                                next == EcoModePreference.AlwaysOn);
             }
 
             SyncEcoStateAcrossTaskPanes(ecoActive);
@@ -1064,6 +1077,8 @@ namespace MyanmarSpellChecker.WordAddIn
             };
             ctrl.RequestDictionarySearch += query =>
                 _proofingEngine?.SearchDictionary(query, 45) ?? new List<DictionaryEntry>();
+            ctrl.RequestIsDictionaryIndexReady += () =>
+                _proofingEngine?.IsDictionarySearchReady ?? true;
             ctrl.RequestSearchReferenceCorpus += (query, incProverbs, incEncyc) =>
                 _proofingEngine?.SearchReferenceCorpus(query, incProverbs, incEncyc, 40) ?? new List<DictionaryEntry>();
             ctrl.RequestGetSynonyms += word =>

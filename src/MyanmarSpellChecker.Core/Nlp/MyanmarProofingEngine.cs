@@ -343,6 +343,8 @@ namespace MyanmarSpellChecker.Core.Nlp
             set => Volatile.Write(ref _styleModeValue, (int)value);
         }
 
+        public bool IsDictionarySearchReady => _trie.IsSearchIndexReady;
+
         public List<DictionaryEntry> SearchDictionary(string query, int maxResults = 30)
         {
             _lexiconRwLock.EnterReadLock();
@@ -615,11 +617,28 @@ namespace MyanmarSpellChecker.Core.Nlp
             return loaded;
         }
 
-        public void TrimMemoryCaches()
+        private static readonly List<ProofingIssue> EmptyCachedIssues = new List<ProofingIssue>(0);
+
+        public void TrimMemoryCaches() => TrimMemoryCaches(aggressive: false);
+
+        public void TrimMemoryCaches(bool aggressive)
         {
             _paragraphCache.Clear();
             _fuzzyWindowCache.Clear();
             _suggestionEngine.ClearCache();
+
+            if (aggressive)
+            {
+                _lexiconRwLock.EnterWriteLock();
+                try
+                {
+                    _trie.TrimReferenceAndSearchCaches();
+                }
+                finally
+                {
+                    _lexiconRwLock.ExitWriteLock();
+                }
+            }
         }
 
         private static bool HasAnyMyanmarCodePoint(string text)
@@ -675,11 +694,17 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (cacheKey != null)
             {
                 int maxCache = EcoPerformanceGovernor.ComputeBudgets(isLargeFile: false).MaxParagraphCacheEntries;
-                if (_paragraphCache.Count > maxCache)
+                if (_paragraphCache.Count >= maxCache)
                 {
-                    _paragraphCache.Clear();
+                    int targetRemove = Math.Max(64, maxCache / 4);
+                    int removed = 0;
+                    foreach (var existingKey in _paragraphCache.Keys)
+                    {
+                        if (_paragraphCache.TryRemove(existingKey, out _) && ++removed >= targetRemove)
+                            break;
+                    }
                 }
-                _paragraphCache[cacheKey] = CloneIssues(computed);
+                _paragraphCache[cacheKey] = computed.Count == 0 ? EmptyCachedIssues : CloneIssues(computed);
             }
 
             return computed;
@@ -3958,15 +3983,24 @@ namespace MyanmarSpellChecker.Core.Nlp
                 for (int pos = 0; pos < windowLen; pos++)
                 {
                     _trie.GetCompoundAnchorBuckets(windowLen, pos, tokens[startIndex + pos].NormalizedText, out var exBucket, out var phBucket);
-                    if (exBucket != null)
+                    if (exBucket is DictionaryEntry exSingle)
                     {
-                        for (int i = 0; i < exBucket.Count; i++)
-                            EvaluateCandidate(exBucket[i], enforceAnchorLengthDelta: true);
+                        EvaluateCandidate(exSingle, enforceAnchorLengthDelta: true);
                     }
-                    if (phBucket != null)
+                    else if (exBucket is List<DictionaryEntry> exList)
                     {
-                        for (int i = 0; i < phBucket.Count; i++)
-                            EvaluateCandidate(phBucket[i], enforceAnchorLengthDelta: true);
+                        for (int i = 0; i < exList.Count; i++)
+                            EvaluateCandidate(exList[i], enforceAnchorLengthDelta: true);
+                    }
+
+                    if (phBucket is DictionaryEntry phSingle)
+                    {
+                        EvaluateCandidate(phSingle, enforceAnchorLengthDelta: true);
+                    }
+                    else if (phBucket is List<DictionaryEntry> phList)
+                    {
+                        for (int i = 0; i < phList.Count; i++)
+                            EvaluateCandidate(phList[i], enforceAnchorLengthDelta: true);
                     }
                 }
             }

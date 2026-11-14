@@ -850,6 +850,92 @@ namespace MyanmarSpellChecker.Core.Nlp
         }
 
         /// <summary>
+        /// Zero-allocation O(N) character pre-filter strictly superseting every branch of <see cref="ZawgyiPattern"/>
+        /// and <see cref="DoubleConvertedUnicodeTokenPattern"/> so clean Pyidaungsu Unicode skips regex backtracking completely.
+        /// </summary>
+        private static bool MayContainZawgyiOrMojibake(string text, out bool maybeRawZg, out bool maybeDoubleConv)
+        {
+            maybeRawZg = false;
+            maybeDoubleConv = false;
+            int len = text.Length;
+
+            for (int i = 0; i < len; i++)
+            {
+                char c = text[i];
+                if (c < '\u1000' || c > '\u109F')
+                    continue;
+
+                if (!maybeRawZg)
+                {
+                    if (c == '\u1033' || c == '\u1034' || c == '\u105A' || (c >= '\u1060' && c <= '\u1097'))
+                    {
+                        maybeRawZg = true;
+                    }
+                    else if (c == '\u1031')
+                    {
+                        if (i == 0)
+                        {
+                            maybeRawZg = true;
+                        }
+                        else
+                        {
+                            char prev = text[i - 1];
+                            if (!((prev >= '\u1000' && prev <= '\u102A') || (prev >= '\u103B' && prev <= '\u103F')))
+                                maybeRawZg = true;
+                        }
+                    }
+                    else if (c == '\u103B')
+                    {
+                        if (i == 0 || text[i - 1] < '\u1000' || text[i - 1] > '\u103F')
+                            maybeRawZg = true;
+                    }
+                    else if (c == '\u1039')
+                    {
+                        if (i + 1 >= len || text[i + 1] < '\u1000' || text[i + 1] >= '\u1021' ||
+                            (i > 0 && text[i - 1] == '\u1004') ||
+                            (i + 2 < len && text[i + 2] == '\u103A'))
+                        {
+                            maybeRawZg = true;
+                        }
+                    }
+                    else if (c == '\u1019')
+                    {
+                        if (i + 3 < len && text[i + 1] == '\u103A' && text[i + 2] == '\u102C' && text[i + 3] == '\u1038')
+                            maybeRawZg = true;
+                    }
+                    else if (c == '\u1025')
+                    {
+                        if (i + 3 < len && text[i + 1] == '\u1015' && text[i + 2] == '\u1031' && text[i + 3] == '\u1012')
+                            maybeRawZg = true;
+                    }
+                }
+
+                if (!maybeDoubleConv)
+                {
+                    if (c == '\u103B' && i >= 2)
+                    {
+                        char prev = text[i - 1];
+                        if ((prev == '\u1004' || prev == '\u1005' || prev == '\u1009' ||
+                             prev == '\u100A' || prev == '\u1010' || prev == '\u1014') &&
+                            !(i + 1 < len && text[i + 1] >= '\u102B' && text[i + 1] <= '\u1036'))
+                        {
+                            maybeDoubleConv = true;
+                        }
+                    }
+                    else if (c == '\u103E' && i + 1 < len && text[i + 1] == '\u103E')
+                    {
+                        maybeDoubleConv = true;
+                    }
+                }
+
+                if (maybeRawZg && maybeDoubleConv)
+                    return true;
+            }
+
+            return maybeRawZg || maybeDoubleConv;
+        }
+
+        /// <summary>
         /// Locates exact Zawgyi-One or hybrid Zawgyi-corrupted spans inside text without corrupting surrounding Unicode words.
         /// </summary>
         public static List<(int StartIndex, int Length, string OriginalText, string ConvertedUnicode)> FindZawgyiSpans(string text)
@@ -858,9 +944,11 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (string.IsNullOrWhiteSpace(text))
                 return spans;
 
-            bool hasRawZawgyi = ZawgyiPattern.IsMatch(text);
-            bool hasDoubleConverted = (text.IndexOf('\u103B') >= 0 || text.IndexOf('\u103E') >= 0) &&
-                                      DoubleConvertedUnicodeTokenPattern.IsMatch(text);
+            if (!MayContainZawgyiOrMojibake(text, out bool maybeRawZg, out bool maybeDoubleConv))
+                return spans;
+
+            bool hasRawZawgyi = maybeRawZg && ZawgyiPattern.IsMatch(text);
+            bool hasDoubleConverted = maybeDoubleConv && DoubleConvertedUnicodeTokenPattern.IsMatch(text);
             if (!hasRawZawgyi && !hasDoubleConverted)
                 return spans;
 

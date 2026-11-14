@@ -3060,5 +3060,142 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.Equal("ဥကတ", searchFullOkkala[0].Word);
             Assert.Contains("တောင်ဥက္ကလာပ", searchFullOkkala[0].MeaningCue);
         }
+
+        [Fact]
+        public void V59_PotatoPcPerformanceAndMemoryGate()
+        {
+            string dbPath = Path.Combine(TestPaths.RepoRoot, "data", "mlc_thatpon.db");
+            string key = AntiTamperGuard.ReconstructProtectedFallbackKey();
+
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            MyanmarTrie trie = repo.LoadIntoTrie(key);
+            var engine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // 1. Zero-regex stack-normalizer phonetic & strict homophone parity
+            Assert.Equal(MyanmarTrie.ComputePhoneticKey("သင်္ကြန်"), MyanmarTrie.ComputePhoneticKey("သကြန်"));
+            Assert.Equal(MyanmarTrie.ComputePhoneticKey("အင်္ကျီ"), MyanmarTrie.ComputePhoneticKey("အကျီ"));
+            foreach (string stackedWord in new[] { "မန္တလေး", "ကမ္ဘာ", "ပုဂ္ဂိုလ်", "မေတ္တာ", "ဥက္ကဋ္ဌ", "သဏ္ဌာန်" })
+            {
+                Assert.False(string.IsNullOrEmpty(MyanmarTrie.ComputePhoneticKey(stackedWord)));
+                Assert.False(string.IsNullOrEmpty(MyanmarTrie.ComputeStrictHomophoneKey(stackedWord)));
+            }
+
+            // 2. Clean Pyidaungsu vs Zawgyi fast pre-filter parity
+            Assert.Empty(UnicodeNormalizer.FindZawgyiSpans("ပြည်ထောင်စုသမ္မတမြန်မာနိုင်ငံတော် ပညာရေးဝန်ကြီးဌာန ၂၀၂၆ ခုနှစ်။"));
+            Assert.NotEmpty(UnicodeNormalizer.FindZawgyiSpans("ျမန္မာစာ ႏိုင္ငံေတာ္"));
+
+            // 3. Synonym & Antonym lookup must NOT hydrate the 84,000+ deferred reference corpus
+            int expectedRefCount = trie.ReferenceCount;
+            Assert.True(expectedRefCount > 80_000, $"Expected >80,000 deferred reference entries, got {expectedRefCount}");
+            Assert.False(trie.IsReferenceCorpusLoaded);
+            Assert.False(engine.IsDictionarySearchReady);
+
+            var syns = engine.GetSynonyms("ရဟန်း", 8);
+            var ants = engine.GetAntonyms("အကောင်း", 8);
+            Assert.NotEmpty(syns);
+            Assert.NotEmpty(ants);
+            Assert.False(trie.IsReferenceCorpusLoaded);
+            Assert.False(engine.IsDictionarySearchReady);
+
+            // 4. Potato PC Hardware Governance + 46,000-cell Excel scan with 4,600 unique canonical NRCs
+            var potatoHw = new MyanmarSpellChecker.Core.Performance.HardwareResourceProfile
+            {
+                LogicalCores = 2,
+                TotalPhysicalRamMb = 4096,
+                AvailablePhysicalRamMb = 896,
+                Is32BitOfficeProcess = true,
+                IsLowSpecHardware = true
+            };
+            Assert.True(potatoHw.IsUltraLowMemoryHost);
+            var potatoBudgets = MyanmarSpellChecker.Core.Performance.EcoPerformanceGovernor.ComputeBudgets(
+                true,
+                MyanmarSpellChecker.Core.Performance.EcoModePreference.AlwaysOn,
+                potatoHw);
+
+            int rows = 4600, cols = 10;
+            var grid = new object[rows, cols];
+            static string ToMmSixDigits(int n)
+            {
+                char[] c = n.ToString("D6").ToCharArray();
+                for (int i = 0; i < c.Length; i++) c[i] = (char)('၀' + (c[i] - '0'));
+                return new string(c);
+            }
+
+            for (int r = 0; r < rows; r++)
+            {
+                grid[r, 0] = (double)(r + 1);
+                grid[r, 1] = (r % 2 == 0)
+                    ? "၉/ဇဗသ(နိုင်)" + ToMmSixDigits(r + 1)
+                    : "၁/မကန(နိုင်)" + ToMmSixDigits(r + 1);
+                grid[r, 2] = "ပညာရေးဝန်ကြီးဌာန";
+                grid[r, 3] = "ကျောက်ဆည်တက္ကသိုလ်";
+                grid[r, 4] = "စိစစ်ပြီး";
+                grid[r, 5] = "2026-11-14";
+                grid[r, 6] = (double)(1000 + r);
+                grid[r, 7] = "မှတ်တမ်းအမှတ် " + (r % 200);
+                grid[r, 8] = (r == 10) ? "၁၅/မရက(နိုင်)၁၂၃၄၅၆"
+                           : (r == 20) ? "၉/ဇဗသ(ပြူ)၁၂၃၄၅၆"
+                           : (r == 30) ? "၁၂/မရက(နိုင်)၁၂ဝ၄၅၆"
+                           : "အတည်ပြုပြီး";
+                grid[r, 9] = (r == 40) ? "နေ့လည် စီစစ်ပီး" : "ဆောင်ရွက်ပြီး";
+            }
+
+            var memo = new Dictionary<string, IReadOnlyList<ProofingIssue>>(StringComparer.Ordinal);
+            var swExcel = System.Diagnostics.Stopwatch.StartNew();
+            var excelIssues = SpreadsheetProofingHelper.ScanBlockValues(
+                engine,
+                "Potato46k.xlsx",
+                "NRC_Sheet",
+                1,
+                1,
+                rows,
+                cols,
+                grid,
+                rawFormulaBlock: null,
+                blockHasFormula: false,
+                sharedCellMemo: memo,
+                cancellationToken: default,
+                maxIssuesToCollect: 10000,
+                explicitBudgets: potatoBudgets);
+            swExcel.Stop();
+
+            // Zero valid canonical NRCs in Column 2 may be flagged OR pollute the cell memo
+            Assert.DoesNotContain(excelIssues, x => x.Column == 2);
+            Assert.False(memo.ContainsKey("၉/ဇဗသ(နိုင်)၀၀၀၀၀၁"));
+            // Malformed NRCs and prose typos must still be caught with zero accuracy loss
+            Assert.Contains(excelIssues, x => x.Row == 11 && x.Column == 9);
+            Assert.Contains(excelIssues, x => x.Row == 21 && x.Column == 9);
+            Assert.Contains(excelIssues, x => x.Row == 31 && x.Column == 9);
+            Assert.Contains(excelIssues, x => x.Row == 41 && x.Column == 10);
+            Assert.True(swExcel.ElapsedMilliseconds < 3500, $"Expected Potato PC 46k scan < 3500 ms, took {swExcel.ElapsedMilliseconds} ms");
+
+            // 5. Fast Dictionary Search + Potato PC Aggressive Memory Eviction & Transparent Reload
+            var enHits = engine.SearchDictionary("abandon", 15);
+            var romHits = engine.SearchDictionary("mingalaba", 15);
+            var nrcHits = engine.SearchDictionary("ဇဗသ/နိုင်", 10);
+            Assert.NotEmpty(enHits);
+            Assert.NotEmpty(romHits);
+            Assert.NotEmpty(nrcHits);
+            Assert.True(engine.IsDictionarySearchReady);
+            Assert.True(trie.IsReferenceCorpusLoaded);
+
+            // Aggressive trim evicts lazy search & reference caches while preserving ReferenceCount and full proofing
+            engine.TrimMemoryCaches(aggressive: true);
+            Assert.False(engine.IsDictionarySearchReady);
+            Assert.False(trie.IsReferenceCorpusLoaded);
+            Assert.Equal(expectedRefCount, trie.ReferenceCount);
+
+            var postTrimIssues = engine.CheckText("ယနေ့ နေ့လည် ပီးပီ။");
+            Assert.True(postTrimIssues.Count >= 2);
+            Assert.False(trie.IsReferenceCorpusLoaded);
+
+            // Transparent reload on subsequent dictionary / encyclopedia lookup
+            var reloadedHits = engine.SearchDictionary("abandon", 15);
+            var featuredHits = engine.GetFeaturedKnowledgeEntries(8);
+            Assert.NotEmpty(reloadedHits);
+            Assert.NotEmpty(featuredHits);
+            Assert.True(engine.IsDictionarySearchReady);
+            Assert.True(trie.IsReferenceCorpusLoaded);
+        }
     }
 }

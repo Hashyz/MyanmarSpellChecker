@@ -578,6 +578,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
 
         private void OnWorkbookBeforeClose(Excel.Workbook wb, ref bool cancel)
         {
+            bool willClose = !cancel;
             AddInDiagnostics.SafeExecute("OnWorkbookBeforeClose", () =>
             {
                 _quickFixController?.CloseActivePopup();
@@ -586,6 +587,16 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 try { wbName = wb?.Name; } catch { }
                 _scannerToolkit?.PurgeClosedWorkbook(wbName);
                 PruneClosedWindowTaskPanes();
+                try
+                {
+                    if (willClose && (_excelApp?.Workbooks?.Count ?? 0) <= 1)
+                    {
+                        _proofingEngine?.TrimMemoryCaches(
+                            aggressive: EcoPerformanceGovernor.Hardware.IsUltraLowMemoryHost ||
+                                        EcoPerformanceGovernor.CurrentPreference == EcoModePreference.AlwaysOn);
+                    }
+                }
+                catch { }
             });
         }
 
@@ -936,7 +947,9 @@ namespace MyanmarSpellChecker.ExcelAddIn
             bool ecoActive = _scannerToolkit?.IsEcoActive ?? EcoPerformanceGovernor.ComputeBudgets(isLargeFile: false).IsEcoActive;
             if (ecoActive)
             {
-                _proofingEngine?.TrimMemoryCaches();
+                _proofingEngine?.TrimMemoryCaches(
+                    aggressive: EcoPerformanceGovernor.Hardware.IsUltraLowMemoryHost ||
+                                next == EcoModePreference.AlwaysOn);
             }
 
             SyncEcoStateAcrossTaskPanes(ecoActive);
@@ -977,6 +990,8 @@ namespace MyanmarSpellChecker.ExcelAddIn
 
             ctrl.RequestDictionarySearch += query =>
                 _proofingEngine?.SearchDictionary(query, 45) ?? new List<DictionaryEntry>();
+            ctrl.RequestIsDictionaryIndexReady += () =>
+                _proofingEngine?.IsDictionarySearchReady ?? true;
             ctrl.RequestSearchReferenceCorpus += (query, incProverbs, incEncyc) =>
                 _proofingEngine?.SearchReferenceCorpus(query, incProverbs, incEncyc, 40) ?? new List<DictionaryEntry>();
             ctrl.RequestGetFeaturedKnowledge += () =>
