@@ -3395,7 +3395,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     int tabIdx = egLine.IndexOf('\t');
                     if (tabIdx <= 0 || tabIdx + 1 >= egLine.Length) continue;
                     string ek = egLine.Substring(0, tabIdx).Trim();
-                    string mv = egLine.Substring(tabIdx + 1).Trim();
+                    string mv = NormalizeMyanmar(egLine.Substring(tabIdx + 1).Trim());
                     if (ek.Length >= 2 && mv.Length >= 2 && !enToMmGlossMap.ContainsKey(ek))
                     {
                         enToMmGlossMap[ek] = mv;
@@ -3413,7 +3413,25 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 }
             }
 
-            bool NeedsAuthenticMmDefinition(string cue)
+            bool IsSelfReferentialGloss(string word, string gloss)
+            {
+                if (string.IsNullOrWhiteSpace(word) || string.IsNullOrWhiteSpace(gloss))
+                    return false;
+                string normWord = NormalizeMyanmar(word.Trim());
+                string[] parts = gloss.Split(new char[] { '•', '၊', ';', '/' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length == 0)
+                    return true;
+                for (int pi = 0; pi < parts.Length; pi++)
+                {
+                    string rawPart = Regex.Replace(parts[pi].Trim(), @"^(?:\[[^\]]*\]\s*|[၁၂၃၄၅၆၇၈၉၀0-9]+\s*[၊။\.\)]\s*)+", "");
+                    string cleaned = NormalizeMyanmar(rawPart.Trim(' ', '။', '၊', '.', ';', ':', '•', '~', '"', '\'', '“', '”', '(', ')'));
+                    if (cleaned.Length > 0 && !string.Equals(cleaned, normWord, StringComparison.Ordinal))
+                        return false;
+                }
+                return true;
+            }
+
+            bool NeedsAuthenticMmDefinition(string cue, string headword = null)
             {
                 if (string.IsNullOrWhiteSpace(cue))
                     return true;
@@ -3430,22 +3448,54 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 }
                 if (startsWithLatinGlossRx.IsMatch(cue) || !hasMyanmarConsonantRx.IsMatch(cue))
                     return true;
+                if (!string.IsNullOrEmpty(headword) && IsSelfReferentialGloss(headword, cue))
+                    return true;
                 return false;
+            }
+
+            string BalanceShortenedParentheses(string s)
+            {
+                if (string.IsNullOrEmpty(s) || s.IndexOf('(') < 0)
+                    return s;
+                int openDepth = 0;
+                int lastUnmatchedOpen = -1;
+                for (int idx = 0; idx < s.Length; idx++)
+                {
+                    if (s[idx] == '(')
+                    {
+                        if (openDepth == 0) lastUnmatchedOpen = idx;
+                        openDepth++;
+                    }
+                    else if (s[idx] == ')' && openDepth > 0)
+                    {
+                        openDepth--;
+                    }
+                }
+                if (openDepth > 0)
+                {
+                    if (lastUnmatchedOpen >= 6)
+                        return s.Substring(0, lastUnmatchedOpen).TrimEnd(' ', '—', '-', '၊', ',');
+                    return s + new string(')', openDepth);
+                }
+                return s;
             }
 
             string ShortenStemGloss(string g)
             {
                 if (string.IsNullOrEmpty(g)) return "";
+                g = Regex.Replace(g.Trim(), @"^[၁၂၃၄၅၆၇၈၉၀0-9]+\s*[၊။\.\)]\s*", "");
                 int khweIdx = g.IndexOf("(နှိုင်းယှဉ်:", StringComparison.Ordinal);
                 if (khweIdx > 0) g = g.Substring(0, khweIdx);
                 int bulletIdx = g.IndexOf(" • ", StringComparison.Ordinal);
                 if (bulletIdx > 4) g = g.Substring(0, bulletIdx);
                 int dashIdx = g.IndexOf(" — ", StringComparison.Ordinal);
                 if (dashIdx > 8) g = g.Substring(0, dashIdx);
-                g = g.Trim(' ', '။', '.', '•');
-                if (g.Length > 55)
-                    g = g.Substring(0, 52).TrimEnd() + "…";
-                return g;
+                int sentIdx = g.IndexOf('။');
+                if (sentIdx > 3) g = g.Substring(0, sentIdx);
+                g = g.Trim(' ', '။', '.', '•', '၊');
+                if (g.Length > 48)
+                    g = g.Substring(0, 45).TrimEnd() + "…";
+                return BalanceShortenedParentheses(g);
             }
 
             // Step P3-a: Remove redundant English-only / placeholder duplicate homograph entries when primary headword already has a Myanmar definition
@@ -3455,7 +3505,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 EntryItem primary;
                 if (map.TryGetValue(e.Word, out primary) && !ReferenceEquals(e, primary))
                 {
-                    if (NeedsAuthenticMmDefinition(e.MeaningCue) && !NeedsAuthenticMmDefinition(primary.MeaningCue))
+                    if (NeedsAuthenticMmDefinition(e.MeaningCue, e.Word) && !NeedsAuthenticMmDefinition(primary.MeaningCue, primary.Word))
                     {
                         bool primaryForeignPropn = primary.PosTag == "PROPN" &&
                             (string.IsNullOrEmpty(primary.UsageNote) ||
@@ -3482,10 +3532,10 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
             for (int i = 0; i < allEntries.Count; i++)
             {
                 var e = allEntries[i];
-                if (!NeedsAuthenticMmDefinition(e.MeaningCue) && !realMmStemDefs.ContainsKey(e.Word))
+                if (!NeedsAuthenticMmDefinition(e.MeaningCue, e.Word) && !realMmStemDefs.ContainsKey(e.Word))
                 {
                     string sg = ShortenStemGloss(e.MeaningCue);
-                    if (sg.Length >= 2)
+                    if (sg.Length >= 2 && !string.Equals(sg, e.Word, StringComparison.Ordinal))
                         realMmStemDefs[e.Word] = sg;
                 }
             }
@@ -3506,7 +3556,27 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     realMmStemDefs[commonCompoundRoots[cr].Mod] = commonCompoundRoots[cr].Def;
             }
 
-            string LookupEnglishSenseInMm(string rawEn)
+            string StripSelfSenseFromGloss(string headword, string rawMmHit)
+            {
+                if (string.IsNullOrWhiteSpace(rawMmHit))
+                    return null;
+                if (string.IsNullOrEmpty(headword))
+                    return rawMmHit;
+                if (IsSelfReferentialGloss(headword, rawMmHit))
+                    return null;
+                string[] bullets = rawMmHit.Split(new[] { " • " }, StringSplitOptions.RemoveEmptyEntries);
+                if (bullets.Length <= 1)
+                    return rawMmHit;
+                var kept = new List<string>(bullets.Length);
+                for (int bi = 0; bi < bullets.Length; bi++)
+                {
+                    if (!IsSelfReferentialGloss(headword, bullets[bi]))
+                        kept.Add(bullets[bi].Trim());
+                }
+                return kept.Count > 0 ? string.Join(" • ", kept) : null;
+            }
+
+            string LookupEnglishSenseInMm(string rawEn, string headword = null)
             {
                 if (string.IsNullOrWhiteSpace(rawEn)) return null;
                 string[] parts = rawEn.Split(new char[] { ';', ',', '/' }, StringSplitOptions.RemoveEmptyEntries);
@@ -3525,24 +3595,36 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     if (cand.Length < 2) continue;
                     string mmHit;
                     if (enToMmGlossMap.TryGetValue(cand, out mmHit))
-                        return mmHit;
+                    {
+                        string filtered = StripSelfSenseFromGloss(headword, mmHit);
+                        if (!string.IsNullOrEmpty(filtered)) return filtered;
+                    }
                     if (cand.EndsWith("ing", StringComparison.Ordinal) && cand.Length > 5)
                     {
                         string baseStem = cand.Substring(0, cand.Length - 3);
                         if (enToMmGlossMap.TryGetValue(baseStem, out mmHit) || enToMmGlossMap.TryGetValue(baseStem + "e", out mmHit))
-                            return mmHit;
+                        {
+                            string filtered = StripSelfSenseFromGloss(headword, mmHit);
+                            if (!string.IsNullOrEmpty(filtered)) return filtered;
+                        }
                     }
                     if (cand.EndsWith("ed", StringComparison.Ordinal) && cand.Length > 4)
                     {
                         string baseStem = cand.Substring(0, cand.Length - 2);
                         if (enToMmGlossMap.TryGetValue(baseStem, out mmHit) || enToMmGlossMap.TryGetValue(cand.Substring(0, cand.Length - 1), out mmHit))
-                            return mmHit;
+                        {
+                            string filtered = StripSelfSenseFromGloss(headword, mmHit);
+                            if (!string.IsNullOrEmpty(filtered)) return filtered;
+                        }
                     }
                     if (cand.EndsWith("s", StringComparison.Ordinal) && cand.Length > 3 && !cand.EndsWith("ss", StringComparison.Ordinal))
                     {
                         string baseStem = cand.Substring(0, cand.Length - 1);
                         if (enToMmGlossMap.TryGetValue(baseStem, out mmHit))
-                            return mmHit;
+                        {
+                            string filtered = StripSelfSenseFromGloss(headword, mmHit);
+                            if (!string.IsNullOrEmpty(filtered)) return filtered;
+                        }
                     }
                     // Multi-word English gloss: try head word if 2 words (e.g. 'musical instrument' -> 'instrument')
                     string[] enWords = cand.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
@@ -3550,9 +3632,21 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     {
                         string w1Mm, w2Mm;
                         if (enToMmGlossMap.TryGetValue(enWords[0], out w1Mm) && enToMmGlossMap.TryGetValue(enWords[1], out w2Mm))
-                            return ShortenStemGloss(w2Mm) + " (" + ShortenStemGloss(w1Mm) + ")။";
+                        {
+                            string s1 = ShortenStemGloss(w1Mm);
+                            string s2 = ShortenStemGloss(w2Mm);
+                            if (!string.IsNullOrEmpty(s1) && !string.IsNullOrEmpty(s2))
+                            {
+                                string comb = s2 + " (" + s1 + ")။";
+                                if (!IsSelfReferentialGloss(headword, comb))
+                                    return comb;
+                            }
+                        }
                         if (enToMmGlossMap.TryGetValue(enWords[1], out w2Mm) && enWords[1].Length >= 4)
-                            return w2Mm;
+                        {
+                            string filtered = StripSelfSenseFromGloss(headword, w2Mm);
+                            if (!string.IsNullOrEmpty(filtered)) return filtered;
+                        }
                     }
                 }
                 return null;
@@ -3560,26 +3654,52 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
 
             (string Suffix, string Template)[] productiveSuffixes = new (string, string)[]
             {
+                ("ဝန်ကြီးဌာန", "{0}ဆိုင်ရာ ပြည်ထောင်စု ဝန်ကြီးဌာန ({1})။"),
+                ("ဦးစီးဌာန", "{0}ဆိုင်ရာ အစိုးရ ဦးစီးဌာန ({1})။"),
+                ("ကော်မရှင်", "{0}ဆိုင်ရာ ကြီးကြပ်ဆောင်ရွက်သည့် ကော်မရှင်အဖွဲ့ ({1})။"),
+                ("စီမံကိန်း", "{0}ဆိုင်ရာ ရည်မှန်းချက် စီမံကိန်း ({1})။"),
+                ("လုပ်ငန်း", "{0}နှင့် သက်ဆိုင်သော စီးပွားရေး သို့မဟုတ် ဆောင်ရွက်မှု လုပ်ငန်း ({1})။"),
+                ("ကော်မတီ", "{0}ဆိုင်ရာ ပူးပေါင်းဆောင်ရွက်ရေး ကော်မတီအဖွဲ့ ({1})။"),
+                ("တပ်ဖွဲ့", "{0}ဆိုင်ရာ လုံခြုံရေး သို့မဟုတ် ကာကွယ်ရေး တပ်ဖွဲ့ ({1})။"),
+                ("ကျောင်း", "{0}သင်ကြားရာ သို့မဟုတ် ဆိုင်ရာ ကျောင်း ({1})။"),
+                ("ဆေးရုံ", "{0}ကုသသည့် ဆေးရုံ ({1})။"),
+                ("စက်ရုံ", "{0}ထုတ်လုပ်သည့် စက်ရုံ ({1})။"),
+                ("စခန်း", "{0}ဆိုင်ရာ အခြေစိုက်စခန်း သို့မဟုတ် နေရာ ({1})။"),
+                ("ဥပဒေ", "{0}ဆိုင်ရာ ပြဋ္ဌာန်းသတ်မှတ်ထားသော ဥပဒေ ({1})။"),
+                ("ရောဂါ", "{0}ကြောင့်ဖြစ်သော သို့မဟုတ် ယင်းဆိုင်ရာ ရောဂါဝေဒနာ ({1})။"),
+                ("အဖွဲ့", "{0}ဆိုင်ရာ စုဖွဲ့ထားသော အဖွဲ့အစည်း ({1})။"),
+                ("စနစ်", "{0}ခြင်းဆိုင်ရာ စည်းမျဉ်းစနစ် ({1})။"),
+                ("ပညာ", "{0}ခြင်းဆိုင်ရာ အတတ်ပညာရပ် ({1})။"),
+                ("သမား", "{0}ခြင်း၌ ကျွမ်းကျင်သူ သို့မဟုတ် လုပ်ကိုင်သူ ({1})။"),
+                ("ဌာန", "{0}ဆိုင်ရာ ရုံးဌာန သို့မဟုတ် ဌာနစိတ် ({1})။"),
                 ("ခြင်း", "{0}သည့် အပြုအမူ သို့မဟုတ် ဖြစ်စဉ် ({1})။"),
                 ("မှု", "{0}သည့် ကိစ္စရပ် သို့မဟုတ် အခြေအနေ ({1})။"),
                 ("ရေး", "{0}ခြင်းဆိုင်ရာ လုပ်ငန်းကိစ္စ ({1})။"),
                 ("ချက်", "{0}ထားသော အချက်အလက် သို့မဟုတ် ဖော်ပြချက် ({1})။"),
                 ("နည်း", "{0}သည့် နည်းလမ်းစနစ် ({1})။"),
-                ("စနစ်", "{0}ခြင်းဆိုင်ရာ စည်းမျဉ်းစနစ် ({1})။"),
-                ("ပညာ", "{0}ခြင်းဆိုင်ရာ အတတ်ပညာရပ် ({1})။"),
-                ("သမား", "{0}ခြင်း၌ ကျွမ်းကျင်သူ သို့မဟုတ် လုပ်ကိုင်သူ ({1})။"),
                 ("ရှင်", "{0}ကို ပိုင်ဆိုင်သူ သို့မဟုတ် ဆောင်ရွက်သူ ({1})။"),
                 ("သူ", "{0}သည့် ပုဂ္ဂိုလ် ({1})။"),
                 ("ဖွယ်", "{0}ထိုက်သော / {0}ဖွယ်ရာ အကြောင်းအရာ ({1})။"),
                 ("စရာ", "{0}ရန် အကြောင်းအရာ သို့မဟုတ် ပစ္စည်း ({1})။"),
                 ("စွာ", "{0}သော အခြင်းအရာဖြင့် ({1})။"),
                 ("ခန်း", "{0}ရာ အခန်း သို့မဟုတ် နေရာ ({1})။"),
+                ("ရုံး", "{0}ဆိုင်ရာ ရုံးဌာန ({1})။"),
                 ("ရုံ", "{0}ရာ အဆောက်အအုံ ({1})။"),
                 ("ဆိုင်", "{0}ရောင်းဝယ်ရာ ဆိုင် ({1})။"),
                 ("ကွင်း", "{0}ရာ ကွင်းပြင်နေရာ ({1})။"),
                 ("ပင်", "{0}အပင်မျိုး ({1})။"),
                 ("သီး", "{0}ပင်မှ သီးသော အသီး ({1})။")
             };
+
+            bool IsExactSyllableBoundary(MatchCollection sylMatches, int charPos)
+            {
+                for (int si = 1; si < sylMatches.Count; si++)
+                {
+                    if (sylMatches[si].Index == charPos)
+                        return true;
+                }
+                return false;
+            }
 
             int mmTranslatedFromEn = 0;
             int mmMorphSynthesized = 0;
@@ -3589,7 +3709,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
             for (int i = 0; i < allEntries.Count; i++)
             {
                 var e = allEntries[i];
-                if (!NeedsAuthenticMmDefinition(e.MeaningCue))
+                if (!NeedsAuthenticMmDefinition(e.MeaningCue, e.Word))
                     continue;
 
                 bool isForeignPropn =
@@ -3630,14 +3750,18 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                             : e.UsageNote.Substring(enIdx + "အင်္ဂလိပ်အနက်:".Length)).Trim();
                     }
                 }
-                string translatedMm = LookupEnglishSenseInMm(enSource ?? "");
+                string translatedMm = LookupEnglishSenseInMm(enSource ?? "", e.Word);
                 if (!string.IsNullOrEmpty(translatedMm) && hasMyanmarConsonantRx.IsMatch(translatedMm))
                 {
                     e.MeaningCue = translatedMm;
-                    realMmStemDefs[e.Word] = ShortenStemGloss(translatedMm);
+                    string shortTrans = ShortenStemGloss(translatedMm);
+                    if (shortTrans.Length >= 2 && !string.Equals(shortTrans, e.Word, StringComparison.Ordinal))
+                        realMmStemDefs[e.Word] = shortTrans;
                     mmTranslatedFromEn++;
                     continue;
                 }
+
+                var wSylMatches = SyllableCountRegex.Matches(e.Word);
 
                 // 2. Productive Burmese Derivational Morphology (suffixes & 'အ-' / 'မ-' prefixes)
                 bool morphDone = false;
@@ -3646,7 +3770,10 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     string suf = productiveSuffixes[sx].Suffix;
                     if (e.Word.Length > suf.Length + 1 && e.Word.EndsWith(suf, StringComparison.Ordinal))
                     {
-                        string stem = e.Word.Substring(0, e.Word.Length - suf.Length);
+                        int stemCharLen = e.Word.Length - suf.Length;
+                        if (!IsExactSyllableBoundary(wSylMatches, stemCharLen))
+                            continue;
+                        string stem = e.Word.Substring(0, stemCharLen);
                         string stemGloss;
                         if (realMmStemDefs.TryGetValue(stem, out stemGloss))
                         {
@@ -3659,7 +3786,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 }
                 if (morphDone) continue;
 
-                if (e.Word.Length >= 3 && e.Word[0] == 'အ')
+                if (e.Word.Length >= 3 && e.Word[0] == 'အ' && IsExactSyllableBoundary(wSylMatches, 1))
                 {
                     string stem = e.Word.Substring(1);
                     string stemGloss;
@@ -3670,7 +3797,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                         continue;
                     }
                 }
-                if (e.Word.Length >= 4 && e.Word[0] == 'မ')
+                if (e.Word.Length >= 4 && e.Word[0] == 'မ' && IsExactSyllableBoundary(wSylMatches, 1))
                 {
                     string stem = e.Word.Substring(1);
                     string stemGloss;
@@ -3682,23 +3809,43 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     }
                 }
 
-                // 3. Two-Constituent Burmese Compound Synthesis across syllable boundaries (e.g. ဆရာကောင်း, ဘေးကင်း)
-                var wSylMatches = SyllableCountRegex.Matches(e.Word);
+                // 3. Two-Constituent Burmese Compound Synthesis across syllable boundaries (scored by constituent headhood & frequency)
                 if (wSylMatches.Count >= 2 && wSylMatches.Count <= 6)
                 {
+                    double bestSplitScore = double.NegativeInfinity;
                     string bestCompoundDef = null;
-                    for (int split = wSylMatches.Count - 1; split >= 1; split--)
+                    for (int split = 1; split < wSylMatches.Count; split++)
                     {
                         int splitCharPos = wSylMatches[split].Index;
                         string leftPart = e.Word.Substring(0, splitCharPos);
                         string rightPart = e.Word.Substring(splitCharPos);
+                        if (leftPart.Length < 2 || rightPart.Length < 2)
+                            continue;
                         string leftGloss, rightGloss;
                         if (realMmStemDefs.TryGetValue(leftPart, out leftGloss) &&
                             realMmStemDefs.TryGetValue(rightPart, out rightGloss))
                         {
-                            bestCompoundDef = leftPart + " နှင့် " + rightPart + " ပေါင်းစပ်ဝေါဟာရ — " +
-                                              leftPart + " (" + leftGloss + ") + " + rightPart + " (" + rightGloss + ")။";
-                            break;
+                            int leftSyls = split;
+                            int rightSyls = wSylMatches.Count - split;
+                            EntryItem lEnt, rEnt;
+                            int leftFreq = map.TryGetValue(leftPart, out lEnt) ? Math.Max(1, lEnt.Frequency) : 1;
+                            int rightFreq = map.TryGetValue(rightPart, out rEnt) ? Math.Max(1, rEnt.Frequency) : 1;
+                            bool leftOff = lEnt != null && lEnt.IsOfficialThatpon;
+                            bool rightOff = rEnt != null && rEnt.IsOfficialThatpon;
+
+                            double splitScore = Math.Log10(leftFreq + 1) * 2.2
+                                              + Math.Log10(rightFreq + 1) * 2.8
+                                              + (rightSyls >= 2 ? 4.5 : 0.0)
+                                              + (leftSyls >= 2 ? 2.0 : 0.0)
+                                              - Math.Abs(leftSyls - rightSyls) * 0.6
+                                              + (leftOff ? 1.0 : 0.0)
+                                              + (rightOff ? 1.5 : 0.0);
+                            if (splitScore > bestSplitScore)
+                            {
+                                bestSplitScore = splitScore;
+                                bestCompoundDef = leftPart + " နှင့် " + rightPart + " ပေါင်းစပ်ဝေါဟာရ — " +
+                                                  leftPart + " (" + leftGloss + ") + " + rightPart + " (" + rightGloss + ")။";
+                            }
                         }
                     }
                     if (!string.IsNullOrEmpty(bestCompoundDef))
@@ -3722,7 +3869,20 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     string cleanCol = oldCue
                         .Replace("သတ်ပုံကျမ်း တွဲဖက်အညွှန်း", "")
                         .Replace("တွဲဖက်:", "")
-                        .Trim(' ', '(', ')');
+                        .Trim();
+                    if (cleanCol.StartsWith("(", StringComparison.Ordinal) && cleanCol.EndsWith(")", StringComparison.Ordinal))
+                    {
+                        int depthCheck = 0;
+                        bool enclosesAll = true;
+                        for (int ci = 0; ci < cleanCol.Length - 1; ci++)
+                        {
+                            if (cleanCol[ci] == '(') depthCheck++;
+                            else if (cleanCol[ci] == ')') depthCheck--;
+                            if (depthCheck == 0) { enclosesAll = false; break; }
+                        }
+                        if (enclosesAll)
+                            cleanCol = cleanCol.Substring(1, cleanCol.Length - 2).Trim();
+                    }
                     e.MeaningCue = string.IsNullOrEmpty(cleanCol)
                         ? "မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်းဝင် ခွဲထားစံအမှန် ဝေါဟာရ။"
                         : ("မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်းဝင် စံဝေါဟာရ (တွဲဖက်အသုံး — " + cleanCol + ")။");
@@ -4077,7 +4237,11 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                         string cleanOrn = SanitizeBilingualMmText(ornList[oi].MmGloss);
                         if (!string.IsNullOrEmpty(cleanOrn))
                         {
-                            string posPrefix = !string.IsNullOrEmpty(ornList[oi].Pos) ? ("[" + ornList[oi].Pos + "] ") : "";
+                            string rawPos = ornList[oi].Pos ?? string.Empty;
+                            int openParenInPos = rawPos.IndexOf('(');
+                            if (openParenInPos >= 0 && rawPos.IndexOf(')', openParenInPos) < 0)
+                                rawPos = rawPos.Substring(0, openParenInPos).Trim(' ', ',', ';');
+                            string posPrefix = !string.IsNullOrEmpty(rawPos) ? ("[" + rawPos + "] ") : "";
                             AddSenseUnique(posPrefix + cleanOrn);
                         }
                     }
@@ -4091,7 +4255,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     {
                         string cleanWik = SanitizeBilingualMmText(wikParts[wi]);
                         if (cleanWik.Length > 105)
-                            cleanWik = cleanWik.Substring(0, 102).TrimEnd() + "…";
+                            cleanWik = BalanceShortenedParentheses(cleanWik.Substring(0, 102).TrimEnd() + "…");
                         AddSenseUnique(cleanWik);
                     }
                 }
@@ -4101,7 +4265,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
 
                 string finalCue = string.Join(" • ", senses);
                 if (finalCue.Length > 165)
-                    finalCue = finalCue.Substring(0, 162).TrimEnd() + "…";
+                    finalCue = BalanceShortenedParentheses(finalCue.Substring(0, 162).TrimEnd() + "…");
 
                 // Extract up to 3 verified canonical Myanmar headwords for 1-click jump pills
                 var crossLinks = new List<string>(3);
@@ -4268,6 +4432,33 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 return s.Trim();
             }
 
+            string EnsureBalancedParentheses(string text)
+            {
+                if (string.IsNullOrEmpty(text) || text.IndexOf('(') < 0)
+                    return text;
+
+                string s = text.Trim();
+                while (s.EndsWith("(", StringComparison.Ordinal))
+                    s = s.Substring(0, s.Length - 1).TrimEnd(' ', '—', '-', '၊', ',', ';');
+
+                int openCount = 0;
+                int closeCount = 0;
+                for (int ci = 0; ci < s.Length; ci++)
+                {
+                    if (s[ci] == '(') openCount++;
+                    else if (s[ci] == ')') closeCount++;
+                }
+
+                int deficit = openCount - closeCount;
+                if (deficit <= 0)
+                    return s;
+
+                string closeStr = new string(')', deficit);
+                if (s.EndsWith("။", StringComparison.Ordinal))
+                    return s.Substring(0, s.Length - 1).TrimEnd() + closeStr + "။";
+                return s + closeStr;
+            }
+
             for (int i = 0; i < allEntries.Count; i++)
             {
                 string mc = allEntries[i].MeaningCue;
@@ -4278,7 +4469,23 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     mc = Regex.Replace(mc, @"\(\s*\)", "");
                     mc = Regex.Replace(mc, @"\s{2,}", " ").Trim();
                 }
-                allEntries[i].MeaningCue = SanitizeProseField(mc);
+                mc = SanitizeProseField(mc);
+                if (allEntries[i].PosTag != "EN_LEX" && IsSelfReferentialGloss(allEntries[i].Word, mc))
+                {
+                    if (allEntries[i].Word == "ကိုယ်ပိုင်အုပ်ချုပ်ခွင့်ရဒေသ")
+                    {
+                        mc = "ဖွဲ့စည်းပုံအခြေခံဥပဒေအရ သတ်မှတ်ထားသော ကိုယ်ပိုင်အုပ်ချုပ်ခွင့်ရ နယ်မြေဒေသ။";
+                    }
+                    else if (allEntries[i].IsOfficialThatpon)
+                    {
+                        mc = "မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်းဝင် စံသတ်ပုံအမှန် မြန်မာဝေါဟာရ။";
+                    }
+                    else
+                    {
+                        mc = "ခေတ်သုံး မြန်မာစာပေနှင့် ရုံးသုံး စံသတ်ပုံအမှန် ဝေါဟာရ။";
+                    }
+                }
+                allEntries[i].MeaningCue = EnsureBalancedParentheses(mc);
                 if (!string.IsNullOrEmpty(allEntries[i].UsageNote))
                 {
                     allEntries[i].UsageNote = SanitizeProseField(allEntries[i].UsageNote);

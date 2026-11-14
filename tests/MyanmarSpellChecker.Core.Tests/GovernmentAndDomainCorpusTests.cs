@@ -3197,5 +3197,164 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.True(engine.IsDictionarySearchReady);
             Assert.True(trie.IsReferenceCorpusLoaded);
         }
+
+        [Fact]
+        public void V60_ProductiveCompoundAndSyntheticGlossIntegrityGate()
+        {
+            string dbPath = Path.Combine(TestPaths.RepoRoot, "data", "mlc_thatpon.db");
+            string key = AntiTamperGuard.ReconstructProtectedFallbackKey();
+
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            MyanmarTrie trie = repo.LoadIntoTrie(key);
+            var engine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+            var sugg = new SuggestionEngine(trie);
+
+            // 1. Productive Burmese Compounds ([Clean Standalone Word] + [Multi-Syllable Head], etc.) MUST produce ZERO false positives
+            string[] validProductiveCompounds =
+            {
+                "ရဲလုပ်ငန်း",
+                "မှုခင်းရဲလုပ်ငန်း",
+                "လုံခြုံရေးရဲလုပ်ငန်း",
+                "ပဲလုပ်ငန်း",
+                "သံလုပ်ငန်း",
+                "နို့လုပ်ငန်း",
+                "ဆားလုပ်ငန်း",
+                "နွားလုပ်ငန်း",
+                "ဝါးလုပ်ငန်း",
+                "ပျားလုပ်ငန်း",
+                "ဆေးလုပ်ငန်း",
+                "ဈေးလုပ်ငန်း",
+                "ဘဏ်လုပ်ငန်း",
+                "မိုင်းလုပ်ငန်း",
+                "ကျောက်လုပ်ငန်း",
+                "သစ်လုပ်ငန်း",
+                "စက်လုပ်ငန်း",
+                "ရုံးလုပ်ငန်း",
+                "လယ်လုပ်ငန်း",
+                "လယ်ယာလုပ်ငန်း",
+                "ရဲတပ်ဖွဲ့",
+                "ရဲတပ်ဖွဲ့ဝင်",
+                "ရဲစခန်း",
+                "ရဲအရာရှိ",
+                "လုပ်ငန်းသစ်",
+                "လုပ်ငန်းရှင်",
+                "လုပ်ငန်းခွင်",
+                "လုပ်ငန်းစဉ်"
+            };
+
+            foreach (string validCompound in validProductiveCompounds)
+            {
+                var hitsOfficial = engine.CheckText(validCompound);
+                Assert.True(hitsOfficial.Count == 0,
+                    $"Expected 0 issues for valid productive compound '{validCompound}' in FormalOfficial mode, got: [{string.Join("; ", hitsOfficial.Select(h => $"{h.OriginalText}->{h.Suggestions.FirstOrDefault()?.Replacement}"))}]");
+
+                var hitsGeneral = generalEngine.CheckText(validCompound);
+                Assert.True(hitsGeneral.Count == 0,
+                    $"Expected 0 issues for valid productive compound '{validCompound}' in GeneralStandard mode, got: [{string.Join("; ", hitsGeneral.Select(h => $"{h.OriginalText}->{h.Suggestions.FirstOrDefault()?.Replacement}"))}]");
+            }
+
+            string mpfSentence = "မြန်မာနိုင်ငံရဲတပ်ဖွဲ့သည် ပြည်သူ့လုံခြုံရေးနှင့် ရဲလုပ်ငန်းများကို ဥပဒေနှင့်အညီ ဆောင်ရွက်လျက်ရှိသည်။";
+            var mpfIssues = engine.CheckText(mpfSentence);
+            Assert.True(mpfIssues.Count == 0,
+                $"Expected 0 issues on Myanmar Police Force sentence, got: [{string.Join("; ", mpfIssues.Select(h => $"{h.OriginalText}->{h.Suggestions.FirstOrDefault()?.Replacement}"))}]");
+
+            // 2. Genuine Compound & Standalone Typos MUST remain 100% caught and never corrupt clean modifiers
+            static string ApplyTopFix(string input, ProofingIssue issue)
+            {
+                string rep = issue.Suggestions[0].Replacement;
+                return input.Substring(0, issue.StartIndex) + rep + input.Substring(issue.StartIndex + issue.Length);
+            }
+
+            (string Typo, string ExpectedRepairedWord)[] genuineTypos =
+            {
+                ("ရေလုပ်ငန်", "ရေလုပ်ငန်း"),
+                ("လယ်လုပ်ငန်", "လယ်လုပ်ငန်း"),
+                ("ရဲလုပ်ငန်", "ရဲလုပ်ငန်း"),
+                ("ဆေးလုပ်ငန်", "ဆေးလုပ်ငန်း"),
+                ("မနက်ဖန်", "မနက်ဖြန်"),
+                ("ကျန်းမာရေ", "ကျန်းမာရေး"),
+                ("စီပွားရေး", "စီးပွားရေး")
+            };
+
+            foreach (var (typo, expectedRepaired) in genuineTypos)
+            {
+                var typoHits = engine.CheckText(typo);
+                Assert.True(typoHits.Count >= 1, $"Expected typo '{typo}' to be flagged, but got 0 issues.");
+                Assert.NotEmpty(typoHits[0].Suggestions);
+                string repaired = ApplyTopFix(typo, typoHits[0]);
+                Assert.Equal(expectedRepaired, repaired);
+            }
+
+            var noticeHits = engine.CheckText("အသိပေအကြောင်းကြားစာ");
+            Assert.Contains(noticeHits, h => h.OriginalText == "အသိပေ" && h.Suggestions.Any(s => s.Replacement == "အသိပေး"));
+
+            // 3. Same-Onset Suggestion Ranking Sanity ('ရ-' queries rank 'ရ-' candidates ahead of cross-consonant 'လ-' candidates)
+            var sYe = sugg.GetSuggestions("ရေလုပ်ငန်", 8);
+            Assert.NotEmpty(sYe);
+            Assert.Equal("ရေလုပ်ငန်း", sYe[0].Replacement);
+            int idxYe = sYe.ToList().FindIndex(c => c.Replacement == "ရေလုပ်ငန်း");
+            int idxLeInYe = sYe.ToList().FindIndex(c => c.Replacement == "လယ်လုပ်ငန်း");
+            if (idxLeInYe >= 0)
+                Assert.True(idxYe < idxLeInYe, $"Expected 'ရေလုပ်ငန်း' (#{idxYe}) ahead of 'လယ်လုပ်ငန်း' (#{idxLeInYe}).");
+
+            var sYae = sugg.GetSuggestions("ရဲလုပ်ငန်", 8);
+            Assert.NotEmpty(sYae);
+            Assert.Equal("ရဲလုပ်ငန်း", sYae[0].Replacement);
+            int idxYae = sYae.ToList().FindIndex(c => c.Replacement == "ရဲလုပ်ငန်း");
+            int idxLeInYae = sYae.ToList().FindIndex(c => c.Replacement == "လယ်လုပ်ငန်း");
+            if (idxLeInYae >= 0)
+                Assert.True(idxYae < idxLeInYae, $"Expected 'ရဲလုပ်ငန်း' (#{idxYae}) ahead of 'လယ်လုပ်ငန်း' (#{idxLeInYae}).");
+
+            // 4. Corpus-Wide Dictionary Gloss Integrity across ALL entries in mlc_thatpon.db
+            Assert.True(trie.TryGetExactEntries("ရဲလုပ်ငန်း", out var entriesYaeLok) && entriesYaeLok != null && entriesYaeLok.Any(e => e.IsOfficialThatpon));
+            Assert.True(trie.TryGetExactEntries("လယ်လုပ်ငန်း", out var entriesLeLok) && entriesLeLok != null && entriesLeLok.All(e => !e.MeaningCue.Contains("နှင့် ငန်း")));
+            Assert.True(trie.TryGetExactEntries("ရုံးလုပ်ငန်း", out var entriesYoneLok) && entriesYoneLok != null && entriesYoneLok.All(e => e.MeaningCue.Trim(' ', '။', '.', ';', '၊') != "ရုံးလုပ်ငန်း"));
+
+            var badNganSplits = new List<string>();
+            var tautologicalGlosses = new List<string>();
+            var unbalancedParens = new List<string>();
+
+            foreach (var entry in trie.GetAllEntries())
+            {
+                string cue = entry.MeaningCue ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(cue))
+                    continue;
+
+                if (cue.IndexOf("နှင့် ငန်း ပေါင်းစပ်ဝေါဟာရ", StringComparison.Ordinal) >= 0)
+                    badNganSplits.Add($"{entry.Word}: {cue}");
+
+                string strippedCue = cue.Trim(' ', '\t', '။', '၊', '.', ',', ';', ':', '-', '—', '–', '"', '\'');
+                if (strippedCue == entry.Word)
+                    tautologicalGlosses.Add($"{entry.Word}: {cue}");
+
+                int openP = 0, closeP = 0;
+                for (int i = 0; i < cue.Length; i++)
+                {
+                    if (cue[i] == '(') openP++;
+                    else if (cue[i] == ')') closeP++;
+                }
+                if (openP > closeP)
+                    unbalancedParens.Add($"{entry.Word}: {cue}");
+            }
+
+            Assert.True(badNganSplits.Count == 0,
+                $"Found {badNganSplits.Count} corrupted 'နှင့် ငန်း' splits: {string.Join(" | ", badNganSplits.Take(5))}");
+            Assert.True(tautologicalGlosses.Count == 0,
+                $"Found {tautologicalGlosses.Count} tautological self-definitions: {string.Join(" | ", tautologicalGlosses.Take(5))}");
+            Assert.True(unbalancedParens.Count == 0,
+                $"Found {unbalancedParens.Count} unclosed '(' in MeaningCue: {string.Join(" | ", unbalancedParens.Take(5))}");
+
+            // Verify UI DisplayLabel truncation also closes open '(' when cutting at 32 characters
+            var sampleCand = new SuggestionCandidate
+            {
+                Replacement = "လယ်လုပ်ငန်း",
+                MeaningCue = "လယ် နှင့် လုပ်ငန်း ပေါင်းစပ်ဝေါဟာရ — လယ် (စပါးစိုက်ပျိုးရာမြေကွက်)"
+            };
+            string disp = sampleCand.DisplayLabel;
+            int dispOpen = disp.Count(c => c == '(');
+            int dispClose = disp.Count(c => c == ')');
+            Assert.Equal(dispOpen, dispClose);
+        }
     }
 }

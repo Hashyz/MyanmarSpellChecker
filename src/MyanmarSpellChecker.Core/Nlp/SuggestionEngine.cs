@@ -1736,6 +1736,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             if (a == '\u102E' && (b == '\uE001' || b == '\uE002')) return 0.24; // ီ <-> ည်/ဉ်
             if (a == '\u1031' && (b == '\uE001' || b == '\uE002' || b == '\uE003')) return 0.28; // ေ <-> ည်/ဉ်/ယ်
+            if (a == '\u1031' && b == '\u1032') return 0.38; // ေ <-> ဲ (adjacent front vowels; > 0.36 standalone threshold, <= 0.28+0.22 triangle inequality)
             if (a == '\u1032' && b == '\uE003') return 0.22; // ဲ <-> ယ်
             if (a == '\uE001' && b == '\uE002') return 0.20; // ည် <-> ဉ်
             if ((a == '\uE001' || a == '\uE002') && b == '\uE003') return 0.26; // ည်/ဉ် <-> ယ်
@@ -1749,7 +1750,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             // 2. Classic Burmese consonant, medial & corpus-mined confusion matrix weights
             if (a == '\u101A' && b == '\u101B') return 0.22; // ယ <-> ရ
-            if (a == '\u101B' && b == '\u101C') return 0.36; // ရ <-> လ
+            if (a == '\u101B' && b == '\u101C') return 0.42; // ရ <-> လ (distinct onset consonants in standard Burmese)
             if (a == '\u103B' && b == '\u103C') return 0.20; // ျ <-> ြ
             if (a == '\u103D' && b == '\u103E') return 0.28; // ွ <-> ှ
             if (a == '\u1009' && b == '\u100A') return 0.22; // ဉ <-> ည
