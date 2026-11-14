@@ -205,6 +205,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             @"^(?:[၀-၉0-9]{1,2}[ \t]*[-–/\\][ \t]*)?(?<Code>[\u1000-\u1021\u1025\u1026\u1009](?:[ \t.]*[\u1000-\u1021\u1025\u1026\u1009]){1,3})(?:[ \t]*(?:[\(（/\\–-].*))?$",
             RegexOptions.Compiled);
 
+        private static readonly int SkeletonCacheCap = !Environment.Is64BitProcess ? 4096 : 12288;
         private static readonly List<DictionaryEntry> EmptyEntryList = new List<DictionaryEntry>(0);
         private static readonly ConcurrentDictionary<string, string> s_strictSkeletonCache = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
         private static readonly ConcurrentDictionary<string, string> s_phoneticSkeletonCache = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
@@ -3089,7 +3090,15 @@ namespace MyanmarSpellChecker.Core.Nlp
                 tokens[endTokenIndex + 1].Kind == TokenKind.MyanmarSyllable &&
                 PoliteVerbFollowersAfterPa.Contains(tokens[endTokenIndex + 1].NormalizedText))
             {
-                bool isVerbParticle = entries.Any(e => string.Equals(e.PosTag, "PART", StringComparison.OrdinalIgnoreCase));
+                bool isVerbParticle = false;
+                for (int i = 0; i < entries.Count; i++)
+                {
+                    if (string.Equals(entries[i].PosTag, "PART", StringComparison.OrdinalIgnoreCase))
+                    {
+                        isVerbParticle = true;
+                        break;
+                    }
+                }
                 if (!isVerbParticle)
                     return true;
             }
@@ -3109,7 +3118,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             string computed = BuildSkeleton(text, ignoreTones: false);
             if (text.Length <= 40)
             {
-                if (s_strictSkeletonCache.Count > 16384)
+                if (s_strictSkeletonCache.Count > SkeletonCacheCap)
                     s_strictSkeletonCache.Clear();
                 s_strictSkeletonCache[text] = computed;
             }
@@ -3128,7 +3137,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             string computed = BuildSkeleton(text, ignoreTones: true);
             if (text.Length <= 40)
             {
-                if (s_phoneticSkeletonCache.Count > 16384)
+                if (s_phoneticSkeletonCache.Count > SkeletonCacheCap)
                     s_phoneticSkeletonCache.Clear();
                 s_phoneticSkeletonCache[text] = computed;
             }

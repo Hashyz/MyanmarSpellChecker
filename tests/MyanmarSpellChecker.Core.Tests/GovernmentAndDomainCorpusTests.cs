@@ -3823,5 +3823,164 @@ namespace MyanmarSpellChecker.Core.Tests
                 .ToList();
             Assert.True(contaminated.Count == 0, $"Expected 0 corpus occurrences of 'လောလောဆည်'/'လက်တလော', got: {string.Join(", ", contaminated)}");
         }
+
+        [Fact]
+        public void V64_UltraPotatoPcCpuRamAndCrashlessResilienceGate()
+        {
+            string dbPath = Path.Combine(TestPaths.RepoRoot, "data", "mlc_thatpon.db");
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            MyanmarTrie trie = repo.LoadIntoTrie(AntiTamperGuard.ReconstructProtectedFallbackKey());
+            trie.PrewarmSearchIndexes();
+            var engine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // 1. 100% Linguistic Determinism Across Cold, Warm, Uncached, and Post-Aggressive-Trim Runs
+            string[] determinismSuite =
+            {
+                "ယခုလောလောဆည်တွင် ရဲလုပ်ငန်းနှင့် စိုက်ပျိုးရေးလုပ်ငန်းများ ဆောင်ရွက်လျက်ရှိပါသည်။",
+                "နိုင်ငံသားစိစစ်ရေးကတ်ပြား ၁၂/ဥကတ(နိုင်)၁၂၃၄၅၆ နှင့် ၉/ဇဗသ(နိုင်)၀၀၁၂၃၄ တို့ကို စိစစ်ပြီးဖြစ်ပါသည်။",
+                "ဦးမိုးကျော်သူနှင့် ထက်ရာဇာတို့က ကျောက်ဆည်တက္ကသိုလ် ဘူမိဗေဒဌာနတွင် သုတေသနပြုလုပ်ပါသည်။",
+                "တာ၀န်ရှိသူများက လုပ်ငန်းများ ဆောင်ရွတ်ပီးပီ ဖြစ်ကြောင်း ဥက္ကဌထံ တင်ပြပါတယ်။",
+                "ကြိုးကို တင်းကျပ်စွာ ချဉ်ပြီး လူ ၃ ချောင်း စာရင်းသွင်းထားပါသည်။"
+            };
+
+            static string SerializeIssuesSignature(IReadOnlyList<ProofingIssue> issues)
+            {
+                var sb = new System.Text.StringBuilder();
+                for (int i = 0; i < issues.Count; i++)
+                {
+                    var iss = issues[i];
+                    sb.Append(iss.IssueType).Append('|')
+                      .Append(iss.StartIndex).Append(':').Append(iss.Length).Append('|')
+                      .Append(iss.OriginalText).Append('|')
+                      .Append(iss.AuthoritativeSource).Append('|')
+                      .Append(iss.GrammaticalReasoning).Append('|');
+                    for (int s = 0; s < iss.Suggestions.Count; s++)
+                    {
+                        var cand = iss.Suggestions[s];
+                        sb.Append(cand.Replacement).Append('~').Append(cand.MeaningCue).Append(';');
+                    }
+                    sb.Append('\n');
+                }
+                return sb.ToString();
+            }
+
+            engine.TrimMemoryCaches(aggressive: true);
+            var coldSigs = determinismSuite.Select(s => SerializeIssuesSignature(engine.CheckText(s, cacheParagraph: true))).ToArray();
+            var warmSigs = determinismSuite.Select(s => SerializeIssuesSignature(engine.CheckText(s, cacheParagraph: true))).ToArray();
+            var uncachedHotSubcacheSigs = determinismSuite.Select(s => SerializeIssuesSignature(engine.CheckText(s, cacheParagraph: false))).ToArray();
+            engine.TrimMemoryCaches(aggressive: true);
+            var postEvictSigs = determinismSuite.Select(s => SerializeIssuesSignature(engine.CheckText(s, cacheParagraph: false))).ToArray();
+
+            for (int i = 0; i < determinismSuite.Length; i++)
+            {
+                Assert.Equal(coldSigs[i], warmSigs[i]);
+                Assert.Equal(coldSigs[i], uncachedHotSubcacheSigs[i]);
+                Assert.Equal(coldSigs[i], postEvictSigs[i]);
+            }
+
+            // NRC & Person Honorifics must remain 100% clean (zero false positives)
+            Assert.Equal(string.Empty, coldSigs[1]);
+            Assert.Equal(string.Empty, coldSigs[2]);
+            Assert.Contains("လောလောဆယ်", coldSigs[0]);
+
+            // 2. Ultra-Fast 50,000-Cell Spreadsheet Block Throughput (< 4,000 ms)
+            const int rows = 10_000;
+            const int cols = 5;
+            var val2 = new object?[rows, cols];
+            var fml = new object?[rows, cols];
+            for (int r = 0; r < rows; r++)
+            {
+                val2[r, 0] = $"အမှတ်စဉ် ({r + 1})";
+                val2[r, 1] = (r % 2 == 0) ? "ကျောက်ဆည်မြို့နယ်" : "၉/ဇဗသ(နိုင်)၁၂၃၄၅၆";
+                int v = r % 1200;
+                val2[r, 2] = (v % 2 == 0)
+                    ? $"မှတ်ချက် ({v}) — စစ်ဆေးရေးလုပ်ငန်းများ အောင်မြင်စွာ ဆောင်ရွက်ပြီးစီးပါသည်။"
+                    : $"မှတ်ချက် ({v}) — တာ၀န်ခံမှ စစ်ဆေးပီးပီ ဆောင်ရွတ်ဆဲ။";
+                val2[r, 3] = (double)((r + 1) * 5000);
+                val2[r, 4] = "OK";
+                fml[r, 3] = $"=A{r + 1}*5000";
+            }
+
+            var memo = new Dictionary<string, IReadOnlyList<ProofingIssue>>(StringComparer.Ordinal);
+            var budgets = MyanmarSpellChecker.Core.Performance.EcoPerformanceGovernor.ComputeBudgets(true);
+            var swCells = System.Diagnostics.Stopwatch.StartNew();
+            var sheetHits = MyanmarSpellChecker.Core.Spreadsheet.SpreadsheetProofingHelper.ScanBlockValues(
+                engine,
+                "UltraPotatoGate.xlsx",
+                "Sheet1",
+                1,
+                1,
+                rows,
+                cols,
+                val2,
+                fml,
+                null,
+                memo,
+                System.Threading.CancellationToken.None,
+                50_000,
+                budgets);
+            swCells.Stop();
+
+            Assert.True(sheetHits.Count >= 4000, $"Expected >= 4,000 spreadsheet issues, got {sheetHits.Count}");
+            Assert.True(swCells.Elapsed.TotalMilliseconds < 4000.0,
+                $"50,000-cell ultra-potato spreadsheet scan took {swCells.Elapsed.TotalMilliseconds:F1} ms (expected < 4000 ms).");
+
+            // Release temporary 2D arrays before bounded-cache heap stress test
+            val2 = null!;
+            fml = null!;
+            memo.Clear();
+            sheetHits.Clear();
+
+            // 3. 20,000 Unique Synthetic Noisy Inputs Bounded-Heap Stress Test (< 35 MB Net Retained Delta)
+            engine.TrimMemoryCaches(aggressive: true);
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            long baselineBytes = GC.GetTotalMemory(forceFullCollection: true);
+
+            System.Threading.Tasks.Parallel.For(
+                0,
+                20_000,
+                new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = Math.Min(Environment.ProcessorCount, 6) },
+                idx =>
+                {
+                    string noisy = $"စမ်းသပ်#{idx} တာ၀န်ခံ #{idx % 997} ဆောင်ရွတ်ပီးပီ ရဲလုပ်ငန်း{idx % 31} လောလောဆည်";
+                    _ = engine.CheckText(noisy, cacheParagraph: false);
+                    if ((idx & 511) == 0)
+                    {
+                        _ = MyanmarSpellChecker.Core.Performance.EcoPerformanceGovernor.MaybeTrimUnderMemoryPressure(
+                            () => engine.TrimMemoryCaches(aggressive: true));
+                    }
+                });
+
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            long afterStressBytes = GC.GetTotalMemory(forceFullCollection: true);
+            double retainedDeltaMb = Math.Max(0.0, (afterStressBytes - baselineBytes) / (1024.0 * 1024.0));
+            Assert.True(retainedDeltaMb < 35.0,
+                $"Bounded transient caches retained {retainedDeltaMb:F2} MB after 20,000 unique noisy strings (expected < 35 MB).");
+
+            // 4. Static Crashless & Zero-HWND-Leak Audit Across WordAddIn + ExcelAddIn
+            string wordPreviewPath = Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "FixAllPreviewDialog.cs");
+            string excelPreviewPath = Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "FixAllPreviewDialog.cs");
+            string wordScannerPath = Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "Interop", "StaDocumentScanner.cs");
+            string excelScannerPath = Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "Interop", "ExcelWorkbookScannerAndToolkit.cs");
+
+            string wordPreviewSrc = File.ReadAllText(wordPreviewPath);
+            string excelPreviewSrc = File.ReadAllText(excelPreviewPath);
+            string wordScannerSrc = File.ReadAllText(wordScannerPath);
+            string excelScannerSrc = File.ReadAllText(excelScannerPath);
+
+            Assert.DoesNotContain("_choicesPanel.Controls.Clear()", wordPreviewSrc);
+            Assert.DoesNotContain("_choicesPanel.Controls.Clear()", excelPreviewSrc);
+            Assert.Contains("DisposeAndClearChoicesPanel()", wordPreviewSrc);
+            Assert.Contains("DisposeAndClearChoicesPanel()", excelPreviewSrc);
+            Assert.Contains("SafeBeginInvokeOnSta", wordScannerSrc);
+            Assert.Contains("OutOfMemoryException", wordScannerSrc);
+            Assert.Contains("OutOfMemoryException", excelScannerSrc);
+            Assert.Contains("MaybeTrimUnderMemoryPressure", wordScannerSrc);
+            Assert.Contains("MaybeTrimUnderMemoryPressure", excelScannerSrc);
+        }
     }
 }

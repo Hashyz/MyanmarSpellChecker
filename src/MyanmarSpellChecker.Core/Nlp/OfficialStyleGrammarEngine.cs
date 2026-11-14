@@ -769,6 +769,31 @@ namespace MyanmarSpellChecker.Core.Nlp
             return found;
         }
 
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        internal static ulong ComputeMyanmarCharMask(string s)
+        {
+            ulong mask = 0UL;
+            for (int i = 0; i < s.Length; i++)
+            {
+                int d = s[i] - '\u1000';
+                if ((uint)d < 64u)
+                    mask |= 1UL << d;
+            }
+            return mask;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static bool ContainsMm(string text, ulong mmMask, string literal)
+        {
+            for (int i = 0; i < literal.Length; i++)
+            {
+                int d = literal[i] - '\u1000';
+                if ((uint)d < 64u && (mmMask & (1UL << d)) == 0UL)
+                    return false;
+            }
+            return text.IndexOf(literal, StringComparison.Ordinal) >= 0;
+        }
+
         public List<ProofingIssue> AnalyzeGrammarAndStyle(
             string text,
             ProofingStyleMode styleMode = ProofingStyleMode.FormalOfficial,
@@ -778,12 +803,16 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (string.IsNullOrWhiteSpace(text))
                 return issues;
 
-            // Single-pass O(N) character/bigram scan to pre-compute provably-necessary flags and skip expensive Regexes
+            // Single-pass O(N) character/bigram + 64-bit Myanmar character register mask scan
+            ulong mmMask = 0UL;
             bool hasZeroWidthOrDotted = false;
             bool hasLaKaungTrigger = false;
             bool hasVisarga = false;
             bool hasMyanmarDigit = false;
+            bool hasNonZeroMyanmarDigit = false;
             bool hasHorizSpace = false;
+            bool hasMyanmarSpaceMyanmar = false;
+            bool hasShortMyanmarBeforeMyanmar = false;
             bool hasSpaceBeforeCombiningMark = false;
             bool hasStrayVowelAfterAsat = false;
             bool hasAsatVirama = false;
@@ -791,9 +820,12 @@ namespace MyanmarSpellChecker.Core.Nlp
             bool hasMa = false;
             bool hasCreakyDot = false;
             bool hasPaukMaGyi = false;
+            bool hasConsecutiveMyanmarPunct = false;
             bool hasNrcDelimiter = false;
             bool hasNrcSlashOrDash = false;
             bool prevWasHorizSpace = false;
+            int currentMmRunLen = 0;
+            int mmRunBeforeHorizSpace = 0;
             char prevChar = '\0';
 
             for (int idx = 0; idx < text.Length; idx++)
@@ -801,14 +833,37 @@ namespace MyanmarSpellChecker.Core.Nlp
                 char c = text[idx];
                 if (c == ' ' || c == '\t')
                 {
+                    if (!prevWasHorizSpace)
+                    {
+                        mmRunBeforeHorizSpace = currentMmRunLen;
+                    }
+                    currentMmRunLen = 0;
                     hasHorizSpace = true;
                     prevWasHorizSpace = true;
                     prevChar = c;
                     continue;
                 }
-                if (prevWasHorizSpace && c >= '\u102B' && c <= '\u103E')
+
+                int mmDelta = c - '\u1000';
+                if ((uint)mmDelta < 64u)
                 {
-                    hasSpaceBeforeCombiningMark = true;
+                    mmMask |= 1UL << mmDelta;
+                    if (prevWasHorizSpace)
+                    {
+                        if (c >= '\u102B' && c <= '\u103E')
+                            hasSpaceBeforeCombiningMark = true;
+                        if (mmRunBeforeHorizSpace > 0)
+                        {
+                            hasMyanmarSpaceMyanmar = true;
+                            if (mmRunBeforeHorizSpace <= 8)
+                                hasShortMyanmarBeforeMyanmar = true;
+                        }
+                    }
+                    currentMmRunLen++;
+                }
+                else
+                {
+                    currentMmRunLen = 0;
                 }
                 prevWasHorizSpace = false;
 
@@ -828,12 +883,24 @@ namespace MyanmarSpellChecker.Core.Nlp
                     else if (c == 'မ') hasMa = true;
                     else if (c == '\u1037') hasCreakyDot = true;
                     else if (c == '\u1038') hasVisarga = true;
-                    else if (c == '\u104B') hasPaukMaGyi = true;
+                    else if (c == '\u104B')
+                    {
+                        hasPaukMaGyi = true;
+                        if (prevChar == '\u104A' || prevChar == '\u104B') hasConsecutiveMyanmarPunct = true;
+                    }
+                    else if (c == '\u104A')
+                    {
+                        if (prevChar == '\u104A' || prevChar == '\u104B') hasConsecutiveMyanmarPunct = true;
+                    }
                     else if (c == '\u104E' || c == '\u1044') hasLaKaungTrigger = true;
                     else if (c == '\u1039' && prevChar == '\u103A') hasAsatVirama = true;
                     else if (prevChar == '\u103A' && c >= '\u102D' && c <= '\u1032') hasStrayVowelAfterAsat = true;
 
-                    if (c >= '\u1040' && c <= '\u1049') hasMyanmarDigit = true;
+                    if (c >= '\u1040' && c <= '\u1049')
+                    {
+                        hasMyanmarDigit = true;
+                        if (c >= '\u1041') hasNonZeroMyanmarDigit = true;
+                    }
                 }
                 else if ((c >= '\u200B' && c <= '\u200D') || c == '\uFEFF' || c == '\u25CC')
                 {
@@ -913,7 +980,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     validNrcSpans.Add((mNrc.Index, mNrc.Index + mNrc.Length));
                 }
 
-                if (text.IndexOf("ပြူ", StringComparison.Ordinal) >= 0 || text.IndexOf("သာသနာ့", StringComparison.Ordinal) >= 0)
+                if (ContainsMm(text, mmMask, "ပြူ") || ContainsMm(text, mmMask, "သာသနာ့"))
                 {
                     foreach (Match mCard in MisspelledNrcCardTypePattern.Matches(text))
                     {
@@ -933,7 +1000,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     }
                 }
 
-                if (text.IndexOf('\u101D') >= 0)
+                if ((mmMask & (1UL << ('\u101D' - '\u1000'))) != 0UL)
                 {
                     foreach (Match mWaSt in MisusedWaInNrcStatePattern.Matches(text))
                     {
@@ -1038,7 +1105,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                         "မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း အမှာစာ (စာ-၇..၈) နှင့် မြန်မာသဒ္ဒါ");
                 }
 
-                if (text.IndexOf("တစ်", StringComparison.Ordinal) >= 0)
+                if (ContainsMm(text, mmMask, "တစ်"))
                 {
                     foreach (Match m in HypercorrectedCompoundTaitPattern.Matches(text))
                     {
@@ -1069,7 +1136,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (text.IndexOf("ကနဲ", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "ကနဲ"))
             {
                 foreach (Match m in MisspelledIdeophoneKanaePattern.Matches(text))
                 {
@@ -1086,7 +1153,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 2. 'ခုနစ်' vs 'ခုနှစ်'
-            if (text.IndexOf("ခုနှစ်", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "ခုနှစ်"))
             {
                 foreach (Match m in MisusedKhuNhitNumberPattern.Matches(text))
                 {
@@ -1101,7 +1168,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (text.IndexOf("ခုနစ်", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "ခုနစ်"))
             {
                 foreach (Match m in MisusedKhuNitYearPattern.Matches(text))
                 {
@@ -1117,7 +1184,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 3. Generalized 'မ...ပဲ' -> 'မ...ဘဲ'
-            if (hasMa && text.IndexOf("ပဲ", StringComparison.Ordinal) >= 0)
+            if (hasMa && ContainsMm(text, mmMask, "ပဲ"))
             {
                 foreach (Match m in NegativeVerbPePattern.Matches(text))
                 {
@@ -1133,8 +1200,8 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 4a. Clause Interrogative 'လည်း' -> 'လဲ'
-            if (text.IndexOf("လည်း", StringComparison.Ordinal) >= 0 &&
-                (text.IndexOf('ဘ') >= 0 || text.IndexOf("မည်", StringComparison.Ordinal) >= 0))
+            if (ContainsMm(text, mmMask, "လည်း") &&
+                (((mmMask & (1UL << ('ဘ' - '\u1000'))) != 0UL) || ContainsMm(text, mmMask, "မည်")))
             {
                 foreach (Match m in InterrogativeLaePattern.Matches(text))
                 {
@@ -1150,7 +1217,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 4b. Affirmative 'လဲ' -> 'လည်း'
-            bool hasLae = text.IndexOf("လဲ", StringComparison.Ordinal) >= 0;
+            bool hasLae = ContainsMm(text, mmMask, "လဲ");
             if (hasLae)
             {
                 foreach (Match m in AffirmativeLaeMisusePattern.Matches(text))
@@ -1167,7 +1234,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 4c. Universal Orthography & Casual Keyboard Mistakes (apply in BOTH modes)
-            if (text.IndexOf("ပေမယ့်", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "ပေမယ့်"))
             {
                 foreach (Match m in MisspelledDarPayMaePattern.Matches(text))
                 {
@@ -1180,7 +1247,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (text.IndexOf("အုန်း", StringComparison.Ordinal) >= 0 || text.IndexOf("အုံး", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "အုန်း") || ContainsMm(text, mmMask, "အုံး"))
             {
                 foreach (Match m in MisspelledVerbOhnPattern.Matches(text))
                 {
@@ -1194,7 +1261,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (text.IndexOf("ဟု", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "ဟု"))
             {
                 foreach (Match m in MisspelledHuInsteadOfHotePattern.Matches(text))
                 {
@@ -1218,7 +1285,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                         "မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း နှင့် မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ");
                 }
 
-                if (hasMa && text.IndexOf("မဟု", StringComparison.Ordinal) >= 0)
+                if (hasMa && ContainsMm(text, mmMask, "မဟု"))
                 {
                     foreach (Match m in MisspelledNegatedMaHuPattern.Matches(text))
                     {
@@ -1250,10 +1317,11 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            bool hasPiOpen = text.IndexOf("ပီ", StringComparison.Ordinal) >= 0;
-            bool hasPyeeOpen = text.IndexOf("ပြီ", StringComparison.Ordinal) >= 0;
+            bool hasPiOpen = ContainsMm(text, mmMask, "ပီ");
+            bool hasPyeeOpen = ContainsMm(text, mmMask, "ပြီ");
+            bool hasMaLar = (hasPiOpen || hasPyeeOpen) && ContainsMm(text, mmMask, "မလား");
 
-            if ((hasPiOpen || hasPyeeOpen) && text.IndexOf("မလား", StringComparison.Ordinal) >= 0)
+            if (hasMaLar)
             {
                 foreach (Match m in CompletiveMaLarPattern.Matches(text))
                 {
@@ -1292,12 +1360,12 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (hasPiOpen || (hasPyeeOpen && text.IndexOf("ပြီးပြီး", StringComparison.Ordinal) >= 0))
+            if (hasPiOpen || (hasPyeeOpen && ContainsMm(text, mmMask, "ပြီးပြီး")))
             {
                 foreach (Match m in DoubledOrMedialDroppedPeePyeePattern.Matches(text))
                 {
                     Group g = m.Groups["Target"];
-                    if (CompletiveMaLarPattern.IsMatch(text.Substring(g.Index)))
+                    if (hasMaLar && CompletiveMaLarPattern.IsMatch(text.Substring(g.Index)))
                         continue;
 
                     AddGrammarOrSpellingIssue(
@@ -1310,7 +1378,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             if (hasPiOpen)
             {
-                if (text.IndexOf("ပါပီ", StringComparison.Ordinal) >= 0)
+                if (ContainsMm(text, mmMask, "ပါပီ"))
                 {
                     foreach (Match m in CasualPaPeePattern.Matches(text))
                     {
@@ -1347,7 +1415,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (text.IndexOf("လာ", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "လာ"))
             {
                 foreach (Match m in MissingVisargaQuestionLaPattern.Matches(text))
                 {
@@ -1360,7 +1428,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            bool hasPhu = text.IndexOf("ဖူး", StringComparison.Ordinal) >= 0;
+            bool hasPhu = ContainsMm(text, mmMask, "ဖူး");
             if (hasMa && hasPhu)
             {
                 foreach (Match m in MisspelledNegativePhuPattern.Matches(text))
@@ -1375,7 +1443,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (text.IndexOf("ရ်", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "ရ်"))
             {
                 foreach (Match m in CasualTalMalPattern.Matches(text))
                 {
@@ -1392,7 +1460,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (hasMa && text.IndexOf("ဘူ", StringComparison.Ordinal) >= 0)
+            if (hasMa && ContainsMm(text, mmMask, "ဘူ"))
             {
                 foreach (Match m in MissingVisargaBuPattern.Matches(text))
                 {
@@ -1406,7 +1474,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (hasPiOpen && text.IndexOf("ပီး", StringComparison.Ordinal) >= 0)
+            if (hasPiOpen && ContainsMm(text, mmMask, "ပီး"))
             {
                 foreach (Match m in CasualPeePattern.Matches(text))
                 {
@@ -1419,7 +1487,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (text.IndexOf("ဖစ်", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "ဖစ်"))
             {
                 foreach (Match m in CasualPhitPattern.Matches(text))
                 {
@@ -1432,7 +1500,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (text.IndexOf("\u101C\u103B\u103E\u1000\u103A", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "\u101C\u103B\u103E\u1000\u103A"))
             {
                 foreach (Match m in MisspelledLyetPattern.Matches(text))
                 {
@@ -1478,11 +1546,11 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 4e. Doubled sentence-ending particles ('တင်ပြပါသည်သည်။' -> 'တင်ပြပါသည်။') & Past+Future Marker Clash ('သွားခဲ့မယ်')
-            if (text.IndexOf("သည်သည်", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("တယ်တယ်", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("မည်မည်", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("မယ်မယ်", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("ပါပါ", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "သည်သည်") ||
+                ContainsMm(text, mmMask, "တယ်တယ်") ||
+                ContainsMm(text, mmMask, "မည်မည်") ||
+                ContainsMm(text, mmMask, "မယ်မယ်") ||
+                ContainsMm(text, mmMask, "ပါပါ"))
             {
                 foreach (Match m in DoubledSentenceFinalParticlePattern.Matches(text))
                 {
@@ -1499,9 +1567,9 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            bool hasKhae = text.IndexOf("ခဲ့", StringComparison.Ordinal) >= 0;
-            bool hasMyiOrMal = text.IndexOf("မည်", StringComparison.Ordinal) >= 0 ||
-                               text.IndexOf("မယ်", StringComparison.Ordinal) >= 0;
+            bool hasKhae = ContainsMm(text, mmMask, "ခဲ့");
+            bool hasMyiOrMal = ContainsMm(text, mmMask, "မည်") ||
+                               ContainsMm(text, mmMask, "မယ်");
             if (hasKhae)
             {
                 if (hasMyiOrMal)
@@ -1547,10 +1615,10 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
 
                 // 4f. Temporal Adverb <-> Sentence-Final Tense Agreement
-                if (text.IndexOf("ဖြန်", StringComparison.Ordinal) >= 0 ||
-                    text.IndexOf("မကြာ", StringComparison.Ordinal) >= 0 ||
-                    text.IndexOf("လာမ", StringComparison.Ordinal) >= 0 ||
-                    text.IndexOf("နောက်", StringComparison.Ordinal) >= 0)
+                if (ContainsMm(text, mmMask, "ဖြန်") ||
+                    ContainsMm(text, mmMask, "မကြာ") ||
+                    ContainsMm(text, mmMask, "လာမ") ||
+                    ContainsMm(text, mmMask, "နောက်"))
                 {
                     foreach (Match m in FutureAdverbWithPastVerbPattern.Matches(text))
                     {
@@ -1574,7 +1642,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (hasMyiOrMal && (hasKhae || text.IndexOf("နေ့", StringComparison.Ordinal) >= 0))
+            if (hasMyiOrMal && (hasKhae || ContainsMm(text, mmMask, "နေ့")))
             {
                 foreach (Match m in PastAdverbWithFutureVerbPattern.Matches(text))
                 {
@@ -1599,8 +1667,8 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             if (hasKhae &&
-                (text.IndexOf("လက်ရှိတွင်", StringComparison.Ordinal) >= 0 ||
-                 text.IndexOf("လောလောဆယ်တွင်", StringComparison.Ordinal) >= 0))
+                (ContainsMm(text, mmMask, "လက်ရှိတွင်") ||
+                 ContainsMm(text, mmMask, "လောလောဆယ်တွင်")))
             {
                 foreach (Match m in PresentOngoingWithPastVerbPattern.Matches(text))
                 {
@@ -1625,12 +1693,12 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 4g. Numeral Classifier Agreement ('ဖိနပ် နှစ်ယောက် -> နှစ်ရံ', 'ကော်မတီဝင် သုံးကောင် -> သုံးဦး', etc.)
-            if (HasAnyMyanmarNumeralCore(text))
+            if (HasAnyMyanmarNumeralCore(text, mmMask, hasNonZeroMyanmarDigit))
             {
                 for (int rIdx = 0; rIdx < ClassifierAgreementRules.Length; rIdx++)
                 {
                     var cRule = ClassifierAgreementRules[rIdx];
-                    if (!HasAnySubstring(text, cRule.Triggers))
+                    if (!HasAnySubstring(text, mmMask, cRule.Triggers))
                         continue;
 
                     foreach (Match m in cRule.Pattern.Matches(text))
@@ -1646,7 +1714,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     }
                 }
 
-                if (text.IndexOf("များ", StringComparison.Ordinal) >= 0 || text.IndexOf("တွေ", StringComparison.Ordinal) >= 0)
+                if (ContainsMm(text, mmMask, "များ") || ContainsMm(text, mmMask, "တွေ"))
                 {
                     foreach (Match m in ClassifierRedundantPluralPattern.Matches(text))
                     {
@@ -1689,7 +1757,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (hasTa && text.IndexOf("တစ်ကောင်", StringComparison.Ordinal) >= 0)
+            if (hasTa && ContainsMm(text, mmMask, "တစ်ကောင်"))
             {
                 foreach (Match m in ReciprocalHumanClassifierPattern.Matches(text))
                 {
@@ -1706,7 +1774,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 4i. Audited Burmese Grammar Rules: Negation Framing, Experiential 'ဖူး', Nominalizer 'သောကြောင့်', Particle Chains & Postposition Frames
-            bool hasBu = hasVisarga && text.IndexOf("ဘူး", StringComparison.Ordinal) >= 0;
+            bool hasBu = hasVisarga && ContainsMm(text, mmMask, "ဘူး");
             if (hasBu)
             {
                 foreach (Match m in ExperientialBuInsteadOfPhuPattern.Matches(text))
@@ -1723,7 +1791,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (hasMa && (text.IndexOf("တယ်", StringComparison.Ordinal) >= 0 || text.IndexOf("မယ်", StringComparison.Ordinal) >= 0))
+            if (hasMa && (ContainsMm(text, mmMask, "တယ်") || ContainsMm(text, mmMask, "မယ်")))
             {
                 foreach (Match m in NegatedVerbWithAffirmativeSfpPattern.Matches(text))
                 {
@@ -1848,7 +1916,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (text.IndexOf("ကြောင့်", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "ကြောင့်"))
             {
                 foreach (Match m in BareVerbBeforeKyauntPattern.Matches(text))
                 {
@@ -1887,7 +1955,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (text.IndexOf("အတွက်", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "အတွက်"))
             {
                 foreach (Match m in BareNegatedVerbBeforeAtwetPattern.Matches(text))
                 {
@@ -1928,7 +1996,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (text.IndexOf("ကကို", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "ကကို"))
             {
                 foreach (Match m in AdjacentSubjObjCollisionPattern.Matches(text))
                 {
@@ -1944,10 +2012,10 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (text.IndexOf("တယ်သည်", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("သည်တယ်", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("မယ်မည်", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("မည်မယ်", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "တယ်သည်") ||
+                ContainsMm(text, mmMask, "သည်တယ်") ||
+                ContainsMm(text, mmMask, "မယ်မည်") ||
+                ContainsMm(text, mmMask, "မည်မယ်"))
             {
                 foreach (Match m in MixedRegisterSfpCollisionPattern.Matches(text))
                 {
@@ -1966,8 +2034,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if ((hasKhae && text.IndexOf("ခဲ့ခဲ့", StringComparison.Ordinal) >= 0) ||
-                (hasPyeeOpen && (text.IndexOf("ပြီပြီ", StringComparison.Ordinal) >= 0 || text.IndexOf("သေးပြီ", StringComparison.Ordinal) >= 0)))
+            if ((hasKhae && ContainsMm(text, mmMask, "ခဲ့ခဲ့")) ||
+                (hasPyeeOpen && (ContainsMm(text, mmMask, "ပြီပြီ") || ContainsMm(text, mmMask, "သေးပြီ"))))
             {
                 foreach (Match m in ContradictoryOrDoubledAspectPattern.Matches(text))
                 {
@@ -1987,7 +2055,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (text.IndexOf("ပါခဲ့", StringComparison.Ordinal) >= 0)
+            if (hasKhae && ContainsMm(text, mmMask, "ပါခဲ့"))
             {
                 foreach (Match m in NominalCopulaPastClashPattern.Matches(text))
                 {
@@ -2026,10 +2094,10 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            bool hasKo = text.IndexOf("ကို", StringComparison.Ordinal) >= 0;
-            bool hasMhar = text.IndexOf("မှာ", StringComparison.Ordinal) >= 0;
+            bool hasKo = ContainsMm(text, mmMask, "ကို");
+            bool hasMhar = ContainsMm(text, mmMask, "မှာ");
 
-            if (hasKo && text.IndexOf("ထဲကို", StringComparison.Ordinal) >= 0)
+            if (hasKo && ContainsMm(text, mmMask, "ထဲကို"))
             {
                 foreach (Match m in InteriorGoalWithStaticVerbPattern.Matches(text))
                 {
@@ -2045,7 +2113,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (hasMhar && text.IndexOf("သွား", StringComparison.Ordinal) >= 0)
+            if (hasMhar && ContainsMm(text, mmMask, "သွား"))
             {
                 foreach (Match m in StaticLocativeWithMotionVerbPattern.Matches(text))
                 {
@@ -2061,7 +2129,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (hasKo && (text.IndexOf("ထုတ်ယူ", StringComparison.Ordinal) >= 0 || text.IndexOf("ပြန်လည်ရယူ", StringComparison.Ordinal) >= 0))
+            if (hasKo && (ContainsMm(text, mmMask, "ထုတ်ယူ") || ContainsMm(text, mmMask, "ပြန်လည်ရယူ")))
             {
                 foreach (Match m in SourceRepositoryKoInsteadOfMhaPattern.Matches(text))
                 {
@@ -2076,7 +2144,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (hasKo && text.IndexOf("စစ်ဆေးမှု", StringComparison.Ordinal) >= 0)
+            if (hasKo && ContainsMm(text, mmMask, "စစ်ဆေးမှု"))
             {
                 foreach (Match m in RegionKoBeforeNominalizedInspectionPattern.Matches(text))
                 {
@@ -2107,8 +2175,8 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             if (hasKo && hasHorizSpace &&
-                (text.IndexOf("ကျွန်", StringComparison.Ordinal) >= 0 ||
-                 text.IndexOf("အစ်", StringComparison.Ordinal) >= 0))
+                (ContainsMm(text, mmMask, "ကျွန်") ||
+                 ContainsMm(text, mmMask, "အစ်")))
             {
                 foreach (Match m in TripleKoSubjectConfusionPattern.Matches(text))
                 {
@@ -2125,9 +2193,9 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // Universal 'မှ' (ထွက်ခွာရာပြဝိဘတ်) misused as 'က' (ကတ္တားဝိဘတ်) — e.g. 'နေပြည်တော်မှကြိုဆိုပါသည် -> နေပြည်တော်ကကြိုဆိုပါသည်', 'ဝန်ကြီးဌာနမှ အသိပေးသည် -> ဝန်ကြီးဌာနက'
-            if (HasStandaloneMhaParticle(text))
+            if (hasMa && ((mmMask & (1UL << ('\u103E' - '\u1000'))) != 0UL) && HasStandaloneMhaParticle(text))
             {
-                if (text.IndexOf("ကြိုဆို", StringComparison.Ordinal) >= 0)
+                if (ContainsMm(text, mmMask, "ကြိုဆို"))
                 {
                     foreach (Match m in HostWelcomeMhaSubjectPattern.Matches(text))
                     {
@@ -2157,7 +2225,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (text.IndexOf("လို့", StringComparison.Ordinal) >= 0 && text.IndexOf("မည်ဖြစ်သည်", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "လို့") && ContainsMm(text, mmMask, "မည်ဖြစ်သည်"))
             {
                 foreach (Match m in ColloquialLoWithBureaucraticMyiPhitPattern.Matches(text))
                 {
@@ -2174,7 +2242,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (text.IndexOf("တော်တော်", StringComparison.Ordinal) >= 0 || text.IndexOf("အူသွားတယ်", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "တော်တော်") || ContainsMm(text, mmMask, "အူသွားတယ်"))
             {
                 foreach (Match m in FormalContextSlangPattern.Matches(text))
                 {
@@ -2194,7 +2262,8 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 4j. Universal Direct-Object 'အား -> ကို', Plural Verb 'ကျ -> ကြ', Modal 'သည့် -> သင့်' & Duplicated Function Words
-            if (text.IndexOf("အား", StringComparison.Ordinal) >= 0)
+            bool hasAh = ContainsMm(text, mmMask, "အား");
+            if (hasAh)
             {
                 foreach (Match m in PhysicalDirectObjectAhPattern.Matches(text))
                 {
@@ -2239,7 +2308,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (text.IndexOf("ကျ", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "ကျ"))
             {
                 foreach (Match m in PluralVerbKyaMisusePattern.Matches(text))
                 {
@@ -2255,7 +2324,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (text.IndexOf("သည့်ပါ", StringComparison.Ordinal) >= 0)
+            if (hasCreakyDot && ContainsMm(text, mmMask, "သည့်ပါ"))
             {
                 foreach (Match m in MisusedSinthBeforePoliteSfpPattern.Matches(text))
                 {
@@ -2270,7 +2339,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (hasHorizSpace && MayContainDuplicatedFunctionWord(text))
+            if (hasMyanmarSpaceMyanmar && MayContainDuplicatedFunctionWord(text, mmMask))
             {
                 foreach (Match m in DuplicatedFunctionWordPattern.Matches(text))
                 {
@@ -2287,7 +2356,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             // 4k. V19 Deep Myanmar Grammar Pattern Checks (O(1) pre-filtered)
             // 4k-1. WH-Interrogative <-> Polar Question Particle Clash ('လား/သလား' vs 'လဲ/သလဲ/သနည်း')
-            if (hasVisarga && text.IndexOf("လား", StringComparison.Ordinal) >= 0)
+            if (hasVisarga && ContainsMm(text, mmMask, "လား"))
             {
                 foreach (Match m in WhInterrogativeWithPolarLarPattern.Matches(text))
                 {
@@ -2427,7 +2496,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 4k-3. Pleonastic & Hybrid Grammatical Constructions ('မတိုင်မီခင်', 'အလို့ငှာအတွက်', 'သဖြင့်ကြောင့်', 'များတွေ', 'တွင်၌', etc.)
-            if (HasAnySubstring(text, PleonasticTriggers))
+            if (HasAnySubstring(text, mmMask, PleonasticTriggers))
             {
                 foreach (Match m in PleonasticHybridGrammarPattern.Matches(text))
                 {
@@ -2519,7 +2588,8 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 4k-4. Adverbial 'စသဖြင့်' misused before nominal plural/case postpositions -> 'စသည်...'
-            if (text.IndexOf("စသဖြင့်", StringComparison.Ordinal) >= 0)
+            bool hasSaThaPhint = hasCreakyDot && ContainsMm(text, mmMask, "သဖြင့်");
+            if (hasSaThaPhint && ContainsMm(text, mmMask, "စသဖြင့်"))
             {
                 foreach (Match m in MisusedSaThaPhintNominalPattern.Matches(text))
                 {
@@ -2539,7 +2609,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 4k-5. Correlative 'အကယ်၍ ... သောကြောင့်/သဖြင့်' -> 'ပါက/လျှင်', & Dangling Causal Medial Fragment ('...သဖြင့်။')
-            if (text.IndexOf("အကယ်၍", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "အကယ်၍"))
             {
                 foreach (Match m in HypotheticalAkaeYweWithCausalPattern.Matches(text))
                 {
@@ -2580,7 +2650,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (text.IndexOf("သဖြင့်", StringComparison.Ordinal) >= 0)
+            if (hasPaukMaGyi && hasSaThaPhint)
             {
                 foreach (Match m in DanglingCausalMedialSentenceFragmentPattern.Matches(text))
                 {
@@ -2598,11 +2668,11 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 4k-6. Clause-Internal Register Disharmony (Universal: catches stark literary+colloquial clash even in GeneralStandard)
-            if ((hasBu || text.IndexOf("ပါတယ်", StringComparison.Ordinal) >= 0 || text.IndexOf("ပါမယ်", StringComparison.Ordinal) >= 0) &&
-                (text.IndexOf("၌", StringComparison.Ordinal) >= 0 ||
-                 text.IndexOf("သဖြင့်", StringComparison.Ordinal) >= 0 ||
-                 text.IndexOf("အလို့ငှာ", StringComparison.Ordinal) >= 0 ||
-                 text.IndexOf("၎င်း", StringComparison.Ordinal) >= 0))
+            if ((hasBu || ContainsMm(text, mmMask, "ပါတယ်") || ContainsMm(text, mmMask, "ပါမယ်")) &&
+                (ContainsMm(text, mmMask, "၌") ||
+                 hasSaThaPhint ||
+                 ContainsMm(text, mmMask, "အလို့ငှာ") ||
+                 (hasLaKaungTrigger && ContainsMm(text, mmMask, "၎င်း"))))
             {
                 foreach (Match m in PureLiteraryMarkerWithColloquialSfpPattern.Matches(text))
                 {
@@ -2624,10 +2694,10 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (text.IndexOf("ပေသည်", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("ချေသည်", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("ပါ၏", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("သတည်း", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "ပေသည်") ||
+                ContainsMm(text, mmMask, "ချေသည်") ||
+                ContainsMm(text, mmMask, "ပါ၏") ||
+                ContainsMm(text, mmMask, "သတည်း"))
             {
                 foreach (Match m in ColloquialMarkerWithClassicalSfpPattern.Matches(text))
                 {
@@ -2650,10 +2720,10 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 4k-7. Monastic / Clergy Honorific Subject–Verb Concord
-            if (text.IndexOf("ဆရာတော်", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("သံဃာတော်", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("ရဟန်းတော်", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("ဘုန်းတော်ကြီး", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "ဆရာတော်") ||
+                ContainsMm(text, mmMask, "သံဃာတော်") ||
+                ContainsMm(text, mmMask, "ရဟန်းတော်") ||
+                ContainsMm(text, mmMask, "ဘုန်းတော်ကြီး"))
             {
                 foreach (Match m in MonasticHonorificVerbConcordPattern.Matches(text))
                 {
@@ -2719,10 +2789,10 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 4k-8. Auxiliary Verb Particle Slot Inversion ('*ဆောင်ရွက်ပါနိုင်သည် -> ဆောင်ရွက်နိုင်ပါသည်', '*သိရှိစေပါလိုသည် -> သိရှိစေလိုပါသည်', '*ခဲ့နေသည် -> နေခဲ့သည်')
-            if (text.IndexOf("ပါနိုင်", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("ပါချင်", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("ပါလို", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("ပါသင့်", StringComparison.Ordinal) >= 0)
+            if (ContainsMm(text, mmMask, "ပါနိုင်") ||
+                ContainsMm(text, mmMask, "ပါချင်") ||
+                ContainsMm(text, mmMask, "ပါလို") ||
+                ContainsMm(text, mmMask, "ပါသင့်"))
             {
                 foreach (Match m in InvertedPoliteModalParticlePattern.Matches(text))
                 {
@@ -2743,7 +2813,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (hasKhae && text.IndexOf("ခဲ့နေ", StringComparison.Ordinal) >= 0)
+            if (hasKhae && ContainsMm(text, mmMask, "ခဲ့နေ"))
             {
                 foreach (Match m in InvertedPastProgressiveParticlePattern.Matches(text))
                 {
@@ -2761,7 +2831,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 4h. Broken Space-Split Mandatory Compounds ('စာ ကြည့်တိုက်' -> 'စာကြည့်တိုက်', 'အစည်း အဝေး' -> 'အစည်းအဝေး')
-            if (hasHorizSpace)
+            if (hasMyanmarSpaceMyanmar)
             {
                 foreach (Match m in CuratedBrokenCompoundPattern.Matches(text))
                 {
@@ -2776,7 +2846,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     }
                 }
 
-                if (trie != null)
+                if (trie != null && hasShortMyanmarBeforeMyanmar)
                 {
                     foreach (Match m in SpaceSplitPairCandidateRegex.Matches(text))
                     {
@@ -2832,7 +2902,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 // 5. Colloquial-to-Literary (ရုံးသုံး / စာပေ အရေးအသား) Rules
                 foreach (var rule in ColloquialRules)
                 {
-                    if (text.IndexOf(rule.Trigger, StringComparison.Ordinal) < 0)
+                    if (!ContainsMm(text, mmMask, rule.Trigger))
                         continue;
 
                     foreach (Match m in rule.Pattern.Matches(text))
@@ -2867,7 +2937,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
 
                 // 6a. 'အား' vs 'ကို' particle misuse (with Maung Khin Min's Double-'ကို' & Causative '-စေ' Exemption!)
-                if (text.IndexOf("အား", StringComparison.Ordinal) >= 0)
+                if (hasAh)
                 {
                     foreach (Match m in AhInsteadOfKoPattern.Matches(text))
                     {
@@ -2909,7 +2979,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
 
                 // 6b. 'နှင့်' vs 'ဖြင့်' instrumental postposition in Formal/Official style
-                if (text.IndexOf("နှင့်", StringComparison.Ordinal) >= 0)
+                if (hasCreakyDot && ContainsMm(text, mmMask, "နှင့်"))
                 {
                     foreach (Match m in InstrumentalNhitInsteadOfPhintPattern.Matches(text))
                     {
@@ -2926,7 +2996,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
 
                 // 6d. Redundant stacked postpositions 'အတွက်ကို -> အတွက်' (ဝိဘတ်နှစ်ထပ်)
-                if (text.IndexOf("အတွက်ကို", StringComparison.Ordinal) >= 0)
+                if (hasKo && ContainsMm(text, mmMask, "အတွက်ကို"))
                 {
                     foreach (Match m in RedundantAtwetKoPattern.Matches(text))
                     {
@@ -2945,9 +3015,10 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 7. Duplicated Punctuation (ပုဒ်ဖြတ်ပုဒ်ရပ် — including '၊၊' typed twice instead of '။' on list numbers / sentence endings)
-            if (text.IndexOf("\u104A\u104A", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("\u104B\u104B", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("\u104A\u104B", StringComparison.Ordinal) >= 0)
+            if (hasConsecutiveMyanmarPunct &&
+                (text.IndexOf("\u104A\u104A", StringComparison.Ordinal) >= 0 ||
+                 text.IndexOf("\u104B\u104B", StringComparison.Ordinal) >= 0 ||
+                 text.IndexOf("\u104A\u104B", StringComparison.Ordinal) >= 0))
             {
                 foreach (Match m in DuplicatePunctuationPattern.Matches(text))
             {
@@ -3025,22 +3096,24 @@ namespace MyanmarSpellChecker.Core.Nlp
             return issues;
         }
 
-        private static bool HasAnySubstring(string text, string[] triggers)
+        private static bool HasAnySubstring(string text, ulong mmMask, string[] triggers)
         {
             for (int i = 0; i < triggers.Length; i++)
             {
-                if (text.IndexOf(triggers[i], StringComparison.Ordinal) >= 0)
+                if (ContainsMm(text, mmMask, triggers[i]))
                     return true;
             }
             return false;
         }
 
-        private static bool MayContainDuplicatedFunctionWord(string text)
+        private static bool MayContainDuplicatedFunctionWord(string text, ulong mmMask)
         {
             int len = text.Length;
             for (int i = 0; i < DuplicatedFunctionWordCandidates.Length; i++)
             {
                 string w = DuplicatedFunctionWordCandidates[i];
+                if (!ContainsMm(text, mmMask, w))
+                    continue;
                 int searchPos = 0;
                 while (searchPos < len)
                 {
@@ -3243,28 +3316,21 @@ namespace MyanmarSpellChecker.Core.Nlp
             return false;
         }
 
-        private static bool HasAnyMyanmarNumeralCore(string text)
+        private static bool HasAnyMyanmarNumeralCore(string text, ulong mmMask, bool hasNonZeroMyanmarDigit)
         {
-            if (text.IndexOf("တစ်", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("နှစ်", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("သုံး", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("လေး", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("ငါး", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("ခြောက်", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("ခုနစ်", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("ရှစ်", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("ကိုး", StringComparison.Ordinal) >= 0 ||
-                text.IndexOf("ဆယ်", StringComparison.Ordinal) >= 0)
-            {
+            if (hasNonZeroMyanmarDigit)
                 return true;
-            }
-            for (int i = 0; i < text.Length; i++)
-            {
-                char c = text[i];
-                if (c >= '\u1041' && c <= '\u1049')
-                    return true;
-            }
-            return false;
+
+            return ContainsMm(text, mmMask, "တစ်") ||
+                   ContainsMm(text, mmMask, "နှစ်") ||
+                   ContainsMm(text, mmMask, "သုံး") ||
+                   ContainsMm(text, mmMask, "လေး") ||
+                   ContainsMm(text, mmMask, "ငါး") ||
+                   ContainsMm(text, mmMask, "ခြောက်") ||
+                   ContainsMm(text, mmMask, "ခုနစ်") ||
+                   ContainsMm(text, mmMask, "ရှစ်") ||
+                   ContainsMm(text, mmMask, "ကိုး") ||
+                   ContainsMm(text, mmMask, "ဆယ်");
         }
 
         private static bool OverlapsExistingIssue(List<ProofingIssue> issues, int index, int length)

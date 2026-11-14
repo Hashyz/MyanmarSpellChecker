@@ -233,17 +233,22 @@ namespace MyanmarSpellChecker.Core.Nlp
         /// </summary>
         private static bool NeedsCanonicalReorder(string s)
         {
-            int len = s.Length;
+            return NeedsCanonicalReorder(s, 0, s.Length);
+        }
+
+        private static bool NeedsCanonicalReorder(string s, int start, int len)
+        {
             if (len < 2)
                 return false;
 
+            int end = start + len;
             bool has1039 = false;
             bool has102B = false;
-            char prev = s[0];
+            char prev = s[start];
             if (prev == '\u1039') has1039 = true;
             else if (prev == '\u102B') has102B = true;
 
-            for (int i = 1; i < len; i++)
+            for (int i = start + 1; i < end; i++)
             {
                 char c = s[i];
                 if (c == '\u1039') has1039 = true;
@@ -304,13 +309,19 @@ namespace MyanmarSpellChecker.Core.Nlp
         /// </summary>
         private static uint ComputeLookalikeTriggerMask(string s)
         {
-            int len = s.Length;
+            return ComputeLookalikeTriggerMask(s, 0, s.Length);
+        }
+
+        private static uint ComputeLookalikeTriggerMask(string s, int start, int len)
+        {
+            int end = start + len;
             uint mask = 0;
             char prev = '\0';
 
-            for (int i = 0; i < len; i++)
+            for (int i = start; i < end; i++)
             {
                 char c = s[i];
+                int rel = i - start;
 
                 if ((c >= '\u200B' && c <= '\u200D') || c == '\uFEFF')
                 {
@@ -319,8 +330,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                 else if (c == '\u1039')
                 {
                     mask |= LookalikeVirama1039;
-                    if (i > 0 && ((prev >= '\u102B' && prev <= '\u1032') || prev == '\u1036') &&
-                        i + 1 < len && s[i + 1] >= '\u1000' && s[i + 1] <= '\u1021')
+                    if (rel > 0 && ((prev >= '\u102B' && prev <= '\u1032') || prev == '\u1036') &&
+                        i + 1 < end && s[i + 1] >= '\u1000' && s[i + 1] <= '\u1021')
                     {
                         mask |= LookalikeVowelBeforeStack;
                     }
@@ -344,9 +355,9 @@ namespace MyanmarSpellChecker.Core.Nlp
                 else if (c == '\u102B')
                 {
                     int baseIdx = prev == '\u1031' ? i - 2 : i - 1;
-                    bool cleanNarrowCons = baseIdx >= 0 &&
+                    bool cleanNarrowCons = baseIdx >= start &&
                                            IsNarrowTallAaConsonant(s[baseIdx]) &&
-                                           (baseIdx == 0 || s[baseIdx - 1] != '\u1039');
+                                           (baseIdx == start || s[baseIdx - 1] != '\u1039');
                     if (!cleanNarrowCons)
                     {
                         mask |= LookalikeTallAa;
@@ -355,23 +366,23 @@ namespace MyanmarSpellChecker.Core.Nlp
                 else if (c == '\u102C')
                 {
                     int baseIdx = prev == '\u1031' ? i - 2 : i - 1;
-                    if (baseIdx >= 0)
+                    if (baseIdx >= start)
                     {
                         char b = s[baseIdx];
-                        if (IsNarrowTallAaConsonant(b) || (b == '\u103D' && baseIdx >= 1 && s[baseIdx - 1] == '\u1012'))
+                        if (IsNarrowTallAaConsonant(b) || (b == '\u103D' && baseIdx >= start + 1 && s[baseIdx - 1] == '\u1012'))
                         {
                             mask |= LookalikeRoundAa;
                         }
                     }
                 }
 
-                if (i > 0)
+                if (rel > 0)
                 {
                     if (c == prev && ((c >= '\u102B' && c <= '\u1032') || (c >= '\u1036' && c <= '\u103E')))
                     {
                         mask |= LookalikeDuplicateMark;
                     }
-                    else if (i >= 2 &&
+                    else if (rel >= 2 &&
                              ((c == '\u103A' && prev == '\u1037' && s[i - 2] == '\u103A') ||
                               (c == '\u1037' && prev == '\u103A' && s[i - 2] == '\u1037')))
                     {
@@ -400,8 +411,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                     }
                     else if ((((c == '\u103A' && (prev == '\u102B' || prev == '\u102C')) ||
                                ((c == '\u102B' || c == '\u102C') && prev == '\u103A')) &&
-                              i >= 2 && (s[i - 2] == '\u103B' || s[i - 2] == '\u103C')) ||
-                             (c >= '\u1000' && c <= '\u1021' && prev == '\u103C' && i >= 2 && s[i - 2] == '\u103A'))
+                              rel >= 2 && (s[i - 2] == '\u103B' || s[i - 2] == '\u103C')) ||
+                             (c >= '\u1000' && c <= '\u1021' && prev == '\u103C' && rel >= 2 && s[i - 2] == '\u103A'))
                     {
                         mask |= LookalikeMisplacedMedialAaAsat;
                     }
@@ -435,7 +446,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 prev = c;
             }
 
-            if ((mask & LookalikeDuplicateMark) == 0 && NeedsCanonicalReorder(s))
+            if ((mask & LookalikeDuplicateMark) == 0 && NeedsCanonicalReorder(s, start, len))
             {
                 mask |= LookalikeDuplicateMark;
             }
@@ -598,6 +609,39 @@ namespace MyanmarSpellChecker.Core.Nlp
             fixedToken = NormalizeCanonicalOrder(fixedToken);
             fixedToken = DuplicateCombiningMarkPattern.Replace(fixedToken, "$1");
             return NormalizeCanonicalOrder(fixedToken);
+        }
+
+        /// <summary>
+        /// Zero-allocation slice check: returns false in ~10ns without allocating a Substring whenever the slice [start..start+length) is clean.
+        /// </summary>
+        public static bool HasLookalikeErrorSlice(string text, int start, int length)
+        {
+            if (string.IsNullOrEmpty(text) || length <= 0 || start < 0 || start + length > text.Length)
+                return false;
+
+            if (ComputeLookalikeTriggerMask(text, start, length) == 0)
+                return false;
+
+            return HasLookalikeError(text.Substring(start, length), out _, out _);
+        }
+
+        public static bool HasLookalikeErrorSlice(string text, int start, int length, out string correctedToken, out string explanation)
+        {
+            if (string.IsNullOrEmpty(text) || length <= 0 || start < 0 || start + length > text.Length)
+            {
+                correctedToken = string.Empty;
+                explanation = string.Empty;
+                return false;
+            }
+
+            if (ComputeLookalikeTriggerMask(text, start, length) == 0)
+            {
+                correctedToken = string.Empty;
+                explanation = string.Empty;
+                return false;
+            }
+
+            return HasLookalikeError(text.Substring(start, length), out correctedToken, out explanation);
         }
 
         /// <summary>

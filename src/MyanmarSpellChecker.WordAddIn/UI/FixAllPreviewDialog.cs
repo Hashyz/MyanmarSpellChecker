@@ -99,10 +99,25 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         {
             if (disposing)
             {
+                DisposeAndClearChoicesPanel();
                 _searchDebounceTimer.Stop();
                 _searchDebounceTimer.Dispose();
             }
             base.Dispose(disposing);
+        }
+
+        private void DisposeAndClearChoicesPanel()
+        {
+            if (_choicesPanel == null || _choicesPanel.IsDisposed)
+                return;
+
+            while (_choicesPanel.Controls.Count > 0)
+            {
+                int lastIdx = _choicesPanel.Controls.Count - 1;
+                Control child = _choicesPanel.Controls[lastIdx];
+                _choicesPanel.Controls.RemoveAt(lastIdx);
+                child.Dispose();
+            }
         }
 
         private void InitializeDialogUi(string scopeDisplayTitle)
@@ -791,7 +806,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             _choicesPanel.SuspendLayout();
             try
             {
-                _choicesPanel.Controls.Clear();
+                DisposeAndClearChoicesPanel();
                 int selectedRowIdx = GetSelectedRowIndex();
                 if (selectedRowIdx < 0)
                 {

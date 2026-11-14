@@ -662,9 +662,9 @@ namespace MyanmarSpellChecker.Core.Dictionary
                         {
                             Id = id,
                             Word = word,
-                            MeaningCue = PoolIfShort(meaningCue, tagPool, 16),
+                            MeaningCue = PoolIfShort(meaningCue, tagPool, 48),
                             PosTag = posTag,
-                            PhoneticKey = PoolIfShort(phoneticKey, tagPool, 16),
+                            PhoneticKey = PoolIfShort(phoneticKey, tagPool, 24),
                             UsageNote = usageNote,
                             Frequency = freq,
                             IsOfficialThatpon = isOfficial
@@ -750,10 +750,10 @@ namespace MyanmarSpellChecker.Core.Dictionary
                     {
                         Id = id,
                         Word = word.Length <= 10 ? PoolIfShort(word, pool, 10) : word,
-                        MeaningCue = meaningCue.Length == 0 ? string.Empty : PoolIfShort(meaningCue, pool, 16),
+                        MeaningCue = meaningCue.Length == 0 ? string.Empty : PoolIfShort(meaningCue, pool, 48),
                         PosTag = posTag,
                         PhoneticKey = PoolIfShort(phoneticKey, pool, 24),
-                        UsageNote = usageNote.Length == 0 ? string.Empty : PoolIfShort(usageNote, pool, 16),
+                        UsageNote = usageNote.Length == 0 ? string.Empty : PoolIfShort(usageNote, pool, 24),
                         Frequency = freq,
                         IsOfficialThatpon = isOfficial
                     };
@@ -768,8 +768,8 @@ namespace MyanmarSpellChecker.Core.Dictionary
                         Id = reader.ReadInt32(),
                         WrongForm = reader.ReadFastString(),
                         CorrectForm = reader.ReadFastString(),
-                        Category = reader.ReadFastString(),
-                        Explanation = reader.ReadFastString()
+                        Category = PoolIfShort(reader.ReadFastString(), pool, 32),
+                        Explanation = PoolIfShort(reader.ReadFastString(), pool, 48)
                     }, sylBuf, pool);
                 }
 

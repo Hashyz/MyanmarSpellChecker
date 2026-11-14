@@ -13,11 +13,16 @@ namespace MyanmarSpellChecker.Core.Nlp
     /// </summary>
     public sealed class SuggestionEngine
     {
+        private static readonly int CacheCap = !Environment.Is64BitProcess ? 1536 : 4096;
+        private static readonly int EnrichedChoiceCacheCap = !Environment.Is64BitProcess ? 1024 : 2048;
+
         private readonly MyanmarTrie _trie;
         private readonly ConcurrentDictionary<string, List<SuggestionCandidate>> _suggestionCache =
             new ConcurrentDictionary<string, List<SuggestionCandidate>>(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, List<SuggestionCandidate>> _atomicSuggestionCache =
             new ConcurrentDictionary<string, List<SuggestionCandidate>>(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<(long TrieVer, ProofingIssueType Type, ProofingStyleMode Mode, int MaxChoices, string Raw, string SeedKey), List<SuggestionCandidate>> _enrichedChoiceCache =
+            new ConcurrentDictionary<(long TrieVer, ProofingIssueType Type, ProofingStyleMode Mode, int MaxChoices, string Raw, string SeedKey), List<SuggestionCandidate>>();
 
         private static readonly ulong[] s_compatibleBaseMasks = BuildCompatibleBaseMasks();
 
@@ -167,6 +172,7 @@ namespace MyanmarSpellChecker.Core.Nlp
         {
             _suggestionCache.Clear();
             _atomicSuggestionCache.Clear();
+            _enrichedChoiceCache.Clear();
         }
 
         private static int GetTrackableBaseIndex(char c)
@@ -629,7 +635,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             {
                 if (allowCompositional && maxResults <= 5)
                 {
-                    if (_suggestionCache.Count >= 4096)
+                    if (_suggestionCache.Count >= CacheCap)
                         _suggestionCache.Clear();
                     _suggestionCache[normalized] = CloneCandidates(topList, computeCap);
                     if (topList.Count > maxResults)
@@ -637,7 +643,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
                 else if (!allowCompositional && maxResults <= 3)
                 {
-                    if (_atomicSuggestionCache.Count >= 4096)
+                    if (_atomicSuggestionCache.Count >= CacheCap)
                         _atomicSuggestionCache.Clear();
                     _atomicSuggestionCache[normalized] = CloneCandidates(topList, computeCap);
                     if (topList.Count > maxResults)
@@ -646,6 +652,44 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             return topList;
+        }
+
+        private static string BuildInitialSuggestionsSeedKey(List<SuggestionCandidate> initial)
+        {
+            int count = initial.Count;
+            if (count == 0)
+                return string.Empty;
+            if (count == 1)
+            {
+                var c = initial[0];
+                if (string.IsNullOrEmpty(c.DiagnosticDetail) && string.IsNullOrEmpty(c.AbidanSummary) &&
+                    string.IsNullOrEmpty(c.SyllableBreakdown) && string.IsNullOrEmpty(c.HomophoneSiblings))
+                {
+                    return string.Concat(
+                        c.Replacement, "\u001F",
+                        c.MeaningCue, "\u001F",
+                        c.PosTag, "\u001F",
+                        c.IsOfficialThatpon ? "1|" : "0|",
+                        ((int)Math.Round(c.Score * 100.0)).ToString());
+                }
+            }
+
+            var sb = new System.Text.StringBuilder(count * 48);
+            for (int i = 0; i < count; i++)
+            {
+                var c = initial[i];
+                if (i > 0) sb.Append('\u001E');
+                sb.Append(c.Replacement).Append('\u001F')
+                  .Append(c.MeaningCue).Append('\u001F')
+                  .Append(c.PosTag).Append('\u001F')
+                  .Append(c.IsOfficialThatpon ? '1' : '0').Append('\u001F')
+                  .Append((int)Math.Round(c.Score * 100.0)).Append('\u001F')
+                  .Append(c.SyllableBreakdown).Append('\u001F')
+                  .Append(c.DiagnosticDetail).Append('\u001F')
+                  .Append(c.HomophoneSiblings).Append('\u001F')
+                  .Append(c.AbidanSummary);
+            }
+            return sb.ToString();
         }
 
         /// <summary>
@@ -670,6 +714,14 @@ namespace MyanmarSpellChecker.Core.Nlp
             string raw = (issue.OriginalText ?? string.Empty).Trim();
             if (string.IsNullOrEmpty(raw))
                 return;
+
+            string seedKey = BuildInitialSuggestionsSeedKey(issue.Suggestions);
+            var choiceCacheKey = (_trie.MutationVersion, issue.IssueType, styleMode, maxChoices, raw, seedKey);
+            if (_enrichedChoiceCache.TryGetValue(choiceCacheKey, out var cachedChoices))
+            {
+                issue.Suggestions = CloneCandidates(cachedChoices, cachedChoices.Count);
+                return;
+            }
 
             string norm = UnicodeNormalizer.NormalizeCanonicalOrder(raw);
             if (!HasMyanmarBaseCharacter(norm) && issue.Suggestions.Count == 0)
@@ -707,7 +759,16 @@ namespace MyanmarSpellChecker.Core.Nlp
                     string extraNorm = UnicodeNormalizer.NormalizeCanonicalOrder(extra.Replacement.Trim());
                     if (extraNorm == norm)
                         continue;
-                    if (issue.Suggestions.Any(s => UnicodeNormalizer.NormalizeCanonicalOrder(s.Replacement.Trim()) == extraNorm))
+                    bool dup = false;
+                    for (int sIdx = 0; sIdx < issue.Suggestions.Count; sIdx++)
+                    {
+                        if (UnicodeNormalizer.NormalizeCanonicalOrder(issue.Suggestions[sIdx].Replacement.Trim()) == extraNorm)
+                        {
+                            dup = true;
+                            break;
+                        }
+                    }
+                    if (dup)
                         continue;
 
                     issue.Suggestions.Add(extra);
@@ -716,13 +777,17 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             if (issue.Suggestions.Count > maxChoices)
             {
-                issue.Suggestions = issue.Suggestions.Take(maxChoices).ToList();
+                issue.Suggestions.RemoveRange(maxChoices, issue.Suggestions.Count - maxChoices);
             }
 
-            foreach (var cand in issue.Suggestions)
+            for (int cIdx = 0; cIdx < issue.Suggestions.Count; cIdx++)
             {
-                PopulateSingleCandidateMetadata(raw, cand);
+                PopulateSingleCandidateMetadata(raw, issue.Suggestions[cIdx]);
             }
+
+            if (_enrichedChoiceCache.Count >= EnrichedChoiceCacheCap)
+                _enrichedChoiceCache.Clear();
+            _enrichedChoiceCache[choiceCacheKey] = CloneCandidates(issue.Suggestions, issue.Suggestions.Count);
         }
 
         private void AddColloquialPhoneticShortcuts(List<SuggestionCandidate> results, string rawTrimmed, string normalized)

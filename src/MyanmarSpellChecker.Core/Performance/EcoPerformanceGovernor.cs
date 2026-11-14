@@ -313,6 +313,60 @@ namespace MyanmarSpellChecker.Core.Performance
             }
         }
 
+        private static long s_lastMemoryCheckTickMs;
+
+        /// <summary>
+        /// Throttled memory-pressure watchdog for 32-bit Office and low-RAM ("Potato") PCs.
+        /// Probes physical/managed memory at most once every 2.5 seconds and invokes <paramref name="aggressiveTrimAction"/>
+        /// if available physical RAM drops critically low (&lt;= 384 MB) or 32-bit managed heap exceeds 320 MB.
+        /// </summary>
+        public static bool MaybeTrimUnderMemoryPressure(Action? aggressiveTrimAction)
+        {
+            if (aggressiveTrimAction == null)
+                return false;
+
+            long nowTick = Environment.TickCount & int.MaxValue;
+            long prevTick = Interlocked.Read(ref s_lastMemoryCheckTickMs);
+            if (nowTick - prevTick < 2500 && nowTick >= prevTick)
+                return false;
+
+            Interlocked.Exchange(ref s_lastMemoryCheckTickMs, nowTick);
+
+            try
+            {
+                bool is32Bit = !Environment.Is64BitProcess;
+                long managedBytes = GC.GetTotalMemory(forceFullCollection: false);
+                if (is32Bit && managedBytes >= 320L * 1024L * 1024L)
+                {
+                    aggressiveTrimAction();
+                    GC.Collect(1, GCCollectionMode.Optimized, blocking: false);
+                    return true;
+                }
+
+                var mem = new MEMORYSTATUSEX
+                {
+                    dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX))
+                };
+                if (GlobalMemoryStatusEx(ref mem))
+                {
+                    ulong availMb = mem.ullAvailPhys / (1024UL * 1024UL);
+                    ulong availVirtMb = mem.ullAvailVirtual / (1024UL * 1024UL);
+                    if (availMb <= 384UL || (is32Bit && availVirtMb > 0 && availVirtMb <= 320UL))
+                    {
+                        aggressiveTrimAction();
+                        GC.Collect(1, GCCollectionMode.Optimized, blocking: false);
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore P/Invoke errors on restricted hosts
+            }
+
+            return false;
+        }
+
         public static void MaybeMicroYield(int indexZeroBased, int microYieldEveryItems)
         {
             if (microYieldEveryItems <= 0 || indexZeroBased <= 0)

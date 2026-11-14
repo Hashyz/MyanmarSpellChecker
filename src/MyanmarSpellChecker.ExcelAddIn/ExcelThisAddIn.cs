@@ -1245,32 +1245,24 @@ namespace MyanmarSpellChecker.ExcelAddIn
                         _proofingEngine.LoadCustomDictionaryFile(ministryDict);
                         _proofingEngine.LoadCustomDictionaryFile(_customDictFilePath);
 
-                        Control? marshaller = _uiMarshaller;
-                        if (marshaller != null && marshaller.IsHandleCreated && !marshaller.IsDisposed)
+                        SafeBeginInvokeUi(_uiMarshaller, () =>
                         {
-                            marshaller.BeginInvoke(new Action(() =>
+                            _loadedDbLastWriteUtc = newStamp;
+                            foreach (var kvp in _windowTaskPanes.Values)
                             {
-                                _loadedDbLastWriteUtc = newStamp;
-                                foreach (var kvp in _windowTaskPanes.Values)
-                                {
-                                    kvp.Control.SetLexiconStats(
-                                        freshTrie.WordCount,
-                                        freshTrie.OfficialThatponCount,
-                                        freshTrie.RuleCount,
-                                        freshTrie.ReferenceCount,
-                                        freshTrie.EncyclopediaCount);
-                                }
-                                _scannerToolkit.ScanScopeAsync(scope);
-                            }));
-                        }
+                                kvp.Control.SetLexiconStats(
+                                    freshTrie.WordCount,
+                                    freshTrie.OfficialThatponCount,
+                                    freshTrie.RuleCount,
+                                    freshTrie.ReferenceCount,
+                                    freshTrie.EncyclopediaCount);
+                            }
+                            _scannerToolkit.ScanScopeAsync(scope);
+                        });
                     }
                     catch
                     {
-                        Control? marshaller = _uiMarshaller;
-                        if (marshaller != null && marshaller.IsHandleCreated && !marshaller.IsDisposed)
-                        {
-                            marshaller.BeginInvoke(new Action(() => _scannerToolkit?.ScanScopeAsync(scope)));
-                        }
+                        SafeBeginInvokeUi(_uiMarshaller, () => _scannerToolkit?.ScanScopeAsync(scope));
                     }
                     finally
                     {
@@ -1281,6 +1273,19 @@ namespace MyanmarSpellChecker.ExcelAddIn
             }
 
             _scannerToolkit.ScanScopeAsync(scope);
+        }
+
+        private static void SafeBeginInvokeUi(Control? marshaller, Action action)
+        {
+            if (marshaller == null || marshaller.IsDisposed || !marshaller.IsHandleCreated)
+                return;
+
+            try
+            {
+                marshaller.BeginInvoke(action);
+            }
+            catch (ObjectDisposedException) { }
+            catch (InvalidOperationException) { }
         }
 
         private bool LoadSavedVisualUnderlineSetting()

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -14,6 +15,23 @@ namespace MyanmarSpellChecker.Core.Nlp
     /// </summary>
     public static class MyanmarLinguisticReasoningEngine
     {
+        private static readonly int ReasoningCacheCap = !Environment.Is64BitProcess ? 1024 : 2048;
+
+        private static readonly ConcurrentDictionary<(long TrieVer, string RawWrong, string Rep, bool IsGrammarOrStyle), (string Breakdown, string Diag, string Pos, string Cue, string Abidan, bool HasExact, bool IsThatpon, string Homo)> s_candidateMetaCache =
+            new ConcurrentDictionary<(long TrieVer, string RawWrong, string Rep, bool IsGrammarOrStyle), (string Breakdown, string Diag, string Pos, string Cue, string Abidan, bool HasExact, bool IsThatpon, string Homo)>();
+
+        private static readonly ConcurrentDictionary<(long TrieVer, ProofingIssueType Type, ProofingStyleMode Mode, string OrigRaw, string Target, string Message, string BaseReasoning, string BaseSource, string BigramEv), (string Reasoning, string Source)> s_reasoningCache =
+            new ConcurrentDictionary<(long TrieVer, ProofingIssueType Type, ProofingStyleMode Mode, string OrigRaw, string Target, string Message, string BaseReasoning, string BaseSource, string BigramEv), (string Reasoning, string Source)>();
+
+        private static readonly ConcurrentDictionary<(long TrieVer, string Target), (int Count, string Collocation)> s_internalConstituentBigramCache =
+            new ConcurrentDictionary<(long TrieVer, string Target), (int Count, string Collocation)>();
+
+        public static void ClearCache()
+        {
+            s_candidateMetaCache.Clear();
+            s_reasoningCache.Clear();
+            s_internalConstituentBigramCache.Clear();
+        }
         private static readonly Regex PatSintClusterRegex = new Regex(
             @"(?<!\u1004\u103A)([\u1000-\u102A\u103F])\u1039([\u1000-\u102A\u103F])",
             RegexOptions.Compiled);
@@ -76,28 +94,40 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (issues == null || issues.Count == 0 || trie == null)
                 return;
 
+            long trieVer = trie.MutationVersion;
+
             for (int idx = 0; idx < issues.Count; idx++)
             {
                 ProofingIssue issue = issues[idx];
-                PopulateSuggestionMetadata(issue, trie);
+                PopulateSuggestionMetadata(issue, trie, trieVer);
 
                 SuggestionCandidate? top = issue.Suggestions.Count > 0 ? issue.Suggestions[0] : null;
                 string origRaw = (issue.OriginalText ?? string.Empty).Trim();
                 string origNorm = UnicodeNormalizer.NormalizeCanonicalOrder(origRaw);
                 string target = top != null ? UnicodeNormalizer.NormalizeCanonicalOrder(top.Replacement.Trim()) : string.Empty;
 
+                // Build live bigram collocation proof from neighboring clause tokens or compound constituents
+                string bigramEvidence = BuildSentenceBigramEvidence(fullText, tokens, issue, target, trie);
+
+                string baseReasoning = issue.GrammaticalReasoning ?? string.Empty;
+                string baseSource = issue.AuthoritativeSource ?? string.Empty;
+                var cacheKey = (trieVer, issue.IssueType, styleMode, origRaw, target, issue.Message ?? string.Empty, baseReasoning, baseSource, bigramEvidence);
+                if (s_reasoningCache.TryGetValue(cacheKey, out var cachedReason))
+                {
+                    issue.GrammaticalReasoning = cachedReason.Reasoning;
+                    issue.AuthoritativeSource = cachedReason.Source;
+                    continue;
+                }
+
                 DictionaryEntry? targetEntry = GetPrimaryEntry(trie, target);
                 DictionaryEntry? origEntry = (!string.IsNullOrEmpty(origNorm) && origNorm != target)
                     ? GetPrimaryEntry(trie, origNorm)
                     : null;
 
-                // Build live bigram collocation proof from neighboring clause tokens or compound constituents
-                string bigramEvidence = BuildSentenceBigramEvidence(fullText, tokens, issue, target, trie);
-
                 if (!string.IsNullOrWhiteSpace(issue.GrammaticalReasoning))
                 {
                     // If ContextDisambiguator set a short generic Khwe-Htar note, enrich it with deep phonological/morphological & semantic contrast!
-                    if (issue.GrammaticalReasoning.StartsWith("သတ်ပုံကျမ်း အနက်ခွဲထားစနစ်အရ", StringComparison.Ordinal) &&
+                    if (issue.GrammaticalReasoning!.StartsWith("သတ်ပုံကျမ်း အနက်ခွဲထားစနစ်အရ", StringComparison.Ordinal) &&
                         !string.IsNullOrEmpty(target))
                     {
                         var deepPrefix = new List<string>(3);
@@ -133,15 +163,20 @@ namespace MyanmarSpellChecker.Core.Nlp
                 {
                     issue.AuthoritativeSource = DetermineAuthoritativeSource(issue, origNorm, target, targetEntry, styleMode);
                 }
+
+                if (s_reasoningCache.Count >= ReasoningCacheCap)
+                    s_reasoningCache.Clear();
+                s_reasoningCache[cacheKey] = (issue.GrammaticalReasoning ?? string.Empty, issue.AuthoritativeSource ?? string.Empty);
             }
         }
 
-        private static void PopulateSuggestionMetadata(ProofingIssue issue, MyanmarTrie trie)
+        private static void PopulateSuggestionMetadata(ProofingIssue issue, MyanmarTrie trie, long trieVer)
         {
             if (issue.Suggestions == null || issue.Suggestions.Count == 0)
                 return;
 
             string rawWrong = (issue.OriginalText ?? string.Empty).Trim();
+            bool isGrammarOrStyle = issue.IsGrammarOrStyle;
             for (int i = 0; i < issue.Suggestions.Count; i++)
             {
                 SuggestionCandidate cand = issue.Suggestions[i];
@@ -149,37 +184,64 @@ namespace MyanmarSpellChecker.Core.Nlp
                     continue;
 
                 string rep = cand.Replacement.Trim();
-                if (string.IsNullOrWhiteSpace(cand.SyllableBreakdown) && rep.IndexOf(' ') < 0)
+                var metaKey = (trieVer, rawWrong, rep, isGrammarOrStyle);
+                if (!s_candidateMetaCache.TryGetValue(metaKey, out var meta))
                 {
-                    cand.SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(rep);
+                    bool hasNoSpace = rep.IndexOf(' ') < 0;
+                    string breakdown = hasNoSpace ? OrthographicDiffExplainer.FormatSyllableBreakdown(rep) : string.Empty;
+                    string diag = (!string.IsNullOrEmpty(rawWrong) && hasNoSpace)
+                        ? OrthographicDiffExplainer.ExplainDifference(rawWrong, rep)
+                        : string.Empty;
+                    string pos = string.Empty;
+                    string cue = string.Empty;
+                    string abidan = string.Empty;
+                    bool hasExact = false;
+                    bool isThatpon = false;
+
+                    if (trie.TryGetExactEntries(rep, out var entries) && entries.Count > 0)
+                    {
+                        hasExact = true;
+                        for (int eIdx = 0; eIdx < entries.Count; eIdx++)
+                        {
+                            var e = entries[eIdx];
+                            if (e.IsOfficialThatpon)
+                                isThatpon = true;
+                            if (pos.Length == 0 && !string.IsNullOrWhiteSpace(e.PosTag))
+                                pos = e.PosTag;
+                            if (cue.Length == 0 && !string.IsNullOrWhiteSpace(e.MeaningCue))
+                                cue = e.MeaningCue;
+                            if (!isGrammarOrStyle && abidan.Length == 0)
+                            {
+                                string ab = e.CompactAbidanSummary;
+                                if (!string.IsNullOrWhiteSpace(ab))
+                                    abidan = ab;
+                            }
+                        }
+                    }
+
+                    string homo = hasNoSpace ? trie.GetHomophoneSiblingsSummary(rep, 3) : string.Empty;
+                    meta = (breakdown, diag, pos, cue, abidan, hasExact, isThatpon, homo);
+                    if (s_candidateMetaCache.Count >= ReasoningCacheCap)
+                        s_candidateMetaCache.Clear();
+                    s_candidateMetaCache[metaKey] = meta;
                 }
 
-                if (string.IsNullOrWhiteSpace(cand.DiagnosticDetail) && !string.IsNullOrEmpty(rawWrong) && rep.IndexOf(' ') < 0)
-                {
-                    cand.DiagnosticDetail = OrthographicDiffExplainer.ExplainDifference(rawWrong, rep);
-                }
-
-                if (trie.TryGetExactEntries(rep, out var entries) && entries.Count > 0)
+                if (string.IsNullOrWhiteSpace(cand.SyllableBreakdown) && meta.Breakdown.Length > 0)
+                    cand.SyllableBreakdown = meta.Breakdown;
+                if (string.IsNullOrWhiteSpace(cand.DiagnosticDetail) && meta.Diag.Length > 0)
+                    cand.DiagnosticDetail = meta.Diag;
+                if (meta.HasExact)
                 {
                     if (string.IsNullOrWhiteSpace(cand.PosTag))
-                    {
-                        cand.PosTag = entries.Select(e => e.PosTag).FirstOrDefault(p => !string.IsNullOrWhiteSpace(p)) ?? string.Empty;
-                    }
+                        cand.PosTag = meta.Pos;
                     if (string.IsNullOrWhiteSpace(cand.MeaningCue))
-                    {
-                        cand.MeaningCue = entries.Select(e => e.MeaningCue).FirstOrDefault(m => !string.IsNullOrWhiteSpace(m)) ?? string.Empty;
-                    }
-                    if (string.IsNullOrWhiteSpace(cand.AbidanSummary) && !issue.IsGrammarOrStyle)
-                    {
-                        cand.AbidanSummary = entries.Select(e => e.CompactAbidanSummary).FirstOrDefault(s => !string.IsNullOrWhiteSpace(s)) ?? string.Empty;
-                    }
-                    cand.IsOfficialThatpon = entries.Any(e => e.IsOfficialThatpon);
+                        cand.MeaningCue = meta.Cue;
+                    if (string.IsNullOrWhiteSpace(cand.AbidanSummary) && !isGrammarOrStyle)
+                        cand.AbidanSummary = meta.Abidan;
+                    cand.IsOfficialThatpon = meta.IsThatpon;
                 }
-
-                if (string.IsNullOrWhiteSpace(cand.HomophoneSiblings) && rep.IndexOf(' ') < 0)
-                {
-                    cand.HomophoneSiblings = trie.GetHomophoneSiblingsSummary(rep, 3);
-                }
+                if (string.IsNullOrWhiteSpace(cand.HomophoneSiblings) && meta.Homo.Length > 0)
+                    cand.HomophoneSiblings = meta.Homo;
             }
         }
 
@@ -386,23 +448,25 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 3. Pali 5-Vagga Consonant Stacking Law (ဝဂ္ဂန္တဗျည်းစဉ်ထုံး)
-            MatchCollection targetClusters = PatSintClusterRegex.Matches(target);
-            if (targetClusters.Count > 0)
+            if (target.IndexOf('\u1039') >= 0)
             {
-                MatchCollection origClusters = PatSintClusterRegex.Matches(origNorm);
-                for (int i = 0; i < targetClusters.Count; i++)
+                MatchCollection targetClusters = PatSintClusterRegex.Matches(target);
+                if (targetClusters.Count > 0)
                 {
-                    char topC = targetClusters[i].Groups[1].Value[0];
-                    char botC = targetClusters[i].Groups[2].Value[0];
-                    string correctPair = $"{topC}\u1039{botC}";
-                    if (!origNorm.Contains(correctPair))
+                    for (int i = 0; i < targetClusters.Count; i++)
                     {
-                        string vaggaName = GetPaliVaggaName(botC);
-                        string stackingRule = DescribePaliStackPair(topC, botC, vaggaName);
-                        string paliRoot = targetEntry != null && !string.IsNullOrEmpty(targetEntry.PaliEquivalent)
-                            ? $" (ပါဠိအနက်: {targetEntry.PaliEquivalent})"
-                            : (targetEntry != null && !string.IsNullOrEmpty(targetEntry.Etymology) ? $" (ရင်းမြစ်: {targetEntry.Etymology})" : string.Empty);
-                        return $"ပါဠိသက် ဝဂ္ဂန္တဗျည်းစဉ် နိယာမ — {stackingRule} ထို့ကြောင့် '{origNorm}' အစား '{target}' ({GetConsonantShortName(topC)} + {GetConsonantShortName(botC)}ဆင့်){paliRoot} ဟု ရေးသားရမည်။";
+                        char topC = targetClusters[i].Groups[1].Value[0];
+                        char botC = targetClusters[i].Groups[2].Value[0];
+                        string correctPair = $"{topC}\u1039{botC}";
+                        if (!origNorm.Contains(correctPair))
+                        {
+                            string vaggaName = GetPaliVaggaName(botC);
+                            string stackingRule = DescribePaliStackPair(topC, botC, vaggaName);
+                            string paliRoot = targetEntry != null && !string.IsNullOrEmpty(targetEntry.PaliEquivalent)
+                                ? $" (ပါဠိအနက်: {targetEntry.PaliEquivalent})"
+                                : (targetEntry != null && !string.IsNullOrEmpty(targetEntry.Etymology) ? $" (ရင်းမြစ်: {targetEntry.Etymology})" : string.Empty);
+                            return $"ပါဠိသက် ဝဂ္ဂန္တဗျည်းစဉ် နိယာမ — {stackingRule} ထို့ကြောင့် '{origNorm}' အစား '{target}' ({GetConsonantShortName(topC)} + {GetConsonantShortName(botC)}ဆင့်){paliRoot} ဟု ရေးသားရမည်။";
+                        }
                     }
                 }
             }
@@ -657,22 +721,40 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // Also check internal constituent bigram when target is a fused multi-syllable compound (e.g. 'နိုင်ငံတော်သမ္မတ' -> 'နိုင်ငံတော် + သမ္မတ')
-            if (bestCount < 5)
+            if (bestCount < 5 && target.Length >= 3)
             {
-                List<string> targSyls = MyanmarSyllableBreaker.BreakIntoSyllables(target);
-                if (targSyls.Count >= 3)
+                var intKey = (trie.MutationVersion, target);
+                if (!s_internalConstituentBigramCache.TryGetValue(intKey, out var cachedInt))
                 {
-                    for (int split = 1; split < targSyls.Count; split++)
+                    int bestIntCount = 0;
+                    string bestIntColloc = string.Empty;
+                    List<string> targSyls = MyanmarSyllableBreaker.BreakIntoSyllables(target);
+                    if (targSyls.Count >= 3)
                     {
-                        string leftPart = string.Concat(targSyls.Take(split));
-                        string rightPart = string.Concat(targSyls.Skip(split));
-                        int cnt = trie.GetBigramCount(leftPart, rightPart);
-                        if (cnt > bestCount)
+                        int charOffset = 0;
+                        for (int split = 1; split < targSyls.Count; split++)
                         {
-                            bestCount = cnt;
-                            bestCollocation = $"{leftPart} + {rightPart}";
+                            charOffset += targSyls[split - 1].Length;
+                            string leftPart = target.Substring(0, charOffset);
+                            string rightPart = target.Substring(charOffset);
+                            int cnt = trie.GetBigramCount(leftPart, rightPart);
+                            if (cnt > bestIntCount)
+                            {
+                                bestIntCount = cnt;
+                                bestIntColloc = $"{leftPart} + {rightPart}";
+                            }
                         }
                     }
+                    cachedInt = (bestIntCount, bestIntColloc);
+                    if (s_internalConstituentBigramCache.Count >= ReasoningCacheCap)
+                        s_internalConstituentBigramCache.Clear();
+                    s_internalConstituentBigramCache[intKey] = cachedInt;
+                }
+
+                if (cachedInt.Count > bestCount)
+                {
+                    bestCount = cachedInt.Count;
+                    bestCollocation = cachedInt.Collocation;
                 }
             }
 

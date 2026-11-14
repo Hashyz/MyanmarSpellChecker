@@ -1039,123 +1039,153 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
 
             Task.Run(() =>
             {
-                long lastProgressTick = Environment.TickCount;
-                int maxIssues = Math.Max(1, state.Budgets.MaxExcelIssuesPerFullScan);
-
-                EcoPerformanceGovernor.ExecuteWithGentlePriority(state.Budgets.UseLowPriorityThreads, () =>
+                bool finalizedCleanly = false;
+                try
                 {
-                    while (!state.Token.IsCancellationRequested && state.Generation == Volatile.Read(ref _scanGeneration))
+                    long lastProgressTick = Environment.TickCount;
+                    int maxIssues = Math.Max(1, state.Budgets.MaxExcelIssuesPerFullScan);
+
+                    EcoPerformanceGovernor.ExecuteWithGentlePriority(state.Budgets.UseLowPriorityThreads, () =>
                     {
-                        ExtractedExcelBlock? blk = null;
-                        bool allDone = false;
-
-                        lock (state.StreamSync)
+                        while (!state.Token.IsCancellationRequested && state.Generation == Volatile.Read(ref _scanGeneration))
                         {
-                            if (state.ReadyBlocks.Count > 0)
-                            {
-                                blk = state.ReadyBlocks.Dequeue();
-                            }
-                            else if (state.ExtractionFinished || state.StopRequestedByIssueCap)
-                            {
-                                state.ConsumerRunning = false;
-                                allDone = true;
-                            }
-                            else
-                            {
-                                // Producer is waiting on next WinForms timer slice; exit worker cleanly and let next enqueue wake a worker
-                                state.ConsumerRunning = false;
-                                return;
-                            }
-                        }
+                            ExtractedExcelBlock? blk = null;
+                            bool allDone = false;
 
-                        if (allDone)
-                        {
-                            FinalizeStreamingScanToSta(state);
-                            return;
-                        }
-
-                        if (blk != null)
-                        {
-                            int currentCollected;
                             lock (state.StreamSync)
                             {
-                                currentCollected = state.CollectedIssues.Count;
+                                if (state.ReadyBlocks.Count > 0)
+                                {
+                                    blk = state.ReadyBlocks.Dequeue();
+                                }
+                                else if (state.ExtractionFinished || state.StopRequestedByIssueCap)
+                                {
+                                    state.ConsumerRunning = false;
+                                    allDone = true;
+                                }
+                                else
+                                {
+                                    // Producer is waiting on next WinForms timer slice; exit worker cleanly and let next enqueue wake a worker
+                                    state.ConsumerRunning = false;
+                                    return;
+                                }
                             }
 
-                            int remainingCap = maxIssues - currentCollected;
-                            if (remainingCap > 0)
+                            if (allDone)
                             {
-                                var hits = SpreadsheetProofingHelper.ScanBlockValues(
-                                    _engine,
-                                    state.WorkbookName,
-                                    blk.SheetName,
-                                    blk.BaseRow,
-                                    blk.BaseCol,
-                                    blk.Rows,
-                                    blk.Cols,
-                                    blk.Val2,
-                                    blk.Formula,
-                                    blk.HasFormula,
-                                    state.SharedMemo,
-                                    state.Token,
-                                    remainingCap,
-                                    state.Budgets,
-                                    blk.SheetFormulaRects);
+                                finalizedCleanly = true;
+                                FinalizeStreamingScanToSta(state);
+                                return;
+                            }
 
-                                if (hits.Count > 0)
+                            if (blk != null)
+                            {
+                                int currentCollected;
+                                lock (state.StreamSync)
                                 {
-                                    List<SpreadsheetCellIssue>? earlyViewportSnapshot = null;
-                                    lock (state.StreamSync)
+                                    currentCollected = state.CollectedIssues.Count;
+                                }
+
+                                int remainingCap = maxIssues - currentCollected;
+                                if (remainingCap > 0)
+                                {
+                                    var hits = SpreadsheetProofingHelper.ScanBlockValues(
+                                        _engine,
+                                        state.WorkbookName,
+                                        blk.SheetName,
+                                        blk.BaseRow,
+                                        blk.BaseCol,
+                                        blk.Rows,
+                                        blk.Cols,
+                                        blk.Val2,
+                                        blk.Formula,
+                                        blk.HasFormula,
+                                        state.SharedMemo,
+                                        state.Token,
+                                        remainingCap,
+                                        state.Budgets,
+                                        blk.SheetFormulaRects);
+
+                                    if (hits.Count > 0)
                                     {
-                                        state.CollectedIssues.AddRange(hits);
-                                        currentCollected = state.CollectedIssues.Count;
-                                        if (!state.FirstViewportPublished && state.TotalChunksPlanned > 2)
+                                        List<SpreadsheetCellIssue>? earlyViewportSnapshot = null;
+                                        lock (state.StreamSync)
                                         {
-                                            state.FirstViewportPublished = true;
-                                            earlyViewportSnapshot = new List<SpreadsheetCellIssue>(state.CollectedIssues);
+                                            state.CollectedIssues.AddRange(hits);
+                                            currentCollected = state.CollectedIssues.Count;
+                                            if (!state.FirstViewportPublished && state.TotalChunksPlanned > 2)
+                                            {
+                                                state.FirstViewportPublished = true;
+                                                earlyViewportSnapshot = new List<SpreadsheetCellIssue>(state.CollectedIssues);
+                                            }
+                                        }
+
+                                        if (earlyViewportSnapshot != null)
+                                        {
+                                            PublishEarlyViewportUnderlinesFromBackground(state.Generation, state.WorkbookName, earlyViewportSnapshot);
                                         }
                                     }
 
-                                    if (earlyViewportSnapshot != null)
+                                    if (currentCollected >= maxIssues)
                                     {
-                                        PublishEarlyViewportUnderlinesFromBackground(state.Generation, state.WorkbookName, earlyViewportSnapshot);
+                                        state.StopRequestedByIssueCap = true;
+                                        lock (state.StreamSync)
+                                        {
+                                            state.ReadyBlocks.Clear();
+                                        }
                                     }
                                 }
 
-                                if (currentCollected >= maxIssues)
+                                // Immediately release 2D SAFEARRAY references so Gen0/LOH reclaims memory!
+                                blk.Val2 = null;
+                                blk.Formula = null;
+                                blk.SheetFormulaRects = null;
+                                EcoPerformanceGovernor.MaybeTrimUnderMemoryPressure(() => _engine.TrimMemoryCaches(aggressive: true));
+                                int doneChunks = Interlocked.Increment(ref state.ChunksProcessedCount);
+
+                                long nowTick = Environment.TickCount;
+                                if (!state.WasPartialAutoScan && state.TotalChunksPlanned > 1 && nowTick - lastProgressTick >= 140)
                                 {
-                                    state.StopRequestedByIssueCap = true;
-                                    lock (state.StreamSync)
-                                    {
-                                        state.ReadyBlocks.Clear();
-                                    }
+                                    lastProgressTick = nowTick;
+                                    int pct = Math.Min(94, 6 + (doneChunks * 88) / Math.Max(1, state.TotalChunksPlanned));
+                                    int pctDisplay = Math.Min(99, (doneChunks * 100) / Math.Max(1, state.TotalChunksPlanned));
+                                    string msg = currentCollected > 0
+                                        ? UiLocalizer.Pick(
+                                            $"⏳ Checking {state.ScannedCells:N0} cells... {pctDisplay}% ({currentCollected:N0} issues)",
+                                            $"⏳ အကွက် {state.ScannedCells:N0} စစ်နေသည်... {pctDisplay}% (တွေ့ရှိချက် {currentCollected:N0} ခု)")
+                                        : UiLocalizer.Pick(
+                                            $"⏳ Checking {state.ScannedCells:N0} cells... {pctDisplay}%",
+                                            $"⏳ အကွက် {state.ScannedCells:N0} စစ်နေသည်... {pctDisplay}%");
+                                    PostExcelProgressFromBackground(state.Generation, pct, msg);
                                 }
-                            }
-
-                            // Immediately release 2D SAFEARRAY references so Gen0/LOH reclaims memory!
-                            blk.Val2 = null;
-                            blk.Formula = null;
-                            blk.SheetFormulaRects = null;
-                            int doneChunks = Interlocked.Increment(ref state.ChunksProcessedCount);
-
-                            long nowTick = Environment.TickCount;
-                            if (!state.WasPartialAutoScan && state.TotalChunksPlanned > 1 && nowTick - lastProgressTick >= 140)
-                            {
-                                lastProgressTick = nowTick;
-                                int pct = Math.Min(94, 6 + (doneChunks * 88) / Math.Max(1, state.TotalChunksPlanned));
-                                int pctDisplay = Math.Min(99, (doneChunks * 100) / Math.Max(1, state.TotalChunksPlanned));
-                                string msg = currentCollected > 0
-                                    ? UiLocalizer.Pick(
-                                        $"⏳ Checking {state.ScannedCells:N0} cells... {pctDisplay}% ({currentCollected:N0} issues)",
-                                        $"⏳ အကွက် {state.ScannedCells:N0} စစ်နေသည်... {pctDisplay}% (တွေ့ရှိချက် {currentCollected:N0} ခု)")
-                                    : UiLocalizer.Pick(
-                                        $"⏳ Checking {state.ScannedCells:N0} cells... {pctDisplay}%",
-                                        $"⏳ အကွက် {state.ScannedCells:N0} စစ်နေသည်... {pctDisplay}%");
-                                PostExcelProgressFromBackground(state.Generation, pct, msg);
                             }
                         }
+                    });
+                }
+                catch (OutOfMemoryException)
+                {
+                    _engine.TrimMemoryCaches(aggressive: true);
+                    lock (state.StreamSync)
+                    {
+                        state.SharedMemo.Clear();
+                        state.StopRequestedByIssueCap = true;
+                        state.ReadyBlocks.Clear();
+                        state.ConsumerRunning = false;
                     }
-                });
+                    GC.Collect(1, GCCollectionMode.Optimized, blocking: false);
+                    if (!finalizedCleanly)
+                    {
+                        FinalizeStreamingScanToSta(state);
+                    }
+                }
+                catch { }
+                finally
+                {
+                    lock (state.StreamSync)
+                    {
+                        state.ConsumerRunning = false;
+                    }
+                }
             }, state.Token);
         }
 

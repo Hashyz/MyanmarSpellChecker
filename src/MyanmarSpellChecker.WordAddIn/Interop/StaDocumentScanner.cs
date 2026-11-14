@@ -816,22 +816,22 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 int generation = Volatile.Read(ref _scanGeneration);
                 Task.Run(() =>
                 {
-                    var analyzed = new List<(ParagraphSnapshot Snap, List<ProofingIssue> Issues)>(pendingSnapshots.Count);
-                    for (int i = 0; i < pendingSnapshots.Count; i++)
+                    try
                     {
-                        if (generation != Volatile.Read(ref _scanGeneration))
-                            return;
+                        var analyzed = new List<(ParagraphSnapshot Snap, List<ProofingIssue> Issues)>(pendingSnapshots.Count);
+                        for (int i = 0; i < pendingSnapshots.Count; i++)
+                        {
+                            if (generation != Volatile.Read(ref _scanGeneration))
+                                return;
 
-                        var snap = pendingSnapshots[i];
-                        List<ProofingIssue> issues = snap.NeedsNlpCheck
-                            ? _engine.CheckText(snap.RawText)
-                            : new List<ProofingIssue>(0);
-                        analyzed.Add((snap, issues));
-                    }
+                            var snap = pendingSnapshots[i];
+                            List<ProofingIssue> issues = snap.NeedsNlpCheck
+                                ? CheckTextCrashSafe(snap.RawText)
+                                : new List<ProofingIssue>(0);
+                            analyzed.Add((snap, issues));
+                        }
 
-                    if (_staMarshaller.IsHandleCreated && !_staMarshaller.IsDisposed)
-                    {
-                        _staMarshaller.BeginInvoke(new Action(() =>
+                        SafeBeginInvokeOnSta(() =>
                         {
                             if (generation != Volatile.Read(ref _scanGeneration))
                                 return;
@@ -901,8 +901,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                                 ScanCompleted?.Invoke(doc, docList.Where(i => !i.IsResolved).ToList());
                             }
                             catch { }
-                        }));
+                        });
                     }
+                    catch { }
                 });
 
                 return true;
@@ -1007,7 +1008,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                             return;
 
                         List<ProofingIssue> issues = snap.NeedsNlpCheck
-                            ? _engine.CheckText(snap.RawText)
+                            ? CheckTextCrashSafe(snap.RawText)
                             : new List<ProofingIssue>();
 
                         bool deferredIncomplete = false;
@@ -1027,137 +1028,134 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         analyzed.Add((snap, issues, deferredIncomplete));
                     }
 
-                    if (_staMarshaller.IsHandleCreated && !_staMarshaller.IsDisposed)
+                    SafeBeginInvokeOnSta(() =>
                     {
-                        _staMarshaller.BeginInvoke(new Action(() =>
+                        if (generation != Volatile.Read(ref _scanGeneration))
+                            return;
+
+                        try
                         {
-                            if (generation != Volatile.Read(ref _scanGeneration))
-                                return;
-
-                            try
+                            if (!_documentIssuesCache.TryGetValue(doc, out var docList))
                             {
-                                if (!_documentIssuesCache.TryGetValue(doc, out var docList))
+                                docList = new List<DocumentProofingItem>();
+                                _documentIssuesCache[doc] = docList;
+                            }
+                            if (!_lastParagraphTextByStart.TryGetValue(doc, out var doneMap))
+                            {
+                                doneMap = new Dictionary<int, string>();
+                                _lastParagraphTextByStart[doc] = doneMap;
+                            }
+
+                            const int DriftWindow = 640;
+                            bool needsComWrite = false;
+                            foreach (var (snap, issues, _) in analyzed)
+                            {
+                                if (issues.Count > 0)
                                 {
-                                    docList = new List<DocumentProofingItem>();
-                                    _documentIssuesCache[doc] = docList;
+                                    needsComWrite = true;
+                                    break;
                                 }
-                                if (!_lastParagraphTextByStart.TryGetValue(doc, out var doneMap))
+
+                                bool hasCachedNear = docList.Any(existing =>
+                                    !existing.IsResolved &&
+                                    existing.CachedEnd >= snap.StartOffset - DriftWindow &&
+                                    existing.CachedStart <= snap.EndOffset + DriftWindow);
+                                if (hasCachedNear || _underlineManager.HasLiveWavyUnderlineInSpan(doc, snap.StartOffset, snap.EndOffset))
                                 {
-                                    doneMap = new Dictionary<int, string>();
-                                    _lastParagraphTextByStart[doc] = doneMap;
+                                    needsComWrite = true;
+                                    break;
                                 }
 
-                                const int DriftWindow = 640;
-                                bool needsComWrite = false;
-                                foreach (var (snap, issues, _) in analyzed)
+                                if (snap.ParagraphRange != null)
                                 {
-                                    if (issues.Count > 0)
+                                    try
                                     {
-                                        needsComWrite = true;
-                                        break;
+                                        Word.WdUnderline pu = snap.ParagraphRange.Font.Underline;
+                                        if (pu == Word.WdUnderline.wdUnderlineWavy || (int)pu == 9999999)
+                                        {
+                                            needsComWrite = true;
+                                            break;
+                                        }
                                     }
+                                    catch { }
+                                }
+                            }
 
-                                    bool hasCachedNear = docList.Any(existing =>
-                                        !existing.IsResolved &&
-                                        existing.CachedEnd >= snap.StartOffset - DriftWindow &&
-                                        existing.CachedStart <= snap.EndOffset + DriftWindow);
-                                    if (hasCachedNear || _underlineManager.HasLiveWavyUnderlineInSpan(doc, snap.StartOffset, snap.EndOffset))
-                                    {
-                                        needsComWrite = true;
-                                        break;
-                                    }
+                            // Zero-COM-Write Fast Path: when typing clean text with no underlines to add or clear,
+                            // never toggle Word.ScreenUpdating, never open an UndoRecord, and never rebuild WinForms cards!
+                            if (!needsComWrite)
+                            {
+                                foreach (var (snap, _, deferredIncomplete) in analyzed)
+                                {
+                                    if (!deferredIncomplete)
+                                        doneMap[snap.StartOffset] = snap.RawText;
+                                    else
+                                        doneMap.Remove(snap.StartOffset);
+                                }
+                                _documentQualityCache.Remove(doc);
+                                return;
+                            }
 
-                                    if (snap.ParagraphRange != null)
+                            _underlineManager.ExecuteInSharedProofingBatch(doc, () =>
+                            {
+                                foreach (var (snap, issues, deferredIncomplete) in analyzed)
+                                {
+                                    if (snap.ParagraphRange == null)
+                                        continue;
+
+                                    List<DocumentProofingItem> bound = _underlineManager.BindAndUnderlineRangeIssues(
+                                        doc,
+                                        snap.ParagraphRange,
+                                        snap.StoryName,
+                                        snap.ParagraphIndex,
+                                        issues,
+                                        insideSharedBatch: true,
+                                        applyVisualUnderline: true,
+                                        preloadedCleanText: snap.RawText,
+                                        storyType: snap.StoryType);
+
+                                    if (!deferredIncomplete)
+                                        doneMap[snap.StartOffset] = snap.RawText;
+                                    else
+                                        doneMap.Remove(snap.StartOffset);
+
+                                    docList.RemoveAll(existing =>
                                     {
+                                        if (existing.IsResolved)
+                                            return true;
+                                        if (existing.CachedEnd < snap.StartOffset - DriftWindow ||
+                                            existing.CachedStart > snap.EndOffset + DriftWindow)
+                                        {
+                                            return false;
+                                        }
                                         try
                                         {
-                                            Word.WdUnderline pu = snap.ParagraphRange.Font.Underline;
-                                            if (pu == Word.WdUnderline.wdUnderlineWavy || (int)pu == 9999999)
+                                            int s = existing.TargetRange != null ? existing.TargetRange.Start : existing.FallbackStartOffset;
+                                            if (existing.TargetRange != null)
                                             {
-                                                needsComWrite = true;
-                                                break;
+                                                existing.CachedStart = s;
+                                                existing.CachedEnd = existing.TargetRange.End;
                                             }
+                                            return s >= snap.StartOffset && s < snap.EndOffset;
                                         }
-                                        catch { }
-                                    }
-                                }
-
-                                // Zero-COM-Write Fast Path: when typing clean text with no underlines to add or clear,
-                                // never toggle Word.ScreenUpdating, never open an UndoRecord, and never rebuild WinForms cards!
-                                if (!needsComWrite)
-                                {
-                                    foreach (var (snap, _, deferredIncomplete) in analyzed)
-                                    {
-                                        if (!deferredIncomplete)
-                                            doneMap[snap.StartOffset] = snap.RawText;
-                                        else
-                                            doneMap.Remove(snap.StartOffset);
-                                    }
-                                    _documentQualityCache.Remove(doc);
-                                    return;
-                                }
-
-                                _underlineManager.ExecuteInSharedProofingBatch(doc, () =>
-                                {
-                                    foreach (var (snap, issues, deferredIncomplete) in analyzed)
-                                    {
-                                        if (snap.ParagraphRange == null)
-                                            continue;
-
-                                        List<DocumentProofingItem> bound = _underlineManager.BindAndUnderlineRangeIssues(
-                                            doc,
-                                            snap.ParagraphRange,
-                                            snap.StoryName,
-                                            snap.ParagraphIndex,
-                                            issues,
-                                            insideSharedBatch: true,
-                                            applyVisualUnderline: true,
-                                            preloadedCleanText: snap.RawText,
-                                            storyType: snap.StoryType);
-
-                                        if (!deferredIncomplete)
-                                            doneMap[snap.StartOffset] = snap.RawText;
-                                        else
-                                            doneMap.Remove(snap.StartOffset);
-
-                                        docList.RemoveAll(existing =>
+                                        catch
                                         {
-                                            if (existing.IsResolved)
-                                                return true;
-                                            if (existing.CachedEnd < snap.StartOffset - DriftWindow ||
-                                                existing.CachedStart > snap.EndOffset + DriftWindow)
-                                            {
-                                                return false;
-                                            }
-                                            try
-                                            {
-                                                int s = existing.TargetRange != null ? existing.TargetRange.Start : existing.FallbackStartOffset;
-                                                if (existing.TargetRange != null)
-                                                {
-                                                    existing.CachedStart = s;
-                                                    existing.CachedEnd = existing.TargetRange.End;
-                                                }
-                                                return s >= snap.StartOffset && s < snap.EndOffset;
-                                            }
-                                            catch
-                                            {
-                                                return true;
-                                            }
-                                        });
+                                            return true;
+                                        }
+                                    });
 
-                                        docList.AddRange(bound);
-                                    }
-                                });
+                                    docList.AddRange(bound);
+                                }
+                            });
 
-                                _documentQualityCache.Remove(doc);
-                                ScanCompleted?.Invoke(doc, docList.Where(i => !i.IsResolved).ToList());
-                            }
-                            catch
-                            {
-                                // Ignore
-                            }
-                        }));
-                    }
+                            _documentQualityCache.Remove(doc);
+                            ScanCompleted?.Invoke(doc, docList.Where(i => !i.IsResolved).ToList());
+                        }
+                        catch
+                        {
+                            // Ignore
+                        }
+                    });
                 });
             }
             catch
@@ -1586,22 +1584,45 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             });
         }
 
-        private void PostProgressFromBackground(int generation, int percent, string statusText)
+        private void SafeBeginInvokeOnSta(Action action)
         {
-            if (generation != Volatile.Read(ref _scanGeneration) || !_staMarshaller.IsHandleCreated || _staMarshaller.IsDisposed)
+            if (_staMarshaller == null || _staMarshaller.IsDisposed || !_staMarshaller.IsHandleCreated)
                 return;
 
             try
             {
-                _staMarshaller.BeginInvoke(new Action(() =>
-                {
-                    if (generation == Volatile.Read(ref _scanGeneration))
-                    {
-                        ScanProgressChanged?.Invoke(percent, statusText);
-                    }
-                }));
+                _staMarshaller.BeginInvoke(action);
             }
-            catch { }
+            catch (ObjectDisposedException) { }
+            catch (InvalidOperationException) { }
+        }
+
+        private List<ProofingIssue> CheckTextCrashSafe(string rawText)
+        {
+            try
+            {
+                return _engine.CheckText(rawText);
+            }
+            catch (OutOfMemoryException)
+            {
+                _engine.TrimMemoryCaches(aggressive: true);
+                GC.Collect(1, GCCollectionMode.Optimized, blocking: false);
+                return new List<ProofingIssue>(0);
+            }
+        }
+
+        private void PostProgressFromBackground(int generation, int percent, string statusText)
+        {
+            if (generation != Volatile.Read(ref _scanGeneration))
+                return;
+
+            SafeBeginInvokeOnSta(() =>
+            {
+                if (generation == Volatile.Read(ref _scanGeneration))
+                {
+                    ScanProgressChanged?.Invoke(percent, statusText);
+                }
+            });
         }
 
         private void LaunchBackgroundNlpAndUnderline(
@@ -1614,185 +1635,196 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         {
             Task.Run(() =>
             {
-                if (generation != Volatile.Read(ref _scanGeneration))
-                    return;
-
-                int count = snapshots.Count;
-                bool isLargeFile = EcoPerformanceGovernor.IsLargeWordDocument(count, totalDocChars);
-                EcoRuntimeBudgets budgets = EcoPerformanceGovernor.ComputeBudgets(isLargeFile);
-                int maxIssueCap = budgets.MaxIssuesPerFullScan;
-                bool wasIssueCapReached = false;
-                var issuesPerParagraph = new List<ProofingIssue>[count];
-
-                EcoPerformanceGovernor.ExecuteWithGentlePriority(budgets.UseLowPriorityThreads, () =>
+                try
                 {
-                    long lastProgressTick = Environment.TickCount;
-                    int runningIssues = 0;
+                    if (generation != Volatile.Read(ref _scanGeneration))
+                        return;
 
-                    if (count >= 48 && budgets.MaxBackgroundWorkers > 1 && !wasPartialAutoScan)
+                    EcoPerformanceGovernor.MaybeTrimUnderMemoryPressure(() => _engine.TrimMemoryCaches(aggressive: true));
+
+                    int count = snapshots.Count;
+                    bool isLargeFile = EcoPerformanceGovernor.IsLargeWordDocument(count, totalDocChars);
+                    EcoRuntimeBudgets budgets = EcoPerformanceGovernor.ComputeBudgets(isLargeFile);
+                    int maxIssueCap = budgets.MaxIssuesPerFullScan;
+                    bool wasIssueCapReached = false;
+                    var issuesPerParagraph = new List<ProofingIssue>[count];
+
+                    EcoPerformanceGovernor.ExecuteWithGentlePriority(budgets.UseLowPriorityThreads, () =>
                     {
-                        int completedCount = 0;
-                        Parallel.For(
-                            0,
-                            count,
-                            new ParallelOptions { MaxDegreeOfParallelism = budgets.MaxBackgroundWorkers },
-                            (idx, loopState) =>
+                        long lastProgressTick = Environment.TickCount;
+                        int runningIssues = 0;
+
+                        if (count >= 48 && budgets.MaxBackgroundWorkers > 1 && !wasPartialAutoScan)
+                        {
+                            int completedCount = 0;
+                            Parallel.For(
+                                0,
+                                count,
+                                new ParallelOptions { MaxDegreeOfParallelism = budgets.MaxBackgroundWorkers },
+                                (idx, loopState) =>
+                                {
+                                    if (generation != Volatile.Read(ref _scanGeneration))
+                                    {
+                                        loopState.Stop();
+                                        return;
+                                    }
+                                    if (Volatile.Read(ref runningIssues) >= maxIssueCap)
+                                    {
+                                        wasIssueCapReached = true;
+                                        loopState.Stop();
+                                        return;
+                                    }
+
+                                    var snap = snapshots[idx];
+                                    var found = snap.NeedsNlpCheck
+                                        ? CheckTextCrashSafe(snap.RawText)
+                                        : new List<ProofingIssue>(0);
+                                    issuesPerParagraph[idx] = found;
+
+                                    if (found.Count > 0)
+                                    {
+                                        int totalNow = Interlocked.Add(ref runningIssues, found.Count);
+                                        if (totalNow >= maxIssueCap)
+                                        {
+                                            wasIssueCapReached = true;
+                                        }
+                                    }
+
+                                    int done = Interlocked.Increment(ref completedCount);
+                                    if ((done & 255) == 0)
+                                    {
+                                        EcoPerformanceGovernor.MaybeTrimUnderMemoryPressure(() => _engine.TrimMemoryCaches(aggressive: true));
+                                    }
+
+                                    long nowTick = Environment.TickCount;
+                                    long prevTick = Interlocked.Read(ref lastProgressTick);
+                                    if (nowTick - prevTick >= 120 && Interlocked.CompareExchange(ref lastProgressTick, nowTick, prevTick) == prevTick)
+                                    {
+                                        int pct = 18 + (done * 60) / Math.Max(1, count);
+                                        int dispPct = Math.Min(99, (done * 100) / Math.Max(1, count));
+                                        PostProgressFromBackground(generation, Math.Min(78, pct), UiLocalizer.Pick($"⏳ Checking spelling & grammar... {dispPct}%", $"⏳ စာလုံးပေါင်း စစ်ဆေးနေသည်... {dispPct}%"));
+                                    }
+                                });
+                        }
+                        else
+                        {
+                            int nlpChecked = 0;
+                            for (int idx = 0; idx < count; idx++)
                             {
                                 if (generation != Volatile.Read(ref _scanGeneration))
-                                {
-                                    loopState.Stop();
                                     return;
-                                }
-                                if (Volatile.Read(ref runningIssues) >= maxIssueCap)
+
+                                if (runningIssues >= maxIssueCap)
                                 {
                                     wasIssueCapReached = true;
-                                    loopState.Stop();
-                                    return;
+                                    break;
                                 }
 
                                 var snap = snapshots[idx];
-                                var found = snap.NeedsNlpCheck
-                                    ? _engine.CheckText(snap.RawText)
-                                    : new List<ProofingIssue>(0);
-                                issuesPerParagraph[idx] = found;
-
-                                if (found.Count > 0)
+                                if (snap.NeedsNlpCheck)
                                 {
-                                    int totalNow = Interlocked.Add(ref runningIssues, found.Count);
-                                    if (totalNow >= maxIssueCap)
+                                    nlpChecked++;
+                                    EcoPerformanceGovernor.MaybeMicroYield(nlpChecked, budgets.MicroYieldEveryItems);
+                                    if ((nlpChecked & 255) == 0)
                                     {
-                                        wasIssueCapReached = true;
+                                        EcoPerformanceGovernor.MaybeTrimUnderMemoryPressure(() => _engine.TrimMemoryCaches(aggressive: true));
                                     }
+                                    var found = CheckTextCrashSafe(snap.RawText);
+                                    issuesPerParagraph[idx] = found;
+                                    runningIssues += found.Count;
+                                }
+                                else
+                                {
+                                    issuesPerParagraph[idx] = new List<ProofingIssue>(0);
                                 }
 
-                                int done = Interlocked.Increment(ref completedCount);
                                 long nowTick = Environment.TickCount;
-                                long prevTick = Interlocked.Read(ref lastProgressTick);
-                                if (nowTick - prevTick >= 120 && Interlocked.CompareExchange(ref lastProgressTick, nowTick, prevTick) == prevTick)
+                                if (!wasPartialAutoScan && count >= 32 && nowTick - lastProgressTick >= 120)
                                 {
-                                    int pct = 18 + (done * 60) / Math.Max(1, count);
-                                    int dispPct = Math.Min(99, (done * 100) / Math.Max(1, count));
+                                    lastProgressTick = nowTick;
+                                    int pct = 18 + ((idx + 1) * 60) / Math.Max(1, count);
+                                    int dispPct = ((idx + 1) * 100) / Math.Max(1, count);
                                     PostProgressFromBackground(generation, Math.Min(78, pct), UiLocalizer.Pick($"⏳ Checking spelling & grammar... {dispPct}%", $"⏳ စာလုံးပေါင်း စစ်ဆေးနေသည်... {dispPct}%"));
                                 }
-                            });
-                    }
-                    else
-                    {
-                        int nlpChecked = 0;
-                        for (int idx = 0; idx < count; idx++)
-                        {
-                            if (generation != Volatile.Read(ref _scanGeneration))
-                                return;
-
-                            if (runningIssues >= maxIssueCap)
-                            {
-                                wasIssueCapReached = true;
-                                break;
-                            }
-
-                            var snap = snapshots[idx];
-                            if (snap.NeedsNlpCheck)
-                            {
-                                nlpChecked++;
-                                EcoPerformanceGovernor.MaybeMicroYield(nlpChecked, budgets.MicroYieldEveryItems);
-                                var found = _engine.CheckText(snap.RawText);
-                                issuesPerParagraph[idx] = found;
-                                runningIssues += found.Count;
-                            }
-                            else
-                            {
-                                issuesPerParagraph[idx] = new List<ProofingIssue>(0);
-                            }
-
-                            long nowTick = Environment.TickCount;
-                            if (!wasPartialAutoScan && count >= 32 && nowTick - lastProgressTick >= 120)
-                            {
-                                lastProgressTick = nowTick;
-                                int pct = 18 + ((idx + 1) * 60) / Math.Max(1, count);
-                                int dispPct = ((idx + 1) * 100) / Math.Max(1, count);
-                                PostProgressFromBackground(generation, Math.Min(78, pct), UiLocalizer.Pick($"⏳ Checking spelling & grammar... {dispPct}%", $"⏳ စာလုံးပေါင်း စစ်ဆေးနေသည်... {dispPct}%"));
                             }
                         }
-                    }
-                });
-
-                if (generation != Volatile.Read(ref _scanGeneration))
-                    return;
-
-                var analyzed = new List<(ParagraphSnapshot Snap, List<ProofingIssue> Issues)>(count);
-                var allIssuesFlat = new List<ProofingIssue>(Math.Min(1024, count * 2));
-                // Bound quality-analyzer text builder on massive documents so weak PCs never allocate giant strings on LOH
-                int maxQualityTextChars = budgets.IsEcoActive ? 120_000 : 380_000;
-                var plainTextBuilder = new StringBuilder(Math.Min(maxQualityTextChars, count * 64));
-                int collectedCapRemaining = maxIssueCap;
-
-                for (int i = 0; i < count; i++)
-                {
-                    var snap = snapshots[i];
-                    var rawIssues = issuesPerParagraph[i] ?? new List<ProofingIssue>(0);
-                    List<ProofingIssue> issues;
-                    if (rawIssues.Count > collectedCapRemaining)
-                    {
-                        issues = rawIssues.GetRange(0, Math.Max(0, collectedCapRemaining));
-                        collectedCapRemaining = 0;
-                        wasIssueCapReached = true;
-                    }
-                    else
-                    {
-                        issues = rawIssues;
-                        collectedCapRemaining -= rawIssues.Count;
-                    }
-
-                    if (plainTextBuilder.Length < maxQualityTextChars)
-                    {
-                        plainTextBuilder.AppendLine(snap.RawText);
-                    }
-                    if (issues.Count > 0)
-                        allIssuesFlat.AddRange(issues);
-                    analyzed.Add((snap, issues));
-                }
-
-                if (generation != Volatile.Read(ref _scanGeneration))
-                    return;
-
-                DocumentQualityReport qualityReport = DocumentQualityAnalyzer.Analyze(
-                    plainTextBuilder.ToString(),
-                    allIssuesFlat,
-                    _engine);
-
-                int underlineCap = budgets.WordVisualUnderlineCap;
-
-                // Prioritize paragraphs closest to the user's viewport/caret first so visible errors get underlined immediately!
-                int[] order = new int[count];
-                for (int i = 0; i < count; i++)
-                    order[i] = i;
-
-                if (count > underlineCap / 2 && caretFocusOffset > 0)
-                {
-                    Array.Sort(order, (a, b) =>
-                    {
-                        var sa = analyzed[a].Snap;
-                        var sb = analyzed[b].Snap;
-                        int pa = sa.StoryType == Word.WdStoryType.wdMainTextStory ? Math.Abs(sa.StartOffset - caretFocusOffset) : 1_000_000 + a;
-                        int pb = sb.StoryType == Word.WdStoryType.wdMainTextStory ? Math.Abs(sb.StartOffset - caretFocusOffset) : 1_000_000 + b;
-                        int cmp = pa.CompareTo(pb);
-                        return cmp != 0 ? cmp : a.CompareTo(b);
                     });
-                }
 
-                var outcomeMeta = new WordScanOutcomeMetadata
-                {
-                    IsEcoActive = budgets.IsEcoActive,
-                    WasPartialAutoScan = wasPartialAutoScan,
-                    WasIssueCapReached = wasIssueCapReached,
-                    WasCancelled = false,
-                    ScannedParagraphCount = count,
-                    TotalDocumentChars = totalDocChars
-                };
+                    if (generation != Volatile.Read(ref _scanGeneration))
+                        return;
 
-                if (_staMarshaller.IsHandleCreated && !_staMarshaller.IsDisposed)
-                {
-                    _staMarshaller.BeginInvoke(new Action(() =>
+                    var analyzed = new List<(ParagraphSnapshot Snap, List<ProofingIssue> Issues)>(count);
+                    var allIssuesFlat = new List<ProofingIssue>(Math.Min(1024, count * 2));
+                    // Bound quality-analyzer text builder on massive documents so weak PCs never allocate giant strings on LOH
+                    int maxQualityTextChars = budgets.IsEcoActive ? 120_000 : 380_000;
+                    var plainTextBuilder = new StringBuilder(Math.Min(maxQualityTextChars, count * 64));
+                    int collectedCapRemaining = maxIssueCap;
+
+                    for (int i = 0; i < count; i++)
+                    {
+                        var snap = snapshots[i];
+                        var rawIssues = issuesPerParagraph[i] ?? new List<ProofingIssue>(0);
+                        List<ProofingIssue> issues;
+                        if (rawIssues.Count > collectedCapRemaining)
+                        {
+                            issues = rawIssues.GetRange(0, Math.Max(0, collectedCapRemaining));
+                            collectedCapRemaining = 0;
+                            wasIssueCapReached = true;
+                        }
+                        else
+                        {
+                            issues = rawIssues;
+                            collectedCapRemaining -= rawIssues.Count;
+                        }
+
+                        if (plainTextBuilder.Length < maxQualityTextChars)
+                        {
+                            plainTextBuilder.AppendLine(snap.RawText);
+                        }
+                        if (issues.Count > 0)
+                            allIssuesFlat.AddRange(issues);
+                        analyzed.Add((snap, issues));
+                    }
+
+                    if (generation != Volatile.Read(ref _scanGeneration))
+                        return;
+
+                    DocumentQualityReport qualityReport = DocumentQualityAnalyzer.Analyze(
+                        plainTextBuilder.ToString(),
+                        allIssuesFlat,
+                        _engine);
+
+                    int underlineCap = budgets.WordVisualUnderlineCap;
+
+                    // Prioritize paragraphs closest to the user's viewport/caret first so visible errors get underlined immediately!
+                    int[] order = new int[count];
+                    for (int i = 0; i < count; i++)
+                        order[i] = i;
+
+                    if (count > underlineCap / 2 && caretFocusOffset > 0)
+                    {
+                        Array.Sort(order, (a, b) =>
+                        {
+                            var sa = analyzed[a].Snap;
+                            var sb = analyzed[b].Snap;
+                            int pa = sa.StoryType == Word.WdStoryType.wdMainTextStory ? Math.Abs(sa.StartOffset - caretFocusOffset) : 1_000_000 + a;
+                            int pb = sb.StoryType == Word.WdStoryType.wdMainTextStory ? Math.Abs(sb.StartOffset - caretFocusOffset) : 1_000_000 + b;
+                            int cmp = pa.CompareTo(pb);
+                            return cmp != 0 ? cmp : a.CompareTo(b);
+                        });
+                    }
+
+                    var outcomeMeta = new WordScanOutcomeMetadata
+                    {
+                        IsEcoActive = budgets.IsEcoActive,
+                        WasPartialAutoScan = wasPartialAutoScan,
+                        WasIssueCapReached = wasIssueCapReached,
+                        WasCancelled = false,
+                        ScannedParagraphCount = count,
+                        TotalDocumentChars = totalDocChars
+                    };
+
+                    SafeBeginInvokeOnSta(() =>
                     {
                         if (generation != Volatile.Read(ref _scanGeneration))
                             return;
@@ -1846,8 +1878,14 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                                 _underlineChunkTimer.Start();
                             }
                         }
-                    }));
+                    });
                 }
+                catch (OutOfMemoryException)
+                {
+                    _engine.TrimMemoryCaches(aggressive: true);
+                    GC.Collect(1, GCCollectionMode.Optimized, blocking: false);
+                }
+                catch { }
             });
         }
 
@@ -2064,10 +2102,24 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             if (string.IsNullOrEmpty(text))
                 return string.Empty;
 
-            char[] chars = text.ToCharArray();
-            for (int i = 0; i < chars.Length; i++)
+            int firstCtrl = -1;
+            for (int i = 0; i < text.Length; i++)
             {
-                if (chars[i] == '\a' || chars[i] == '\r' || chars[i] == '\v' || chars[i] == '\f')
+                char c = text[i];
+                if (c == '\a' || c == '\r' || c == '\v' || c == '\f')
+                {
+                    firstCtrl = i;
+                    break;
+                }
+            }
+            if (firstCtrl < 0)
+                return text;
+
+            char[] chars = text.ToCharArray();
+            for (int i = firstCtrl; i < chars.Length; i++)
+            {
+                char c = chars[i];
+                if (c == '\a' || c == '\r' || c == '\v' || c == '\f')
                 {
                     chars[i] = ' ';
                 }

@@ -1862,37 +1862,29 @@ namespace MyanmarSpellChecker.WordAddIn
                         _proofingEngine.HotSwapTrie(freshTrie);
                         _proofingEngine.LoadCustomDictionaryFile(ministryDict);
 
-                        Control? marshaller = _uiMarshaller;
-                        if (marshaller != null && marshaller.IsHandleCreated && !marshaller.IsDisposed)
+                        SafeBeginInvokeUi(_uiMarshaller, () =>
                         {
-                            marshaller.BeginInvoke(new Action(() =>
+                            _loadedDbLastWriteUtc = newStamp;
+                            foreach (var kvp in _windowTaskPanes.Values)
                             {
-                                _loadedDbLastWriteUtc = newStamp;
-                                foreach (var kvp in _windowTaskPanes.Values)
-                                {
-                                    kvp.Control.SetLexiconStats(
-                                        freshTrie.WordCount,
-                                        freshTrie.OfficialThatponCount,
-                                        freshTrie.RuleCount,
-                                        freshTrie.ReferenceCount,
-                                        freshTrie.EncyclopediaCount);
-                                }
+                                kvp.Control.SetLexiconStats(
+                                    freshTrie.WordCount,
+                                    freshTrie.OfficialThatponCount,
+                                    freshTrie.RuleCount,
+                                    freshTrie.ReferenceCount,
+                                    freshTrie.EncyclopediaCount);
+                            }
 
-                                if (_wordApp?.ActiveDocument != null)
-                                {
-                                    _documentScanner.InvalidateParagraphCache(_wordApp.ActiveDocument);
-                                }
-                                _documentScanner.ScanFullDocumentAsync();
-                            }));
-                        }
+                            if (_wordApp?.ActiveDocument != null)
+                            {
+                                _documentScanner.InvalidateParagraphCache(_wordApp.ActiveDocument);
+                            }
+                            _documentScanner.ScanFullDocumentAsync();
+                        });
                     }
                     catch
                     {
-                        Control? marshaller = _uiMarshaller;
-                        if (marshaller != null && marshaller.IsHandleCreated && !marshaller.IsDisposed)
-                        {
-                            marshaller.BeginInvoke(new Action(() => _documentScanner?.ScanFullDocumentAsync()));
-                        }
+                        SafeBeginInvokeUi(_uiMarshaller, () => _documentScanner?.ScanFullDocumentAsync());
                     }
                     finally
                     {
@@ -1907,6 +1899,19 @@ namespace MyanmarSpellChecker.WordAddIn
                 _documentScanner.InvalidateParagraphCache(_wordApp.ActiveDocument);
             }
             _documentScanner.ScanFullDocumentAsync();
+        }
+
+        private static void SafeBeginInvokeUi(Control? marshaller, Action action)
+        {
+            if (marshaller == null || marshaller.IsDisposed || !marshaller.IsHandleCreated)
+                return;
+
+            try
+            {
+                marshaller.BeginInvoke(action);
+            }
+            catch (ObjectDisposedException) { }
+            catch (InvalidOperationException) { }
         }
 
         public void OnRibbonFixAllIssues(Office.IRibbonControl control)

@@ -21,10 +21,34 @@ namespace MyanmarSpellChecker.Core.Nlp
             public string MeaningCue { get; }
             public string Explanation { get; }
             public string[]? RequiredAnyLiterals { get; }
+            public ulong[]? RequiredLiteralMasks { get; }
+            public ulong CommonRequiredMask { get; }
+            public ulong AnyAnchorCharMask { get; }
+            public bool AllRequiredHaveMyanmarChar { get; }
 
             public CollocationRule(string pattern, string wrongSpanGroup, string replacement, string meaningCue, string explanation)
             {
                 RequiredAnyLiterals = ExtractGuaranteedGroupLiterals(pattern, wrongSpanGroup);
+                if (RequiredAnyLiterals != null && RequiredAnyLiterals.Length > 0)
+                {
+                    var masks = new ulong[RequiredAnyLiterals.Length];
+                    ulong common = ulong.MaxValue;
+                    ulong any = 0UL;
+                    bool allHaveMm = true;
+                    for (int i = 0; i < RequiredAnyLiterals.Length; i++)
+                    {
+                        ulong m = OfficialStyleGrammarEngine.ComputeMyanmarCharMask(RequiredAnyLiterals[i]);
+                        masks[i] = m;
+                        common &= m;
+                        any |= m;
+                        if (m == 0UL)
+                            allHaveMm = false;
+                    }
+                    RequiredLiteralMasks = masks;
+                    CommonRequiredMask = common;
+                    AnyAnchorCharMask = any;
+                    AllRequiredHaveMyanmarChar = allHaveMm;
+                }
                 Pattern = new Regex(pattern, RequiredAnyLiterals == null ? RegexOptions.Compiled : RegexOptions.None);
                 WrongSpanGroup = wrongSpanGroup;
                 Replacement = replacement;
@@ -1629,19 +1653,30 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (string.IsNullOrWhiteSpace(text))
                 return issues;
 
+            ulong textMmMask = OfficialStyleGrammarEngine.ComputeMyanmarCharMask(text);
+
             // 1. High-precision compiled regex collocation & homophone rules
-            foreach (var rule in Rules)
+            for (int rIdx = 0; rIdx < Rules.Count; rIdx++)
             {
+                var rule = Rules[rIdx];
                 if (string.IsNullOrEmpty(rule.Explanation))
                     continue;
 
                 if (rule.RequiredAnyLiterals != null)
                 {
+                    if ((textMmMask & rule.CommonRequiredMask) != rule.CommonRequiredMask)
+                        continue;
+                    if (rule.AllRequiredHaveMyanmarChar && (textMmMask & rule.AnyAnchorCharMask) == 0UL)
+                        continue;
+
                     bool anyAnchorHit = false;
                     string[] req = rule.RequiredAnyLiterals;
+                    ulong[] reqMasks = rule.RequiredLiteralMasks!;
                     for (int k = 0; k < req.Length; k++)
                     {
-                        if (text.IndexOf(req[k], StringComparison.Ordinal) >= 0)
+                        ulong litMask = reqMasks[k];
+                        if ((textMmMask & litMask) == litMask &&
+                            text.IndexOf(req[k], StringComparison.Ordinal) >= 0)
                         {
                             anyAnchorHit = true;
                             break;
@@ -1719,14 +1754,15 @@ namespace MyanmarSpellChecker.Core.Nlp
             string text,
             MyanmarTrie? trie,
             List<ProofingIssue> existingIssues,
-            List<SyllableToken>? precomputedTokens = null)
+            List<SyllableToken>? precomputedTokens = null,
+            int[]? precomputedLongestMatchLengths = null)
         {
             var issues = new List<ProofingIssue>();
             if (string.IsNullOrWhiteSpace(text) || trie == null || (trie.ContextualRuleCount == 0 && trie.BigramCount == 0))
                 return issues;
 
             // 2. Word-level tokenization for Data-Driven ContextualRules & Statistical Bigram Homophone Disambiguation
-            List<ClauseWordToken> wordTokens = TokenizeIntoClauseWords(text, trie, precomputedTokens);
+            List<ClauseWordToken> wordTokens = TokenizeIntoClauseWords(text, trie, precomputedTokens, precomputedLongestMatchLengths);
             if (wordTokens.Count == 0)
                 return issues;
 
@@ -1987,7 +2023,8 @@ namespace MyanmarSpellChecker.Core.Nlp
         private static List<ClauseWordToken> TokenizeIntoClauseWords(
             string text,
             MyanmarTrie trie,
-            List<SyllableToken>? precomputedTokens = null)
+            List<SyllableToken>? precomputedTokens = null,
+            int[]? precomputedLongestMatchLengths = null)
         {
             var result = new List<ClauseWordToken>();
             List<SyllableToken> sylTokens = precomputedTokens ?? MyanmarSyllableBreaker.Tokenize(text);
@@ -2009,7 +2046,15 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
 
                 // 1. Check longest exact dictionary span so valid compounds (e.g. လက်ဖက်ရည်, ကျန်းမာရေး, အမိန့်ကြော်ငြာစာ) stay intact
-                trie.MatchLongestAt(sylTokens, idx, out int matchedLen, out _, out _);
+                int matchedLen;
+                if (precomputedLongestMatchLengths != null && idx < precomputedLongestMatchLengths.Length)
+                {
+                    matchedLen = precomputedLongestMatchLengths[idx];
+                }
+                else
+                {
+                    trie.MatchLongestAt(sylTokens, idx, out matchedLen, out _, out _);
+                }
                 if (matchedLen >= 2 && matchedLen <= 8)
                 {
                     SyllableToken endTok = sylTokens[idx + matchedLen - 1];
