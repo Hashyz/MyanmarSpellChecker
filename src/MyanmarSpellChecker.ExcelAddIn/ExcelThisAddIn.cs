@@ -1240,10 +1240,10 @@ namespace MyanmarSpellChecker.ExcelAddIn
                         var repo = new EncryptedDictionaryRepository(dbPath);
                         MyanmarTrie freshTrie = repo.LoadIntoTrie(keySnapshot);
                         DateTime newStamp = File.GetLastWriteTimeUtc(dbPath);
-                        freshTrie.PrewarmSearchIndexes();
                         _proofingEngine.HotSwapTrie(freshTrie);
                         _proofingEngine.LoadCustomDictionaryFile(ministryDict);
                         _proofingEngine.LoadCustomDictionaryFile(_customDictFilePath);
+                        GC.Collect(1, GCCollectionMode.Optimized, blocking: false);
 
                         SafeBeginInvokeUi(_uiMarshaller, () =>
                         {

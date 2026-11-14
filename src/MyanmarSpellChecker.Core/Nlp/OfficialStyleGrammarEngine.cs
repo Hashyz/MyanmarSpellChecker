@@ -27,9 +27,14 @@ namespace MyanmarSpellChecker.Core.Nlp
             @"(?<!တစ်သီး)တစ်(?<Redup>ကယ်|ဖြည်းဖြည်း|ဖြူးဖြူး|ကျက်ကျက်|ရိပ်ရိပ်|စောင်း|လွဲ|စိုက်မတ်မတ်|ညီတညွတ်တည်း|ချို့|ခြား|မင်|ဒင်္ဂ)(?![\u102B-\u103E]|[\u1000-\u1021]\u103A)",
             RegexOptions.Compiled);
 
-        // Hypercorrected infix/compound 'တစ်' on official Preface Page 8 'တ' compounds (အမှတ်တစ်ရ -> အမှတ်တရ, တစ်ခမ်းတစ်နား -> တခမ်းတနား, အစဉ်တစ်စိုက် -> အစဉ်တစိုက်, တစ်ချို့တစ်လေ -> တချို့တလေ, etc.)
+        // Hypercorrected infix/compound 'တစ်' on official Preface Page 8 'တ' compounds (အမှတ်တစ်ရ -> အမှတ်တရ, အတူတစ်ကွ -> အတူတကွ, တစ်ခမ်းတစ်နား -> တခမ်းတနား, အစဉ်တစ်စိုက် -> အစဉ်တစိုက်, တစ်ချို့တစ်လေ -> တချို့တလေ, etc.)
         private static readonly Regex HypercorrectedCompoundTaitPattern = new Regex(
-            @"(?<Target>အမှတ်တစ်ရ|တစ်ခမ်းတစ်နား|တစ်အံ့တစ်ဩ|အရောတစ်ဝင်|မဟုတ်တစ်ရုတ်|မခို့တစ်ရို့|အစဉ်တစ်စိုက်|တစ်ချို့တစ်လေ)(?![\u102B-\u103E])",
+            @"(?<Target>အမှတ်တစ်ရ|အတူတစ်ကွ|အလိုတစ်တူ|တစ်ခမ်းတစ်နား|တစ်အံ့တစ်ဩ|အရောတစ်ဝင်|မဟုတ်တစ်ရုတ်|မခို့တစ်ရို့|အစဉ်တစ်စိုက်|တစ်ချို့တစ်လေ)(?![\u102B-\u103E])",
+            RegexOptions.Compiled);
+
+        // Misplaced aukmyit on attributive interrogative/indefinite pronoun 'မည့်သည်' -> 'မည်သည့်' (e.g. 'မည့်သည် ပစ္စည်းနှင့်မဆို')
+        private static readonly Regex MisplacedAukmyitMyiThiPattern = new Regex(
+            @"(?<![\u1000-\u103F])(?<Target>မည့်သည်)(?![\u102B-\u103E]|[\u1000-\u1021]\u103B?[\u1039\u103A])",
             RegexOptions.Compiled);
 
         // Official Khwe-Htar Page 337 productive ideophone suffix rule: 'ကနဲ(ဝင်း...၊ ထိန်...) → ခနဲ(ဝင်း...၊ ထိန်...)'
@@ -1241,6 +1246,21 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 4c. Universal Orthography & Casual Keyboard Mistakes (apply in BOTH modes)
+            if (hasMa && hasCreakyDot && ContainsMm(text, mmMask, "မည့်သည်"))
+            {
+                foreach (Match m in MisplacedAukmyitMyiThiPattern.Matches(text))
+                {
+                    Group g = m.Groups["Target"];
+                    AddGrammarOrSpellingIssue(
+                        issues, g.Index, g.Length, g.Value, "မည်သည့်",
+                        ProofingIssueType.SpellingError,
+                        "အောက်မြစ် ('့') နေရာမှားယွင်းနေပါသည် — နာမ်အထူးပြု အမေး/အညွှန်းနာမ်စားကို 'မည်သည့်' ('သည့်' ၌ အောက်မြစ်ပါ) ဟု ရေးသားရမည်။",
+                        "နာမ်အထူးပြု အမေး/အညွှန်းနာမ်စား ('မည်သည့်')", "PRON", true,
+                        "နာမ်ရှေ့၌ လိုက်သော အထူးပြုနာမ်စား 'မည်သည့်' (ဥပမာ - မည်သည့်အချိန်၊ မည်သည့်ပစ္စည်းနှင့်မဆို) တွင် အောက်မြစ် ('့') ကို ဒုတိယဝဏ္ဏ 'သည့်' အောက်၌သာ ထားရမည် ('မည့်သည်' ဟု မရေးရပါ)။",
+                        "မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း နှင့် မြန်မာသဒ္ဒါ");
+                }
+            }
+
             if (ContainsMm(text, mmMask, "ပေမယ့်"))
             {
                 foreach (Match m in MisspelledDarPayMaePattern.Matches(text))

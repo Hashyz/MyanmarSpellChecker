@@ -54,7 +54,6 @@ namespace MyanmarSpellChecker.WordAddIn
         private MyanmarProofingEngine? _proofingEngine;
         private ProofingStyleMode _pendingStyleMode = ProofingStyleMode.GeneralStandard;
         private bool _pendingLiveAutoScan = true;
-        private int _lastCheckedLangDocPos = -1;
         private SafeUnderlineManager? _underlineManager;
         private StaDocumentScanner? _documentScanner;
         private WordContextMenuHandler? _contextMenuHandler;
@@ -408,14 +407,14 @@ namespace MyanmarSpellChecker.WordAddIn
 
             _ribbonUi?.Invalidate();
 
-            // If a non-empty document is already open when background loading finishes, kick off smart initial scan seamlessly
-            // (huge 50+ page docs auto-scan only the nearby viewport so weak PCs never stall on startup!)
+            // If a non-empty document is already open when background loading finishes, schedule a calm deferred scan
+            // after Task Pane & Ribbon UI finish painting (huge 50+ page docs auto-scan only the nearby viewport!)
             try
             {
                 Word.Document? activeDoc = _wordApp.ActiveDocument;
                 if (activeDoc != null && activeDoc.Content.End > 1)
                 {
-                    _documentScanner.ScanFullDocumentAsync(allowSmartPartialAutoScan: true);
+                    _documentScanner.ScheduleDeferredFullDocumentScan(380);
                 }
             }
             catch { }
@@ -445,7 +444,6 @@ namespace MyanmarSpellChecker.WordAddIn
         {
             AddInDiagnostics.SafeExecute("OnWindowSelectionChange", () =>
             {
-                SuppressBuiltInBurmeseProofingOnSelection(sel);
                 _documentScanner?.NotifySelectionActivity(sel);
                 _contextMenuHandler?.OnWindowSelectionChange(sel);
             });
@@ -495,30 +493,6 @@ namespace MyanmarSpellChecker.WordAddIn
             }
         }
 
-        private void SuppressBuiltInBurmeseProofingOnSelection(Word.Selection? sel)
-        {
-            if (sel == null)
-                return;
-
-            try
-            {
-                int pos = sel.Start;
-                if (pos == _lastCheckedLangDocPos)
-                    return;
-                _lastCheckedLangDocPos = pos;
-
-                // LCID 1109 (0x0455) = Burmese (my-MM). Leave English (1033) untouched so native English spellcheck still works.
-                if ((int)sel.LanguageID == 1109 && sel.NoProofing != 1)
-                {
-                    sel.NoProofing = 1;
-                }
-            }
-            catch
-            {
-                // Ignore protected/locked selection
-            }
-        }
-
         private void OnWindowBeforeRightClick(Word.Selection sel, ref bool cancel)
         {
             bool localCancel = cancel;
@@ -533,7 +507,6 @@ namespace MyanmarSpellChecker.WordAddIn
         {
             AddInDiagnostics.SafeExecute("OnWindowActivate", () =>
             {
-                _lastCheckedLangDocPos = -1;
                 PruneClosedWindowTaskPanes();
 
                 UiLanguage savedLang = UiLocalizer.LoadSavedLanguage(_uiLanguageConfigPath);
@@ -571,10 +544,9 @@ namespace MyanmarSpellChecker.WordAddIn
         {
             AddInDiagnostics.SafeExecute("OnDocumentOpen", () =>
             {
-                _lastCheckedLangDocPos = -1;
                 GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
                 EnforceActiveWindowStartupPaneWidth(forceIfNarrow: true);
-                _documentScanner?.ScheduleDeferredFullDocumentScan(320);
+                _documentScanner?.ScheduleDeferredFullDocumentScan(520);
             });
         }
 
@@ -582,7 +554,6 @@ namespace MyanmarSpellChecker.WordAddIn
         {
             AddInDiagnostics.SafeExecute("OnNewDocument", () =>
             {
-                _lastCheckedLangDocPos = -1;
                 GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
                 EnforceActiveWindowStartupPaneWidth(forceIfNarrow: true);
             });
@@ -612,7 +583,6 @@ namespace MyanmarSpellChecker.WordAddIn
             bool willClose = !cancel;
             AddInDiagnostics.SafeExecute("OnDocumentBeforeClose", () =>
             {
-                _lastCheckedLangDocPos = -1;
                 _contextMenuHandler?.CloseActivePopup();
                 _documentScanner?.PurgeDocument(doc);
                 _underlineManager?.PurgeClosedDocument(doc);
@@ -788,6 +758,7 @@ namespace MyanmarSpellChecker.WordAddIn
                 };
 
                 _windowTaskPanes[hwnd] = (pane, ctrl);
+                PreSizePaneBeforeShow(hwnd, pane, ctrl);
                 if (autoShow)
                 {
                     pane.Visible = true;
@@ -807,6 +778,25 @@ namespace MyanmarSpellChecker.WordAddIn
             }
         }
 
+        private static void PreSizePaneBeforeShow(int winHwnd, Office.CustomTaskPane pane, ProofingTaskPaneControl ctrl)
+        {
+            try
+            {
+                IntPtr hostPtr = new IntPtr(winHwnd);
+                int dpi = Math.Max(UiFontCache.GetWindowDpi(hostPtr), UiFontCache.GetEffectiveDpi(ctrl));
+                float dpiScale = Math.Max(1.0f, dpi / 96.0f);
+                int hostPhysicalWidth = UiFontCache.GetWindowWidthPx(hostPtr);
+                int desiredWidth = (int)Math.Round(420 * dpiScale);
+                int maxSafeWidth = Math.Max((int)Math.Round(320 * dpiScale), (int)(hostPhysicalWidth * 0.42));
+                int targetWidth = Math.Min(desiredWidth, maxSafeWidth);
+                if (pane.Width < Math.Min((int)Math.Round(360 * dpiScale), targetWidth))
+                {
+                    pane.Width = targetWidth;
+                }
+            }
+            catch { }
+        }
+
         private void ScheduleStartupPaneWidthEnforcement(
             int winHwnd,
             Office.CustomTaskPane pane,
@@ -814,8 +804,11 @@ namespace MyanmarSpellChecker.WordAddIn
             bool forceIfNarrow)
         {
             EnsureComfortableStartupPaneWidth(winHwnd, pane, ctrl, forceIfNarrow);
-            if (_settledPaneWidthHwnds.Contains(winHwnd) && !forceIfNarrow)
+            if (_settledPaneWidthHwnds.Contains(winHwnd))
+            {
+                StopAndRemovePaneWidthTimer(winHwnd);
                 return;
+            }
 
             StopAndRemovePaneWidthTimer(winHwnd);
             int ticks = 0;
@@ -829,7 +822,7 @@ namespace MyanmarSpellChecker.WordAddIn
                 }
                 catch { }
 
-                if (_settledPaneWidthHwnds.Contains(winHwnd) || ticks >= 3)
+                if (_settledPaneWidthHwnds.Contains(winHwnd) || ticks >= 2)
                 {
                     StopAndRemovePaneWidthTimer(winHwnd);
                 }
@@ -1858,9 +1851,9 @@ namespace MyanmarSpellChecker.WordAddIn
                         var repo = new EncryptedDictionaryRepository(dbPath);
                         MyanmarTrie freshTrie = repo.LoadIntoTrie(keySnapshot);
                         DateTime newStamp = File.GetLastWriteTimeUtc(dbPath);
-                        freshTrie.PrewarmSearchIndexes();
                         _proofingEngine.HotSwapTrie(freshTrie);
                         _proofingEngine.LoadCustomDictionaryFile(ministryDict);
+                        GC.Collect(1, GCCollectionMode.Optimized, blocking: false);
 
                         SafeBeginInvokeUi(_uiMarshaller, () =>
                         {

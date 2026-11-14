@@ -4332,5 +4332,123 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.True(tsvSelfProofDefects.Count == 0,
                 $"Expected 0 self-proofing defects across {totalOfficialRowsChecked} official TSV headwords, got {tsvSelfProofDefects.Count}:\n" + string.Join("\n", tsvSelfProofDefects.Take(25)));
         }
+
+        [Fact]
+        public void V66_SounditCampaignRealDocxZeroHangAndFastScanGate()
+        {
+            string dbPath = Path.Combine(TestPaths.RepoRoot, "data", "mlc_thatpon.db");
+            string key = AntiTamperGuard.ReconstructProtectedFallbackKey();
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            MyanmarTrie trie = repo.LoadIntoTrie(key);
+
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+
+            // 1. Real-world bilingual marketing & corporate campaign paragraphs (modeled on Soundit Myanmar Star Campaign)
+            string[] cleanCampaignParagraphs =
+            {
+                "Soundit Myanmar Star Campaign အကြောင်းအရာ ကြေညာချက်",
+                "ပထမဆု (Super Star) – 1,500,000Ks",
+                "ဒုတိယဆု (Live Star) – 1,200,000Ks",
+                "တတိယဆု (Performance King) – 1,000,000Ks",
+                "နှစ်သိမ့်ဆု - S30 Max 5 Pcs အား Campaign တွင် ပါဝင်သူများ အနက်မှ Random မဲနှိုက် ရွေးချယ်သွားမည် ဖြစ်သည်။",
+                "Soundit Star Challenge တွင် ပါဝင်လိုသူများသည် မည်သည့် Soundit Bluetooth Speaker နှင့်မဆိုတွဲ၍ သီချင်းဆိုခြင်း (သို့မဟုတ်) သီချင်းနားထောင်ခြင်း တစ်ခုအား ပြုလုပ်ပြီး မိမိ၏ Personal Tiktok Account ၌ တင်ပေးရမည်ဖြစ်သည်။",
+                "အရောင်းဆိုင် Outlet များအား အတူတကွ ပါဝင်ကူညီပေးပါရန် မေတ္တာရပ်ခံအပ်ပါသည်။",
+                "JIE XUN MYANMAR TRADING COMPANY LIMITED",
+                "No. 790, Corner of Thamainbayan & U Yazart Street, 35 Qtr, North Dagon, Yangon.",
+                "Email – xunjiemyanmar@gmail.com   Ph No. 09-267455932, 09-881818778"
+            };
+
+            foreach (string cleanPara in cleanCampaignParagraphs)
+            {
+                var genIssues = generalEngine.CheckText(cleanPara, cacheParagraph: false);
+                var frmIssues = formalEngine.CheckText(cleanPara, cacheParagraph: false);
+                Assert.True(genIssues.Count == 0,
+                    $"Expected 0 GeneralStandard issues on clean campaign paragraph '{cleanPara}', got: {string.Join("; ", genIssues.Select(i => $"{i.OriginalText}->{i.Suggestions.FirstOrDefault()?.Replacement}"))}");
+                Assert.True(frmIssues.Count == 0,
+                    $"Expected 0 FormalOfficial issues on clean campaign paragraph '{cleanPara}', got: {string.Join("; ", frmIssues.Select(i => $"{i.OriginalText}->{i.Suggestions.FirstOrDefault()?.Replacement}"))}");
+            }
+
+            // 2. All real-world orthography mistakes in the campaign document must be caught accurately
+            var campaignErrors = new (string Paragraph, string ExpectedWrong, string ExpectedFix)[]
+            {
+                ("Soundit အမှတ်တံဆိပ်ကို စဉ်ဆက်မပျက် အားပေးခဲ့ကြသော မိတ်ဆွေများအား အထူးကျေးဇူးတင်ရှိပါသည်။", "စဉ်ဆက်မပျက်", "စဉ်ဆက်မပြတ်"),
+                ("လက်ရှိ ရောင်းချလျှက်ရှိသော မော်ဒယ်များကို အထူးဈေးနှုန်းဖြင့် ပေးအပ်သွားမည် ဖြစ်သည်။", "လျှက်", "လျက်"),
+                ("သုံးစွဲသူများ၏ ကောင်းမွန်သော တုန့်ပြန်မှုများကြောင့် ဆုကြေးများ တိုးမြှင့်ထားပါသည်။", "တုန့်ပြန်", "တုံ့ပြန်"),
+                ("ကျပ် (၅၀) သိန်း တိတိ ပေးအပ်မည့် အစီစဥ်။", "အစီစဥ်", "အစီအစဉ်"),
+                ("ဆုရရှိသူများ စာရင်းကို တရားဝင် Page မှ ပြန်လည်ကြေငြာပေးသွားမည် ဖြစ်ပါသည်။", "ကြေငြာ", "ကြေညာ"),
+                ("Outlet များအား အတူတစ်ကွ ပါဝင်ကူညီ ပေးပါရန် လေးစားစွာ ဖိတ်ခေါ်အပ်ပါသည်။", "အတူတစ်ကွ", "အတူတကွ"),
+                ("Soundit Star Challenge တွင် ပါဝင်လိုသူများသည် မည့်သည် Soundit Bluetooth Speaker နှင့်မဆိုတွဲ၍ သီချင်းဆိုနိုင်သည်။", "မည့်သည်", "မည်သည့်")
+            };
+
+            foreach (var (para, wrong, fix) in campaignErrors)
+            {
+                string normFix = UnicodeNormalizer.NormalizeCanonicalOrder(fix);
+                foreach (var modeEngine in new[] { generalEngine, formalEngine })
+                {
+                    var issues = modeEngine.CheckText(para, cacheParagraph: false);
+                    Assert.NotEmpty(issues);
+                    Assert.Contains(
+                        issues.SelectMany(i => i.Suggestions),
+                        s => UnicodeNormalizer.NormalizeCanonicalOrder(s.Replacement).Contains(normFix));
+                }
+            }
+
+            // 3. Warm full-document scan + DocumentQualityAnalyzer latency gate (< 120 ms for 25-paragraph campaign doc)
+            var fullDocParagraphs = cleanCampaignParagraphs
+                .Concat(campaignErrors.Select(e => e.Paragraph))
+                .Concat(cleanCampaignParagraphs.Take(8))
+                .ToArray();
+            Assert.Equal(25, fullDocParagraphs.Length);
+
+            // Warm 1 pass
+            foreach (string p in fullDocParagraphs)
+                _ = formalEngine.CheckText(p, cacheParagraph: false);
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var allFound = new List<ProofingIssue>(16);
+            var fullTextSb = new System.Text.StringBuilder(4096);
+            foreach (string p in fullDocParagraphs)
+            {
+                var found = formalEngine.CheckText(p, cacheParagraph: false);
+                allFound.AddRange(found);
+                fullTextSb.AppendLine(p);
+            }
+            var quality = MyanmarSpellChecker.Core.Official.DocumentQualityAnalyzer.Analyze(
+                fullTextSb.ToString(),
+                allFound,
+                formalEngine);
+            sw.Stop();
+
+            Assert.True(allFound.Count >= 7, $"Expected >= 7 campaign issues detected, got {allFound.Count}");
+            Assert.True(quality.MyanmarSyllableCount > 100);
+            Assert.True(sw.Elapsed.TotalMilliseconds < 120.0,
+                $"Expected 25-paragraph campaign full scan + quality analysis < 120 ms warm, took {sw.Elapsed.TotalMilliseconds:F2} ms");
+
+            // 4. Static Anti-Freeze & Zero-COM-Hang Architectural Guard Across WordAddIn & ExcelAddIn
+            string scannerSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "Interop", "StaDocumentScanner.cs"));
+            string underlineSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "Interop", "SafeUnderlineManager.cs"));
+            string wordAddInSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "ThisAddIn.cs"));
+            string excelAddInSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "ExcelThisAddIn.cs"));
+
+            // 4a. Snapshot collection must remain 100% read-only (never mutating NoProofing on whole StoryRanges)
+            Assert.DoesNotContain("storyRange.NoProofing", scannerSrc);
+            Assert.Contains("AdvanceNextStoryRangeSafe", scannerSrc);
+            Assert.Contains("MaxStoryChainHops", scannerSrc);
+            Assert.Contains("HasEverAppliedWavyUnderlines", scannerSrc);
+            Assert.DoesNotContain("doc.Content.Font.Underline", scannerSrc);
+
+            // 4b. SafeUnderlineManager must strictly bound Word.Find & Characters loops (zero 1024/256 runaway loops)
+            Assert.Contains("HasEverAppliedWavyUnderlines", underlineSrc);
+            Assert.Contains("MaxVisibleCharMapSpan = 320", underlineSrc);
+            Assert.DoesNotContain("guard++ < 1024", underlineSrc);
+            Assert.DoesNotContain("guard++ < 256", underlineSrc);
+
+            // 4c. Hot-reload and WindowSelectionChange must never trigger 150 MB PrewarmSearchIndexes spikes or selection COM writes
+            Assert.DoesNotContain("PrewarmSearchIndexes(", wordAddInSrc);
+            Assert.DoesNotContain("PrewarmSearchIndexes(", excelAddInSrc);
+            Assert.DoesNotContain("SuppressBuiltInBurmeseProofingOnSelection", wordAddInSrc);
+            Assert.DoesNotContain("sel.NoProofing =", wordAddInSrc);
+        }
     }
 }

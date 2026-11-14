@@ -68,8 +68,19 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             public Word.WdColor AppliedUnderlineColor { get; set; }
         }
 
+        private sealed class DocumentIdentityComparer : IEqualityComparer<Word.Document>
+        {
+            public static readonly DocumentIdentityComparer Instance = new DocumentIdentityComparer();
+            public bool Equals(Word.Document? x, Word.Document? y) => ReferenceEquals(x, y);
+            public int GetHashCode(Word.Document obj) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
+        }
+
         private readonly Word.Application _app;
         private readonly List<TrackedRangeState> _trackedRanges = new List<TrackedRangeState>();
+        private readonly HashSet<Word.Document> _documentsWithAppliedWavy =
+            new HashSet<Word.Document>(DocumentIdentityComparer.Instance);
+        private readonly Dictionary<Word.Document, HashSet<long>> _noProofAppliedSpans =
+            new Dictionary<Word.Document, HashSet<long>>(DocumentIdentityComparer.Instance);
         private readonly Timer _postSaveRestoreTimer;
         private Word.Document? _pendingRestoreDoc;
 
@@ -78,6 +89,31 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             _app = app ?? throw new ArgumentNullException(nameof(app));
             _postSaveRestoreTimer = new Timer { Interval = 450 };
             _postSaveRestoreTimer.Tick += OnPostSaveRestoreTimerTick;
+        }
+
+        /// <summary>
+        /// O(1) pure-managed check returning whether this add-in has ever applied a wavy underline to <paramref name="doc"/>.
+        /// Immune to user single/double underlines or hyperlinks that cause <c>doc.Content.Font.Underline</c> to return <c>wdUndefined (9999999)</c>.
+        /// </summary>
+        public bool HasEverAppliedWavyUnderlines(Word.Document? doc) =>
+            doc != null && _documentsWithAppliedWavy.Contains(doc);
+
+        public bool HasTrackedInSpanForDocument(Word.Document? doc, int startOffset, int endOffset)
+        {
+            if (doc == null || _trackedRanges.Count == 0)
+                return false;
+            return HasTrackedInSpan(doc, startOffset, endOffset);
+        }
+
+        private bool TryMarkNoProofSpanApplied(Word.Document doc, int startOffset, int endOffset)
+        {
+            long key = ((long)startOffset << 32) | (uint)endOffset;
+            if (!_noProofAppliedSpans.TryGetValue(doc, out var set))
+            {
+                set = new HashSet<long>();
+                _noProofAppliedSpans[doc] = set;
+            }
+            return set.Add(key);
         }
 
         public int GetTrackedCountForDocument(Word.Document doc)
@@ -161,7 +197,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             string? preloadedCleanText = null,
             Word.WdStoryType storyType = Word.WdStoryType.wdMainTextStory,
             bool? knownDocHasNoUnderlines = null,
-            int maxLiveUnderlines = MaxLiveWavyUnderlinesPerDocument)
+            int maxLiveUnderlines = MaxLiveWavyUnderlinesPerDocument,
+            bool allowResidualWavyScrub = true)
         {
             var boundItems = new List<DocumentProofingItem>(issues.Count);
             if (doc == null || containerRange == null)
@@ -173,9 +210,10 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             string cleanedContainerText = preloadedCleanText ?? CleanWordControlChars(containerRange.Text ?? string.Empty);
             string snippet = issues.Count > 0 ? BuildTrimmedSnippet(cleanedContainerText) : string.Empty;
             bool hasMyanmar = ContainsMyanmarCharacters(cleanedContainerText);
-            bool hasExistingTracked = HasTrackedInSpan(doc, containerStart, containerEnd);
+            bool docNeverHadAddInWavy = (knownDocHasNoUnderlines == true) || !HasEverAppliedWavyUnderlines(doc);
+            bool hasExistingTracked = !docNeverHadAddInWavy && HasTrackedInSpan(doc, containerStart, containerEnd);
             bool hasPotentialWavy = false;
-            if (knownDocHasNoUnderlines != true)
+            if (!docNeverHadAddInWavy && allowResidualWavyScrub)
             {
                 try
                 {
@@ -185,21 +223,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 catch { }
             }
 
-            // Fast no-op path: nothing to strip, no stray wavy underline, and no issues -> touch zero COM properties (preserves Ctrl+Z!)
+            // Fast no-op path: nothing to strip, no stray wavy underline, and no issues -> touch ZERO COM properties!
             if (issues.Count == 0 && !hasExistingTracked && !hasPotentialWavy)
             {
-                if (hasMyanmar && !insideSharedBatch)
-                {
-                    try
-                    {
-                        if (containerRange.NoProofing != 1)
-                        {
-                            containerRange.NoProofing = 1;
-                            if (wasSaved) doc.Saved = true;
-                        }
-                    }
-                    catch { }
-                }
                 return boundItems;
             }
 
@@ -215,8 +241,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         out undoRecord);
                 }
 
-                // Suppress MS Word's built-in English spell-checker ("No suggestions available") on Myanmar paragraphs
-                if (hasMyanmar)
+                // Only suppress built-in proofing on paragraphs that actually carry proofing issues, and at most once per span
+                // (prevents repeatedly mutating wdUndefined/9999999 mixed-language paragraphs on every scan).
+                if (hasMyanmar && issues.Count > 0 && TryMarkNoProofSpanApplied(doc, containerStart, containerEnd))
                 {
                     try
                     {
@@ -302,27 +329,30 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         int resolvedEnd = issueRange.End;
                         Word.WdUnderline origUnderline = Word.WdUnderline.wdUnderlineNone;
                         Word.WdColor origColor = Word.WdColor.wdColorAutomatic;
-                        if (knownDocHasNoUnderlines != true)
+                        try
                         {
-                            try
+                            origUnderline = issueRange.Font.Underline;
+                            if (origUnderline != Word.WdUnderline.wdUnderlineNone &&
+                                origUnderline != Word.WdUnderline.wdUnderlineWavy &&
+                                (int)origUnderline != 9999999)
                             {
-                                origUnderline = issueRange.Font.Underline;
                                 origColor = issueRange.Font.UnderlineColor;
                             }
-                            catch { }
+                        }
+                        catch { }
 
-                            // Guard against undefined or previously applied wavy underline
-                            if (origUnderline == Word.WdUnderline.wdUnderlineWavy ||
-                                (int)origUnderline == 9999999)
-                            {
-                                origUnderline = Word.WdUnderline.wdUnderlineNone;
-                                origColor = Word.WdColor.wdColorAutomatic;
-                            }
+                        // Guard against undefined or previously applied wavy underline
+                        if (origUnderline == Word.WdUnderline.wdUnderlineWavy ||
+                            (int)origUnderline == 9999999)
+                        {
+                            origUnderline = Word.WdUnderline.wdUnderlineNone;
+                            origColor = Word.WdColor.wdColorAutomatic;
                         }
 
                         Word.WdColor appliedColor = GetUnderlineColorForIssue(issue);
                         issueRange.Font.Underline = Word.WdUnderline.wdUnderlineWavy;
                         issueRange.Font.UnderlineColor = appliedColor;
+                        _documentsWithAppliedWavy.Add(doc);
 
                         _trackedRanges.Add(new TrackedRangeState
                         {
@@ -457,10 +487,15 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         /// </summary>
         public void PurgeClosedDocument(Word.Document? doc)
         {
-            if (doc != null && ReferenceEquals(_pendingRestoreDoc, doc))
+            if (doc != null)
             {
-                _postSaveRestoreTimer.Stop();
-                _pendingRestoreDoc = null;
+                _documentsWithAppliedWavy.Remove(doc);
+                _noProofAppliedSpans.Remove(doc);
+                if (ReferenceEquals(_pendingRestoreDoc, doc))
+                {
+                    _postSaveRestoreTimer.Stop();
+                    _pendingRestoreDoc = null;
+                }
             }
 
             for (int i = _trackedRanges.Count - 1; i >= 0; i--)
@@ -1055,7 +1090,11 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                 if (clearTrackingList)
                 {
-                    ScrubResidualWavyUnderlines(doc.Content);
+                    if (_documentsWithAppliedWavy.Contains(doc))
+                    {
+                        ScrubResidualWavyUnderlines(doc.Content);
+                    }
+                    _documentsWithAppliedWavy.Remove(doc);
                 }
             }
             catch
@@ -1197,6 +1236,38 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 catch { }
             }
 
+            // Tier 1b: Bounded arithmetic offset probe (±10 chars) for list-numbered / zero-width / soft-hyphen paragraphs
+            // without touching Word.Find or O(N) Characters COM collections.
+            int lenDrift = Math.Abs((containerEnd - containerStart) - cleanedContainerText.Length);
+            if (lenDrift <= 16)
+            {
+                try
+                {
+                    string strippedExp = StripInvisibleFormatChars(cleanExpected);
+                    for (int delta = 1; delta <= 10; delta++)
+                    {
+                        for (int sign = 1; sign >= -1; sign -= 2)
+                        {
+                            int pStart = directStart + (delta * sign);
+                            int pEnd = pStart + issueLength;
+                            if (pStart < containerStart || pEnd > containerEnd)
+                                continue;
+
+                            Word.Range probe = containerRange.Duplicate;
+                            probe.SetRange(pStart, pEnd);
+                            string probeClean = CleanWordControlChars(probe.Text ?? string.Empty);
+                            if (string.Equals(probeClean, cleanExpected, StringComparison.Ordinal) ||
+                                (!string.IsNullOrEmpty(strippedExp) &&
+                                 string.Equals(StripInvisibleFormatChars(probeClean), strippedExp, StringComparison.Ordinal)))
+                            {
+                                return probe;
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+
             // Tier 2: Hyperlink / Field-Aware Exact Nth-Occurrence Word.Find inside containerRange
             int targetOccurrence = CountOccurrencesUpTo(cleanedContainerText, cleanExpected, issueStartIndex);
             string nonNullExpected = expectedText ?? string.Empty;
@@ -1219,7 +1290,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                     int seenExact = 0;
                     int guard = 0;
-                    while (guard++ < 256)
+                    int prevNextPos = -1;
+                    while (guard++ < 32)
                     {
                         find.Text = expectedText;
                         find.Forward = true;
@@ -1245,17 +1317,19 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         }
 
                         int nextPos = hitStart + 1;
-                        if (nextPos >= containerEnd)
+                        if (nextPos <= prevNextPos || nextPos >= containerEnd)
                             break;
+                        prevNextPos = nextPos;
                         findScope.SetRange(nextPos, containerEnd);
                     }
                 }
                 catch { }
             }
 
-            // Tier 3: Visible-Character Subrange Mapper Fallback
-            // Handles malformed Indic combining clusters (such as shifted Kinzi 'သကေင်္တ' inside 'သကေင်္တများဖြင့်')
-            // where Word.Find's Indic cluster matcher may decline a partial-word match inside a hyperlinked paragraph.
+            // Tier 3: Bounded Visible-Character Subrange Mapper Fallback (strictly capped to short hyperlinked/field paragraphs <= 320 chars)
+            if ((containerEnd - containerStart) > 320)
+                return null;
+
             try
             {
                 if (lazyCharMap == null)
@@ -1298,7 +1372,11 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
         private static List<VisibleCharSpan> BuildVisibleCharacterMap(Word.Range containerRange, int containerStart, int containerEnd)
         {
+            const int MaxVisibleCharMapSpan = 320;
             var map = new List<VisibleCharSpan>(128);
+            if ((containerEnd - containerStart) > MaxVisibleCharMapSpan)
+                return map;
+
             Word.Range iterRange = containerRange.Duplicate;
             try
             {
@@ -1308,8 +1386,12 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             catch { }
 
             int visiblePos = 0;
+            int charGuard = 0;
             foreach (Word.Range ch in iterRange.Characters)
             {
+                if (++charGuard > MaxVisibleCharMapSpan)
+                    break;
+
                 string rawCh = ch.Text ?? string.Empty;
                 if (rawCh.Length == 0)
                     continue;
@@ -1600,7 +1682,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     find.MatchAllWordForms = false;
 
                     int guard = 0;
-                    while (guard++ < 1024 && find.Execute())
+                    int prevNextPos = -1;
+                    while (guard++ < 32 && find.Execute())
                     {
                         int hitStart = findScope.Start;
                         int hitEnd = findScope.End;
@@ -1611,8 +1694,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         findScope.Font.UnderlineColor = Word.WdColor.wdColorAutomatic;
 
                         int nextPos = Math.Max(hitStart + 1, hitEnd);
-                        if (nextPos >= origEnd)
+                        if (nextPos <= prevNextPos || nextPos >= origEnd)
                             break;
+                        prevNextPos = nextPos;
                         findScope.SetRange(nextPos, origEnd);
                     }
                 }
@@ -1719,6 +1803,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 }
 
                 _trackedRanges.Clear();
+                _documentsWithAppliedWavy.Clear();
+                _noProofAppliedSpans.Clear();
             }
             catch
             {

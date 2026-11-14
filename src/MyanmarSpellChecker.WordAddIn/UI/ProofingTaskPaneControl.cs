@@ -595,10 +595,11 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Margin = new Padding(0, 0, 0, 4),
                 Visible = false
             };
-            _pnlScanProgress.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            _pnlScanProgress.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            _pnlScanProgress.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 74F));
+            _pnlScanProgress.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 26F));
             _pnlScanProgress.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
+            int initScanBannerH = MeasureSingleLineButtonHeight(_fontSmallBold, 8);
             _lblScanProgress = new Label
             {
                 Text = "⟳ စစ်ဆေးနေသည်...",
@@ -607,21 +608,20 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 AutoSize = false,
                 AutoEllipsis = true,
                 UseMnemonic = false,
-                MinimumSize = new Size(0, MeasureSingleLineLabelHeight(_fontSmallBold, 6)),
+                Height = initScanBannerH,
+                MinimumSize = new Size(0, initScanBannerH),
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0, 1, 6, 1)
             };
 
-            _btnStopScan = CreatePillButton(
+            _btnStopScan = CreateToolbarSlotButton(
                 "■ ရပ်မည်",
                 Color.FromArgb(254, 235, 235),
                 Color.FromArgb(178, 28, 28),
                 Color.FromArgb(238, 182, 182),
-                _fontSmallBold);
-            _btnStopScan.Dock = DockStyle.None;
-            _btnStopScan.Anchor = AnchorStyles.Right;
-            _btnStopScan.Padding = new Padding(8, 2, 8, 2);
+                _fontSmallBold,
+                initScanBannerH);
             _btnStopScan.Margin = new Padding(0);
             _btnStopScan.Click += (s, e) => RequestCancelScan?.Invoke();
             _toolTip.SetToolTip(_btnStopScan, "လက်ရှိ စစ်ဆေးနေမှုကို ချက်ချင်းရပ်တန့်ရန် (စက်မလေးစေရန်)");
@@ -1227,10 +1227,19 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         {
             int clamped = Math.Max(0, Math.Min(100, percent));
             _isScanning = true;
-            _lblScanProgress.Text = string.IsNullOrWhiteSpace(message)
+            string nextText = string.IsNullOrWhiteSpace(message)
                 ? UiLocalizer.Pick($"⟳ Scanning... ({clamped}%)", $"⟳ စစ်ဆေးနေသည်... ({clamped}%)")
                 : $"⟳ {message} ({clamped}%)";
-            _pnlScanProgress.Visible = true;
+            if (!string.Equals(_lblScanProgress.Text, nextText, StringComparison.Ordinal))
+            {
+                _lblScanProgress.Text = nextText;
+            }
+            if (!_pnlScanProgress.Visible)
+            {
+                _proofingToolbar.SuspendLayout();
+                _pnlScanProgress.Visible = true;
+                _proofingToolbar.ResumeLayout(true);
+            }
         }
 
         public void SetScanOutcomeMetadata(WordScanOutcomeMetadata? metadata)
@@ -1245,18 +1254,26 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         public void SetScanningState(bool isScanning)
         {
             _isScanning = isScanning;
-            if (_isScanning)
+            _proofingToolbar.SuspendLayout();
+            try
             {
-                _lblScanProgress.Text = UiLocalizer.Pick("⟳ Starting document scan...", "⟳ စာတမ်းကို စတင်စစ်ဆေးနေပါသည်...");
-                _pnlScanProgress.Visible = true;
-                _lblSummary.Text = UiLocalizer.Pick(
-                    "⟳ Scanning document for spelling, grammar & style...",
-                    "⟳ စာတမ်းတစ်ခုလုံးကို အသေးစိတ် စစ်ဆေးနေပါသည်...");
-                _lblSummary.ForeColor = Color.FromArgb(24, 88, 182);
+                if (_isScanning)
+                {
+                    _lblScanProgress.Text = UiLocalizer.Pick("⟳ Starting document scan...", "⟳ စာတမ်းကို စတင်စစ်ဆေးနေပါသည်...");
+                    _pnlScanProgress.Visible = true;
+                    _lblSummary.Text = UiLocalizer.Pick(
+                        "⟳ Scanning document for spelling, grammar & style...",
+                        "⟳ စာတမ်းတစ်ခုလုံးကို အသေးစိတ် စစ်ဆေးနေပါသည်...");
+                    _lblSummary.ForeColor = Color.FromArgb(24, 88, 182);
+                }
+                else
+                {
+                    _pnlScanProgress.Visible = false;
+                }
             }
-            else
+            finally
             {
-                _pnlScanProgress.Visible = false;
+                _proofingToolbar.ResumeLayout(true);
             }
         }
 
@@ -1667,7 +1684,10 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 _btnPrevIssue.Height = filterBtnH;
                 _btnNextIssue.Height = filterBtnH;
 
-                _lblScanProgress.MinimumSize = new Size(0, MeasureSingleLineLabelHeight(_fontSmallBold, 6));
+                int scanBannerH = MeasureSingleLineButtonHeight(_fontSmallBold, 8);
+                _lblScanProgress.Height = scanBannerH;
+                _lblScanProgress.MinimumSize = new Size(0, scanBannerH);
+                _btnStopScan.Height = scanBannerH;
                 _lblSummary.Height = MeasureSingleLineLabelHeight(_fontSmallBold, 6);
 
                 int auxBtnH = MeasureSingleLineButtonHeight(_fontSmall, 11);
