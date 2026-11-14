@@ -54,9 +54,36 @@ namespace MyanmarSpellChecker.WordAddIn.UI
     {
         private const string WrapTag = "DYNAMIC_WRAP";
         private const int EM_SETCUEBANNER = 0x1501;
+        private const int WM_SETREDRAW = 0x000B;
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, string lParam);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        private void BeginCardsBatchUpdate()
+        {
+            if (_cardsPanel.IsHandleCreated)
+            {
+                try { SendMessage(_cardsPanel.Handle, WM_SETREDRAW, IntPtr.Zero, IntPtr.Zero); } catch { }
+            }
+            _cardsPanel.SuspendLayout();
+        }
+
+        private void EndCardsBatchUpdate()
+        {
+            _cardsPanel.ResumeLayout(true);
+            if (_cardsPanel.IsHandleCreated)
+            {
+                try
+                {
+                    SendMessage(_cardsPanel.Handle, WM_SETREDRAW, new IntPtr(1), IntPtr.Zero);
+                    _cardsPanel.Invalidate(true);
+                }
+                catch { }
+            }
+        }
 
         private sealed class BufferedFlowLayoutPanel : FlowLayoutPanel
         {
@@ -306,6 +333,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 AutoEllipsis = true,
                 UseMnemonic = false,
                 Dock = DockStyle.Top,
+                Width = 360,
                 Height = MeasureSingleLineLabelHeight(_fontBrandTitle, 6),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
@@ -321,6 +349,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 AutoEllipsis = true,
                 UseMnemonic = false,
                 Dock = DockStyle.Top,
+                Width = 360,
                 Height = MeasureSingleLineLabelHeight(_fontBrandStats, 5),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0, 0, 0, 3),
@@ -493,6 +522,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 AutoEllipsis = true,
                 UseMnemonic = false,
                 Dock = DockStyle.Top,
+                Width = 360,
                 Height = MeasureSingleLineLabelHeight(_fontBrandStats, 5),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0, 0, 0, 4),
@@ -608,6 +638,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 AutoSize = false,
                 AutoEllipsis = true,
                 UseMnemonic = false,
+                Width = 260,
                 Height = initScanBannerH,
                 MinimumSize = new Size(0, initScanBannerH),
                 Dock = DockStyle.Fill,
@@ -638,6 +669,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 AutoEllipsis = true,
                 UseMnemonic = false,
                 Dock = DockStyle.Top,
+                Width = 360,
                 Height = MeasureSingleLineLabelHeight(_fontSmallBold, 6),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
@@ -856,6 +888,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 AutoEllipsis = true,
                 UseMnemonic = false,
                 Dock = DockStyle.Top,
+                Width = 360,
                 Height = initSubSummaryH,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
@@ -891,6 +924,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 AutoEllipsis = true,
                 UseMnemonic = false,
                 Dock = DockStyle.Top,
+                Width = 360,
                 Height = initSubSummaryH,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
@@ -960,6 +994,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 AutoEllipsis = true,
                 UseMnemonic = false,
                 Dock = DockStyle.Top,
+                Width = 360,
                 Height = initSubSummaryH,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
@@ -1579,21 +1614,19 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
         // ================= SHARED STYLING & HIGH-DPI RESIZE HELPERS =================
 
-        private TableLayoutPanel CreateStyledCardContainer(int cardWidth, Color leftAccentColor, DocumentProofingItem? isSelectableItem)
+        private FastCardContainer CreateStyledCardContainer(int cardWidth, Color leftAccentColor, DocumentProofingItem? isSelectableItem)
         {
-            var card = new TableLayoutPanel
+            var card = new FastCardContainer
             {
                 Width = cardWidth,
                 MinimumSize = new Size(cardWidth, 0),
                 MaximumSize = new Size(cardWidth, 0),
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 1,
                 BackColor = Color.White,
                 Margin = new Padding(0, 0, 0, 10),
                 Padding = new Padding(14, 10, 12, 10)
             };
-            card.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
 
             card.Paint += (s, e) =>
             {
@@ -1622,25 +1655,36 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         private int MeasureSingleLineButtonHeight(Font font, int extraLogicalPad = 12) =>
             UiFontCache.MeasureSingleLineButtonHeight(this, font, extraLogicalPad);
 
+        public bool NeedsDpiRefresh() => UiFontCache.GetEffectiveDpi(this) != _lastAppliedEffectiveDpi;
+
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            ApplyDpiLayoutMetrics();
+            if (NeedsDpiRefresh())
+            {
+                ApplyDpiLayoutMetrics();
+                _lastAppliedCardWidth = -1;
+            }
             ResizeCardsToFitPanel();
         }
 
         public void RefreshDpiMetricsAndLayout()
         {
-            ApplyDpiLayoutMetrics();
-            _lastAppliedCardWidth = -1;
+            if (NeedsDpiRefresh())
+            {
+                ApplyDpiLayoutMetrics();
+                _lastAppliedCardWidth = -1;
+            }
             ResizeCardsToFitPanel();
-            PerformLayout();
         }
 
         protected override void OnDpiChangedAfterParent(EventArgs e)
         {
             base.OnDpiChangedAfterParent(e);
-            RefreshDpiMetricsAndLayout();
+            ApplyDpiLayoutMetrics();
+            _lastAppliedCardWidth = -1;
+            ResizeCardsToFitPanel();
+            PerformLayout();
         }
 
         private void ApplyDpiLayoutMetrics()
@@ -1766,11 +1810,18 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             return btn;
         }
 
-        private int GetTargetCardWidth()
+        private int GetTargetCardWidth(bool reserveScrollbarForMultipleCards = false)
         {
             int clientW = _cardsPanel.ClientSize.Width;
             if (clientW <= 80)
+            {
                 clientW = Width > 80 ? Width - 22 : 390;
+            }
+            else if (reserveScrollbarForMultipleCards && !_cardsPanel.VerticalScroll.Visible)
+            {
+                clientW -= SystemInformation.VerticalScrollBarWidth;
+            }
+
             return Math.Max(180, clientW - 24);
         }
 
@@ -1785,7 +1836,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             int targetWidth = GetTargetCardWidth();
             int ctrlCount = _cardsPanel.Controls.Count;
-            if (targetWidth == _lastAppliedCardWidth && ctrlCount == _lastAppliedControlCount)
+            if (Math.Abs(targetWidth - _lastAppliedCardWidth) <= 1 && ctrlCount == _lastAppliedControlCount)
                 return;
 
             _lastAppliedCardWidth = targetWidth;
@@ -1793,38 +1844,45 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             int innerWrap = Math.Max(180, targetWidth - 32);
 
             _cardsPanel.SuspendLayout();
-            foreach (Control ctrl in _cardsPanel.Controls)
+            try
             {
-                ctrl.MinimumSize = new Size(targetWidth, 0);
-                ctrl.MaximumSize = new Size(targetWidth, 0);
-                ctrl.Width = targetWidth;
-                UpdateDynamicWrapControls(ctrl, innerWrap);
+                foreach (Control ctrl in _cardsPanel.Controls)
+                {
+                    ctrl.SuspendLayout();
+                    try
+                    {
+                        UpdateDynamicWrapControls(ctrl, innerWrap);
+                        if (ctrl.MinimumSize.Width != targetWidth)
+                            ctrl.MinimumSize = new Size(targetWidth, 0);
+                        if (ctrl.MaximumSize.Width != targetWidth)
+                            ctrl.MaximumSize = new Size(targetWidth, 0);
+                        if (ctrl.Width != targetWidth)
+                            ctrl.Width = targetWidth;
+                    }
+                    finally
+                    {
+                        ctrl.ResumeLayout(false);
+                    }
+                }
             }
-            _cardsPanel.ResumeLayout();
+            finally
+            {
+                _cardsPanel.ResumeLayout(true);
+            }
         }
 
         private static void UpdateDynamicWrapControls(Control parent, int maxInnerWidth)
         {
             foreach (Control child in parent.Controls)
             {
-                if (Equals(child.Tag, WrapTag) || child is Button)
+                if (Equals(child.Tag, WrapTag))
                 {
-                    if (Equals(child.Tag, WrapTag))
-                    {
+                    if (child.MaximumSize.Width != maxInnerWidth)
                         child.MaximumSize = new Size(maxInnerWidth, 0);
-                        if (child is WordWrapChoiceButton)
-                        {
-                            child.PerformLayout();
-                        }
-                    }
-                    else if (child is Button btn && btn.MaximumSize.Width > 0)
-                    {
-                        btn.MaximumSize = new Size(maxInnerWidth, 0);
-                        if (btn is WordWrapChoiceButton)
-                        {
-                            btn.PerformLayout();
-                        }
-                    }
+                }
+                else if (child is Button btn && btn.MaximumSize.Width > 0 && btn.MaximumSize.Width != maxInnerWidth)
+                {
+                    btn.MaximumSize = new Size(maxInnerWidth, 0);
                 }
 
                 if (child.HasChildren)
@@ -1838,11 +1896,16 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         {
             _lastAppliedCardWidth = -1;
             _lastAppliedControlCount = -1;
-            while (_cardsPanel.Controls.Count > 0)
+            int count = _cardsPanel.Controls.Count;
+            if (count == 0)
+                return;
+
+            var snapshot = new Control[count];
+            _cardsPanel.Controls.CopyTo(snapshot, 0);
+            _cardsPanel.Controls.Clear();
+            for (int i = 0; i < snapshot.Length; i++)
             {
-                Control c = _cardsPanel.Controls[_cardsPanel.Controls.Count - 1];
-                _cardsPanel.Controls.RemoveAt(_cardsPanel.Controls.Count - 1);
-                c.Dispose();
+                snapshot[i]?.Dispose();
             }
         }
 

@@ -844,6 +844,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
 
                 if (forceIfNarrow || !_settledPaneWidthHwnds.Contains(winHwnd))
                 {
+                    int initialPaneWidth = pane.Width;
                     if (pane.Width < minStartupWidth)
                     {
                         try
@@ -865,7 +866,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
                         catch { }
                     }
 
-                    if (!ctrl.IsDisposed)
+                    if (!ctrl.IsDisposed && (pane.Width != initialPaneWidth || ctrl.NeedsDpiRefresh()))
                     {
                         ctrl.RefreshDpiMetricsAndLayout();
                     }

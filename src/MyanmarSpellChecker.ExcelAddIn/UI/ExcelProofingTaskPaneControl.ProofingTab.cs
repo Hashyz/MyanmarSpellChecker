@@ -13,11 +13,14 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 {
     public sealed partial class ExcelProofingTaskPaneControl
     {
-        private const int ExcelProofingCardBatchSize = 30;
+        private const int DefaultExcelProofingCardBatchSize = 30;
+        private const int EcoExcelProofingCardBatchSize = 20;
         private const int MaxMountedExcelCards = 90; // Hard Win32 HWND cap (max 3 batches mounted at once)
         private int _visibleWindowStart;
-        private int _visibleCardLimit = ExcelProofingCardBatchSize;
+        private int _visibleCardLimit = DefaultExcelProofingCardBatchSize;
         private bool _hasRenderedProofingOnce;
+
+        private int ExcelProofingCardBatchSize => _lastEcoActive ? EcoExcelProofingCardBatchSize : DefaultExcelProofingCardBatchSize;
 
         private static string BuildExcelIssuesUiSignature(IReadOnlyList<SpreadsheetCellIssue> activeItems)
         {
@@ -377,142 +380,155 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         {
             UpdateFilterPillStyles();
             var filtered = GetFilteredUnresolvedIssues();
-
-            _cardsPanel.SuspendLayout();
-            DisposeAndClearCardsPanel();
-
-            int cardWidth = GetTargetCardWidth();
-            int innerWrap = Math.Max(180, cardWidth - 32);
-
             UpdateExcelProofingSummaryText(filtered);
 
-            if (filtered.Count == 0)
+            BeginCardsBatchUpdate();
+            try
             {
-                _visibleWindowStart = 0;
+                DisposeAndClearCardsPanel();
 
-                var cleanCard = CreateStyledCardContainer(cardWidth, Color.FromArgb(16, 124, 65));
-                int r = 0;
+                int cardWidth = GetTargetCardWidth(reserveScrollbarForMultipleCards: filtered.Count >= 3);
+                int innerWrap = Math.Max(180, cardWidth - 32);
 
-                var lblOkTitle = new Label
+                if (filtered.Count == 0)
                 {
-                    Text = UiLocalizer.Pick(
-                        "✓ Myanmar Spelling & Grammar Look Great (Formula-Safe)",
-                        "✓ မြန်မာစာ စာလုံးပေါင်းနှင့် သဒ္ဒါ ကောင်းမွန်ပါသည် (Formula-Safe)"),
-                    Font = _fontBodyBold,
-                    ForeColor = Color.FromArgb(16, 102, 52),
-                    AutoSize = true,
-                    MaximumSize = new Size(innerWrap, 0),
-                    Tag = WrapTag,
-                    Dock = DockStyle.Fill,
-                    Margin = new Padding(0, 0, 0, 5)
-                };
-                cleanCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-                cleanCard.Controls.Add(lblOkTitle, 0, r++);
+                    _visibleWindowStart = 0;
 
-                var lblOkBody = new Label
-                {
-                    Text = UiLocalizer.Pick(
-                        "• Scan the Active Sheet, Selected Cells, or Entire Workbook anytime.\n• Flagged cells display screen-only red (spelling), blue (grammar), or amber (meaning) wavy underlines — cell text color & saved .xlsx files are never altered.\n• Excel formulas (=SUM, =IF, =VLOOKUP) and numeric calculations are 100% protected and untouched.",
-                        "• လက်ရှိ Sheet၊ ရွေးထားသော အကွက်များ သို့မဟုတ် Workbook တစ်ခုလုံးကို ရွေးချယ်စစ်ဆေးနိုင်ပါသည်။\n• အမှားတွေ့ရှိသော အကွက်များတွင် ဖန်သားပြင်ပေါ်၌သာ အနီ/အပြာ/လိမ္မော် မျဉ်းလှိုင်းများ ပြသပြီး Cell စာသားအရောင်နှင့် .xlsx ဖိုင်ကို လုံးဝ မပြောင်းလဲပါ။\n• Excel Formula အကွက်များ (=SUM, =IF, =VLOOKUP) နှင့် ကိန်းဂဏန်းတွက်ချက်မှုများကို 100% အလိုအလျောက် ကာကွယ်ချန်လှပ်ထားပါသည်။"),
-                    Font = _fontSmall,
-                    ForeColor = Color.FromArgb(62, 74, 92),
-                    AutoSize = true,
-                    MaximumSize = new Size(innerWrap, 0),
-                    Tag = WrapTag,
-                    Dock = DockStyle.Fill
-                };
-                cleanCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-                cleanCard.Controls.Add(lblOkBody, 0, r++);
+                    var cleanCard = CreateStyledCardContainer(cardWidth, Color.FromArgb(16, 124, 65));
+                    int r = 0;
 
-                _cardsPanel.Controls.Add(cleanCard);
-                _cardsPanel.ResumeLayout(true);
-                return;
-            }
+                    var lblOkTitle = new Label
+                    {
+                        Text = UiLocalizer.Pick(
+                            "✓ Myanmar Spelling & Grammar Look Great (Formula-Safe)",
+                            "✓ မြန်မာစာ စာလုံးပေါင်းနှင့် သဒ္ဒါ ကောင်းမွန်ပါသည် (Formula-Safe)"),
+                        Font = _fontBodyBold,
+                        ForeColor = Color.FromArgb(16, 102, 52),
+                        AutoSize = true,
+                        MaximumSize = new Size(innerWrap, 0),
+                        Tag = WrapTag,
+                        Dock = DockStyle.Fill,
+                        Margin = new Padding(0, 0, 0, 5)
+                    };
+                    cleanCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                    cleanCard.Controls.Add(lblOkTitle, 0, r++);
 
-            if (_visibleWindowStart >= filtered.Count)
-            {
-                _visibleWindowStart = Math.Max(0, ((filtered.Count - 1) / ExcelProofingCardBatchSize) * ExcelProofingCardBatchSize);
-            }
+                    var lblOkBody = new Label
+                    {
+                        Text = UiLocalizer.Pick(
+                            "• Scan the Active Sheet, Selected Cells, or Entire Workbook anytime.\n• Flagged cells display screen-only red (spelling), blue (grammar), or amber (meaning) wavy underlines — cell text color & saved .xlsx files are never altered.\n• Excel formulas (=SUM, =IF, =VLOOKUP) and numeric calculations are 100% protected and untouched.",
+                            "• လက်ရှိ Sheet၊ ရွေးထားသော အကွက်များ သို့မဟုတ် Workbook တစ်ခုလုံးကို ရွေးချယ်စစ်ဆေးနိုင်ပါသည်။\n• အမှားတွေ့ရှိသော အကွက်များတွင် ဖန်သားပြင်ပေါ်၌သာ အနီ/အပြာ/လိမ္မော် မျဉ်းလှိုင်းများ ပြသပြီး Cell စာသားအရောင်နှင့် .xlsx ဖိုင်ကို လုံးဝ မပြောင်းလဲပါ။\n• Excel Formula အကွက်များ (=SUM, =IF, =VLOOKUP) နှင့် ကိန်းဂဏန်းတွက်ချက်မှုများကို 100% အလိုအလျောက် ကာကွယ်ချန်လှပ်ထားပါသည်။"),
+                        Font = _fontSmall,
+                        ForeColor = Color.FromArgb(62, 74, 92),
+                        AutoSize = true,
+                        MaximumSize = new Size(innerWrap, 0),
+                        Tag = WrapTag,
+                        Dock = DockStyle.Fill
+                    };
+                    cleanCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                    cleanCard.Controls.Add(lblOkBody, 0, r++);
 
-            if (_visibleWindowStart > 0)
-            {
-                var prevCard = CreateStyledCardContainer(cardWidth, Color.FromArgb(16, 108, 56));
-                var btnPrevBatch = CreatePillButton(
-                    UiLocalizer.Pick(
-                        $"▴ View Previous Issues (#1 to #{_visibleWindowStart:N0})",
-                        $"▴ ရှေ့ပိုင်း တွေ့ရှိချက် (#1 မှ #{_visibleWindowStart:N0}) ပြန်ကြည့်မည်"),
-                    Color.FromArgb(234, 246, 239),
-                    Color.FromArgb(14, 96, 50),
-                    Color.FromArgb(182, 220, 196),
-                    _fontSmallBold);
-                btnPrevBatch.Click += (s, e) =>
-                {
-                    _visibleWindowStart = Math.Max(0, _visibleWindowStart - ExcelProofingCardBatchSize);
-                    _visibleCardLimit = Math.Min(MaxMountedExcelCards, ExcelProofingCardBatchSize * 2);
-                    RenderProofingCards();
-                };
-                prevCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-                prevCard.Controls.Add(btnPrevBatch, 0, 0);
-                _cardsPanel.Controls.Add(prevCard);
-            }
-            else if (filtered.Count >= 4)
-            {
-                Control? repeatedCard = TryBuildRepeatedIssuesBatchFixCard(filtered, cardWidth, innerWrap);
-                if (repeatedCard != null)
-                {
-                    _cardsPanel.Controls.Add(repeatedCard);
+                    _cardsPanel.Controls.Add(cleanCard);
+                    _lastAppliedCardWidth = cardWidth;
+                    _lastAppliedControlCount = _cardsPanel.Controls.Count;
+                    return;
                 }
-            }
 
-            var sameWordCounts = BuildExcelSameWordCountsMap();
-            int windowCount = Math.Min(MaxMountedExcelCards, Math.Max(ExcelProofingCardBatchSize, _visibleCardLimit));
-            int endExclusive = Math.Min(filtered.Count, _visibleWindowStart + windowCount);
-
-            for (int idx = _visibleWindowStart; idx < endExclusive; idx++)
-            {
-                SpreadsheetCellIssue item = filtered[idx];
-                string normOrig = UnicodeNormalizer.NormalizeCanonicalOrder((item.Issue.OriginalText ?? string.Empty).Trim());
-                int dupCount = sameWordCounts.TryGetValue(normOrig, out int cnt) ? cnt : 1;
-
-                Control card = BuildExcelIssueCard(item, idx + 1, cardWidth, innerWrap, dupCount);
-                _cardByItem[item] = card;
-                _cardsPanel.Controls.Add(card);
-            }
-
-            if (filtered.Count > endExclusive)
-            {
-                int remaining = filtered.Count - endExclusive;
-                int nextBatch = Math.Min(ExcelProofingCardBatchSize, remaining);
-                var moreCard = CreateStyledCardContainer(cardWidth, Color.FromArgb(16, 108, 56));
-                var btnMoreBatch = CreatePillButton(
-                    UiLocalizer.Pick(
-                        $"▾ Load Next {nextBatch:N0} Issue(s)  •  {remaining:N0} / {filtered.Count:N0} Remaining",
-                        $"▾ နောက်ထပ် တွေ့ရှိချက် ({nextBatch:N0}) ခု ဆက်လက်ဖော်ပြမည်  •  ကျန်ရှိ ({remaining:N0} / {filtered.Count:N0})"),
-                    Color.FromArgb(234, 246, 239),
-                    Color.FromArgb(14, 96, 50),
-                    Color.FromArgb(182, 220, 196),
-                    _fontSmallBold);
-                btnMoreBatch.Click += (s, e) =>
+                int batchSize = ExcelProofingCardBatchSize;
+                if (_visibleWindowStart >= filtered.Count)
                 {
-                    if (_cardByItem.Count + ExcelProofingCardBatchSize <= MaxMountedExcelCards)
-                    {
-                        _visibleCardLimit += ExcelProofingCardBatchSize;
-                    }
-                    else
-                    {
-                        _visibleWindowStart = Math.Min(
-                            Math.Max(0, filtered.Count - ExcelProofingCardBatchSize),
-                            _visibleWindowStart + ExcelProofingCardBatchSize);
-                        _visibleCardLimit = MaxMountedExcelCards;
-                    }
-                    RenderProofingCards();
-                };
-                moreCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-                moreCard.Controls.Add(btnMoreBatch, 0, 0);
-                _cardsPanel.Controls.Add(moreCard);
-            }
+                    _visibleWindowStart = Math.Max(0, ((filtered.Count - 1) / batchSize) * batchSize);
+                }
 
-            _cardsPanel.ResumeLayout(true);
+                var batchControls = new List<Control>(Math.Min(MaxMountedExcelCards + 3, filtered.Count + 3));
+                if (_visibleWindowStart > 0)
+                {
+                    var prevCard = CreateStyledCardContainer(cardWidth, Color.FromArgb(16, 108, 56));
+                    var btnPrevBatch = CreatePillButton(
+                        UiLocalizer.Pick(
+                            $"▴ View Previous Issues (#1 to #{_visibleWindowStart:N0})",
+                            $"▴ ရှေ့ပိုင်း တွေ့ရှိချက် (#1 မှ #{_visibleWindowStart:N0}) ပြန်ကြည့်မည်"),
+                        Color.FromArgb(234, 246, 239),
+                        Color.FromArgb(14, 96, 50),
+                        Color.FromArgb(182, 220, 196),
+                        _fontSmallBold);
+                    btnPrevBatch.Click += (s, e) =>
+                    {
+                        int step = ExcelProofingCardBatchSize;
+                        _visibleWindowStart = Math.Max(0, _visibleWindowStart - step);
+                        _visibleCardLimit = Math.Min(MaxMountedExcelCards, step * 2);
+                        RenderProofingCards();
+                    };
+                    prevCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                    prevCard.Controls.Add(btnPrevBatch, 0, 0);
+                    batchControls.Add(prevCard);
+                }
+                else if (filtered.Count >= 4)
+                {
+                    Control? repeatedCard = TryBuildRepeatedIssuesBatchFixCard(filtered, cardWidth, innerWrap);
+                    if (repeatedCard != null)
+                    {
+                        batchControls.Add(repeatedCard);
+                    }
+                }
+
+                var sameWordCounts = BuildExcelSameWordCountsMap();
+                int windowCount = Math.Min(MaxMountedExcelCards, Math.Max(batchSize, _visibleCardLimit));
+                int endExclusive = Math.Min(filtered.Count, _visibleWindowStart + windowCount);
+
+                for (int idx = _visibleWindowStart; idx < endExclusive; idx++)
+                {
+                    SpreadsheetCellIssue item = filtered[idx];
+                    string normOrig = UnicodeNormalizer.NormalizeCanonicalOrder((item.Issue.OriginalText ?? string.Empty).Trim());
+                    int dupCount = sameWordCounts.TryGetValue(normOrig, out int cnt) ? cnt : 1;
+
+                    Control card = BuildExcelIssueCard(item, idx + 1, cardWidth, innerWrap, dupCount);
+                    _cardByItem[item] = card;
+                    batchControls.Add(card);
+                }
+
+                if (filtered.Count > endExclusive)
+                {
+                    int remaining = filtered.Count - endExclusive;
+                    int nextBatch = Math.Min(batchSize, remaining);
+                    var moreCard = CreateStyledCardContainer(cardWidth, Color.FromArgb(16, 108, 56));
+                    var btnMoreBatch = CreatePillButton(
+                        UiLocalizer.Pick(
+                            $"▾ Load Next {nextBatch:N0} Issue(s)  •  {remaining:N0} / {filtered.Count:N0} Remaining",
+                            $"▾ နောက်ထပ် တွေ့ရှိချက် ({nextBatch:N0}) ခု ဆက်လက်ဖော်ပြမည်  •  ကျန်ရှိ ({remaining:N0} / {filtered.Count:N0})"),
+                        Color.FromArgb(234, 246, 239),
+                        Color.FromArgb(14, 96, 50),
+                        Color.FromArgb(182, 220, 196),
+                        _fontSmallBold);
+                    btnMoreBatch.Click += (s, e) =>
+                    {
+                        int step = ExcelProofingCardBatchSize;
+                        if (_cardByItem.Count + step <= MaxMountedExcelCards)
+                        {
+                            _visibleCardLimit += step;
+                        }
+                        else
+                        {
+                            _visibleWindowStart = Math.Min(
+                                Math.Max(0, filtered.Count - step),
+                                _visibleWindowStart + step);
+                            _visibleCardLimit = MaxMountedExcelCards;
+                        }
+                        RenderProofingCards();
+                    };
+                    moreCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                    moreCard.Controls.Add(btnMoreBatch, 0, 0);
+                    batchControls.Add(moreCard);
+                }
+
+                _cardsPanel.Controls.AddRange(batchControls.ToArray());
+                _lastAppliedCardWidth = cardWidth;
+                _lastAppliedControlCount = _cardsPanel.Controls.Count;
+            }
+            finally
+            {
+                EndCardsBatchUpdate();
+            }
         }
 
         private Control? TryBuildRepeatedIssuesBatchFixCard(
@@ -671,19 +687,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             card.Click += (s, e) => JumpToCell();
 
             // Row 0: Category Label + Cell Coordinate Pill (e.g., Sheet1!C14) + #Index
-            var topBar = new TableLayoutPanel
+            var topBar = new FastPercentRowPanel(68F, 32F)
             {
-                Dock = DockStyle.Top,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 2,
-                RowCount = 1,
                 Margin = new Padding(0, 0, 0, 4),
                 Cursor = Cursors.Hand
             };
-            topBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 68F));
-            topBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32F));
-            topBar.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             topBar.Click += (s, e) => JumpToCell();
 
             var lblCat = new Label
@@ -710,8 +718,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 $"Click to jump directly to cell {item.DisplayLocation}",
                 $"{item.DisplayLocation} အကွက်သို့ တိုက်ရိုက်သွားရန် နှိပ်ပါ"));
 
-            topBar.Controls.Add(lblCat, 0, 0);
-            topBar.Controls.Add(btnCellLoc, 1, 0);
+            topBar.Controls.Add(lblCat);
+            topBar.Controls.Add(btnCellLoc);
             card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             card.Controls.Add(topBar, 0, row++);
 
@@ -921,19 +929,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             }
 
             // Row 5: Footer Action Buttons (Ignore | Add to Dictionary | Lookup in Dictionary)
-            var footerGrid = new TableLayoutPanel
+            var footerGrid = new FastPercentRowPanel(32F, 38F, 30F)
             {
-                Dock = DockStyle.Top,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 3,
-                RowCount = 1,
                 Margin = new Padding(0, 2, 0, 0)
             };
-            footerGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32F));
-            footerGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38F));
-            footerGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30F));
-            footerGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             var btnIgnore = CreatePillButton(
                 UiLocalizer.Pick("Ignore", "လျစ်လျူရှု"),
@@ -963,9 +962,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             btnLookup.Dock = DockStyle.Fill;
             btnLookup.Click += (s, e) => OpenDictionaryWithQuery(hasSuggestion ? topSuggested : issue.OriginalText);
 
-            footerGrid.Controls.Add(btnIgnore, 0, 0);
-            footerGrid.Controls.Add(btnAddDict, 1, 0);
-            footerGrid.Controls.Add(btnLookup, 2, 0);
+            footerGrid.Controls.Add(btnIgnore);
+            footerGrid.Controls.Add(btnAddDict);
+            footerGrid.Controls.Add(btnLookup);
 
             card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             card.Controls.Add(footerGrid, 0, row++);

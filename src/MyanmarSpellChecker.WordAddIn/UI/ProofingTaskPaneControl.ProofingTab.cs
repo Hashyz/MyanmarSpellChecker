@@ -14,17 +14,20 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 {
     public sealed partial class ProofingTaskPaneControl
     {
-        private const int ProofingCardBatchSize = 35;
-        private const int MaxMountedWordCards = 105; // Hard Win32 HWND cap (max 3 batches mounted at once)
+        private const int ProofingCardBatchSize = 30;
+        private const int EcoProofingCardBatchSize = 20;
+        private const int MaxMountedWordCards = 90; // Hard Win32 HWND cap (max 3 batches mounted at once)
         private int _visibleWindowStart;
         private int _visibleIssueCardLimit = ProofingCardBatchSize;
         private Control? _loadPreviousCard;
         private Control? _loadMoreCard;
 
+        private int ActiveProofingBatchSize => _lastEcoActive ? EcoProofingCardBatchSize : ProofingCardBatchSize;
+
         private void ResetProofingPagination()
         {
             _visibleWindowStart = 0;
-            _visibleIssueCardLimit = ProofingCardBatchSize;
+            _visibleIssueCardLimit = ActiveProofingBatchSize;
         }
 
         private void ChangeStyleMode(ProofingStyleMode mode)
@@ -314,64 +317,76 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             UpdateWorkspaceTabStyles();
             UpdateFilterButtonStyles();
 
-            _cardsPanel.SuspendLayout();
-            DisposeAndClearCardsPanel();
-            _cardByItem.Clear();
-            _loadPreviousCard = null;
-            _loadMoreCard = null;
-
             var active = GetActiveFilteredItems();
             UpdateProofingSummaryText(active.Count);
 
-            int cardWidth = GetTargetCardWidth();
-            if (active.Count == 0)
+            BeginCardsBatchUpdate();
+            try
             {
-                _visibleWindowStart = 0;
-                Control emptyCard = BuildEmptyStateCard(cardWidth);
-                _cardsPanel.Controls.Add(emptyCard);
-                _cardsPanel.ResumeLayout();
-                return;
-            }
+                DisposeAndClearCardsPanel();
+                _cardByItem.Clear();
+                _loadPreviousCard = null;
+                _loadMoreCard = null;
 
-            if (_visibleWindowStart >= active.Count)
-            {
-                _visibleWindowStart = Math.Max(0, ((active.Count - 1) / ProofingCardBatchSize) * ProofingCardBatchSize);
-            }
-
-            if (_currentStyleMode == ProofingStyleMode.FormalOfficial && _currentFilter != IssueFilterMode.ContextOnly)
-            {
-                int colloqStyleCount = _allItems.Count(x => !x.IsResolved && x.Issue.IssueType == ProofingIssueType.OfficialStyleGrammarError);
-                int hardSpellCount = _allItems.Count(x => !x.IsResolved && !x.Issue.IsGrammarOrStyle && !x.Issue.IsContextualWarning);
-                if (colloqStyleCount >= 8 && colloqStyleCount >= hardSpellCount * 4)
+                int cardWidth = GetTargetCardWidth(reserveScrollbarForMultipleCards: active.Count >= 3);
+                if (active.Count == 0)
                 {
-                    _cardsPanel.Controls.Add(BuildColloquialStoryHintCard(cardWidth, colloqStyleCount));
+                    _visibleWindowStart = 0;
+                    Control emptyCard = BuildEmptyStateCard(cardWidth);
+                    _cardsPanel.Controls.Add(emptyCard);
+                    _lastAppliedCardWidth = cardWidth;
+                    _lastAppliedControlCount = _cardsPanel.Controls.Count;
+                    return;
                 }
-            }
 
-            if (_visibleWindowStart > 0)
+                int batchSize = ActiveProofingBatchSize;
+                if (_visibleWindowStart >= active.Count)
+                {
+                    _visibleWindowStart = Math.Max(0, ((active.Count - 1) / batchSize) * batchSize);
+                }
+
+                var batchControls = new List<Control>(Math.Min(MaxMountedWordCards + 3, active.Count + 3));
+                if (_currentStyleMode == ProofingStyleMode.FormalOfficial && _currentFilter != IssueFilterMode.ContextOnly)
+                {
+                    int colloqStyleCount = _allItems.Count(x => !x.IsResolved && x.Issue.IssueType == ProofingIssueType.OfficialStyleGrammarError);
+                    int hardSpellCount = _allItems.Count(x => !x.IsResolved && !x.Issue.IsGrammarOrStyle && !x.Issue.IsContextualWarning);
+                    if (colloqStyleCount >= 8 && colloqStyleCount >= hardSpellCount * 4)
+                    {
+                        batchControls.Add(BuildColloquialStoryHintCard(cardWidth, colloqStyleCount));
+                    }
+                }
+
+                if (_visibleWindowStart > 0)
+                {
+                    _loadPreviousCard = BuildLoadPreviousIssuesCard(_visibleWindowStart, cardWidth);
+                    batchControls.Add(_loadPreviousCard);
+                }
+
+                var sameErrorCounts = BuildSameErrorCountsMap();
+                int windowCount = Math.Min(MaxMountedWordCards, Math.Max(batchSize, _visibleIssueCardLimit));
+                int endExclusive = Math.Min(active.Count, _visibleWindowStart + windowCount);
+                for (int i = _visibleWindowStart; i < endExclusive; i++)
+                {
+                    DocumentProofingItem item = active[i];
+                    Control card = BuildIssueCard(item, i + 1, cardWidth, sameErrorCounts);
+                    _cardByItem[item] = card;
+                    batchControls.Add(card);
+                }
+
+                if (active.Count > endExclusive)
+                {
+                    _loadMoreCard = BuildLoadMoreIssuesCard(active.Count - endExclusive, active.Count, cardWidth);
+                    batchControls.Add(_loadMoreCard);
+                }
+
+                _cardsPanel.Controls.AddRange(batchControls.ToArray());
+                _lastAppliedCardWidth = cardWidth;
+                _lastAppliedControlCount = _cardsPanel.Controls.Count;
+            }
+            finally
             {
-                _loadPreviousCard = BuildLoadPreviousIssuesCard(_visibleWindowStart, cardWidth);
-                _cardsPanel.Controls.Add(_loadPreviousCard);
+                EndCardsBatchUpdate();
             }
-
-            var sameErrorCounts = BuildSameErrorCountsMap();
-            int windowCount = Math.Min(MaxMountedWordCards, Math.Max(ProofingCardBatchSize, _visibleIssueCardLimit));
-            int endExclusive = Math.Min(active.Count, _visibleWindowStart + windowCount);
-            for (int i = _visibleWindowStart; i < endExclusive; i++)
-            {
-                DocumentProofingItem item = active[i];
-                Control card = BuildIssueCard(item, i + 1, cardWidth, sameErrorCounts);
-                _cardByItem[item] = card;
-                _cardsPanel.Controls.Add(card);
-            }
-
-            if (active.Count > endExclusive)
-            {
-                _loadMoreCard = BuildLoadMoreIssuesCard(active.Count - endExclusive, active.Count, cardWidth);
-                _cardsPanel.Controls.Add(_loadMoreCard);
-            }
-
-            _cardsPanel.ResumeLayout();
         }
 
         private void EnsureCardsRenderedThroughIndex(List<DocumentProofingItem> active, int targetIndex)
@@ -381,18 +396,19 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             if (_cardByItem.ContainsKey(active[targetIndex]))
                 return;
 
+            int batchSize = ActiveProofingBatchSize;
             // If targetIndex is within current window's 3-batch cap, append in place; otherwise slide the bounded window!
             if (targetIndex >= _visibleWindowStart && (targetIndex - _visibleWindowStart) < MaxMountedWordCards)
             {
                 int desiredWindowCount = Math.Min(
                     MaxMountedWordCards,
-                    (((targetIndex - _visibleWindowStart) / ProofingCardBatchSize) + 1) * ProofingCardBatchSize);
+                    (((targetIndex - _visibleWindowStart) / batchSize) + 1) * batchSize);
                 AppendCardsUpToWindowCount(active, desiredWindowCount);
             }
             else
             {
-                _visibleWindowStart = (targetIndex / ProofingCardBatchSize) * ProofingCardBatchSize;
-                _visibleIssueCardLimit = ProofingCardBatchSize * 2;
+                _visibleWindowStart = (targetIndex / batchSize) * batchSize;
+                _visibleIssueCardLimit = batchSize * 2;
                 RefreshProofingCardsFull();
             }
         }
@@ -404,36 +420,49 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 return;
 
             _visibleIssueCardLimit = cappedWindow;
-            int cardWidth = GetTargetCardWidth();
+            int cardWidth = GetTargetCardWidth(reserveScrollbarForMultipleCards: active.Count >= 3);
             var sameErrorCounts = BuildSameErrorCountsMap();
 
-            _cardsPanel.SuspendLayout();
-            if (_loadMoreCard != null)
+            BeginCardsBatchUpdate();
+            try
             {
-                _cardsPanel.Controls.Remove(_loadMoreCard);
-                _loadMoreCard.Dispose();
-                _loadMoreCard = null;
-            }
+                if (_loadMoreCard != null)
+                {
+                    _cardsPanel.Controls.Remove(_loadMoreCard);
+                    _loadMoreCard.Dispose();
+                    _loadMoreCard = null;
+                }
 
-            int endExclusive = Math.Min(active.Count, _visibleWindowStart + _visibleIssueCardLimit);
-            for (int i = _visibleWindowStart; i < endExclusive; i++)
+                int endExclusive = Math.Min(active.Count, _visibleWindowStart + _visibleIssueCardLimit);
+                var addedCards = new List<Control>(endExclusive - _visibleWindowStart + 1);
+                for (int i = _visibleWindowStart; i < endExclusive; i++)
+                {
+                    DocumentProofingItem item = active[i];
+                    if (_cardByItem.ContainsKey(item))
+                        continue;
+
+                    Control card = BuildIssueCard(item, i + 1, cardWidth, sameErrorCounts);
+                    _cardByItem[item] = card;
+                    addedCards.Add(card);
+                }
+
+                if (active.Count > endExclusive)
+                {
+                    _loadMoreCard = BuildLoadMoreIssuesCard(active.Count - endExclusive, active.Count, cardWidth);
+                    addedCards.Add(_loadMoreCard);
+                }
+
+                if (addedCards.Count > 0)
+                {
+                    _cardsPanel.Controls.AddRange(addedCards.ToArray());
+                }
+                _lastAppliedCardWidth = cardWidth;
+                _lastAppliedControlCount = _cardsPanel.Controls.Count;
+            }
+            finally
             {
-                DocumentProofingItem item = active[i];
-                if (_cardByItem.ContainsKey(item))
-                    continue;
-
-                Control card = BuildIssueCard(item, i + 1, cardWidth, sameErrorCounts);
-                _cardByItem[item] = card;
-                _cardsPanel.Controls.Add(card);
+                EndCardsBatchUpdate();
             }
-
-            if (active.Count > endExclusive)
-            {
-                _loadMoreCard = BuildLoadMoreIssuesCard(active.Count - endExclusive, active.Count, cardWidth);
-                _cardsPanel.Controls.Add(_loadMoreCard);
-            }
-
-            _cardsPanel.ResumeLayout();
         }
 
         private Control BuildColloquialStoryHintCard(int cardWidth, int colloqCount)
@@ -483,8 +512,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 _fontSmallBold);
             btnPrev.Click += (s, e) =>
             {
-                _visibleWindowStart = Math.Max(0, _visibleWindowStart - ProofingCardBatchSize);
-                _visibleIssueCardLimit = Math.Min(MaxMountedWordCards, ProofingCardBatchSize * 2);
+                int batchSize = ActiveProofingBatchSize;
+                _visibleWindowStart = Math.Max(0, _visibleWindowStart - batchSize);
+                _visibleIssueCardLimit = Math.Min(MaxMountedWordCards, batchSize * 2);
                 RefreshProofingCardsFull();
             };
             card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -495,7 +525,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         private Control BuildLoadMoreIssuesCard(int remainingCount, int totalCount, int cardWidth)
         {
             var card = CreateStyledCardContainer(cardWidth, Color.FromArgb(24, 90, 188), isSelectableItem: null);
-            int nextBatch = Math.Min(ProofingCardBatchSize, remainingCount);
+            int batchSize = ActiveProofingBatchSize;
+            int nextBatch = Math.Min(batchSize, remainingCount);
             var btnMore = CreatePillButton(
                 UiLocalizer.Pick(
                     $"▾ Show Next {nextBatch} Issue(s)  •  Remaining ({remainingCount} / {totalCount})",
@@ -506,16 +537,17 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 _fontSmallBold);
             btnMore.Click += (s, e) =>
             {
+                int step = ActiveProofingBatchSize;
                 var active = GetActiveFilteredItems();
-                if (_cardByItem.Count + ProofingCardBatchSize <= MaxMountedWordCards)
+                if (_cardByItem.Count + step <= MaxMountedWordCards)
                 {
-                    AppendCardsUpToWindowCount(active, _visibleIssueCardLimit + ProofingCardBatchSize);
+                    AppendCardsUpToWindowCount(active, _visibleIssueCardLimit + step);
                 }
                 else
                 {
                     _visibleWindowStart = Math.Min(
-                        Math.Max(0, active.Count - ProofingCardBatchSize),
-                        _visibleWindowStart + ProofingCardBatchSize);
+                        Math.Max(0, active.Count - step),
+                        _visibleWindowStart + step);
                     _visibleIssueCardLimit = MaxMountedWordCards;
                     RefreshProofingCardsFull();
                 }
@@ -603,18 +635,10 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             card.Controls.Add(lblBody, 0, row++);
 
-            var quickActions = new TableLayoutPanel
+            var quickActions = new FastPercentRowPanel(52F, 48F)
             {
-                Dock = DockStyle.Top,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 2,
-                RowCount = 1,
                 Margin = new Padding(0)
             };
-            quickActions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 52F));
-            quickActions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 48F));
-            quickActions.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             var btnRescan = CreatePillButton(
                 UiLocalizer.Pick("Scan Full Document", "စာတမ်းတစ်ခုလုံး ပြန်စစ်မည်"),
@@ -630,8 +654,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Color.FromArgb(242, 245, 250), Color.FromArgb(48, 58, 74), Color.FromArgb(215, 222, 232), _fontSmall);
             btnGoDict.Click += (s, e) => FocusDictionarySearchBox();
 
-            quickActions.Controls.Add(btnRescan, 0, 0);
-            quickActions.Controls.Add(btnGoDict, 1, 0);
+            quickActions.Controls.Add(btnRescan);
+            quickActions.Controls.Add(btnGoDict);
 
             card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             card.Controls.Add(quickActions, 0, row++);
@@ -666,18 +690,10 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             };
 
             // 1. Header Row: Category + Location Badge + #Index
-            var topMetaRow = new TableLayoutPanel
+            var topMetaRow = new FastPercentRowPanel(82F, 18F)
             {
-                Dock = DockStyle.Top,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 2,
-                RowCount = 1,
                 Margin = new Padding(0, 0, 0, 4)
             };
-            topMetaRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 82F));
-            topMetaRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 18F));
-            topMetaRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             string categoryText = isEncoding
                 ? UiLocalizer.Pick($"● Unicode Standard  •  {item.StoryName}", $"● ယူနီကုဒ် စံနှုန်း  •  {item.StoryName}")
@@ -707,15 +723,15 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Font = _fontBrandStats,
                 TextAlign = ContentAlignment.MiddleRight,
                 AutoSize = true,
-                Dock = DockStyle.Fill,
+                Dock = DockStyle.Right,
                 Margin = new Padding(0),
                 Padding = new Padding(0, 1, 2, 1),
                 Cursor = Cursors.Hand
             };
             lblIndex.Click += (s, e) => jumpAction();
 
-            topMetaRow.Controls.Add(lblBadge, 0, 0);
-            topMetaRow.Controls.Add(lblIndex, 1, 0);
+            topMetaRow.Controls.Add(lblBadge);
+            topMetaRow.Controls.Add(lblIndex);
             card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             card.Controls.Add(topMetaRow, 0, row++);
 
@@ -995,27 +1011,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             // 6. Card Footer Actions (Jump | Ignore | +Custom Dictionary)
             bool canAddToCustomDict = !isGrammar && issue.IssueType == ProofingIssueType.SpellingError;
-            var bottomActions = new TableLayoutPanel
-            {
-                Dock = DockStyle.Top,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = canAddToCustomDict ? 3 : 2,
-                RowCount = 1,
-                Margin = new Padding(0, 2, 0, 0)
-            };
-            if (canAddToCustomDict)
-            {
-                bottomActions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34F));
-                bottomActions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 31F));
-                bottomActions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35F));
-            }
-            else
-            {
-                bottomActions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-                bottomActions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-            }
-            bottomActions.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            var bottomActions = canAddToCustomDict
+                ? new FastPercentRowPanel(34F, 31F, 35F) { Margin = new Padding(0, 2, 0, 0) }
+                : new FastPercentRowPanel(50F, 50F) { Margin = new Padding(0, 2, 0, 0) };
 
             var btnJump = CreatePillButton(
                 UiLocalizer.Pick("Locate", "စာတမ်း၌ပြရန်"),
@@ -1031,8 +1029,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 ResolveSingleCardSmoothly(item, card);
             };
 
-            bottomActions.Controls.Add(btnJump, 0, 0);
-            bottomActions.Controls.Add(btnIgnore, 1, 0);
+            bottomActions.Controls.Add(btnJump);
+            bottomActions.Controls.Add(btnIgnore);
 
             if (canAddToCustomDict)
             {
@@ -1047,7 +1045,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                         $"✓ Added \"{wordSaved}\" to your Custom Dictionary.",
                         $"✓ \"{wordSaved}\" ကို မှတ်သားစာလုံးစာရင်းသို့ ထည့်သွင်းပြီးပါပြီ။"));
                 };
-                bottomActions.Controls.Add(btnAddDict, 2, 0);
+                bottomActions.Controls.Add(btnAddDict);
             }
 
             card.RowStyles.Add(new RowStyle(SizeType.AutoSize));

@@ -854,6 +854,7 @@ namespace MyanmarSpellChecker.WordAddIn
 
                 if (forceIfNarrow || !_settledPaneWidthHwnds.Contains(winHwnd))
                 {
+                    int initialPaneWidth = pane.Width;
                     if (pane.Width < minStartupWidth)
                     {
                         try
@@ -876,7 +877,7 @@ namespace MyanmarSpellChecker.WordAddIn
                         catch { }
                     }
 
-                    if (!ctrl.IsDisposed)
+                    if (!ctrl.IsDisposed && (pane.Width != initialPaneWidth || ctrl.NeedsDpiRefresh()))
                     {
                         ctrl.RefreshDpiMetricsAndLayout();
                     }

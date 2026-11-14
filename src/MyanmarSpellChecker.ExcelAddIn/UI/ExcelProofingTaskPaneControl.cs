@@ -57,9 +57,36 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
     {
         private const string WrapTag = "DYNAMIC_WRAP";
         private const int EM_SETCUEBANNER = 0x1501;
+        private const int WM_SETREDRAW = 0x000B;
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, string lParam);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        private void BeginCardsBatchUpdate()
+        {
+            if (_cardsPanel.IsHandleCreated)
+            {
+                try { SendMessage(_cardsPanel.Handle, WM_SETREDRAW, IntPtr.Zero, IntPtr.Zero); } catch { }
+            }
+            _cardsPanel.SuspendLayout();
+        }
+
+        private void EndCardsBatchUpdate()
+        {
+            _cardsPanel.ResumeLayout(true);
+            if (_cardsPanel.IsHandleCreated)
+            {
+                try
+                {
+                    SendMessage(_cardsPanel.Handle, WM_SETREDRAW, new IntPtr(1), IntPtr.Zero);
+                    _cardsPanel.Invalidate(true);
+                }
+                catch { }
+            }
+        }
 
         private sealed class BufferedFlowLayoutPanel : FlowLayoutPanel
         {
@@ -315,6 +342,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 AutoEllipsis = true,
                 UseMnemonic = false,
                 Dock = DockStyle.Top,
+                Width = 360,
                 Height = MeasureSingleLineLabelHeight(_fontBrandTitle, 6),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
@@ -330,6 +358,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 AutoEllipsis = true,
                 UseMnemonic = false,
                 Dock = DockStyle.Top,
+                Width = 360,
                 Height = MeasureSingleLineLabelHeight(_fontBrandStats, 5),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0, 0, 0, 3),
@@ -470,6 +499,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 AutoEllipsis = true,
                 UseMnemonic = false,
                 Dock = DockStyle.Top,
+                Width = 360,
                 Height = MeasureSingleLineLabelHeight(_fontBrandStats, 5),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(1, 0, 1, 4)
@@ -606,6 +636,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 AutoSize = false,
                 AutoEllipsis = true,
                 UseMnemonic = false,
+                Width = 260,
                 MinimumSize = new Size(0, MeasureSingleLineLabelHeight(_fontSmallBold, 6)),
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleLeft,
@@ -637,6 +668,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 AutoEllipsis = true,
                 UseMnemonic = false,
                 Dock = DockStyle.Top,
+                Width = 360,
                 Height = MeasureSingleLineLabelHeight(_fontSmallBold, 6),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(1, 0, 1, 0)
@@ -832,6 +864,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 AutoEllipsis = true,
                 UseMnemonic = false,
                 Dock = DockStyle.Top,
+                Width = 360,
                 Height = initSubSummaryH,
                 TextAlign = ContentAlignment.MiddleLeft
             };
@@ -864,6 +897,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 AutoEllipsis = true,
                 UseMnemonic = false,
                 Dock = DockStyle.Top,
+                Width = 360,
                 Height = initSubSummaryH,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(1, 0, 1, 0)
@@ -930,6 +964,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 AutoEllipsis = true,
                 UseMnemonic = false,
                 Dock = DockStyle.Top,
+                Width = 360,
                 Height = initSubSummaryH,
                 TextAlign = ContentAlignment.MiddleLeft
             };
@@ -1386,11 +1421,18 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             btn.FlatAppearance.BorderColor = active ? Color.FromArgb(204, 214, 228) : Color.FromArgb(236, 240, 247);
         }
 
-        private int GetTargetCardWidth()
+        private int GetTargetCardWidth(bool reserveScrollbarForMultipleCards = false)
         {
             int clientW = _cardsPanel.ClientSize.Width;
             if (clientW <= 80)
+            {
                 clientW = Width > 80 ? Width - 22 : 390;
+            }
+            else if (reserveScrollbarForMultipleCards && !_cardsPanel.VerticalScroll.Visible)
+            {
+                clientW -= SystemInformation.VerticalScrollBarWidth;
+            }
+
             return Math.Max(180, clientW - _cardsPanel.Padding.Horizontal - 6);
         }
 
@@ -1404,11 +1446,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             }
 
             int targetWidth = GetTargetCardWidth();
-            if (targetWidth == _lastAppliedCardWidth && _cardsPanel.Controls.Count == _lastAppliedControlCount)
+            int ctrlCount = _cardsPanel.Controls.Count;
+            if (Math.Abs(targetWidth - _lastAppliedCardWidth) <= 1 && ctrlCount == _lastAppliedControlCount)
                 return;
 
             _lastAppliedCardWidth = targetWidth;
-            _lastAppliedControlCount = _cardsPanel.Controls.Count;
+            _lastAppliedControlCount = ctrlCount;
             int innerWrap = Math.Max(180, targetWidth - 32);
 
             _cardsPanel.SuspendLayout();
@@ -1416,8 +1459,21 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 foreach (Control c in _cardsPanel.Controls)
                 {
-                    c.Width = targetWidth;
-                    UpdateWrapControlsRecursive(c, innerWrap);
+                    c.SuspendLayout();
+                    try
+                    {
+                        UpdateWrapControlsRecursive(c, innerWrap);
+                        if (c.MinimumSize.Width != targetWidth)
+                            c.MinimumSize = new Size(targetWidth, 0);
+                        if (c.MaximumSize.Width != targetWidth)
+                            c.MaximumSize = new Size(targetWidth, 0);
+                        if (c.Width != targetWidth)
+                            c.Width = targetWidth;
+                    }
+                    finally
+                    {
+                        c.ResumeLayout(false);
+                    }
                 }
             }
             finally
@@ -1430,13 +1486,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         {
             foreach (Control child in parent.Controls)
             {
-                if (Equals(child.Tag, WrapTag))
+                if (Equals(child.Tag, WrapTag) && child.MaximumSize.Width != wrapWidth)
                 {
                     child.MaximumSize = new Size(wrapWidth, 0);
-                    if (child is WordWrapChoiceButton)
-                    {
-                        child.PerformLayout();
-                    }
                 }
                 if (child.HasChildren)
                 {
@@ -1448,28 +1500,34 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private void DisposeAndClearCardsPanel()
         {
             _cardByItem.Clear();
-            while (_cardsPanel.Controls.Count > 0)
-            {
-                Control ctrl = _cardsPanel.Controls[0];
-                _cardsPanel.Controls.RemoveAt(0);
-                ctrl.Dispose();
-            }
+            _lastAppliedCardWidth = -1;
             _lastAppliedControlCount = -1;
+            int count = _cardsPanel.Controls.Count;
+            if (count == 0)
+                return;
+
+            var snapshot = new Control[count];
+            _cardsPanel.Controls.CopyTo(snapshot, 0);
+            _cardsPanel.Controls.Clear();
+            for (int i = 0; i < snapshot.Length; i++)
+            {
+                snapshot[i]?.Dispose();
+            }
         }
 
-        private TableLayoutPanel CreateStyledCardContainer(int cardWidth, Color topStripeColor, SpreadsheetCellIssue? selectableItem = null)
+        private FastCardContainer CreateStyledCardContainer(int cardWidth, Color topStripeColor, SpreadsheetCellIssue? selectableItem = null)
         {
-            var card = new TableLayoutPanel
+            var card = new FastCardContainer
             {
                 Width = cardWidth,
+                MinimumSize = new Size(cardWidth, 0),
+                MaximumSize = new Size(cardWidth, 0),
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 1,
                 BackColor = Color.White,
                 Margin = new Padding(0, 0, 0, 8),
                 Padding = new Padding(12, 10, 12, 10)
             };
-            card.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
             card.Paint += (s, e) =>
             {
                 bool isSel = selectableItem != null && ReferenceEquals(selectableItem, _selectedItem);
@@ -1491,25 +1549,36 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private int MeasureSingleLineButtonHeight(Font font, int extraLogicalPad = 12) =>
             UiFontCache.MeasureSingleLineButtonHeight(this, font, extraLogicalPad);
 
+        public bool NeedsDpiRefresh() => UiFontCache.GetEffectiveDpi(this) != _lastAppliedEffectiveDpi;
+
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            ApplyDpiLayoutMetrics();
+            if (NeedsDpiRefresh())
+            {
+                ApplyDpiLayoutMetrics();
+                _lastAppliedCardWidth = -1;
+            }
             ReflowCardWidthsIfNeeded();
         }
 
         public void RefreshDpiMetricsAndLayout()
         {
-            ApplyDpiLayoutMetrics();
-            _lastAppliedCardWidth = -1;
+            if (NeedsDpiRefresh())
+            {
+                ApplyDpiLayoutMetrics();
+                _lastAppliedCardWidth = -1;
+            }
             ReflowCardWidthsIfNeeded();
-            PerformLayout();
         }
 
         protected override void OnDpiChangedAfterParent(EventArgs e)
         {
             base.OnDpiChangedAfterParent(e);
-            RefreshDpiMetricsAndLayout();
+            ApplyDpiLayoutMetrics();
+            _lastAppliedCardWidth = -1;
+            ReflowCardWidthsIfNeeded();
+            PerformLayout();
         }
 
         private void ApplyDpiLayoutMetrics()
