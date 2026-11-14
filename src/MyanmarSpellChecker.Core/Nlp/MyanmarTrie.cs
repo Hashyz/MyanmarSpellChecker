@@ -161,6 +161,42 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
+            public bool HasAnyChild() => _children != null;
+
+            public bool HasAnyDescendantOrSelfEntry()
+            {
+                if (Entries != null && Entries.Count > 0)
+                    return true;
+                return _children != null;
+            }
+
+            public bool HasAnyChildWithPrefix(string prefix, bool requireLonger)
+            {
+                object? ch = _children;
+                if (ch == null)
+                    return false;
+                if (ch is TrieNode single)
+                    return MatchesPrefix(single.EdgeSyllable, prefix, requireLonger) && single.HasAnyDescendantOrSelfEntry();
+                if (ch is TrieNode?[] arr)
+                {
+                    for (int i = 0; i < arr.Length; i++)
+                    {
+                        TrieNode? item = arr[i];
+                        if (item == null) break;
+                        if (MatchesPrefix(item.EdgeSyllable, prefix, requireLonger) && item.HasAnyDescendantOrSelfEntry())
+                            return true;
+                    }
+                    return false;
+                }
+                var dict = (Dictionary<string, TrieNode>)ch;
+                foreach (var kvp in dict)
+                {
+                    if (MatchesPrefix(kvp.Key, prefix, requireLonger) && kvp.Value.HasAnyDescendantOrSelfEntry())
+                        return true;
+                }
+                return false;
+            }
+
             private static bool MatchesPrefix(string key, string? prefix, bool requireLonger)
             {
                 if (prefix == null) return true;
@@ -687,6 +723,36 @@ namespace MyanmarSpellChecker.Core.Nlp
             {
                 Interlocked.Increment(ref _mutationVersion);
             }
+        }
+
+        /// <summary>
+        /// Zero-allocation check for whether <paramref name="tokens"/>[<paramref name="startIndex"/> .. <paramref name="startIndex"/> + <paramref name="count"/> - 1]
+        /// is a strict prefix of a longer dictionary headword (either mid-syllable character prefix on the last syllable, or exact syllable prefix with further child syllables).
+        /// Used to avoid false fuzzy repairs on CMS/excerpt ellipsis cuts (e.g. 'သွားရေ…' from 'သွားရောက်…', 'စပ်လျဉ်...' from 'စပ်လျဉ်း...').
+        /// </summary>
+        public bool HasStrictHeadwordPrefix(IReadOnlyList<SyllableToken> tokens, int startIndex, int count)
+        {
+            if (count <= 0 || startIndex < 0 || startIndex + count > tokens.Count)
+                return false;
+
+            TrieNode? cur = _root;
+            for (int i = 0; i < count - 1; i++)
+            {
+                if (!cur.TryGetChild(tokens[startIndex + i].NormalizedText, out cur) || cur == null)
+                    return false;
+            }
+
+            string lastSyl = tokens[startIndex + count - 1].NormalizedText;
+            if (string.IsNullOrEmpty(lastSyl))
+                return false;
+
+            if (cur.HasAnyChildWithPrefix(lastSyl, requireLonger: true))
+                return true;
+
+            if (cur.TryGetChild(lastSyl, out TrieNode? exactLast) && exactLast != null && exactLast.HasAnyChild())
+                return true;
+
+            return false;
         }
 
         private static void AddToSingleOrListIndex(

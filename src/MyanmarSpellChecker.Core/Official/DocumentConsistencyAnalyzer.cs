@@ -68,7 +68,13 @@ namespace MyanmarSpellChecker.Core.Official
             new VariantPairSpec("နံနက်ပိုင်း", "မနက်ပိုင်း", "အချိန်ပြအသုံးအနှုန်း (Morning)", "Time expression (Morning)", requireStrictLeftBoundary: true),
             new VariantPairSpec("နံနက်ခင်း", "မနက်ခင်း", "အချိန်ပြအသုံးအနှုန်း (Morning)", "Time expression (Morning)", requireStrictLeftBoundary: true),
             new VariantPairSpec("နံနက်စာ", "မနက်စာ", "အချိန်ပြအသုံးအနှုန်း (Breakfast)", "Time expression (Breakfast)", requireStrictLeftBoundary: true),
-            new VariantPairSpec("သို့မဟုတ်", "ဒါမှမဟုတ်", "သမ္ဗန္ဓပစ္စည်း ('သို့မဟုတ် / ဒါမှမဟုတ်')", "Conjunction consistency ('or')", requireStrictLeftBoundary: true)
+            new VariantPairSpec("သို့မဟုတ်", "ဒါမှမဟုတ်", "သမ္ဗန္ဓပစ္စည်း ('သို့မဟုတ် / ဒါမှမဟုတ်')", "Conjunction consistency ('or')", requireStrictLeftBoundary: true),
+            new VariantPairSpec("ဗန်ကောက်", "ဘန်ကောက်", "သံတမန်မြို့တော်စာလုံးပေါင်း (Bangkok)", "Diplomatic proper noun (Bangkok)", requireStrictLeftBoundary: true),
+            new VariantPairSpec("ဘရာဇီးလ်", "ဘရာဇီး", "သံတမန်နိုင်ငံစာလုံးပေါင်း (Brazil)", "Diplomatic proper noun (Brazil)", requireStrictLeftBoundary: true, forbiddenRightPrefixOnB: "လ်"),
+            new VariantPairSpec("ဆော်ပိုလိုမြို့", "ဆောင်ပိုလိုမြို့", "သံတမန်မြို့ကြီးစာလုံးပေါင်း (São Paulo)", "Diplomatic proper noun (São Paulo)", requireStrictLeftBoundary: true),
+            new VariantPairSpec("တူဗာပြည်နယ်", "တူဗားပြည်နယ်", "သံတမန်ဒေသစာလုံးပေါင်း (Tuva)", "Diplomatic proper noun (Tuva)", requireStrictLeftBoundary: true),
+            new VariantPairSpec("ကီးဇီးလ်မြို့", "ကီဇီးလ်မြို့", "သံတမန်မြို့တော်စာလုံးပေါင်း (Kyzyl)", "Diplomatic proper noun (Kyzyl)", requireStrictLeftBoundary: true),
+            new VariantPairSpec("အကြည်ညိုပျက်", "အကြည်အညိုပျက်", "ဥပဒေ/ရုံးသုံး အသုံးအနှုန်း ('အကြည်ညိုပျက်')", "Official/legal phrasing ('အကြည်ညိုပျက်')", requireStrictLeftBoundary: true)
         };
 
         private static readonly Regex PureBurmeseNumeralPhraseRegex = new Regex(

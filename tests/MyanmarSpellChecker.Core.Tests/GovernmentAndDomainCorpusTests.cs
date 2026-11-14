@@ -4891,5 +4891,115 @@ namespace MyanmarSpellChecker.Core.Tests
             string certText = DocumentQualityAnalyzer.BuildAuditReportDocumentText("ConsistencyTest.docx", qualityReport);
             Assert.Contains("အသုံးအနှုန်း ညီညွတ်မှု စိစစ်ချက်", certText);
         }
+
+        [Fact]
+        public void V43_MofaDiplomaticCorpusValidation_EndToEndRegression()
+        {
+            var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
+            var trie = repo.LoadIntoTrie(AntiTamperGuard.ReconstructProtectedFallbackKey());
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // 1. Calendar date + foreign name context immunity (must never turn '၄-၁၁-၂၀၂၆ ရက်တွင်' into 'ယက်', while real scratching/digging 'ကြက်ရက်၍' and 'ကျင်းကို ရက်၍' still flag)
+            Assert.Empty(formalEngine.CheckText("မြန်မာကောင်စစ်ဝန်ချုပ် မစ္စတာရှီကျန်းကျင်းနှင့် ၄-၁၁-၂၀၂၆ ရက်တွင် ကူမင်းမြို့ရှိ ယူနန်ပြည်နယ်အကောက်ခွန်ရုံး၌ တွေ့ဆုံသည်။"));
+            var scratchHit = Assert.Single(formalEngine.CheckText("ကြက်ရက်၍ အစာရှာသည်။"), i => i.OriginalText == "ကြက်ရက်");
+            Assert.Equal("ကြက်ယက်", scratchHit.Suggestions[0].Replacement);
+            var pitHit = Assert.Single(formalEngine.CheckText("ကျင်းကို ရက်၍ ရေတွင်းတူးဖော်သည်။"), i => i.OriginalText == "ရက်");
+            Assert.Equal("ယက်", pitHit.Suggestions[0].Replacement);
+
+            // 2. Long unspaced Burmese clause after foreign name ('ဦးဆောင်သည့်ကိုယ်စားလှယ်အဖွဲ့သည်') stays 100% clean without masking real downstream typos
+            Assert.Empty(formalEngine.CheckText("တရုတ်ကွန်မြူနစ်ပါတီ ဗဟိုကော်မတီဝင် မစ္စတာ လေဟွိုင်ချုံး ဦးဆောင်သည့်ကိုယ်စားလှယ်အဖွဲ့သည် ၂၆-၈-၂၀၂၆ ရက်တွင် ရောက်ရှိသည်။"));
+            const string typoSentenceAfterForeign = "မစ္စတာ လေဟွိုင်ချုံး ဦးဆောင်သည့်ကိုယ်စားလယ်အဖွဲ့သည် ရောက်ရှိသည်။";
+            var afterForeignTypo = formalEngine.CheckText(typoSentenceAfterForeign);
+            var singleAfterForeignIssue = Assert.Single(afterForeignTypo);
+            string repairedAfterForeign = typoSentenceAfterForeign
+                .Remove(singleAfterForeignIssue.StartIndex, singleAfterForeignIssue.Length)
+                .Insert(singleAfterForeignIssue.StartIndex, singleAfterForeignIssue.Suggestions[0].Replacement);
+            Assert.Equal("မစ္စတာ လေဟွိုင်ချုံး ဦးဆောင်သည့်ကိုယ်စားလှယ်အဖွဲ့သည် ရောက်ရှိသည်။", repairedAfterForeign);
+
+            // 3. Diplomatic honorifics, particle-homograph opening syllables, initials/hyphens, royal regnal names, pre-(ခ) aliases & ministerial foreign names
+            string[] cleanDiplomaticSentences =
+            {
+                "မြန်မာနိုင်ငံဆိုင်ရာ ထိုင်းသံအမတ်ကြီး မစ္စတာ သော် ဆရလမ် အား လက်ခံတွေ့ဆုံသည်။",
+                "ကာတာသံရုံးယာယီတာဝန်ခံ မစ္စတာ အဗ္ဗဒူလာဇစ်ယူစွတ်အေ.ဂျေ.အယ်လ် - အလီတို့ကို နေပြည်တော်၌ လက်ခံတွေ့ဆုံသည်။",
+                "ဖိလစ်ပိုင်နိုင်ငံခြားရေးဝန်ကြီး မစ္စ မာရီယာထရက်ဆာ ပရဲညိုလာဇရို ဦးဆောင်သည့် ကိုယ်စားလှယ်အဖွဲ့ ရောက်ရှိသည်။",
+                "မစ္စတာ မာဇီယဒ်မိုဟာမက် မာဇီယဒ်အယ်လ်ဟိုဝီရှန်နှင့် တွေ့ဆုံဆွေးနွေးသည်။",
+                "ဘရူနိုင်းဒါရူဆလမ်နိုင်ငံ အီစတာနာနန်းတော်၌ ဘုရင်မင်းမြတ် ဆူလ်တန် ဟာဂျီဟာဆာနာလ် ဘိုလ်ကီးယား မူအစ် ဇာဒင် ဝါဒိုလာ အဗ်နီ အယ်လ်မာဟွန် ဆူလ်တန် ဟာဂျီအိုမာအလီ ဆိုင်ဖူဒင် ဆအာဒူလ် ခိုင်ရီ ဝါဒင် ထံသို့ သဝဏ်လွှာ ပေးအပ်ခဲ့ပြီးဖြစ်သည်။",
+                "ဒေါ်အောင်ဆန်းစုကြည်နှင့် သားဖြစ်သူ ကင်မ်အဲရစ် (ခ) ကိုထိန်လင်းတို့ လန်ဒန်မြို့၌ နေထိုင်ခဲ့သည်။",
+                "ပြည်နယ် ဆေးဝါးနှင့်ကျန်းမာရေးဝန်ကြီး ဂါဂျန်ဒရာဆင်းနှင့် ပြည်နယ်အစိုးရအဖွဲ့မှ တာဝန်ရှိသူများ တက်ရောက်သည်။",
+                "ထိုင်းနိုင်ငံ၊ နွန်ထဘူရီခရိုင်၊ ဘန်းယိုင်မြို့ရှိ ဝပ်ရာ့တ်ပရခေါထမ်ကျောင်း၌ ကထိန်သင်္ကန်း ဆက်ကပ်လှူဒါန်းသည်။",
+                "ဆော်ဒီအာရေဗျနိုင်ငံ၊ ရီယာဒ်မြို့ရှိ မြန်မာသံရုံးနှင့် တရုတ်နိုင်ငံ ကွမ်ရှီးဒေသ လျိုကျိုးမြို့၊ ဘရာဇီးလ်ဖက်ဒရယ်သမ္မတနိုင်ငံ ဆောင်ပိုလိုမြို့၊ ရုရှားဖက်ဒရေးရှင်းနိုင်ငံ တူဗာပြည်နယ် ကီးဇီးလ်မြို့တို့၌ အခမ်းအနား ကျင်းပသည်။",
+                "ချဉ်းကပ်နည်းများကို အစီအစဉ်တကျရေးဆွဲခဲ့ပြီး နိုင်ငံတော်အစိုးရအား အကြည်အညိုပျက်စေရန် မပြုလုပ်ရပါ။"
+            };
+            foreach (string s in cleanDiplomaticSentences)
+            {
+                var issues = formalEngine.CheckText(s);
+                Assert.True(issues.Count == 0, $"Expected 0 issues for MOFA diplomatic sentence '{s}', got: {string.Join(", ", issues.Select(x => x.OriginalText + "->" + x.Suggestions.FirstOrDefault()?.Replacement))}");
+            }
+
+            // 4. CMS ellipsis & UTF-8 byte-truncation excerpts stay clean, while real non-prefix typos before ellipsis still fire!
+            string[] cleanTruncatedExcerpts =
+            {
+                "ဩစတြီးယား-မြန်မာ လူမှုအဖွဲ့အစည်း(Austrian-Myanmar…",
+                "ဟန်ယန်ခန်းမ၌ ကျင်းပသည့် “၂၀၂၆ ခုနှစ်…",
+                "ကုန်စည်ပြပွဲ China-ASEAN Expo အားသွားရေ…",
+                "ဖွင့်လှစ်ရခြင်း ရည်ရွယ်ချက်များ နှင့် စပ်လျဉ်...",
+                "စားသောက်ကုန်အဖွဲ့အစည်းများမှ တာဝန်ရှိသ\uFFFD..."
+            };
+            foreach (string ex in cleanTruncatedExcerpts)
+            {
+                var exIssues = formalEngine.CheckText(ex);
+                Assert.True(exIssues.Count == 0, $"Expected 0 issues for truncated MOFA excerpt '{ex}', got: {string.Join(", ", exIssues.Select(x => x.OriginalText))}");
+            }
+
+            var hanoiEllipsis = formalEngine.CheckText("ဗီယက်နမ်နိုင်ငံ ဟနွိင်းမြို့…");
+            var hanoiHit = Assert.Single(hanoiEllipsis, i => i.OriginalText == "ဟနွိင်းမြို့");
+            Assert.Equal("ဟနွိုင်းမြို့", hanoiHit.Suggestions[0].Replacement);
+            Assert.True(hanoiHit.IsHighCertaintyPrecheck);
+
+            var lawlawEllipsis = formalEngine.CheckText("အခု လောလောဆည်…");
+            Assert.Contains(lawlawEllipsis, i => i.OriginalText == "လောလောဆည်" && i.Suggestions[0].Replacement == "လောလောဆယ်" && i.IsHighCertaintyPrecheck);
+
+            // 5. Authentic mofa.gov.mm clerical errors caught with High-Certainty Precheck (☑)
+            (string Input, string ExpectedTop)[] trueMofaCatches =
+            {
+                ("ဖနောင်ပင်မြို့ရှိ မြန်မာသံရုံးသို့ သွားရောက်သည်။", "ဖနွမ်းပင်မြို့"),
+                ("ဗီယက်နမ်ဆိုရှယ်လစ်သမ္မတနိုင်ငံ ဟနွိင်းမြို့၌ တွေ့ဆုံသည်။", "ဟနွိုင်းမြို့"),
+                ("နိုင်ငံသားစိစစ်ရေးကဒ်ပြားမူရင်း တင်ပြရမည်။", "ကတ်ပြား"),
+                ("၂၀၂၆ ခုနှစ် နိုင်ဝင်ဘာလ ၆ ရက်တွင် ကျင်းပသည်။", "နိုဝင်ဘာလ"),
+                ("ပြည်ထာင်စုသမ္မတမြန်မာနိုင်ငံတော်၊ နိုင်ငံတော်သမ္မတ ရောက်ရှိသည်။", "ပြည်ထောင်စု"),
+                ("ရုရှားဖက်ဒရေးရှင်နိုင်ငံသို့ တရားဝင်ခရီးစဉ် ရောက်ရှိသည်။", "ဖက်ဒရေးရှင်း"),
+                ("ထိုင်းနိုင်ငံ ဗန်ကောက်မြိုရှိ မြန်မာသံရုံး၌ တွေ့ဆုံသည်။", "ဗန်ကောက်မြို့"),
+                ("ဘယ်လာရုစ်သမ္မတနိုင်ငံ မင့်စ်မြိုရှိ ခန်းမ၌ ကျင်းပသည်။", "မင့်စ်မြို့"),
+                ("မြန်မာနိုင်ငံ၌ မုတ်သုန်ရာသီကာလတွင် မိုးရွာသွန်းသည်။", "မုတ်သုံ"),
+                ("မြန်မာသံအမတ်ကြီး ဉီးတင်ယု ခန့်အပ်လွှာ ပေးအပ်သည်။", "ဦးတင်"),
+                ("ထိုင်းနိုင်ငံ၀န်ကြီးချုပ်ကိုယ်တိုင် နှုတ်ဆက်သည်။", "ဝန်ကြီးချုပ်"),
+                ("လိုင်စင်ဓါတ်ပုံ ၃ ပုံ လိုအပ်ပါသည်။", "လိုင်စင်ဓာတ်ပုံ"),
+                ("လူ့အခွင့် အရေးကောင်စီ အစည်းအဝေးသို့ တက်ရောက်သည်။", "အခွင့်အရေး"),
+                ("မြန်မာသံရုံး၊ စစ်သရုံးမှ သံအမတ်ကြီး တက်ရောက်သည်။", "စစ်သံရုံး")
+            };
+            foreach (var (input, expectedTop) in trueMofaCatches)
+            {
+                var found = formalEngine.CheckText(input);
+                Assert.Contains(found, i =>
+                    i.Suggestions.Count > 0 &&
+                    UnicodeNormalizer.NormalizeCanonicalOrder(i.Suggestions[0].Replacement) == UnicodeNormalizer.NormalizeCanonicalOrder(expectedTop) &&
+                    i.IsHighCertaintyPrecheck);
+            }
+
+            // 6. Cross-paragraph diplomatic proper-noun consistency ('ဘန်ကောက်မြို့' vs 'ဗန်ကောက်မြို့')
+            string[] diplomaticParas =
+            {
+                "ထိုင်းနိုင်ငံ၊ ဘန်ကောက်မြို့ရှိ မြန်မာသံရုံး၌ အစည်းအဝေး ကျင်းပသည်။",
+                "ဘန်ကောက်မြို့သို့ ရောက်ရှိလာသည့် ကိုယ်စားလှယ်အဖွဲ့အား ကြိုဆိုသည်။",
+                "ထို့နောက် ဗန်ကောက်မြို့ရှိ အပြည်ပြည်ဆိုင်ရာလေဆိပ်မှ ပြန်လည်ထွက်ခွာသည်။"
+            };
+            var dipIssues = diplomaticParas.Select(p => formalEngine.CheckText(p)).ToList();
+            DocumentConsistencyAnalyzer.ReconcileAndAnalyzeWordParagraphs(diplomaticParas, dipIssues, ProofingStyleMode.FormalOfficial, trie);
+            Assert.Contains(dipIssues[2], i =>
+                i.OriginalText == "ဗန်ကောက်" &&
+                i.Suggestions[0].Replacement == "ဘန်ကောက်" &&
+                i.IssueType == ProofingIssueType.ContextualMeaningWarning &&
+                i.RequiresReviewBeforeBatchFix);
+        }
     }
 }

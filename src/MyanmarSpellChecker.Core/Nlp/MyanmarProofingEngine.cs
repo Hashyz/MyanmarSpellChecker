@@ -142,7 +142,8 @@ namespace MyanmarSpellChecker.Core.Nlp
             "ဗိုလ်ချုပ်", "ဒုတိယဗိုလ်ချုပ်ကြီး", "ဗိုလ်ချုပ်ကြီး", "ဒုတိယဗိုလ်ချုပ်မှူးကြီး", "ဗိုလ်ချုပ်မှူးကြီး",
             "အသျှင်", "သျှင်", "အရှင်", "ဘဒ္ဒန္တ", "သခင်", "သူရ", "သီဟသူရ", "စည်သူ", "သီရိပျံချီ", "ဝဏ္ဏကျော်ထင်", "ဇေယျာကျော်ထင်",
             "စိုင်း", "နန်း", "ခွန်", "စဝ်", "ဆလိုင်း", "ဒူဝါ",
-            "မစ္စတာ", "မစ္စက်", "မစ္စစ်", "မစ္စ", "ကာဒီနယ်", "ရှရီမတီ", "ရှရီ", "ဘုရင်မင်းမြတ်"
+            "မစ္စတာ", "မစ္စက်", "မစ္စစ်", "မစ္စ", "မဒမ်", "ဒါတို", "ဒါတွတ်", "ဆမ်ဒက်ချ်",
+            "ကာဒီနယ်", "ရှရီမတီ", "ရှရီ", "ဘုရင်မင်းမြတ်", "အရှင်မင်းမြတ်", "ဆူလ်တန်", "အိမ်ရှေ့မင်းသား"
         );
 
         // Canonical Burmese personal-name syllables used to protect unprefixed 3-syllable author/byline personal names (e.g. 'ကျော်လွင်ဦး(မိုးဇလ)', 'သင်းသင်းနွယ်')
@@ -1067,7 +1068,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
                     // 4. Post-Viterbi Data-Driven ContextualRules & Bigram Real-Word Homophone Disambiguation
                     //    (Runs strictly on clean words after Viterbi compound repair so broken syllables inside typos are never hijacked)
-                    var postCtxIssues = _contextDisambiguator.AnalyzePostViterbiContextAndBigrams(nlpText, _trie, nlpIssues, tokens, ws.LongestMatchLengths);
+                    var postCtxIssues = _contextDisambiguator.AnalyzePostViterbiContextAndBigrams(nlpText, _trie, nlpIssues, tokens, ws.LongestMatchLengths, personNameProtected);
                     for (int pIdx = 0; pIdx < postCtxIssues.Count; pIdx++)
                     {
                         var postCtxIssue = postCtxIssues[pIdx];
@@ -1471,36 +1472,78 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
+            int chunkLen = chunkEnd - nextTokIdx;
+            if (chunkLen >= 2 && chunkLen <= 6 && HasEstablishedNonProperEntry(ConcatNormalizedTokens(tokens, nextTokIdx, chunkLen)))
+                return true;
+
             int stemLen = stemEnd - nextTokIdx;
-            if (stemLen >= 2 && stemLen <= 6)
+            if (stemLen >= 2 && stemLen <= 6 && HasEstablishedNonProperEntry(ConcatNormalizedTokens(tokens, nextTokIdx, stemLen)))
+                return true;
+
+            // Long unspaced Burmese clause after a foreign name (e.g. 'ဦးဆောင်သည့်ကိုယ်စားလှယ်အဖွဲ့သည်'):
+            // check if a 2..4-syllable Official/established word opens the chunk and is immediately followed by a particle/verbal follower or another established multi-syllable word.
+            if (StartsWithEstablishedCompoundAndFollower(tokens, nextTokIdx, chunkEnd))
+                return true;
+
+            // Also handle a single case particle glued onto the front of an established multi-syllable Burmese verb/noun (e.g. 'ကပြောကြားသည်', 'ကဦးဆောင်သည့်ကိုယ်စားလှယ်အဖွဲ့')
+            if (ForeignNameTerminatingCaseParticles.Contains(firstNorm))
             {
-                string stemNorm = ConcatNormalizedTokens(tokens, nextTokIdx, stemLen);
-                if (_trie.TryGetExactEntries(stemNorm, out var entries) && entries != null)
+                int afterPartLen = stemEnd - (nextTokIdx + 1);
+                if (afterPartLen >= 2 && afterPartLen <= 6 &&
+                    HasEstablishedNonProperEntry(ConcatNormalizedTokens(tokens, nextTokIdx + 1, afterPartLen)))
                 {
-                    for (int eIdx = 0; eIdx < entries.Count; eIdx++)
-                    {
-                        var e = entries[eIdx];
-                        if (!e.IsProperNoun && (e.IsOfficialThatpon || e.Frequency >= 15))
-                            return true;
-                    }
+                    return true;
                 }
+
+                if (StartsWithEstablishedCompoundAndFollower(tokens, nextTokIdx + 1, chunkEnd))
+                    return true;
             }
 
-            // Also handle a single case particle glued onto the front of an established multi-syllable Burmese verb/noun (e.g. 'ကပြောကြားသည်')
-            if (ForeignNameTerminatingCaseParticles.Contains(firstNorm) && stemEnd - (nextTokIdx + 1) >= 2 && stemEnd - (nextTokIdx + 1) <= 6)
+            return false;
+        }
+
+        private bool HasEstablishedNonProperEntry(string normSpan)
+        {
+            if (_trie.TryGetExactEntries(normSpan, out var entries) && entries != null)
             {
-                string afterPartNorm = ConcatNormalizedTokens(tokens, nextTokIdx + 1, stemEnd - (nextTokIdx + 1));
-                if (_trie.TryGetExactEntries(afterPartNorm, out var pEntries) && pEntries != null)
+                for (int eIdx = 0; eIdx < entries.Count; eIdx++)
                 {
-                    for (int eIdx = 0; eIdx < pEntries.Count; eIdx++)
-                    {
-                        var e = pEntries[eIdx];
-                        if (!e.IsProperNoun && (e.IsOfficialThatpon || e.Frequency >= 15))
-                            return true;
-                    }
+                    var e = entries[eIdx];
+                    if (!e.IsProperNoun && (e.IsOfficialThatpon || e.Frequency >= 15))
+                        return true;
                 }
             }
+            return false;
+        }
 
+        private bool StartsWithEstablishedCompoundAndFollower(List<SyllableToken> tokens, int startIdx, int chunkEnd)
+        {
+            int rem = chunkEnd - startIdx;
+            if (rem < 3)
+                return false;
+
+            int maxPref = Math.Min(4, rem - 1);
+            for (int pLen = maxPref; pLen >= 2; pLen--)
+            {
+                if (!HasEstablishedNonProperEntry(ConcatNormalizedTokens(tokens, startIdx, pLen)))
+                    continue;
+
+                int nextPos = startIdx + pLen;
+                string nextSyl = tokens[nextPos].NormalizedText;
+                if (GrammaticalParticles.Contains(nextSyl) ||
+                    ColloquialParticles.Contains(nextSyl) ||
+                    VerbalContextFollowers.Contains(nextSyl))
+                {
+                    return true;
+                }
+
+                int maxNextWord = Math.Min(4, chunkEnd - nextPos);
+                for (int nLen = maxNextWord; nLen >= 2; nLen--)
+                {
+                    if (HasEstablishedNonProperEntry(ConcatNormalizedTokens(tokens, nextPos, nLen)))
+                        return true;
+                }
+            }
             return false;
         }
 
@@ -1526,16 +1569,66 @@ namespace MyanmarSpellChecker.Core.Nlp
                 SyllableToken tok = tokens[i];
                 if (tok.Kind != TokenKind.MyanmarSyllable)
                 {
-                    // Burmese personal-name alias marker '(ခ)' ("alias / aka", e.g. 'ဦးတင်မိုးအောင် (ခ) နေရှိုင်း၏')
+                    // Burmese personal-name alias marker '(ခ)' ("alias / aka", e.g. 'ဦးတင်မိုးအောင် (ခ) နေရှိုင်း၏', 'သားဖြစ်သူ ကင်မ်အဲရစ် (ခ) ကိုထိန်လင်း')
                     if (tok.Text == "(" && i + 2 < tokCount &&
                         tokens[i + 1].NormalizedText == "ခ" &&
                         tokens[i + 2].Text == ")")
                     {
-                        grace = 4;
+                        int preEnd = i;
+                        while (preEnd > 0 && tokens[preEnd - 1].Kind == TokenKind.Whitespace)
+                            preEnd--;
+
+                        int preStart = preEnd;
+                        while (preStart > 0 && preEnd - preStart < 6)
+                        {
+                            int prevIdx = preStart - 1;
+                            if (tokens[prevIdx].Kind != TokenKind.MyanmarSyllable)
+                                break;
+                            if (preStart < preEnd && tokens[prevIdx].StartIndex + tokens[prevIdx].Length != tokens[preStart].StartIndex)
+                                break;
+                            string ps = tokens[prevIdx].NormalizedText;
+                            if (GrammaticalParticles.Contains(ps) || ColloquialParticles.Contains(ps) ||
+                                UnicodeNormalizer.HasLookalikeError(tokens[prevIdx].Text, out _, out _))
+                            {
+                                break;
+                            }
+                            preStart = prevIdx;
+                        }
+
+                        if (preStart < preEnd)
+                        {
+                            bool preHasWrongRule = false;
+                            for (int a = preStart; a < preEnd && !preHasWrongRule; a++)
+                            {
+                                for (int b = a + 1; b <= preEnd; b++)
+                                {
+                                    if (_trie.TryGetWrongFormRule(GetTokenSpan(fullText, tokens, a, b - a).NormalizedText, out _))
+                                    {
+                                        preHasWrongRule = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!preHasWrongRule)
+                            {
+                                for (int k = preStart; k < preEnd; k++)
+                                    mask[k] = true;
+                            }
+                        }
+
+                        grace = 5;
                         awaitingNameStartAfterHonorific = true;
                         inForeignName = false;
                         foreignNameSpacesLeft = 0;
                         i += 3;
+                        continue;
+                    }
+
+                    // Preserve foreign-name continuation across initials/hyphens/apostrophes (e.g. 'မစ္စတာ အဗ္ဗဒူလာဇစ်ယူစွတ်အေ.ဂျေ.အယ်လ် - အလီတို့ကို')
+                    if (inForeignName && grace > 0 &&
+                        (tok.Text == "." || tok.Text == "-" || tok.Text == "–" || tok.Text == "—" || tok.Text == "'" || tok.Text == "\u2019"))
+                    {
+                        i++;
                         continue;
                     }
 
@@ -1569,7 +1662,12 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
 
                 bool shouldTerminateOnParticle;
-                if (inForeignName)
+                if (awaitingNameStartAfterHonorific)
+                {
+                    // Never terminate before the very first syllable of a personal name (e.g. 'မစ္စတာ သော် ဆရလမ်', 'ဦးသာအောင်')
+                    shouldTerminateOnParticle = false;
+                }
+                else if (inForeignName)
                 {
                     bool hasContiguousNextSyl =
                         i + 1 < tokCount &&
@@ -1695,20 +1793,28 @@ namespace MyanmarSpellChecker.Core.Nlp
                             if (!UnicodeNormalizer.HasLookalikeError(tokens[i + k].Text, out _, out _))
                                 mask[i + k] = true;
                         }
-                        bool isRoyalForeignTitle = matchedHonorificNorm == "ဘုရင်မင်းမြတ်";
+                        bool isRoyalForeignTitle =
+                            matchedHonorificNorm == "ဘုရင်မင်းမြတ်" ||
+                            matchedHonorificNorm == "အရှင်မင်းမြတ်" ||
+                            matchedHonorificNorm == "ဆူလ်တန်" ||
+                            matchedHonorificNorm == "အိမ်ရှေ့မင်းသား";
                         bool isForeignTitle =
                             isRoyalForeignTitle ||
                             matchedHonorificNorm == "မစ္စတာ" ||
                             matchedHonorificNorm == "မစ္စက်" ||
                             matchedHonorificNorm == "မစ္စစ်" ||
                             matchedHonorificNorm == "မစ္စ" ||
+                            matchedHonorificNorm == "မဒမ်" ||
+                            matchedHonorificNorm == "ဒါတို" ||
+                            matchedHonorificNorm == "ဒါတွတ်" ||
+                            matchedHonorificNorm == "ဆမ်ဒက်ချ်" ||
                             matchedHonorificNorm == "ကာဒီနယ်" ||
                             matchedHonorificNorm == "ရှရီမတီ" ||
                             matchedHonorificNorm == "ရှရီ";
-                        grace = isRoyalForeignTitle ? 14 : (isForeignTitle ? 8 : 5);
+                        grace = isRoyalForeignTitle ? 36 : (isForeignTitle ? 18 : 5);
                         awaitingNameStartAfterHonorific = true;
                         inForeignName = isForeignTitle;
-                        foreignNameSpacesLeft = isRoyalForeignTitle ? 5 : (isForeignTitle ? 2 : 0);
+                        foreignNameSpacesLeft = isRoyalForeignTitle ? 16 : (isForeignTitle ? 5 : 0);
                         i += matchedHonorificLen;
                         continue;
                     }
@@ -1842,6 +1948,163 @@ namespace MyanmarSpellChecker.Core.Nlp
                         for (int k = nameStart; k < nameEnd; k++)
                             mask[k] = true;
                     }
+                }
+            }
+
+            // Protect Thai/Lao/Cambodian Buddhist Wat monastery names ('ဝပ်' + [2..8 contiguous transliterated syllables] + 'ကျောင်း', e.g. 'ဝပ်ရာ့တ်ပရခေါထမ်ကျောင်း')
+            for (int w = 0; w + 3 < tokCount; w++)
+            {
+                if (tokens[w].Kind != TokenKind.MyanmarSyllable || tokens[w].NormalizedText != "ဝပ်")
+                    continue;
+                if (w > 0 && tokens[w - 1].Kind == TokenKind.MyanmarSyllable &&
+                    tokens[w - 1].StartIndex + tokens[w - 1].Length == tokens[w].StartIndex)
+                {
+                    continue;
+                }
+
+                int cur = w + 1;
+                int kyaungIdx = -1;
+                while (cur < tokCount && cur - (w + 1) <= 8 &&
+                       tokens[cur].Kind == TokenKind.MyanmarSyllable &&
+                       tokens[cur - 1].StartIndex + tokens[cur - 1].Length == tokens[cur].StartIndex)
+                {
+                    if (tokens[cur].NormalizedText == "ကျောင်း" && cur - (w + 1) >= 2)
+                    {
+                        kyaungIdx = cur;
+                        break;
+                    }
+                    cur++;
+                }
+
+                if (kyaungIdx > w + 2)
+                {
+                    bool watClean = true;
+                    for (int a = w; a < kyaungIdx && watClean; a++)
+                    {
+                        if (UnicodeNormalizer.HasLookalikeError(tokens[a].Text, out _, out _))
+                        {
+                            watClean = false;
+                            break;
+                        }
+                        for (int b = a + 1; b <= kyaungIdx; b++)
+                        {
+                            if (_trie.TryGetWrongFormRule(GetTokenSpan(fullText, tokens, a, b - a).NormalizedText, out _))
+                            {
+                                watClean = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (watClean)
+                    {
+                        for (int k = w; k < kyaungIdx; k++)
+                            mask[k] = true;
+                    }
+                }
+            }
+
+            // Protect unprefixed foreign personal names immediately following ministerial/diplomatic office titles
+            // (e.g. 'ဆေးဝါးနှင့်ကျန်းမာရေးဝန်ကြီး ဂါဂျန်ဒရာဆင်းနှင့်', 'နိုင်ငံခြားရေးဝန်ကြီး မာကိုရူဘီယိုအား')
+            for (int t = 1; t + 2 < tokCount; t++)
+            {
+                if (tokens[t].Kind != TokenKind.Whitespace)
+                    continue;
+
+                bool precededByDiplomaticOffice = false;
+                if (tokens[t - 1].Kind == TokenKind.MyanmarSyllable &&
+                    !UnicodeNormalizer.HasLookalikeError(tokens[t - 1].Text, out _, out _))
+                {
+                    string prev1 = tokens[t - 1].NormalizedText;
+                    string prev2 = t >= 2 && tokens[t - 2].Kind == TokenKind.MyanmarSyllable ? tokens[t - 2].NormalizedText : string.Empty;
+                    string prev3 = t >= 3 && tokens[t - 3].Kind == TokenKind.MyanmarSyllable ? tokens[t - 3].NormalizedText : string.Empty;
+
+                    if ((prev2 == "ဝန်" && prev1 == "ကြီး") ||
+                        (prev3 == "ဝန်" && prev2 == "ကြီး" && prev1 == "ချုပ်") ||
+                        (prev3 == "အ" && prev2 == "မတ်" && prev1 == "ကြီး") ||
+                        (prev3 == "စစ်" && prev2 == "ဝန်" && prev1 == "ချုပ်") ||
+                        ((prev2 == "သမ္မ" || prev2 == "မ္မ") && prev1 == "တ"))
+                    {
+                        precededByDiplomaticOffice = true;
+                    }
+                }
+                if (!precededByDiplomaticOffice)
+                    continue;
+
+                int nStart = t + 1;
+                while (nStart < tokCount && tokens[nStart].Kind == TokenKind.Whitespace)
+                    nStart++;
+
+                if (nStart >= tokCount || tokens[nStart].Kind != TokenKind.MyanmarSyllable ||
+                    HonorificFirstSyllables.Contains(tokens[nStart].NormalizedText))
+                {
+                    continue;
+                }
+
+                int nChunkEnd = nStart + 1;
+                while (nChunkEnd < tokCount &&
+                       tokens[nChunkEnd].Kind == TokenKind.MyanmarSyllable &&
+                       tokens[nChunkEnd - 1].StartIndex + tokens[nChunkEnd - 1].Length == tokens[nChunkEnd].StartIndex)
+                {
+                    nChunkEnd++;
+                }
+
+                int nNameEnd = nChunkEnd;
+                while (nNameEnd > nStart + 2 &&
+                       ForeignNameTerminatingCaseParticles.Contains(tokens[nNameEnd - 1].NormalizedText))
+                {
+                    nNameEnd--;
+                }
+
+                bool hasCaseAnchor = nNameEnd < nChunkEnd;
+                if (!hasCaseAnchor)
+                {
+                    int afterChunk = nChunkEnd;
+                    while (afterChunk < tokCount && tokens[afterChunk].Kind == TokenKind.Whitespace)
+                        afterChunk++;
+                    if (afterChunk < tokCount && tokens[afterChunk].Kind == TokenKind.MyanmarSyllable &&
+                        ForeignNameTerminatingCaseParticles.Contains(tokens[afterChunk].NormalizedText))
+                    {
+                        hasCaseAnchor = true;
+                    }
+                }
+
+                int nameLen = nNameEnd - nStart;
+                if (!hasCaseAnchor || nameLen < 3 || nameLen > 8)
+                    continue;
+
+                bool hasForeignNonStandaloneSyl = false;
+                bool cleanForeignSpan = true;
+                for (int a = nStart; a < nChunkEnd && cleanForeignSpan; a++)
+                {
+                    if (UnicodeNormalizer.HasLookalikeError(tokens[a].Text, out _, out _))
+                    {
+                        cleanForeignSpan = false;
+                        break;
+                    }
+                    if (a < nNameEnd && !_trie.IsStandaloneWord(tokens[a].NormalizedText))
+                        hasForeignNonStandaloneSyl = true;
+
+                    for (int b = a + 1; b <= nChunkEnd; b++)
+                    {
+                        string subNorm = GetTokenSpan(fullText, tokens, a, b - a).NormalizedText;
+                        if (_trie.TryGetWrongFormRule(subNorm, out _))
+                        {
+                            cleanForeignSpan = false;
+                            break;
+                        }
+                        if (b <= nNameEnd && b - a >= 2 && HasEstablishedNonProperEntry(subNorm))
+                        {
+                            cleanForeignSpan = false;
+                            break;
+                        }
+                    }
+                }
+
+                if (cleanForeignSpan && hasForeignNonStandaloneSyl)
+                {
+                    for (int k = nStart; k < nNameEnd; k++)
+                        mask[k] = true;
                 }
             }
 
@@ -2251,6 +2514,23 @@ namespace MyanmarSpellChecker.Core.Nlp
                     }
 
                     var span = GetTokenSpan(fullText, tokens, tokIdx, len);
+                    // CMS ellipsis / UTF-8 byte-cut truncation guard: if the chunk ends immediately before '…', '...', or '\uFFFD'
+                    // AND CorrectForm is a strict codepoint extension of the truncated span (e.g. 'စပ်လျဉ်...' chopped from 'စပ်လျဉ်း၍...'),
+                    // emit a Clean edge rather than flagging a mid-syllable truncation. (Non-prefix rules like 'လောလောဆည်…' still fire!)
+                    if (tokIdx + len == runEnd &&
+                        IsFollowedImmediatelyByTruncationMarker(fullText, tokens[tokIdx + len - 1], out bool isRuleByteCut))
+                    {
+                        string canonTarget = UnicodeNormalizer.NormalizeCanonicalOrder(wrongRule.CorrectForm);
+                        if (isRuleByteCut ||
+                            (canonTarget.Length > span.NormalizedText.Length &&
+                             canonTarget.StartsWith(span.NormalizedText, StringComparison.Ordinal)))
+                        {
+                            exactCleanMask |= 1u << len;
+                            edgesOut.Add(LatticeEdge.Clean(len, 0.88));
+                            continue;
+                        }
+                    }
+
                     var capturedSpan = span;
                     var capturedRule = wrongRule;
                     edgesOut.Add(LatticeEdge.DeferredIssue(
@@ -2992,6 +3272,13 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return true;
             }
 
+            // 23. Productive adverbial suffix '[Exact >=2-syl Noun] + တကျ' ("in an orderly / systematic manner", e.g. 'အစီအစဉ်တကျရေးဆွဲ', 'စည်းကမ်းတကျ', 'နေရာတကျ' != 'တိကျ')
+            if (windowLen == 2 && firstSyl == "တ" && lastSyl == "ကျ" && localOffset >= 2 &&
+                IsEndOfExactMultiWordMinLen(exactMultiWordBits, localOffset - 1, 2))
+            {
+                return true;
+            }
+
             return false;
         }
 
@@ -3338,8 +3625,40 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return LatticeEdge.Clean(1, 1.48);
             }
 
+            // Mid-word / mid-codepoint CMS ellipsis or byte-cut truncation (e.g. 'တာဝန်ရှိသ\uFFFD...', 'သ…')
+            if (tokIdx + 1 == runEnd &&
+                IsFollowedImmediatelyByTruncationMarker(fullText, token, out bool isUtf8ByteCut1) &&
+                !_trie.TryGetWrongFormRule(normSyl, out _) &&
+                (isUtf8ByteCut1 || _trie.HasStrictHeadwordPrefix(tokens, tokIdx, 1)))
+            {
+                return LatticeEdge.Clean(1, 1.35);
+            }
+
             // Unrecognized single syllable -> defer expensive GetSuggestions unless this L=1 edge actually wins Viterbi!
             return LatticeEdge.UnrecognizedSingleSyllable(tokIdx, rawSyl, 2.65);
+        }
+
+        private static bool IsFollowedImmediatelyByTruncationMarker(string fullText, SyllableToken endTok, out bool isUtf8ByteCut)
+        {
+            isUtf8ByteCut = false;
+            int end = endTok.StartIndex + endTok.Length;
+            if (end >= fullText.Length)
+                return false;
+
+            char ch = fullText[end];
+            if (ch == '\uFFFD')
+            {
+                isUtf8ByteCut = true;
+                return true;
+            }
+
+            if (ch == '\u2026')
+                return true;
+
+            if (ch == '.' && end + 1 < fullText.Length && fullText[end + 1] == '.')
+                return true;
+
+            return false;
         }
 
         private ProofingIssue BuildUnrecognizedSingleSyllableIssue(SyllableToken token)
@@ -3452,6 +3771,20 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             if (isPaliVerseRun)
                 return null;
+
+            // Mid-syllable / mid-word CMS ellipsis or UTF-8 byte-cut truncation at the end of a clause chunk
+            // (e.g. 'China-ASEAN Expo အားသွားရေ…' cut from 'သွားရောက်…', 'စပ်လျဉ်...' cut from 'စပ်လျဉ်း...', 'တာဝန်ရှိသ\uFFFD...' cut from 'တာဝန်ရှိသူ...')
+            // Keeps catching real WrongFormRules ('လောလောဆည်…') and non-prefix typos ('ပျော်ရွင်…')!
+            if (startIndex + windowLen == runEnd &&
+                IsFollowedImmediatelyByTruncationMarker(fullText, lastWinTok, out bool isUtf8ByteCut))
+            {
+                string truncNorm = ConcatNormalizedTokens(tokens, startIndex, windowLen);
+                if (!_trie.TryGetWrongFormRule(truncNorm, out _) &&
+                    (isUtf8ByteCut || _trie.HasStrictHeadwordPrefix(tokens, startIndex, windowLen)))
+                {
+                    return LatticeEdge.Clean(windowLen, 0.88);
+                }
+            }
 
             string firstSyl = tokens[startIndex].NormalizedText;
             string lastSyl = lastWinTok.NormalizedText;
@@ -4294,6 +4627,18 @@ namespace MyanmarSpellChecker.Core.Nlp
                         }
                     }
                 }
+            }
+
+            // Double-'အ' Prefix Slicing Guard: never suggest an 'အ...'-prefixed replacement on a sub-window immediately preceded by 'အ'
+            // (prevents slicing '[အ] + [ကြည်အညိုပျက် -> အကြည်ညိုပျက်]' into corrupted 'အအကြည်ညိုပျက်'!)
+            if (startIndex > runStart &&
+                firstSyl != "အ" &&
+                tokens[startIndex - 1].NormalizedText == "အ")
+            {
+                if (bestStrict != null && bestStrict.Word.StartsWith("အ", StringComparison.Ordinal))
+                    bestStrict = null;
+                if (bestFuzzy != null && bestFuzzy.Word.StartsWith("အ", StringComparison.Ordinal))
+                    bestFuzzy = null;
             }
 
             // Compare Tier 2 vs Tier 3 so high-frequency Thatpon words (e.g. 'အင်္ကျီ' freq 140) beat obscure zero-freq collisions ('အကျည်' freq 0)

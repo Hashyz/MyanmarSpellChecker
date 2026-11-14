@@ -1671,6 +1671,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             public int EndIndex => StartIndex + Length;
             public int ClauseId { get; set; }
             public int SyllableCount { get; set; }
+            public bool IsProtectedName { get; set; }
             public string RawText { get; set; } = string.Empty;
             public string NormText { get; set; } = string.Empty;
         }
@@ -1783,14 +1784,15 @@ namespace MyanmarSpellChecker.Core.Nlp
             MyanmarTrie? trie,
             List<ProofingIssue> existingIssues,
             List<SyllableToken>? precomputedTokens = null,
-            int[]? precomputedLongestMatchLengths = null)
+            int[]? precomputedLongestMatchLengths = null,
+            bool[]? personNameMask = null)
         {
             var issues = new List<ProofingIssue>();
             if (string.IsNullOrWhiteSpace(text) || trie == null || (trie.ContextualRuleCount == 0 && trie.BigramCount == 0))
                 return issues;
 
             // 2. Word-level tokenization for Data-Driven ContextualRules & Statistical Bigram Homophone Disambiguation
-            List<ClauseWordToken> wordTokens = TokenizeIntoClauseWords(text, trie, precomputedTokens, precomputedLongestMatchLengths);
+            List<ClauseWordToken> wordTokens = TokenizeIntoClauseWords(text, trie, precomputedTokens, precomputedLongestMatchLengths, personNameMask);
             if (wordTokens.Count == 0)
                 return issues;
 
@@ -1800,7 +1802,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                 for (int i = 0; i < wordTokens.Count; i++)
                 {
                     ClauseWordToken tok = wordTokens[i];
-                    if (OverlapsExisting(existingIssues, tok.StartIndex, tok.Length) ||
+                    if (tok.IsProtectedName ||
+                        OverlapsExisting(existingIssues, tok.StartIndex, tok.Length) ||
                         OverlapsExisting(issues, tok.StartIndex, tok.Length))
                     {
                         continue;
@@ -1823,6 +1826,9 @@ namespace MyanmarSpellChecker.Core.Nlp
                     for (int r = 0; r < ctxRules.Count; r++)
                     {
                         ContextualRule cr = ctxRules[r];
+                        if (tok.NormText == "ရက်" && cr.CorrectForm == "ယက်" && IsCalendarDayContext(text, tok.StartIndex, tok.EndIndex))
+                            continue;
+
                         if (MatchesContextTrigger(text, wordTokens, i, cr, out string matchedEvidence))
                         {
                             trie.TryGetExactEntries(cr.CorrectForm, out var targetEntries);
@@ -1873,7 +1879,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                 for (int i = 0; i < wordTokens.Count; i++)
                 {
                     ClauseWordToken tok = wordTokens[i];
-                    if (tok.SyllableCount > 2 ||
+                    if (tok.IsProtectedName ||
+                        tok.SyllableCount > 2 ||
                         ProtectedFunctionWords.Contains(tok.NormText) ||
                         OverlapsExisting(existingIssues, tok.StartIndex, tok.Length) ||
                         OverlapsExisting(issues, tok.StartIndex, tok.Length) ||
@@ -2055,10 +2062,12 @@ namespace MyanmarSpellChecker.Core.Nlp
             string text,
             MyanmarTrie trie,
             List<SyllableToken>? precomputedTokens = null,
-            int[]? precomputedLongestMatchLengths = null)
+            int[]? precomputedLongestMatchLengths = null,
+            bool[]? personNameMask = null)
         {
             var result = new List<ClauseWordToken>();
             List<SyllableToken> sylTokens = precomputedTokens ?? MyanmarSyllableBreaker.Tokenize(text);
+            bool hasMask = precomputedTokens != null && personNameMask != null && personNameMask.Length >= sylTokens.Count;
             int clauseId = 0;
             int idx = 0;
 
@@ -2092,15 +2101,17 @@ namespace MyanmarSpellChecker.Core.Nlp
                     int charLen = (endTok.StartIndex + endTok.Length) - st.StartIndex;
                     string raw = text.Substring(st.StartIndex, charLen);
                     bool allPreNormAndContiguous = true;
+                    bool anyProtected = false;
                     int sumLen = 0;
                     for (int k = 0; k < matchedLen; k++)
                     {
                         SyllableToken tk = sylTokens[idx + k];
                         sumLen += tk.Length;
+                        if (hasMask && personNameMask![idx + k])
+                            anyProtected = true;
                         if (!ReferenceEquals(tk.Text, tk.NormalizedText) && tk.Text != tk.NormalizedText)
                         {
                             allPreNormAndContiguous = false;
-                            break;
                         }
                     }
                     string norm = (allPreNormAndContiguous && sumLen == charLen)
@@ -2112,6 +2123,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                         Length = charLen,
                         ClauseId = clauseId,
                         SyllableCount = matchedLen,
+                        IsProtectedName = anyProtected,
                         RawText = raw,
                         NormText = norm
                     });
@@ -2153,12 +2165,21 @@ namespace MyanmarSpellChecker.Core.Nlp
                 {
                     SyllableToken endTok = sylTokens[idx + ctxMatchedLen - 1];
                     int charLen = (endTok.StartIndex + endTok.Length) - st.StartIndex;
+                    bool anyProtected = false;
+                    if (hasMask)
+                    {
+                        for (int k = 0; k < ctxMatchedLen; k++)
+                        {
+                            if (personNameMask![idx + k]) { anyProtected = true; break; }
+                        }
+                    }
                     result.Add(new ClauseWordToken
                     {
                         StartIndex = st.StartIndex,
                         Length = charLen,
                         ClauseId = clauseId,
                         SyllableCount = ctxMatchedLen,
+                        IsProtectedName = anyProtected,
                         RawText = text.Substring(st.StartIndex, charLen),
                         NormText = matchedCtxNorm!
                     });
@@ -2173,6 +2194,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     Length = st.Length,
                     ClauseId = clauseId,
                     SyllableCount = 1,
+                    IsProtectedName = hasMask && personNameMask![idx],
                     RawText = st.Text,
                     NormText = st.NormalizedText
                 });
@@ -2180,6 +2202,35 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             return result;
+        }
+
+        private static bool IsCalendarDayContext(string text, int startIdx, int endIdx)
+        {
+            int p = startIdx - 1;
+            while (p >= 0 && (char.IsWhiteSpace(text[p]) || text[p] == ')' || text[p] == '）' || text[p] == ']'))
+                p--;
+            if (p >= 0)
+            {
+                char prev = text[p];
+                if ((prev >= '0' && prev <= '9') || (prev >= '\u1040' && prev <= '\u1049') || prev == 'လ')
+                    return true;
+            }
+            if (endIdx + 3 <= text.Length && string.CompareOrdinal(text, endIdx, "နေ့", 0, 3) == 0)
+                return true;
+            return false;
+        }
+
+        private static bool HasInterveningDigit(string text, ClauseWordToken left, ClauseWordToken right)
+        {
+            int start = left.EndIndex;
+            int end = right.StartIndex;
+            for (int i = start; i < end; i++)
+            {
+                char c = text[i];
+                if ((c >= '0' && c <= '9') || (c >= '\u1040' && c <= '\u1049'))
+                    return true;
+            }
+            return false;
         }
 
         private static bool MatchesContextTrigger(string text, List<ClauseWordToken> tokens, int targetIdx, ContextualRule rule, out string matchedEvidence)
@@ -2246,13 +2297,15 @@ namespace MyanmarSpellChecker.Core.Nlp
                 {
                     if (tokens[j].ClauseId != target.ClauseId)
                         break;
+                    if (HasInterveningDigit(text, tokens[j], target))
+                        break;
                     if (win == 1 && !skipParticles && HasInterveningNonSpacePunctuation(text, tokens[j], target))
                         break;
                     string candNorm = tokens[j].NormText;
                     if (skipParticles && GenericSyntacticParticles.Contains(candNorm))
                         continue;
                     steps++;
-                    if (TokenMatchesAnyTrigger(candNorm, triggers))
+                    if (!tokens[j].IsProtectedName && TokenMatchesAnyTrigger(candNorm, triggers))
                     {
                         matchedEvidence = tokens[j].RawText;
                         return true;
@@ -2267,13 +2320,15 @@ namespace MyanmarSpellChecker.Core.Nlp
                 {
                     if (tokens[j].ClauseId != target.ClauseId)
                         break;
+                    if (HasInterveningDigit(text, target, tokens[j]))
+                        break;
                     if (win == 1 && !skipParticles && HasInterveningNonSpacePunctuation(text, target, tokens[j]))
                         break;
                     string candNorm = tokens[j].NormText;
                     if (skipParticles && GenericSyntacticParticles.Contains(candNorm))
                         continue;
                     steps++;
-                    if (TokenMatchesAnyTrigger(candNorm, triggers))
+                    if (!tokens[j].IsProtectedName && TokenMatchesAnyTrigger(candNorm, triggers))
                     {
                         matchedEvidence = tokens[j].RawText;
                         return true;

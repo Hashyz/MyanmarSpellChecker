@@ -4508,8 +4508,29 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
         }
 
+        private static bool EndsWithEllipsisTruncation(string text, int limitExclusive)
+        {
+            int idx = Math.Min(limitExclusive, text.Length);
+            while (idx > 0 && (char.IsWhiteSpace(text[idx - 1]) || text[idx - 1] == '\u104B' || text[idx - 1] == '\uFFFD'))
+                idx--;
+
+            if (idx <= 0)
+                return false;
+
+            if (text[idx - 1] == '\u2026')
+                return true;
+
+            if (idx >= 2 && text[idx - 1] == '.' && text[idx - 2] == '.')
+                return true;
+
+            return false;
+        }
+
         private static void EmitUnclosedOpenBracketIssue(string text, int openIdx, char openCh, List<ProofingIssue> issues)
         {
+            if (EndsWithEllipsisTruncation(text, text.Length))
+                return;
+
             char expectedClose = GetMatchingCloseBracket(openCh);
             int len = text.Length;
 
@@ -4674,6 +4695,9 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         private static void EmitUnclosedOpenQuoteIssue(string text, int openIdx, int limitExclusive, List<ProofingIssue> issues)
         {
+            if (EndsWithEllipsisTruncation(text, limitExclusive))
+                return;
+
             int endPos = limitExclusive;
             while (endPos > openIdx + 1 && char.IsWhiteSpace(text[endPos - 1]))
                 endPos--;
