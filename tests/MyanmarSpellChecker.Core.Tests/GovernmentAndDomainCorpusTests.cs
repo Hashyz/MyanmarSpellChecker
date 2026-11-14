@@ -4450,5 +4450,114 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.DoesNotContain("SuppressBuiltInBurmeseProofingOnSelection", wordAddInSrc);
             Assert.DoesNotContain("sel.NoProofing =", wordAddInSrc);
         }
+
+        [Fact]
+        public void V40_GovernmentNewsValidationAndFixes_EndToEndRegression()
+        {
+            var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
+            var trie = repo.LoadIntoTrie(MyanmarSpellChecker.Core.Security.AntiTamperGuard.ReconstructProtectedFallbackKey());
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // 1. Suggestion Purity (Zero MOIP NRC Initialism Pollution & Zero Stuttering Hallucinations) + High-Certainty Calibration
+            var deterministicCases = new (string Input, string ExpectedTop)[]
+            {
+                ("ဥက္ကဌ", "ဥက္ကဋ္ဌ"),
+                ("ပြဌာန်း", "ပြဋ္ဌာန်း"),
+                ("တာဝန်ထမ်းဆောင်လျှက်ရှိသည်", "လျက်"),
+                ("ကုတင်", "ခုတင်"),
+                ("မကွေးမြို", "မကွေးမြို့"),
+                ("ဆင်ပေါင်ဝဲမြိုနယ်", "ဆင်ပေါင်ဝဲမြို့နယ်"),
+                ("၃၆ လက္မ", "လက်မ")
+            };
+
+            foreach (var (input, expectedTop) in deterministicCases)
+            {
+                var issue = Assert.Single(formalEngine.CheckText(input));
+                Assert.Equal(expectedTop, issue.Suggestions[0].Replacement);
+                Assert.True(issue.IsHighCertaintyPrecheck, $"Expected HighCertainty=true for '{input}' -> '{expectedTop}'");
+                Assert.DoesNotContain(issue.Suggestions, s => s.Replacement == "ဥကတ" || s.Replacement == "ကကထ" || s.Replacement == "ဥကမ" || s.Replacement == "မတတ");
+            }
+
+            // Dual-meaning hybrid rule 'လျော့ချ' ('လျှော့ချ' vs 'လျော့ကျ') must remain human-reviewed (IsHighCertaintyPrecheck == false)
+            var dualIssue = Assert.Single(formalEngine.CheckText("လျော့ချ"));
+            Assert.Equal("လျှော့ချ", dualIssue.Suggestions[0].Replacement);
+            Assert.Contains(dualIssue.Suggestions, s => s.Replacement == "လျော့ကျ");
+            Assert.False(dualIssue.IsHighCertaintyPrecheck);
+
+            // True NRC initialism queries still repair cleanly
+            var nrcIssue = Assert.Single(formalEngine.CheckText("ဇဘသ"));
+            Assert.Equal("ဇဗသ", nrcIssue.Suggestions[0].Replacement);
+
+            // Stuttering compositional hallucinations must never appear
+            var lookalikeDept = Assert.Single(formalEngine.CheckText("ဦးစီးဌာန"));
+            Assert.Equal("ဦးစီးဌာန", lookalikeDept.Suggestions[0].Replacement);
+            Assert.DoesNotContain(lookalikeDept.Suggestions, s => s.Replacement.Contains("ဌာနန") || s.Replacement.Contains("ဦးဦး"));
+
+            var splitData = Assert.Single(formalEngine.CheckText("အချက် အလက်"));
+            Assert.Equal("အချက်အလက်", splitData.Suggestions[0].Replacement);
+            Assert.DoesNotContain(splitData.Suggestions, s => s.Replacement == "အချက်အရက်");
+
+            // 2. Zero False Positives on Verified Gov-News Compounds, Gazetteer Places, Loanwords & Diplomatic/Personal Names
+            string[] cleanGovNewsSentences =
+            {
+                "ဆေးရုံကြီး၌ ဆေးကုသဆောင်သစ် ဖွင့်လှစ်ပေးခဲ့သည်။",
+                "သည်းခြေလမ်းကြောင်း ပိတ်ဆို့မှုမရှိစေရန် ကုသပေးသည်။",
+                "စက်သုံးဆီနှင့် ဆီသိုလှောင်ကန်များ စနစ်တကျ ထားရှိသည်။",
+                "အရေးပေါ်ဆန်အရန်ရိက္ခာ အိတ်များ သိုလှောင်ထားရှိသည်။",
+                "ဈေးကွက်အတွင်း အရောင်းအဝယ်သွက်လျက်ရှိသည်။",
+                "သာသနိကအဆောက်အအုံများ ပြုပြင်မွမ်းမံလျက်ရှိသည်။",
+                "ကျောက်ဆည်မြို့နယ် ဟန်မြင့်မိုရ်ကျေးရွာနှင့် မြစ်ကြီးနားမြို့ ဂျန်မိုင်ကောင်းရပ်ကွက်တို့၌ ကွင်းဆင်းဆောင်ရွက်သည်။",
+                "သူနာပြုသင်တန်း ဦးဆောင်းအပ်နှင်းပွဲ အခမ်းအနား ကျင်းပသည်။",
+                "ပါဠိဂါထာ ပါဒ ၃၀၀ ကျော်နှင့် မေတ္တသုတ်တော်ကို ရွတ်ဖတ်ပူဇော်သည်။",
+                "အယ်လ်ဇိုင်းမားရောဂါ အသိပညာပေးအစီအစဉ်ကို တယ်လီဗေးရှင်းမှ ထုတ်လွှင့်သည်။",
+                "မစ္စတာ လေဟွိုင်ချုံး ဦးဆောင်သည့် ကိုယ်စားလှယ်အဖွဲ့ ရောက်ရှိသည်။",
+                "သံအမတ်ကြီး မစ္စစ် ဆူဇန် ကလီဘန့်အား လက်ခံတွေ့ဆုံသည်။",
+                "ကာဒီနယ်ချားလ်စ်ဘို တက်ရောက်မိန့်ခွန်းပြောကြားသည်။",
+                "ဘုရင်မင်းမြတ် ပရယ်ဘတ် ဆမ်ဒက် ပရယ် ဘိုရိုနစ် နိုရိုဒွန် သီဟာမိုနီ၏ ဖိတ်ကြားချက်အရ သွားရောက်သည်။",
+                "တရားခံပြေး သင်းသင်းနွယ်နှင့်အတူ ဖမ်းဆီးရမိခဲ့သည်။",
+                "ဆောင်းပါးရှင် ကျော်လွင်ဦး(မိုးဇလ) ရေးသားတင်ပြသည်။"
+            };
+
+            foreach (string clean in cleanGovNewsSentences)
+            {
+                var found = formalEngine.CheckText(clean);
+                Assert.True(found.Count == 0,
+                    $"Expected 0 issues for valid gov-news sentence '{clean}', got: {string.Join(", ", found.Select(x => x.OriginalText + "->" + (x.Suggestions.FirstOrDefault()?.Replacement ?? "?")))}");
+            }
+
+            // Ordinary Burmese words AFTER a foreign name must still be checked!
+            var postForeignTypo = Assert.Single(formalEngine.CheckText("မစ္စတာ လေဟွိုင်ချုံး ဦးဆောင်သည့် အစည်းအဝေ ကျင်းပသည်။"));
+            Assert.Equal("အစည်းအဝေး", postForeignTypo.Suggestions[0].Replacement);
+
+            // 3. Quoted-Speech Colloquial Register Exemption in FormalOfficial Mode (while keeping Spelling/Lookalike checks active inside quotes!)
+            var cleanQuotedSpeech = formalEngine.CheckText("ပြည်ထောင်စုဝန်ကြီးက “ဒီနေ့ လူငယ်တွေ စည်းလုံးညီညွတ်စွာနဲ့ ကြိုးစားကြပါတယ်” ဟု ပြောကြားသည်။");
+            Assert.Empty(cleanQuotedSpeech);
+
+            var typoInsideQuote = formalEngine.CheckText("“ဒီနေ့ ဦးစီးဌာန ဥက္ကဌက ဆောင်ရွက်ပါတယ်” ဟု ပြောကြားသည်။");
+            Assert.Equal(2, typoInsideQuote.Count);
+            Assert.Contains(typoInsideQuote, i => i.Suggestions[0].Replacement == "ဦးစီးဌာန");
+            Assert.Contains(typoInsideQuote, i => i.Suggestions[0].Replacement == "ဥက္ကဋ္ဌ");
+            Assert.DoesNotContain(typoInsideQuote, i => i.IssueType == ProofingIssueType.OfficialStyleGrammarError);
+
+            var unquotedColloquial = formalEngine.CheckText("ဝန်ကြီးဌာနက ဆောင်ရွက်ပါတယ်။");
+            Assert.Contains(unquotedColloquial, i => i.IssueType == ProofingIssueType.OfficialStyleGrammarError && i.Suggestions[0].Replacement == "ပါသည်");
+
+            // 4. Clause-Level 'အား/ကို' Licensing ('အဖြစ်', protocol 'ကြိုဆို') vs Non-Licensing 'ကိုဗစ်-၁၉'
+            Assert.Empty(formalEngine.CheckText("ဒုတိယသမ္မတများအဖြစ် ဦးညိုစောနှင့် ဒေါ်နန်းနီနီအေးတို့အား ရွေးချယ်တင်မြှောက်ကြောင်း ကြေညာသည်။"));
+            Assert.Empty(formalEngine.CheckText("နိုင်ငံတော်သမ္မတအား ကြိုဆိုနှုတ်ဆက်ကြသည်။"));
+
+            var covidAhMisuse = formalEngine.CheckText("ကိုဗစ်-၁၉ ရောဂါ သံသယရှိသူများအား စစ်ဆေးသည်။");
+            Assert.Contains(covidAhMisuse, i => i.OriginalText == "အား" && i.Suggestions[0].Replacement == "ကို");
+
+            // 5. Bound-Stem Space-Split Compound ('အထိမ်း အမှတ်ဂုဏ်ပြု') & New Gov-News Clerical Typo Rules
+            var brokenCommemoration = Assert.Single(formalEngine.CheckText("အပြည်ပြည်ဆိုင်ရာလူငယ်များနေ့အထိမ်း အမှတ်ဂုဏ်ပြုပွဲ ကျင်းပသည်။"));
+            Assert.Equal("အထိမ်း အမှတ်", brokenCommemoration.OriginalText);
+            Assert.Equal("အထိမ်းအမှတ်", brokenCommemoration.Suggestions[0].Replacement);
+
+            var clericalIssues = formalEngine.CheckText("ယမန့်နေ့က တအုပ်တမ နို့စားနွား မွေးမြူးရေး ဆောင်ရွက်သည်။");
+            Assert.Contains(clericalIssues, i => i.Suggestions[0].Replacement == "ယမန်နေ့");
+            Assert.Contains(clericalIssues, i => i.Suggestions[0].Replacement == "တစ်အုပ်တစ်မ");
+            Assert.Contains(clericalIssues, i => i.Suggestions[0].Replacement == "မွေးမြူရေး");
+        }
     }
 }

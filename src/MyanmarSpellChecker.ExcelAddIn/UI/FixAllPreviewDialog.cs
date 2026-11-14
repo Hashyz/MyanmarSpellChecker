@@ -156,12 +156,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             if (_choicesPanel == null || _choicesPanel.IsDisposed)
                 return;
 
-            var snapshot = new Control[_choicesPanel.Controls.Count];
-            _choicesPanel.Controls.CopyTo(snapshot, 0);
-            _choicesPanel.Controls.Clear();
-            for (int i = 0; i < snapshot.Length; i++)
+            while (_choicesPanel.Controls.Count > 0)
             {
-                snapshot[i]?.Dispose();
+                Control ctrl = _choicesPanel.Controls[0];
+                _choicesPanel.Controls.RemoveAt(0);
+                ctrl?.Dispose();
             }
         }
 

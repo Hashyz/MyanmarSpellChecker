@@ -300,7 +300,13 @@ namespace MyanmarSpellChecker.Core.Nlp
             {
                 hasExplicitWrongRule = true;
                 string canonRuleTarget = UnicodeNormalizer.NormalizeCanonicalOrder(rule.CorrectForm);
-                AddOrUpdateEnrichedCandidate(results, rawTrimmed, canonRuleTarget, 100.0, fallbackCue: rule.Explanation);
+                bool isDualMeaningHybridRule =
+                    normalized == "ကြော်ညာ" ||
+                    (normalized.Length >= 4 &&
+                     normalized.EndsWith("ချ", StringComparison.Ordinal) &&
+                     _trie.ContainsExactWord(normalized.Substring(0, normalized.Length - 2) + "ကျ"));
+                double ruleScore = isDualMeaningHybridRule ? 100.5 : 106.0;
+                AddOrUpdateEnrichedCandidate(results, rawTrimmed, canonRuleTarget, ruleScore, fallbackCue: rule.Explanation);
             }
 
             // 2. Check lookalike character fix (၀ -> ဝ, ၄င်း -> ၎င်း, ဥ် -> ဉ်, ဓါတ် -> ဓာတ်, ကင်းစီး င်္)
@@ -313,11 +319,13 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return results;
             }
 
-            if (lookalikeFixed != normalized && _trie.ContainsExactWord(lookalikeFixed))
+            bool hasExactLookalikeFix = lookalikeFixed != normalized && _trie.ContainsExactWord(lookalikeFixed);
+            if (hasExactLookalikeFix)
             {
-                AddOrUpdateEnrichedCandidate(results, rawTrimmed, lookalikeFixed, 99.6);
+                AddOrUpdateEnrichedCandidate(results, rawTrimmed, lookalikeFixed, 102.5);
             }
 
+            bool isBareInitialismQuery = IsBareConsonantInitialismQuery(lookalikeFixed);
             List<string> spanSyllables = MyanmarSyllableBreaker.BreakIntoSyllables(lookalikeFixed, isPreNormalized: true);
 
             // Pre-encode lookalikeFixed once into recursion-safe local buffers so candidate loops never re-encode s1
@@ -348,11 +356,14 @@ namespace MyanmarSpellChecker.Core.Nlp
             ulong invQCompat = (~qAllCompatibleMask) & 0x1FFFFFFFFFFFUL;
 
             // 3. Strict & Relaxed Phonetic Homophone Index lookup (O(1))
+            double strictHomoCap = hasExplicitWrongRule ? 1.25 : 1.55;
             foreach (var entry in _trie.LookupStrictHomophones(lookalikeFixed))
             {
                 if (entry.Word == normalized) continue;
+                if (!isBareInitialismQuery && IsNrcTownshipInitialismEntry(entry)) continue;
                 double dist = ComputeWeightedMyanmarDistancePreEncoded(
-                    lookalikeFixed, spanSyllables, queryCompact, qLen, qDelCosts, qPresentMask, qReqMasks, qReqCount, entry.Word, double.MaxValue);
+                    lookalikeFixed, spanSyllables, queryCompact, qLen, qDelCosts, qPresentMask, qReqMasks, qReqCount, entry.Word, strictHomoCap);
+                if (dist > strictHomoCap) continue;
                 double freqBonus = Math.Min(8.5, Math.Log10(entry.Frequency + 1) * 2.5);
                 double thatponBonus = entry.IsOfficialThatpon ? 1.5 : 0.0;
                 double cueBonus = string.IsNullOrWhiteSpace(entry.MeaningCue) ? 0.0 : 0.8;
@@ -360,11 +371,14 @@ namespace MyanmarSpellChecker.Core.Nlp
                 AddOrUpdateEnrichedCandidate(results, rawTrimmed, entry.Word, score);
             }
 
+            double phoneticHomoCap = hasExplicitWrongRule ? 1.05 : 1.45;
             foreach (var entry in _trie.LookupByPhoneticKey(lookalikeFixed))
             {
                 if (entry.Word == normalized) continue;
+                if (!isBareInitialismQuery && IsNrcTownshipInitialismEntry(entry)) continue;
                 double dist = ComputeWeightedMyanmarDistancePreEncoded(
-                    lookalikeFixed, spanSyllables, queryCompact, qLen, qDelCosts, qPresentMask, qReqMasks, qReqCount, entry.Word, double.MaxValue);
+                    lookalikeFixed, spanSyllables, queryCompact, qLen, qDelCosts, qPresentMask, qReqMasks, qReqCount, entry.Word, phoneticHomoCap);
+                if (dist > phoneticHomoCap) continue;
                 double freqBonus = Math.Min(8.5, Math.Log10(entry.Frequency + 1) * 2.5);
                 double thatponBonus = entry.IsOfficialThatpon ? 1.2 : 0.0;
                 double cueBonus = string.IsNullOrWhiteSpace(entry.MeaningCue) ? 0.0 : 0.6;
@@ -378,11 +392,13 @@ namespace MyanmarSpellChecker.Core.Nlp
                 var anchorPool = t_anchorScratch ??= new Dictionary<string, DictionaryEntry>(StringComparer.Ordinal);
                 anchorPool.Clear();
                 _trie.PopulateCompoundAnchorCandidates(spanSyllables, lookalikeFixed, anchorPool);
+                double anchorCap = hasExplicitWrongRule ? 1.15 : 1.85;
                 foreach (var entry in anchorPool.Values)
                 {
+                    if (!isBareInitialismQuery && IsNrcTownshipInitialismEntry(entry)) continue;
                     double dist = ComputeWeightedMyanmarDistancePreEncoded(
-                        lookalikeFixed, spanSyllables, queryCompact, qLen, qDelCosts, qPresentMask, qReqMasks, qReqCount, entry.Word, 1.85);
-                    if (dist <= 1.85)
+                        lookalikeFixed, spanSyllables, queryCompact, qLen, qDelCosts, qPresentMask, qReqMasks, qReqCount, entry.Word, anchorCap);
+                    if (dist <= anchorCap)
                     {
                         double freqBonus = Math.Min(8.5, Math.Log10(entry.Frequency + 1) * 2.5);
                         double thatponBonus = entry.IsOfficialThatpon ? 1.5 : 0.0;
@@ -471,6 +487,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                         }
 
                         var entry = entriesArr[idx];
+                        if (!isBareInitialismQuery && IsNrcTownshipInitialismEntry(entry)) continue;
                         string w = entry.Word;
                         if (w == normalized) continue;
 
@@ -522,7 +539,18 @@ namespace MyanmarSpellChecker.Core.Nlp
             // 6. Compositional Multi-Syllable Split & Beam Synthesis
             //    Solves concatenated multi-word phrases & multi-syllable OOV typos (e.g. 'ပီးပီ -> ပြီးပြီ', 'ဖစ်နေပီ -> ဖြစ်နေပြီ',
             //    'သွားပီးပီ -> သွားပြီးပြီ', 'လုပ်ပီးသား -> လုပ်ပြီးသား', 'စာလုံးပေါင်သတ်ပုံ -> စာလုံးပေါင်းသတ်ပုံ') so Suggestions is NEVER empty!
-            if (allowCompositional && !hasExplicitWrongRule && results.Count < computeCap && spanSyllables.Count >= 2 && spanSyllables.Count <= 6)
+            bool hasAuthoritativeTopMatch = false;
+            for (int rIdx = 0; rIdx < results.Count; rIdx++)
+            {
+                if (results[rIdx].Score >= 98.5 && results[rIdx].IsOfficialThatpon)
+                {
+                    hasAuthoritativeTopMatch = true;
+                    break;
+                }
+            }
+
+            if (allowCompositional && !hasExplicitWrongRule && !hasExactLookalikeFix && !hasAuthoritativeTopMatch &&
+                results.Count < computeCap && spanSyllables.Count >= 2 && spanSyllables.Count <= 6)
             {
                 SynthesizeCompositionalCandidates(results, rawTrimmed, normalized, spanSyllables);
             }
@@ -589,6 +617,8 @@ namespace MyanmarSpellChecker.Core.Nlp
 
                         var entry = entriesArr[idx];
                         if (entry.Frequency < 2 || entry.Word == normalized)
+                            continue;
+                        if (!isBareInitialismQuery && IsNrcTownshipInitialismEntry(entry))
                             continue;
 
                         string ew = entry.Word;
@@ -727,6 +757,16 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (!HasMyanmarBaseCharacter(norm) && issue.Suggestions.Count == 0)
                 return;
 
+            int initialSeedCount = issue.Suggestions.Count;
+            bool hadSingleDeterministicRule =
+                initialSeedCount == 1 &&
+                !issue.RequiresReviewBeforeBatchFix &&
+                issue.Suggestions[0].Score >= 100.0 &&
+                norm != "ကြော်ညာ" &&
+                !(norm.Length >= 4 &&
+                  norm.EndsWith("ချ", StringComparison.Ordinal) &&
+                  _trie.ContainsExactWord(norm.Substring(0, norm.Length - 2) + "ကျ"));
+
             // 1. If an issue somehow arrived with 0 suggestions, synthesize candidates immediately
             if (issue.Suggestions.Count == 0)
             {
@@ -740,9 +780,10 @@ namespace MyanmarSpellChecker.Core.Nlp
                 AddRegisterAlternativeChoices(issue.Suggestions, raw, norm, top, styleMode);
             }
 
-            // 3. For true OOV spelling errors (not real-word contextual rules) with fewer than 3 choices, supplement with top runner-up dictionary/compositional candidates
+            // 3. For true OOV spelling errors (not real-word contextual rules or space-split mandatory compounds) with fewer than 3 choices, supplement with top runner-up dictionary/compositional candidates
             if (!issue.IsGrammarOrStyle &&
                 issue.IssueType == ProofingIssueType.SpellingError &&
+                raw.IndexOf(' ') < 0 && raw.IndexOf('\t') < 0 &&
                 !_trie.ContainsExactWord(norm) &&
                 issue.Suggestions.Count < Math.Min(3, maxChoices))
             {
@@ -771,6 +812,10 @@ namespace MyanmarSpellChecker.Core.Nlp
                     if (dup)
                         continue;
 
+                    if (hadSingleDeterministicRule && issue.Suggestions.Count > 0 && extra.Score > issue.Suggestions[0].Score - 4.0)
+                    {
+                        extra.Score = issue.Suggestions[0].Score - 4.0;
+                    }
                     issue.Suggestions.Add(extra);
                 }
             }
@@ -912,7 +957,11 @@ namespace MyanmarSpellChecker.Core.Nlp
                     var rightFixes = GetSegmentRepairOptions(right, isLeading: false, precededByNegMa: left == "မ");
                     for (int r = 0; r < Math.Min(2, rightFixes.Count); r++)
                     {
-                        string combined = UnicodeNormalizer.NormalizeCanonicalOrder(left + rightFixes[r].Text);
+                        string rText = rightFixes[r].Text;
+                        // Prevent boundary-syllable stuttering (e.g. 'အ' + 'အစည်းအဝေး' -> 'အအစည်းအဝေး', 'ဦး' + 'ဦးစီးဌာန' -> 'ဦးဦးစီးဌာန')
+                        if (rText.StartsWith(left, StringComparison.Ordinal) || rText == right + right)
+                            continue;
+                        string combined = UnicodeNormalizer.NormalizeCanonicalOrder(left + rText);
                         if (combined != normalized)
                         {
                             AddOrUpdateEnrichedCandidate(results, rawTrimmed, combined, 92.5 - r * 3.0, "ပေါင်းစပ်ပုဒ် စံသတ်ပုံအကြံပြုချက်");
@@ -925,7 +974,11 @@ namespace MyanmarSpellChecker.Core.Nlp
                     var leftFixes = GetSegmentRepairOptions(left, isLeading: true, precededByNegMa: false);
                     for (int l = 0; l < Math.Min(2, leftFixes.Count); l++)
                     {
-                        string combined = UnicodeNormalizer.NormalizeCanonicalOrder(leftFixes[l].Text + right);
+                        string lText = leftFixes[l].Text;
+                        // Prevent boundary-syllable stuttering (e.g. 'ဦးစီးဌာန' + 'န' -> 'ဦးစီးဌာနန', 'ဖေဖေ' + 'ဖော်ဝါရီလ' -> 'ဖေဖေဖော်ဝါရီလ')
+                        if (lText.EndsWith(right, StringComparison.Ordinal) || lText == left + left)
+                            continue;
+                        string combined = UnicodeNormalizer.NormalizeCanonicalOrder(lText + right);
                         if (combined != normalized)
                         {
                             AddOrUpdateEnrichedCandidate(results, rawTrimmed, combined, 92.5 - l * 3.0, "ပေါင်းစပ်ပုဒ် စံသတ်ပုံအကြံပြုချက်");
@@ -990,6 +1043,33 @@ namespace MyanmarSpellChecker.Core.Nlp
                         break;
                 }
             }
+        }
+
+        private static bool IsNrcTownshipInitialismEntry(DictionaryEntry entry)
+        {
+            return entry.MeaningCue != null &&
+                   entry.MeaningCue.IndexOf("မြို့နယ်သင်္ကေတ", StringComparison.Ordinal) >= 0;
+        }
+
+        private static bool IsBareConsonantInitialismQuery(string s)
+        {
+            if (s.Length < 2 || s.Length > 5)
+                return false;
+
+            int bareCount = 0;
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if ((c >= '\u1000' && c <= '\u1021') || c == '\u1025' || c == '\u1026')
+                {
+                    bareCount++;
+                    continue;
+                }
+                if (c == '\u102E' && i > 0 && s[i - 1] == '\u1025')
+                    continue;
+                return false;
+            }
+            return bareCount >= 2 && bareCount <= 4;
         }
 
         private bool IsKnownSegment(string normSeg)

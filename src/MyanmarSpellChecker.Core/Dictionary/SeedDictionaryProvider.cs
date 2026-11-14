@@ -129,7 +129,11 @@ namespace MyanmarSpellChecker.Core.Dictionary
                 new DictionaryEntry { Word = "နိုင်", MeaningCue = "နိုင်ငံသားစိစစ်ရေးကတ်ပြားသင်္ကေတ (နိုင်) / စွမ်းဆောင်~သည်", PosTag = "N/PART", IsOfficialThatpon = true, Frequency = 500 },
                 new DictionaryEntry { Word = "ဧည့်", MeaningCue = "ဧည့်နိုင်ငံသားကတ်ပြားသင်္ကေတ (ဧည့်) / ~သည်", PosTag = "N", IsOfficialThatpon = true, Frequency = 250 },
                 new DictionaryEntry { Word = "ပြု", MeaningCue = "နိုင်ငံသားပြုခွင့်ရသူကတ်ပြားသင်္ကေတ (ပြု) / ဆောင်ရွက်~လုပ်သည်", PosTag = "V/N", IsOfficialThatpon = true, Frequency = 400 },
-                new DictionaryEntry { Word = "သာသနာ", MeaningCue = "သာသနာဝင်စိစစ်ရေးကတ်ပြားသင်္ကေတ (သာသနာ)", PosTag = "N", IsOfficialThatpon = true, Frequency = 300 },
+                new DictionaryEntry { Word = "သာသနာ", MeaningCue = "မြတ်စွာဘုရား၏ အဆုံးအမ / သာသနာဝင်စိစစ်ရေးကတ်ပြားသင်္ကေတ (သာသနာ)", PosTag = "N", IsOfficialThatpon = true, Frequency = 300 },
+                new DictionaryEntry { Word = "ဦး", MeaningCue = "အမျိုးသားအမည်ရှေ့ ဂါရဝပြုပုဒ် / လူဦးရေပြ မျိုးပြပစ္စည်း", PosTag = "N/PART", IsOfficialThatpon = true, Frequency = 500 },
+                new DictionaryEntry { Word = "ဓာတ်ပုံ", MeaningCue = "ကင်မရာဖြင့် ရိုက်ကူးထားသော ရုပ်ပုံ (သတ်ပုံကျမ်းအမှန် - ဝိုက်ချ 'ဓာတ်')", PosTag = "N", IsOfficialThatpon = true, Frequency = 280 },
+                new DictionaryEntry { Word = "မှတ်တမ်းဓာတ်ပုံ", MeaningCue = "အထိမ်းအမှတ်/သတင်း မှတ်တမ်းတင် ရိုက်ကူးထားသော ဓာတ်ပုံ", PosTag = "N", IsOfficialThatpon = true, Frequency = 180 },
+                new DictionaryEntry { Word = "ဖေဖော်ဝါရီလ", MeaningCue = "ခရစ်နှစ် ဒုတိယလ (February)", PosTag = "N", IsOfficialThatpon = true, Frequency = 240 },
                 new DictionaryEntry { Word = "သာ", MeaningCue = "သာသနာဝင်ကတ်ပြားအတိုကောက် (သာ) / ပို၍ကောင်းမွန်~သည်", PosTag = "PART/V", IsOfficialThatpon = true, Frequency = 400 },
                 new DictionaryEntry { Word = "ယာယီ", MeaningCue = "ယာယီသက်သေခံလက်မှတ်သင်္ကေတ (ယာယီ) / အခိုက်အတန့်", PosTag = "ADJ/N", IsOfficialThatpon = true, Frequency = 260 },
                 new DictionaryEntry { Word = "ဇဗသ", MeaningCue = "နိုင်ငံသားစိစစ်ရေးကတ်ပြား မြို့နယ်သင်္ကေတ — ၉/ဇဗသ (ဇမ္ဗူသီရိမြို့နယ်)", PosTag = "PROPN", UsageNote = "အင်္ဂလိပ်သင်္ကေတ: ZaBaTha (9/ZaBaTha) | အာဏာပိုင်စံနှုန်း: MOIP / GAD", IsOfficialThatpon = true, Frequency = 220 },
@@ -323,6 +327,13 @@ namespace MyanmarSpellChecker.Core.Dictionary
                     CorrectForm = "လောလောလတ်လတ်",
                     Category = "Spelling",
                     Explanation = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ မကြာသေးမီက ဖြစ်ပျက်ပြီးစ (ပူပူနွေးနွေး) ကို တဝမ်းပူသတ်ဖြင့် 'လောလောလတ်လတ်' ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "လက္မ",
+                    CorrectForm = "လက်မ",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ လက်မ/အတိုင်းအတာယူနစ်ကို ပါဌ်ဆင့် ('က္မ') မသုံးဘဲ ကကြီးသတ်ဖြင့် 'လက်မ' ဟု ရေးသားရမည်။"
                 }
             };
         }

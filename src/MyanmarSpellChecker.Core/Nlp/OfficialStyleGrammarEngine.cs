@@ -12,9 +12,9 @@ namespace MyanmarSpellChecker.Core.Nlp
     /// </summary>
     public sealed class OfficialStyleGrammarEngine
     {
-        // 1a. Compound 'တ...တ...' numeral phrases where both 'တ' syllables require 'တစ်' per 462-page သတ်ပုံကျမ်း (တစ်စုံတစ်ရာ, တစ်ခါတစ်ရံ, တစ်ရံတစ်ခါ, တစ်စိတ်တစ်ပိုင်း, etc.)
+        // 1a. Compound 'တ...တ...' numeral phrases where both 'တ' syllables require 'တစ်' per 462-page သတ်ပုံကျမ်း (တစ်စုံတစ်ရာ, တစ်ခါတစ်ရံ, တစ်ရံတစ်ခါ, တစ်စိတ်တစ်ပိုင်း, တစ်အုပ်တစ်မ, etc.)
         private static readonly Regex TaCompoundNumeralPattern = new Regex(
-            @"(?<![\u1039])(?:တ(?<First>စုံ)တ(?<Second>ရာ|ခု|ဦး)|တ(?<First>ခါ)တ(?<Second>ရံ)|တ(?<First>ရံ)တ(?<Second>ဆစ်|ဖန်|ခါ)|တ(?<First>စိတ်)တ(?<Second>ပိုင်း)|တ(?<First>ပိုင်း)တ(?<Second>စ)|တ(?<First>ချိန်)တ(?<Second>ခါ)|တ(?<First>နည်း)တ(?<Second>ဖုံ|လမ်း)|တ(?<First>ဦး)တ(?<Second>ယောက်))(?![\u102B-\u103E]|[\u1000-\u1021]\u103B?[\u1039\u103A])",
+            @"(?<![\u1039])(?:တ(?<First>စုံ)တ(?<Second>ရာ|ခု|ဦး)|တ(?<First>ခါ)တ(?<Second>ရံ)|တ(?<First>ရံ)တ(?<Second>ဆစ်|ဖန်|ခါ)|တ(?<First>စိတ်)တ(?<Second>ပိုင်း)|တ(?<First>ပိုင်း)တ(?<Second>စ)|တ(?<First>ချိန်)တ(?<Second>ခါ)|တ(?<First>နည်း)တ(?<Second>ဖုံ|လမ်း)|တ(?<First>ဦး)တ(?<Second>ယောက်)|တ(?<First>အုပ်)တ(?<Second>မ))(?![\u102B-\u103E]|[\u1000-\u1021]\u103B?[\u1039\u103A])",
             RegexOptions.Compiled);
 
         // 1b. 'တ' + Numeral Classifier where 'တစ်' is required by မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း (အမှာစာ စာ-၇..၈ နှင့် တစ်ဆက်တည်း/တစ်သမတ်တည်း)
@@ -442,9 +442,13 @@ namespace MyanmarSpellChecker.Core.Nlp
         private static readonly Regex FormalContextSlangPattern = new Regex(
             @"(?=.*(?:တွင်|၌|စာတမ်း|ညီလာခံ|ဝန်ကြီးဌာန|သတင်းရင်းမြစ်)).*?(?<Target>တော်တော်ဂွမ်း|တော်တော်မိုက်နေသည်|အူသွားတယ်)");
 
-        // 4h. Broken Space-Split Mandatory Compounds (e.g. 'စာ ကြည့်တိုက်' -> 'စာကြည့်တိုက်', 'အစည်း အဝေး' -> 'အစည်းအဝေး', 'အိမ် စာအကြောင်း' -> 'အိမ်စာ')
+        // 4h. Broken Space-Split Mandatory Compounds (e.g. 'စာ ကြည့်တိုက်' -> 'စာကြည့်တိုက်', 'အစည်း အဝေး' -> 'အစည်းအဝေး', 'နေ့အထိမ်း အမှတ်ဂုဏ်ပြု' -> 'အထိမ်းအမှတ်')
         private static readonly Regex CuratedBrokenCompoundPattern = new Regex(
             @"(?:(?<![\u1000-\u103F])(?<Left>စာ|ဝန်|လေ|အိမ်|ဘယ်|ဘာ|ကိုယ်)|(?<Left>အစည်း|အခမ်း|အစီ|အခြေ|အတွေ့|အခွင့်|အချက်|အဆောက်|အထိမ်း|ကျောင်း|အလုပ်|မိန်း|ယောက်ျား|သတင်း|မော်တော်|ကွန်ပျူ|တယ်လီ|စာသင်|တက္က|အစိုး|ဥပ|ကျန်းမာ|စီးပွား|လူနာတင်|မီးသတ်|တပ်မ|ကိုယ်စား|ပလတ်))[ \t]+(?<Right>ကြည့်တိုက်|အဝေး|အနား|အစဉ်|အနေ|အကြုံ|အရေး|အလမ်း|အလက်|အအုံ|အမှတ်|သား|သူ|ထမ်း|သမား|ချိန်|ကလေး|လေး|စာ|ယာဉ်|တာ|ဖုန်း|ကျောင်း|သိုလ်|ရ|အဖွဲ့|ဒေ|ရေး|ကား|လို|လို့|တော်|စားလှယ်|လှယ်|စတစ်)(?=\s|$|[\u104A\u104B]|ကို|အား|မှ|သို့|နှင့်|နဲ့|သည်|၏|၌|တွင်|က|မှာ|များ|တွေ|အတွက်|အကြောင်း|ဆိုင်ရာ|ဖြင့်|သဖြင့်|ကြောင့်|အပြင်|ရရှိ|ဖြတ်စ)",
+            RegexOptions.Compiled);
+
+        private static readonly Regex BoundStemBrokenCompoundPattern = new Regex(
+            @"(?:(?<Left>အထိမ်း)[ \t]+(?<Right>အမှတ်)|(?<Left>အစည်း)[ \t]+(?<Right>အဝေး)|(?<Left>အခမ်း)[ \t]+(?<Right>အနား)|(?<Left>အစီ)[ \t]+(?<Right>အစဉ်)|(?<Left>အဆောက်)[ \t]+(?<Right>အအုံ)|(?<Left>အချက်)[ \t]+(?<Right>အလက်)|(?<Left>ကိုယ်စား)[ \t]+(?<Right>လှယ်)|(?<Left>တက္က)[ \t]+(?<Right>သိုလ်)|(?<Left>ကွန်ပျူ)[ \t]+(?<Right>တာ)|(?<Left>ပလတ်)[ \t]+(?<Right>စတစ်))(?![\u102B-\u103E]|[\u1000-\u1021]\u103B?[\u1039\u103A])",
             RegexOptions.Compiled);
 
         private static HashSet<string> CreateNormalizedSet(params string[] items)
@@ -609,9 +613,19 @@ namespace MyanmarSpellChecker.Core.Nlp
             )
         };
 
-        // 6. 'အား' vs 'ကို' particle misuse before direct transitive verbs (Formal / Literary style — guards '-အား' compound nouns like ဓာတ်အား/စွမ်းအား/အင်အား/လုပ်အား & exempts double-ကို/အဖြစ်/စေ & state protocol 'အား လက်ခံတွေ့ဆုံ')
+        // 6. 'အား' vs 'ကို' particle misuse before direct transitive verbs (Formal / Literary style — guards '-အား' compound nouns like ဓာတ်အား/စွမ်းအား/အင်အား/လုပ်အား & exempts double-ကို/အဖြစ်/စေ & state protocol 'အား လက်ခံတွေ့ဆုံ / ကြိုဆို')
         private static readonly Regex AhInsteadOfKoPattern = new Regex(
-            @"(?<=[\u1000-\u103F])(?<!ဓာတ်|စွမ်း|အင်|လုပ်|ခွန်|စိတ်|ကိုယ်|ဉာဏ်|အင်္ဂါ|သက်သာ)(?<Particle>အား)(?!ကစား|လုံး|ဖြင့်|လျော်စွာ|ထုတ်|ပေး|ကိုး|နည်း|သာ|ရ)\s*(?<Verb>စစ်ဆေး|ခန့်အပ်|ရွေးချယ်|ကြိုဆို|ဖမ်းဆီး|တည်ဆောက်|ပြုပြင်|ဖျက်သိမ်း|သုံးသပ်|အတည်ပြု|လက်ခံ(?!တွေ့)|ပယ်ဖျက်|ရေးဆွဲ|ထုတ်ပြန်|ကျင်းပ|ဖော်ပြ|ဖွင့်လှစ်|ပိတ်သိမ်း|ရုပ်သိမ်း|လိုက်နာ|ပြဋ္ဌာန်း|ချိုးဖောက်|အကောင်အထည်ဖော်|စွန့်ပစ်|ဖောက်လုပ်|ဆုံးမ(?!ဩဝါဒ)|ဝယ်ယူ|ရောင်းချ|သုံးစွဲ)",
+            @"(?<=[\u1000-\u103F])(?<!ဓာတ်|စွမ်း|အင်|လုပ်|ခွန်|စိတ်|ကိုယ်|ဉာဏ်|အင်္ဂါ|သက်သာ)(?<Particle>အား)(?!ကစား|လုံး|ဖြင့်|လျော်စွာ|ထုတ်|ပေး|ကိုး|နည်း|သာ|ရ)\s*(?<Verb>စစ်ဆေး|ခန့်အပ်|ရွေးချယ်|ဖမ်းဆီး|တည်ဆောက်|ပြုပြင်|ဖျက်သိမ်း|သုံးသပ်|အတည်ပြု|လက်ခံ(?!တွေ့)|ပယ်ဖျက်|ရေးဆွဲ|ထုတ်ပြန်|ကျင်းပ|ဖော်ပြ|ဖွင့်လှစ်|ပိတ်သိမ်း|ရုပ်သိမ်း|လိုက်နာ|ပြဋ္ဌာန်း|ချိုးဖောက်|အကောင်အထည်ဖော်|စွန့်ပစ်|ဖောက်လုပ်|ဆုံးမ(?!ဩဝါဒ)|ဝယ်ယူ|ရောင်းချ|သုံးစွဲ)",
+            RegexOptions.Compiled);
+
+        // Matches a genuine direct-object postposition 'ကို' inside the same clause while rejecting lexical 'ကို-' prefixes like 'ကိုဗစ်', 'ကိုရီးယား', 'ကိုလိုနီ', 'ကိုင်', and standalone 'ကိုယ်-' (unless reflexive 'ကိုယ်ကို')
+        private static readonly Regex LicensingKoParticleInClauseRegex = new Regex(
+            @"ကို(?![\u102B-\u103E]|[\u1000-\u1021]\u103A|ဗစ်|ယ်(?!ကို)|ရီး|လို|ရင်|ကာ|မာ|ထီး)",
+            RegexOptions.Compiled);
+
+        // Sequential / subordinate clause-chaining markers that close one verb's argument structure before starting the next predicate clause
+        private static readonly Regex ClauseChainingConjunctionRegex = new Regex(
+            @"(?:ပြီး(?:နောက်|မှ|လျှင်)?|၍|သဖြင့်|သောကြောင့်|သော်လည်း|(?:^|(?<=[\u1000-\u103F]))ကာ)(?=\s+)",
             RegexOptions.Compiled);
 
         // Multi-token & dotted-circle '၎င်း' government/legacy-keyboard Unicode typos ('၄်င်း', '၎်င်း', '၄င်း', '၎င်းင်း', '၄င်းင်း', '၄င်', '၎င်')
@@ -2875,6 +2889,21 @@ namespace MyanmarSpellChecker.Core.Nlp
                     }
                 }
 
+                foreach (Match m in BoundStemBrokenCompoundPattern.Matches(text))
+                {
+                    if (OverlapsExistingIssue(issues, m.Index, m.Length))
+                        continue;
+                    string joined = UnicodeNormalizer.NormalizeCanonicalOrder(m.Groups["Left"].Value + m.Groups["Right"].Value);
+                    if (VerifiedMandatoryCompounds.Contains(joined))
+                    {
+                        AddGrammarOrSpellingIssue(
+                            issues, m.Index, m.Length, m.Value, joined,
+                            ProofingIssueType.SpellingError,
+                            $"တစ်ပေါင်းတည်း ရေးသားရမည့် ပေါင်းစပ်ပုဒ် ဖြစ်ပါသည် — '{m.Value}' အစား '{joined}' ဟု ခြားမရေးဘဲ ရေးသားရမည်။",
+                            "တစ်ဆက်တည်းရေးရမည့် ပေါင်းစပ်ပုဒ် (သတ်ပုံကျမ်း)", "N", true);
+                    }
+                }
+
                 if (trie != null && hasShortMyanmarBeforeMyanmar)
                 {
                     foreach (Match m in SpaceSplitPairCandidateRegex.Matches(text))
@@ -2928,6 +2957,9 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             if (styleMode == ProofingStyleMode.FormalOfficial)
             {
+                // Exempt colloquial register markers inside balanced verbatim quotation marks (“...”, "...", ‘...’) while keeping spelling/numeral rules active!
+                List<(int Start, int End)>? balancedQuoteRanges = ComputeBalancedQuoteRanges(text);
+
                 // 5. Colloquial-to-Literary (ရုံးသုံး / စာပေ အရေးအသား) Rules
                 foreach (var rule in ColloquialRules)
                 {
@@ -2936,8 +2968,11 @@ namespace MyanmarSpellChecker.Core.Nlp
 
                     foreach (Match m in rule.Pattern.Matches(text))
                     {
-                        if (OverlapsExistingIssue(issues, m.Index, m.Length))
+                        if (IsInsideAnyRange(balancedQuoteRanges, m.Index, m.Length) ||
+                            OverlapsExistingIssue(issues, m.Index, m.Length))
+                        {
                             continue;
+                        }
 
                         issues.Add(new ProofingIssue
                         {
@@ -2965,7 +3000,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     }
                 }
 
-                // 6a. 'အား' vs 'ကို' particle misuse (with Maung Khin Min's Double-'ကို' & Causative '-စေ' Exemption!)
+                // 6a. 'အား' vs 'ကို' particle misuse (with Maung Khin Min's Double-'ကို', 'အဖြစ်', & Causative '-စေ' Clause-Level Exemption!)
                 if (hasAh)
                 {
                     foreach (Match m in AhInsteadOfKoPattern.Matches(text))
@@ -2975,12 +3010,51 @@ namespace MyanmarSpellChecker.Core.Nlp
                             continue;
                         string verb = m.Groups["Verb"].Value;
 
-                        // Exemption reasoning: If another 'ကို', role marker 'အဖြစ်' (Gazette appointment formula), or causative '-စေ' exists nearby in the same clause, 'အား' is grammatically licensed!
-                        int winStart = Math.Max(0, pGroup.Index - 24);
-                        int winEnd = Math.Min(text.Length, m.Index + m.Length + 24);
-                        string clauseWindow = text.Substring(winStart, winEnd - winStart);
-                        if (clauseWindow.Contains("ကို") || clauseWindow.Contains("စေ") || clauseWindow.Contains("အဖြစ်"))
+                        // Exemption reasoning: If another direct-object postposition 'ကို', role marker 'အဖြစ်' (Gazette appointment formula),
+                        // or causative '-စေ' exists within the SAME predicate clause (bounded by ၊ / ။ / newline AND sequential clause-chaining markers ပြီး / ၍ / သဖြင့် / ကာ), 'အား' is grammatically licensed!
+                        int winStart = pGroup.Index;
+                        int minBound = Math.Max(0, pGroup.Index - 120);
+                        while (winStart > minBound)
+                        {
+                            char ch = text[winStart - 1];
+                            if (ch == '\u104A' || ch == '\u104B' || ch == '\r' || ch == '\n')
+                                break;
+                            winStart--;
+                        }
+
+                        int verbEnd = m.Index + m.Length;
+                        int winEnd = verbEnd;
+                        int maxBound = Math.Min(text.Length, verbEnd + 80);
+                        while (winEnd < maxBound)
+                        {
+                            char ch = text[winEnd];
+                            if (ch == '\u104A' || ch == '\u104B' || ch == '\r' || ch == '\n')
+                                break;
+                            winEnd++;
+                        }
+
+                        string leftClause = text.Substring(winStart, pGroup.Index - winStart);
+                        MatchCollection leftSplits = ClauseChainingConjunctionRegex.Matches(leftClause);
+                        if (leftSplits.Count > 0)
+                        {
+                            Match lastSplit = leftSplits[leftSplits.Count - 1];
+                            leftClause = leftClause.Substring(lastSplit.Index + lastSplit.Length);
+                        }
+
+                        string rightClause = text.Substring(verbEnd, winEnd - verbEnd);
+                        Match rightSplit = ClauseChainingConjunctionRegex.Match(rightClause);
+                        if (rightSplit.Success)
+                        {
+                            rightClause = rightClause.Substring(0, rightSplit.Index);
+                        }
+
+                        string clauseWindow = leftClause + m.Value + rightClause;
+                        if (clauseWindow.IndexOf("စေ", StringComparison.Ordinal) >= 0 ||
+                            clauseWindow.IndexOf("အဖြစ်", StringComparison.Ordinal) >= 0 ||
+                            LicensingKoParticleInClauseRegex.IsMatch(clauseWindow))
+                        {
                             continue;
+                        }
 
                         issues.Add(new ProofingIssue
                         {
@@ -3575,6 +3649,80 @@ namespace MyanmarSpellChecker.Core.Nlp
                     }
                 }
             });
+        }
+
+        private static List<(int Start, int End)>? ComputeBalancedQuoteRanges(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return null;
+
+            bool hasAnyQuoteChar = false;
+            int len = text.Length;
+            for (int k = 0; k < len; k++)
+            {
+                char c = text[k];
+                if (c == '\u201C' || c == '"' || c == '\u2018')
+                {
+                    hasAnyQuoteChar = true;
+                    break;
+                }
+            }
+            if (!hasAnyQuoteChar)
+                return null;
+
+            List<(int Start, int End)>? ranges = null;
+            int i = 0;
+            while (i < len)
+            {
+                char ch = text[i];
+                char expectedClose = '\0';
+                int maxSpan = 0;
+                if (ch == '\u201C') { expectedClose = '\u201D'; maxSpan = 800; }
+                else if (ch == '"') { expectedClose = '"'; maxSpan = 600; }
+                else if (ch == '\u2018') { expectedClose = '\u2019'; maxSpan = 400; }
+
+                if (expectedClose != '\0')
+                {
+                    int limit = Math.Min(len, i + maxSpan);
+                    int closeIdx = -1;
+                    for (int j = i + 1; j < limit; j++)
+                    {
+                        char cj = text[j];
+                        if (cj == '\r' || cj == '\n')
+                            break;
+                        if (cj == expectedClose)
+                        {
+                            closeIdx = j;
+                            break;
+                        }
+                    }
+
+                    if (closeIdx > i + 1)
+                    {
+                        ranges ??= new List<(int Start, int End)>(4);
+                        ranges.Add((i + 1, closeIdx));
+                        i = closeIdx + 1;
+                        continue;
+                    }
+                }
+                i++;
+            }
+
+            return ranges;
+        }
+
+        private static bool IsInsideAnyRange(List<(int Start, int End)>? ranges, int index, int length)
+        {
+            if (ranges == null)
+                return false;
+            int end = index + length;
+            for (int i = 0; i < ranges.Count; i++)
+            {
+                var r = ranges[i];
+                if (index >= r.Start && end <= r.End)
+                    return true;
+            }
+            return false;
         }
     }
 }
