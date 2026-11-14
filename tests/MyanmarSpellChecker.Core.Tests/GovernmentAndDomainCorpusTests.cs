@@ -3530,5 +3530,164 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.True(defects.Count == 0,
                 $"Expected 0 whole-corpus validation defects across {master.Entries.Count} entries, {master.OrthographyRules.Count} rules, {master.ContextRules.Count} context rules, and {master.WordBigrams.Count} bigrams, but found {defects.Count}: {string.Join(" || ", defects.Take(8))}");
         }
+
+        [Fact]
+        public void V62_SemanticDomainAndSelfProofingDictionaryGate()
+        {
+            var master = EncryptedDictionaryRepository.ParseFromJsonFile(TestPaths.MasterJsonPath);
+            var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
+            MyanmarTrie trie = repo.LoadIntoTrie(AntiTamperGuard.ReconstructProtectedFallbackKey());
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            var byWord = master.Entries
+                .GroupBy(e => e.Word, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+
+            string ExtractDomain(string usageNote)
+            {
+                if (string.IsNullOrEmpty(usageNote))
+                    return string.Empty;
+                string[] segs = usageNote.Split(new[] { " | " }, StringSplitOptions.RemoveEmptyEntries);
+                for (int i = 0; i < segs.Length; i++)
+                {
+                    string seg = segs[i].Trim();
+                    if (seg.StartsWith("နယ်ပယ်:", StringComparison.Ordinal))
+                        return seg.Substring("နယ်ပယ်:".Length).Trim();
+                }
+                return string.Empty;
+            }
+
+            var forbiddenSuttaDomains = new HashSet<string>(StringComparer.Ordinal)
+            {
+                UnicodeNormalizer.NormalizeCanonicalOrder("ရူပဗေဒ နှင့် နက္ခတ္တဗေဒ"),
+                UnicodeNormalizer.NormalizeCanonicalOrder("ဇီဝဗေဒ နှင့် သဘာဝပတ်ဝန်းကျင်"),
+                UnicodeNormalizer.NormalizeCanonicalOrder("ဓာတုဗေဒ"),
+                UnicodeNormalizer.NormalizeCanonicalOrder("သင်္ချာ နှင့် နည်းပညာ"),
+                UnicodeNormalizer.NormalizeCanonicalOrder("ဆေးပညာ"),
+                UnicodeNormalizer.NormalizeCanonicalOrder("သိပ္ပံပညာ")
+            };
+            var genericGeoNouns = new HashSet<string>(StringComparer.Ordinal) { "မြို့နယ်", "ခရိုင်", "ပြည်နယ်" };
+
+            var domainDefects = new List<string>();
+            var classifierDefects = new List<string>();
+            var wikiAndWordJoinerDefects = new List<string>();
+            var crossMorphemeDefects = new List<string>();
+
+            var wordJoinerRx = new System.Text.RegularExpressions.Regex(@"[\u2060-\u206F]", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+            foreach (var e in master.Entries)
+            {
+                string mc = e.MeaningCue ?? string.Empty;
+                string un = e.UsageNote ?? string.Empty;
+                string dom = ExtractDomain(un);
+
+                // 1. Buddhist Suttas / Theras / Theris must never carry hallucinated Science/Math/Medical domains
+                if (!string.IsNullOrEmpty(dom) &&
+                    (e.Word.EndsWith("ထေရ်", StringComparison.Ordinal) ||
+                     e.Word.EndsWith("ထေရီ", StringComparison.Ordinal) ||
+                     (e.Word.EndsWith("သုတ်", StringComparison.Ordinal) &&
+                      e.Word != "ကျွေယေသုတ်" &&
+                      mc.IndexOf("သုတ်လိမ်း", StringComparison.Ordinal) < 0 &&
+                      mc.IndexOf("ဆေးသုတ်", StringComparison.Ordinal) < 0)))
+                {
+                    if (forbiddenSuttaDomains.Contains(dom))
+                        domainDefects.Add($"BuddhistEntityMisclassified '{e.Word}' -> '{dom}'");
+                }
+
+                // 2. Specific Townships / Districts / States must never carry Biology or Literature domains
+                if (!string.IsNullOrEmpty(dom) && !genericGeoNouns.Contains(e.Word) &&
+                    (e.Word.EndsWith("မြို့နယ်", StringComparison.Ordinal) ||
+                     e.Word.EndsWith("ခရိုင်", StringComparison.Ordinal) ||
+                     e.Word.EndsWith("ပြည်နယ်", StringComparison.Ordinal)))
+                {
+                    if (dom.IndexOf("ဇီဝဗေဒ", StringComparison.Ordinal) >= 0 ||
+                        dom.IndexOf("စာပေ", StringComparison.Ordinal) >= 0)
+                    {
+                        domainDefects.Add($"GeoEntityMisclassified '{e.Word}' -> '{dom}'");
+                    }
+                }
+
+                // 3. Classifier segments must have zero '..etc', '..', or duplicate items
+                if (un.IndexOf("မျိုးပြပစ္စည်း:", StringComparison.Ordinal) >= 0)
+                {
+                    foreach (string seg in un.Split(new[] { " | " }, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        string trimmed = seg.Trim();
+                        if (!trimmed.StartsWith("မျိုးပြပစ္စည်း:", StringComparison.Ordinal))
+                            continue;
+                        string clfVal = trimmed.Substring("မျိုးပြပစ္စည်း:".Length).Trim();
+                        if (clfVal.IndexOf("etc", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            clfVal.IndexOf("..", StringComparison.Ordinal) >= 0)
+                        {
+                            classifierDefects.Add($"ClassifierNoise '{e.Word}': '{trimmed}'");
+                        }
+                        string[] items = clfVal.Split(new[] { '၊', ',' }, StringSplitOptions.RemoveEmptyEntries)
+                            .Select(x => x.Trim())
+                            .Where(x => x.Length > 0)
+                            .ToArray();
+                        if (items.Length != items.Distinct(StringComparer.Ordinal).Count())
+                            classifierDefects.Add($"DuplicateClassifier '{e.Word}': '{trimmed}'");
+                    }
+                }
+
+                // 4. Zero Wiki brackets, horizontal '---' separators, '===', or U+2060 word joiners
+                if (mc.Contains("[[") || mc.Contains("]]") || un.Contains("[[") || un.Contains("]]") ||
+                    mc.Contains("===") || un.Contains("===") || mc.Contains("---") || un.Contains("---") ||
+                    wordJoinerRx.IsMatch(mc) || wordJoinerRx.IsMatch(un) || wordJoinerRx.IsMatch(e.Word))
+                {
+                    wikiAndWordJoinerDefects.Add($"WikiOrJoiner '{e.Word}': cue='{mc}' | note='{un}'");
+                }
+
+                // 5. Cross-morpheme safety check across all prose
+                if (mc.Contains("မေမြင်းမိုရ်") || un.Contains("မေမြင်းမိုရ်") ||
+                    mc.Contains("ဂီတစ်နည်း") || un.Contains("ဂီတစ်နည်း") ||
+                    mc.Contains("လိပ်၊ rayon") || un.Contains("လိပ်၊ rayon") ||
+                    mc.Contains("လိပ်၊ မောသည") || un.Contains("လိပ်၊ မောသည"))
+                {
+                    crossMorphemeDefects.Add($"CrossMorphemeOrEtymCorruption '{e.Word}': cue='{mc}' | note='{un}'");
+                }
+            }
+
+            Assert.True(domainDefects.Count == 0, $"Expected 0 semantic domain misclassifications, got {domainDefects.Count}: {string.Join(" || ", domainDefects.Take(8))}");
+            Assert.True(classifierDefects.Count == 0, $"Expected 0 classifier defects, got {classifierDefects.Count}: {string.Join(" || ", classifierDefects.Take(8))}");
+            Assert.True(wikiAndWordJoinerDefects.Count == 0, $"Expected 0 wiki/joiner remnants, got {wikiAndWordJoinerDefects.Count}: {string.Join(" || ", wikiAndWordJoinerDefects.Take(8))}");
+            Assert.True(crossMorphemeDefects.Count == 0, $"Expected 0 cross-morpheme/etymology corruptions, got {crossMorphemeDefects.Count}: {string.Join(" || ", crossMorphemeDefects.Take(8))}");
+
+            // 6. Targeted Entity Domain & Attribution Verifications
+            string expectedBuddhism = UnicodeNormalizer.NormalizeCanonicalOrder("ဗုဒ္ဓဘာသာ နှင့် ဒဿနိကဗေဒ");
+            string expectedGeo = UnicodeNormalizer.NormalizeCanonicalOrder("ပထဝီဝင် နှင့် ဒေသန္တရ");
+            string expectedLit = UnicodeNormalizer.NormalizeCanonicalOrder("စာပေ နှင့် ဘာသာစကား");
+            string expectedArts = UnicodeNormalizer.NormalizeCanonicalOrder("အနုပညာ နှင့် ဂီတ");
+
+            Assert.Contains(byWord["ဩရမ္ဘာဂိယသုတ်"], e => ExtractDomain(e.UsageNote) == expectedBuddhism);
+            Assert.Contains(byWord["ဩဝါဒသုတ်"], e => ExtractDomain(e.UsageNote) == expectedBuddhism);
+            Assert.Contains(byWord["ဩဘာသ"], e => ExtractDomain(e.UsageNote) == expectedBuddhism);
+            Assert.Contains(byWord["ဩဋိသာပြည်နယ်"], e => ExtractDomain(e.UsageNote) == expectedGeo);
+            Assert.Contains(byWord["ဩရိန်းပြည်နယ်"], e => ExtractDomain(e.UsageNote) == expectedGeo);
+            Assert.Contains(byWord["သိပ္ပံမောင်ဝ"], e => ExtractDomain(e.UsageNote) == expectedLit);
+            Assert.Contains(byWord["ထက်ထက်ထွန်း"], e => ExtractDomain(e.UsageNote) == expectedArts);
+            Assert.Contains(byWord["ကျောက်ဆည်တက္ကသိုလ်"], e => (e.MeaningCue + " " + e.UsageNote).Contains("ဘူမိဗေဒ"));
+
+            // 7. Repaired Shifted-Medial Encyclopedia Titles & Konbaung Royal 'စုဖုရား*' Protection
+            Assert.True(byWord.ContainsKey("ကမ္ဘောဇသာဒီရွှေနန်းတော်"), "Expected repaired title 'ကမ္ဘောဇသာဒီရွှေနန်းတော်'.");
+            Assert.False(byWord.ContainsKey("ကမ္ဘောဇသာဒီရွနှေန်းတော်"), "Mojibake title 'ကမ္ဘောဇသာဒီရွနှေန်းတော်' must not remain.");
+            Assert.True(byWord.ContainsKey("ကြွေရည်သုတ်ခြင်း"), "Expected repaired title 'ကြွေရည်သုတ်ခြင်း'.");
+            Assert.False(byWord.ContainsKey("ကြရွေည်သုတ်ခြင်း"), "Mojibake title 'ကြရွေည်သုတ်ခြင်း' must not remain.");
+
+            Assert.True(trie.ContainsExactWord("စုဖုရားလတ်"));
+            Assert.True(trie.ContainsExactWord("စုဖုရားကြီး"));
+            Assert.True(trie.ContainsExactWord("စုဖုရားကလေး"));
+            var konbaungIssues = formalEngine.CheckText("မင်းတုန်းမင်းနှင့် စုဖုရားလတ်တို့သည် မန္တလေးမြို့၌ စံမြန်းခဲ့သည်။");
+            Assert.True(konbaungIssues.Count == 0,
+                $"Expected 0 false positives on 'စုဖုရားလတ်', got: {string.Join("; ", konbaungIssues.Select(i => i.OriginalText))}");
+
+            // 8. Self-Proofed Prose, Grammar & Etymology Spot-Checks
+            Assert.Contains(byWord["ဩဗဒိအနာဂတ္တိကျမ်း"], e => (e.MeaningCue ?? "").Contains("ကျမ်းစာတစ်အုပ်လုံးတွင်"));
+            Assert.Contains(byWord["ဩဘာပေး"], e => (e.UsageNote ?? "").Contains("ကောင်းချီးဩဘာပေးသည်"));
+            Assert.Contains(byWord["ဩဘာသ"], e => (e.MeaningCue ?? "").Contains("ဇာတ်ကြီးဆယ်ဖွဲ့") && (e.MeaningCue ?? "").Contains("မပြုစုနိုင်ဘဲ"));
+            Assert.Contains(byWord["ဩဌဌာန်"], e => (e.UsageNote ?? "").Contains("တို့ဖြစ်ပေါ်၏"));
+            Assert.Contains(byWord["ဩရသ"], e => (e.UsageNote ?? "").Contains("မျိုးပြပစ္စည်း: ယောက်၊ ဦး"));
+            Assert.Contains(byWord["အာဂွန်"], e => (e.UsageNote ?? "").Contains("အင်္ဂလိပ်၊ argon"));
+        }
     }
 }
