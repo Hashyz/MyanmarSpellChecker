@@ -978,7 +978,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             string clean = gloss.Trim();
             if (clean.Length <= maxChars)
                 return clean;
-            return clean.Substring(0, maxChars - 1).TrimEnd() + "…";
+            return MyanmarSpellChecker.Core.Nlp.MyanmarSyllableBreaker.TruncateAtSyllableBoundary(clean, maxChars, "…");
         }
     }
 }

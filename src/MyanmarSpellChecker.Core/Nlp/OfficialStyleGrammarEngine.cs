@@ -66,7 +66,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             @"(?<Prefix>ဒါပေ|သို့ပေ)(?<Target>မယ့်)");
 
         private static readonly Regex MisspelledVerbOhnPattern = new Regex(
-            @"(?<Prefix>ပါ|သွား|လာ|စား|သောက်|နေ|ထိုင်|ပြော|ပြ|ကြည့်|လုပ်|နား|အိပ်|စောင့်|ဖတ်|ရေး|မေး|ဖြေ|ဝယ်|ယူ|ပေး|လိုက်|ကြ|ညီ|ခေါ်|ထည့်|ကိုင်|ဖွင့်|ပိတ်|ပြန်|တင်|စမ်း|တွေး|ရှာ)(?<Target>အုန်း|အုံး)(?![\u102B-\u103E]|သီး|ပင်|ရည်|နို့|ဆီ|မှုတ်|ကျွက်)");
+            @"(?<Prefix>ပါ|သွား|လာ|စား|သောက်|နေ|ထိုင်|ပြော|ပြ|ကြည့်|လုပ်|နား|အိပ်|စောင့်|ဖတ်|ရေး|မေး|ဖြေ|ဝယ်|ယူ|ပေး|လိုက်|ကြ|ညီ|ခေါ်|ထည့်|ကိုင်|ဖွင့်|ပိတ်|ပြန်|(?<!ခု|င)တင်|စမ်း|တွေး|ရှာ)(?<Target>အုန်း|အုံး)(?![\u102B-\u103E]|သီး|ပင်|ရည်|နို့|ဆီ|မှုတ်|ကျွက်|တား)");
 
         // Dropped 'တ်' coda on 'ဟုတ်-' before verbal/polite/interrogative suffixes (e.g. 'ဟုလား -> ဟုတ်လား', 'ဟုကဲ့ -> ဟုတ်ကဲ့', 'ဟုကဲ့ပါ -> ဟုတ်ကဲ့ပါ', 'ဟုတယ် -> ဟုတ်တယ်', 'ဟုပီ -> ဟုတ်ပြီ')
         // Guards Pali stems (ဗဟု, လဟု, ရာဟု) and literary clause-ending quotes (ပြီဟု, သည်ဟု, မည်ဟု, လော့ဟု, သနည်းဟု), while allowing trailing polite particles (ပါ, ရှင့်, ဗျာ, နော်, ခင်ဗျား, etc.)
@@ -98,9 +98,9 @@ namespace MyanmarSpellChecker.Core.Nlp
         private static readonly Regex CasualPaPeePattern = new Regex(
             @"(?<=[\u1000-\u103F])(?<Target>ပါပီ)(?![\u102B-\u103E]|ယွန်)");
 
-        // Clause-final '[Verb] + ပီ' -> 'ပြီ' (guards legitimate 'ပီ' loanwords & place/noun compounds like ကော်ပီ, ရူပီ, မတူပီ, ကပီ, ပီပီ, ပီလားကောင်)
+        // Clause-final '[Verb] + ပီ' -> 'ပြီ' (guards legitimate 'ပီ' loanwords & place/noun compounds like ကော်ပီ, ရူပီ, မတူပီ, ကပီ, ပီပီ, ပီလားကောင်, စကားပီ, ခရုသပီ)
         private static readonly Regex CasualClauseFinalPiPattern = new Regex(
-            @"(?<=[\u1000-\u103F])(?<!ကော်|ဂေါ်|ရူ|မတူ|က|ပီ|တီ|ဂျီ|စီ|ဒီ|အီး|ဗီ|အေ|ဘီ|ကေ|အိုင်|ထရို|ဟစ်)(?<Target>\u1015\u102E)(?=(?:လား(?!ကောင်)|နော်|ကွာ|ကွ|ဗျာ|ဗျ|ရှင်|ရှင့်|ပေါ့|လေ|ဟ)(?=\s|$|[\u104A\u104B?])|\s*[\u104B]|$)");
+            @"(?<=[\u1000-\u103F])(?<!ကော်|ဂေါ်|ရူ|မတူ|က|ပီ|တီ|ဂျီ|စီ|ဒီ|အီး|ဗီ|အေ|ဘီ|ကေ|အိုင်|ထရို|ဟစ်|စကား|အသံ|လေသံ|ခရုသ|ပိန်း|လိုင်လင်း|ဟမ်|ပရင်စီ|ဟိုမိုတို|အင်သာ)(?<Target>\u1015\u102E)(?=(?:လား(?!ကောင်)|နော်|ကွာ|ကွ|ဗျာ|ဗျ|ရှင်|ရှင့်|ပေါ့|လေ|ဟ)(?=\s|$|[\u104A\u104B?])|\s*(?:[\u104A\u104B]|$)|\s+(?:ဖြစ်|ဟု|လို့|ဆိုပြီး))");
 
         // Sequential 'ပြီး' misspelled as 'ပြီ' before linkers ('ပြီတော့/ပြီရင်/ပြီမှ') or serial verbs ('စားပြီ သွားမယ်')
         private static readonly Regex MisusedSequentialPyeePattern = new Regex(
@@ -221,9 +221,15 @@ namespace MyanmarSpellChecker.Core.Nlp
             ),
             // Animals -> ကောင် (excludes ambiguous 'ကျား' which means 'Male [human gender]' in census/police reports like 'တရားခံ ကျား ၅၉ ဦး'!)
             (
-                new[] { "ခွေး", "ကြောင်", "နွား", "မြင်း", "ဆင်", "ကျား", "ခြင်္သေ့", "ငှက်", "ကြက်", "ဝက်", "ဆိတ်", "သိုး", "ယုန်" },
-                new Regex(@"(?:ခွေး|ကြောင်|နွား|မြင်း|ဆင်|ကျားသစ်|တောကျား|ခြင်္သေ့|ငှက်|ကြက်|ဝက်|ဆိတ်|သိုး|ယုန်)\s*(?<Num>" + MyanmarNumeralCore + @")\s*(?<Wrong>ယောက်|ဦး|ပါး|စီး|လုံး|ထည်|အုပ်|ရံ)(?![\u102B-\u103E]|[\u1000-\u1021]\u103A)"),
+                new[] { "ခွေး", "ကြောင်", "နွား", "ကျား", "ခြင်္သေ့", "ငှက်", "ကြက်", "ဝက်", "ဆိတ်", "သိုး", "ယုန်" },
+                new Regex(@"(?:ခွေး|ကြောင်|နွား|ကျားသစ်|တောကျား|ခြင်္သေ့|ငှက်|ကြက်|ဝက်|ဆိတ်|သိုး|ယုန်)\s*(?<Num>" + MyanmarNumeralCore + @")\s*(?<Wrong>ယောက်|ဦး|ပါး|စီး|လုံး|ထည်|အုပ်|ရံ)(?![\u102B-\u103E]|[\u1000-\u1021]\u103A)"),
                 "ကောင်", "သတ္တဝါ/တိရစ္ဆာန်ပြ မျိုးပြပစ္စည်း ('~ကောင်')"
+            ),
+            // Riding animals (ဆင် / မြင်း) -> ကောင် (or 'စီး' when counted as mounts/royal steeds e.g. 'ဆင်ကိုးစီး', 'မြင်းတစ်စီး')
+            (
+                new[] { "မြင်း", "ဆင်" },
+                new Regex(@"(?:မြင်း|ဆင်)\s*(?<Num>" + MyanmarNumeralCore + @")\s*(?<Wrong>ယောက်|ဦး|ပါး|လုံး|ထည်|အုပ်|ရံ)(?![\u102B-\u103E]|[\u1000-\u1021]\u103A)"),
+                "ကောင်", "သတ္တဝါ/စီးတော်ယာဉ်ပြ မျိုးပြပစ္စည်း ('~ကောင်' သို့မဟုတ် '~စီး')"
             ),
             // Monks / clergy -> ပါး
             (
@@ -378,7 +384,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         // Colloquial dropped pre-verbal 'မ-' before 'ဟုတ်ဘူး/ဟုတ်ဖူး' or 'သိဘူး/သိဖူး' ('ဟုတ်ဘူး -> မဟုတ်ဘူး', 'သိဘူး -> မသိဘူး')
         private static readonly Regex DroppedMaColloquialNegationPattern = new Regex(
-            @"(?:^|[\u104A\u104B]\s*)(?<Clause>[^\u104A\u104B\r\n]{0,56}?)(?<![\u1000-\u103F])(?<Target>(?<Verb>ဟုတ်|သိ)(?:ဘူး|ဖူး))(?=\s*(?:[\u104B?]|$|နော်|ပေါ့|ကွာ|ဗျာ))");
+            @"(?:^|[\u104A\u104B]\s*)(?<Clause>[^\u104A\u104B\r\n]{0,56}?)(?<![\u1000-\u103F])(?<Target>(?<Verb>ဟုတ်|သိ)(?:ဘူး|ဖူး))(?=\s*(?:[\u104A\u104B?""”'’]|$|နော်|ပေါ့|ကွာ|ဗျာ|ဗျ|ရှင်|ရှင့်|လေ|ဟု|လို့|ဆိုပြီး|တဲ့))");
 
         // Incomplete colloquial negation missing 'ဘူး' ('ညနေပိုင်းမှာ ကျွန်တော်တို့ ဘောလုံးမကစား။' -> 'မကစားဘူး')
         private static readonly Regex IncompleteColloquialNegationPattern = new Regex(
@@ -1094,6 +1100,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                         }
                         if (insideNrc) continue;
                     }
+                    if (IsShieldedLexicalTaStem(text, m.Index, m.Length, trie)) continue;
                     string classifier = m.Groups["Classifier"].Value;
                     string correct = "တစ်" + classifier;
                     AddGrammarOrSpellingIssue(
@@ -1251,6 +1258,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             {
                 foreach (Match m in MisspelledVerbOhnPattern.Matches(text))
                 {
+                    if (IsShieldedOfficialWordSpan(text, m.Index, m.Length, trie)) continue;
                     string wrongPart = m.Groups["Target"].Value;
                     string correct = m.Groups["Prefix"].Value + "ဦး";
                     AddGrammarOrSpellingIssue(
@@ -1394,6 +1402,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 foreach (Match m in CasualClauseFinalPiPattern.Matches(text))
                 {
                     Group g = m.Groups["Target"];
+                    if (IsShieldedLexicalPiWord(text, g.Index, g.Length, trie)) continue;
                     AddGrammarOrSpellingIssue(
                         issues, g.Index, g.Length, g.Value, "ပြီ",
                         ProofingIssueType.SpellingError,
@@ -3343,6 +3352,168 @@ namespace MyanmarSpellChecker.Core.Nlp
                     return true;
             }
             return false;
+        }
+
+        private static bool IsMyanmarRunLetterOrMark(char c)
+        {
+            return c >= '\u1000' && c <= '\u103F';
+        }
+
+        private static bool IsBoundaryParticleBeforeProperStem(string syl)
+        {
+            return syl == "က" || syl == "ကို" || syl == "မှ" || syl == "သို့" ||
+                   syl == "၌" || syl == "တွင်" || syl == "မှာ" || syl == "၏" ||
+                   syl == "နှင့်" || syl == "နှင့်" || syl == "ဖြင့်" || syl == "ဖြင့်";
+        }
+
+        private static string ConcatSyllableRange(List<string> syls, int startIdx, int endIdxInclusive)
+        {
+            if (startIdx == endIdxInclusive)
+                return UnicodeNormalizer.NormalizeCanonicalOrder(syls[startIdx]);
+
+            var sb = new System.Text.StringBuilder(24);
+            for (int i = startIdx; i <= endIdxInclusive; i++)
+                sb.Append(syls[i]);
+            return UnicodeNormalizer.NormalizeCanonicalOrder(sb.ToString());
+        }
+
+        private static bool IsShieldedLexicalTaStem(string text, int taIndex, int matchLength, MyanmarTrie? trie)
+        {
+            if (trie == null)
+                return false;
+
+            int runStart = taIndex;
+            while (runStart > 0 && IsMyanmarRunLetterOrMark(text[runStart - 1]))
+                runStart--;
+
+            int runEnd = taIndex + matchLength;
+            while (runEnd < text.Length && IsMyanmarRunLetterOrMark(text[runEnd]))
+                runEnd++;
+
+            string runRaw = text.Substring(runStart, runEnd - runStart);
+            List<string> syls = MyanmarSyllableBreaker.BreakIntoSyllables(runRaw, isPreNormalized: true);
+            if (syls.Count < 2)
+                return false;
+
+            int relTa = taIndex - runStart;
+            int relEnd = relTa + matchLength;
+            int cursor = 0;
+            int taSylIdx = -1;
+            int endSylIdx = -1;
+
+            for (int i = 0; i < syls.Count; i++)
+            {
+                if (cursor == relTa)
+                    taSylIdx = i;
+                cursor += syls[i].Length;
+                if (cursor == relEnd)
+                    endSylIdx = i;
+            }
+
+            if (taSylIdx < 0 || endSylIdx < taSylIdx)
+                return false;
+
+            // 1. Rightward multi-syllable lexical stem starting at 'တ' (e.g. 'တလဟတ်', 'တလလ', 'တလဖက်', 'တလပါ', 'တလန', 'တအုပ်တအာ')
+            for (int r = endSylIdx + 1; r <= Math.Min(syls.Count - 1, taSylIdx + 5); r++)
+            {
+                string rightStem = ConcatSyllableRange(syls, taSylIdx, r);
+                if (trie.ContainsExactWord(rightStem) && !trie.TryGetWrongFormRule(rightStem, out _))
+                    return true;
+            }
+
+            // 2. Multi-syllable stem spanning across 'တ + Classifier' (e.g. 'မဟီတလ', 'ယတလ', 'သွတ်တပတ်')
+            //    or preceding proper/Pali stem ending in 'တ' before Classifier (e.g. 'နီးဂတ' + 'ခရိုင်', 'ယမဂတ' + 'ခရိုင်', 'အခိတ' + 'ခရိုင်')
+            for (int l = 0; l < taSylIdx; l++)
+            {
+                if (l > 0 && !IsBoundaryParticleBeforeProperStem(UnicodeNormalizer.NormalizeCanonicalOrder(syls[l - 1])))
+                    continue;
+
+                string leftBeforeTa = ConcatSyllableRange(syls, l, taSylIdx - 1);
+                bool leftIsStandalone = trie.ContainsExactWord(leftBeforeTa);
+
+                for (int r = endSylIdx; r < syls.Count; r++)
+                {
+                    string spanStem = ConcatSyllableRange(syls, l, r);
+                    if (trie.ContainsExactWord(spanStem) && !trie.TryGetWrongFormRule(spanStem, out _))
+                    {
+                        return true;
+                    }
+                }
+
+                if (taSylIdx - l >= 1)
+                {
+                    string stemEndingTa = ConcatSyllableRange(syls, l, taSylIdx);
+                    if (trie.TryGetExactEntries(stemEndingTa, out var tEntries) &&
+                        tEntries != null && tEntries.Count > 0 &&
+                        !trie.TryGetWrongFormRule(stemEndingTa, out _) &&
+                        (!leftIsStandalone || (taSylIdx - l >= 2 && (tEntries[0].PosTag == "PROPN" || tEntries[0].IsOfficialThatpon))))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsShieldedLexicalPiWord(string text, int piIndex, int piLength, MyanmarTrie? trie)
+        {
+            if (trie == null)
+                return false;
+
+            int runStart = piIndex;
+            while (runStart > 0 && IsMyanmarRunLetterOrMark(text[runStart - 1]))
+                runStart--;
+
+            int runEnd = piIndex + piLength;
+            while (runEnd < text.Length && IsMyanmarRunLetterOrMark(text[runEnd]))
+                runEnd++;
+
+            if (runEnd - runStart <= piLength)
+                return false;
+
+            string wordEndingAtPi = UnicodeNormalizer.NormalizeCanonicalOrder(
+                text.Substring(runStart, (piIndex + piLength) - runStart));
+            if (wordEndingAtPi.Length > piLength &&
+                trie.ContainsExactWord(wordEndingAtPi) &&
+                !trie.TryGetWrongFormRule(wordEndingAtPi, out _))
+            {
+                return true;
+            }
+
+            if (runEnd > piIndex + piLength)
+            {
+                string fullWord = UnicodeNormalizer.NormalizeCanonicalOrder(
+                    text.Substring(runStart, runEnd - runStart));
+                if (trie.ContainsExactWord(fullWord) && !trie.TryGetWrongFormRule(fullWord, out _))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsShieldedOfficialWordSpan(string text, int matchIndex, int matchLength, MyanmarTrie? trie)
+        {
+            if (trie == null)
+                return false;
+
+            int runStart = matchIndex;
+            while (runStart > 0 && IsMyanmarRunLetterOrMark(text[runStart - 1]))
+                runStart--;
+
+            int runEnd = matchIndex + matchLength;
+            while (runEnd < text.Length && IsMyanmarRunLetterOrMark(text[runEnd]))
+                runEnd++;
+
+            if (runEnd - runStart <= matchLength)
+                return false;
+
+            string fullWord = UnicodeNormalizer.NormalizeCanonicalOrder(
+                text.Substring(runStart, runEnd - runStart));
+            return trie.TryGetExactEntries(fullWord, out var entries) &&
+                   entries != null && entries.Count > 0 &&
+                   entries[0].IsOfficialThatpon &&
+                   !trie.TryGetWrongFormRule(fullWord, out _);
         }
 
         private static void AddGrammarOrSpellingIssue(

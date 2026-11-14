@@ -634,7 +634,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                 if (trimmed.Length <= 45 && _onLookupWordInTaskPane != null)
                 {
-                    string preview = trimmed.Length > 22 ? trimmed.Substring(0, 20) + "…" : trimmed;
+                    string preview = trimmed.Length > 22
+                        ? MyanmarSyllableBreaker.TruncateAtSyllableBoundary(trimmed, 22, "…")
+                        : trimmed;
                     var lookupBtn = (Office.CommandBarButton)bar.Controls.Add(
                         Office.MsoControlType.msoControlButton, Before: pos++, Temporary: true);
                     lookupBtn.Tag = MenuTag;
@@ -681,7 +683,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 if (rewrite.ReplacementCount > 0 && rewrite.RewrittenText != trimmed)
                 {
                     string rwText = rewrite.RewrittenText;
-                    string rwPreview = rwText.Length > 28 ? rwText.Substring(0, 26) + "…" : rwText;
+                    string rwPreview = rwText.Length > 28
+                        ? MyanmarSyllableBreaker.TruncateAtSyllableBoundary(rwText, 28, "…")
+                        : rwText;
                     var rwBtn = (Office.CommandBarButton)bar.Controls.Add(
                         Office.MsoControlType.msoControlButton, Before: pos++, Temporary: true);
                     rwBtn.Tag = MenuTag;

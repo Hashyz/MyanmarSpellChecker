@@ -823,7 +823,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
                 string cleanContext = (entry.ContextSnippet ?? string.Empty).Replace("\r", " ").Replace("\n", " ").Trim();
                 if (cleanContext.Length > 180)
-                    cleanContext = cleanContext.Substring(0, 180) + "…";
+                    cleanContext = MyanmarSpellChecker.Core.Nlp.MyanmarSyllableBreaker.TruncateAtSyllableBoundary(cleanContext, 180, "…");
 
                 _lblContextPreview.Text = UiLocalizer.Pick(
                     $"[{entry.LocationLabel}] Context — {cleanContext}",
@@ -934,7 +934,10 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         private static string TruncateCue(string text, int maxChars)
         {
             string clean = text.Replace("\r", " ").Replace("\n", " ").Trim();
-            return clean.Length <= maxChars ? clean : clean.Substring(0, maxChars) + "…";
+            int limit = Math.Max(maxChars, 38);
+            return clean.Length <= limit
+                ? clean
+                : MyanmarSpellChecker.Core.Nlp.MyanmarSyllableBreaker.TruncateAtSyllableBoundary(clean, limit, "…");
         }
 
         private static void EnableDoubleBuffering(Control ctrl)

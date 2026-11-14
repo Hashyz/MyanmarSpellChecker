@@ -357,6 +357,34 @@ namespace MyanmarSpellChecker.Core.Nlp
                 "ချဉ် (အရသာ~၊ ချဉ်ပေါင်ရွက်)",
                 "ချဉ်ပေါင်ပင်/ချဉ်ပေါင်ရွက်ကို 'ချဉ်' (ဉကလေးသတ်) ဖြင့် ရေးသားရမည်။"
             ),
+            new CollocationRule(
+                @"(?:ဟင်းရည်|ချဉ်ရည်|သံပရာသီး|မန်ကျည်းသီး|သရက်သီး|အရသာ)[^\u104A\u104B\r\n]{0,14}?(?<Target>ချည်)(?=နေ|လှ|လွန်း|သွား|သည်|တယ်|ပါ|သော|သည့်)",
+                "Target",
+                "ချဉ်",
+                "ချဉ် (အရသာ~သည်)",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ အရသာချဉ်ခြင်းကို 'ချဉ်' (ဉကလေးသတ်) ဖြင့် ရေးသားရမည် ('ချည်' သည် ကြိုးချည်ခြင်း/ချည်မျှင် ဖြစ်သည်)။"
+            ),
+            new CollocationRule(
+                @"(?:လျော်ကြေး|နစ်နာကြေး|ဒဏ်ကြေး|အကြွေး|ပျက်စီးဆုံးရှုံးမှု|ဆုံးရှုံးမှုတန်ဖိုး)[^\u104A\u104B\r\n]{0,18}?(?<Target>လျှော်)(?=ပေး|ရ|မည်|သည်|ရန်|ခိုင်း|စေ)",
+                "Target",
+                "လျော်",
+                "လျော် (အစားပြန်ပေး~သည်၊ လျော်ကြေး)",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ နစ်နာကြေး/တန်ဖိုး အစားပြန်ပေးလျော်ခြင်းကို ဟထိုးမပါဘဲ 'လျော်' ဟု ရေးသားရမည် ('လျှော်' သည် အဝတ်/ခေါင်း လျှော်ဖွပ်ခြင်း ဖြစ်သည်)။"
+            ),
+            new CollocationRule(
+                @"(?:အဝတ်အစား|အဝတ်အထည်|အင်္ကျီ|ပုဆိုး|ထဘီ|စောင်|ခြင်ထောင်|ဆံပင်)[^\u104A\u104B\r\n]{0,18}?(?<Target>လျော်)(?=ဖွပ်|ပေး|ပြီး|နေ|ထား|ရန်|သည်)",
+                "Target",
+                "လျှော်",
+                "လျှော် (ရေ/ဆပ်ပြာဖြင့် အဝတ်~ဖွပ်သည်)",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ အဝတ်အထည်/ဆံပင် ရေဖြင့် လျှော်ဖွပ်ခြင်းကို ဟထိုးဖြင့် 'လျှော်' ဟု ရေးသားရမည် ('လျော်' သည် လျော်ကြေးပေးလျော်ခြင်း/သင့်လျော်ခြင်း ဖြစ်သည်)။"
+            ),
+            new CollocationRule(
+                @"(?<Target>တင်ပြွေဆေးနွေး)",
+                "Target",
+                "တင်ပြဆွေးနွေး",
+                "တင်ပြဆွေးနွေး (အစည်းအဝေး၌ တင်ပြ၍ ဆွေးနွေးသည်)",
+                "ဝဆွဲ ('ွ') နေရာလွဲမှားနေပါသည် — 'တင်ပြွေဆေးနွေး' အစား 'တင်ပြဆွေးနွေး' ဟု ရေးသားရမည်။"
+            ),
 
             // 5. စဉ် (order/sequence) vs စည် (prosper/drum) vs စည်း (rule/boundary)
             new CollocationRule(
@@ -1778,10 +1806,13 @@ namespace MyanmarSpellChecker.Core.Nlp
                         continue;
                     }
 
-                    // Do not apply 1-syllable word-level context rules to an interior syllable glued inside an unspaced compound
+                    // Do not apply 1-syllable word-level context rules to an interior syllable glued inside an unspaced lexical compound,
+                    // EXCEPT when the right neighbor is a post-verbal suffix/particle (e.g. 'အလွန်ချည်နေပါသည်', 'ဈေးလျော့ပေးသည်')
                     if (tok.SyllableCount == 1 &&
                         i > 0 && wordTokens[i - 1].EndIndex == tok.StartIndex &&
-                        i + 1 < wordTokens.Count && tok.EndIndex == wordTokens[i + 1].StartIndex)
+                        i + 1 < wordTokens.Count && tok.EndIndex == wordTokens[i + 1].StartIndex &&
+                        !ProtectedFunctionWords.Contains(wordTokens[i + 1].NormText) &&
+                        !GenericSyntacticParticles.Contains(wordTokens[i - 1].NormText))
                     {
                         continue;
                     }

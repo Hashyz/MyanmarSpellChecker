@@ -140,7 +140,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 return string.Empty;
 
             string trimmed = text!.Trim();
-            return trimmed.Length <= 240 ? trimmed : trimmed.Substring(0, 240) + "…";
+            return trimmed.Length <= 240
+                ? trimmed
+                : MyanmarSpellChecker.Core.Nlp.MyanmarSyllableBreaker.TruncateAtSyllableBoundary(trimmed, 240, "…");
         }
 
         /// <summary>

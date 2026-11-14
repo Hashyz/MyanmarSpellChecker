@@ -417,6 +417,131 @@ namespace MyanmarSpellChecker.Core.Nlp
             return true;
         }
 
+        /// <summary>
+        /// Truncates <paramref name="text"/> to at most <paramref name="maxChars"/> UTF-16 code units without
+        /// ever slicing mid-Myanmar-syllable, mid-surrogate-pair, or (whenever a space/punctuation boundary exists
+        /// in the second half of the budget) mid-word. Strips trailing orphan punctuation and balances open parentheses.
+        /// </summary>
+        public static string TruncateAtSyllableBoundary(string? text, int maxChars, string ellipsis = "…")
+        {
+            if (string.IsNullOrEmpty(text))
+                return string.Empty;
+
+            string src = text!;
+            if (maxChars <= 0)
+                return string.Empty;
+            if (src.Length <= maxChars)
+                return src;
+
+            if (ellipsis == null)
+                ellipsis = "…";
+
+            int budget = maxChars - ellipsis.Length;
+            if (budget <= 0)
+                return ellipsis.Length <= maxChars ? ellipsis : ellipsis.Substring(0, maxChars);
+
+            int textLen = src.Length;
+            int pos = 0;
+            int lastSyllableOrTokenEnd = 0;
+            int lastWordBoundaryEnd = 0;
+
+            while (pos < textLen)
+            {
+                ScanNextToken(src, pos, out int tokLen, out TokenKind kind);
+                if (tokLen <= 0)
+                    break;
+
+                int end = pos + tokLen;
+                if (end > budget)
+                {
+                    if (pos == 0)
+                    {
+                        if (kind == TokenKind.Other)
+                        {
+                            int cutOther = budget;
+                            if (cutOther > 1 && char.IsHighSurrogate(src[cutOther - 1]))
+                                cutOther--;
+                            lastSyllableOrTokenEnd = cutOther;
+                        }
+                        else if (tokLen <= 14)
+                        {
+                            // Never split the first Myanmar syllable into orphan base/combining chars
+                            lastSyllableOrTokenEnd = end;
+                        }
+                        else
+                        {
+                            int cutSyl = budget;
+                            while (cutSyl > 1 && src[cutSyl] >= '\u102B' && src[cutSyl] <= '\u103E')
+                                cutSyl--;
+                            lastSyllableOrTokenEnd = cutSyl;
+                        }
+                    }
+                    break;
+                }
+
+                if (kind != TokenKind.Whitespace)
+                    lastSyllableOrTokenEnd = end;
+
+                if (kind == TokenKind.Whitespace || kind == TokenKind.MyanmarPunctuation)
+                {
+                    if (pos > 0)
+                        lastWordBoundaryEnd = pos;
+                }
+                else if (end < textLen && IsWordBoundaryFollower(src[end]))
+                {
+                    lastWordBoundaryEnd = end;
+                }
+
+                pos = end;
+            }
+
+            // Prefer whole-word boundary whenever one lies in [50%..100%] of budget so compound words
+            // (e.g. 'ဖမ်းဆီးခြင်း', 'အခိုင်လိုက်', 'ပေါင်းစပ်ဝေါဟာရ') are never sliced mid-word.
+            int chosenCut = (lastWordBoundaryEnd > 0 && lastWordBoundaryEnd * 2 >= budget)
+                ? lastWordBoundaryEnd
+                : lastSyllableOrTokenEnd;
+
+            if (chosenCut <= 0)
+                chosenCut = Math.Min(budget, textLen);
+
+            while (chosenCut > 0 && IsTrimBeforeEllipsisChar(src[chosenCut - 1]))
+                chosenCut--;
+
+            if (chosenCut <= 0)
+                return ellipsis;
+
+            int openParens = 0;
+            for (int i = 0; i < chosenCut; i++)
+            {
+                char ch = src[i];
+                if (ch == '(') openParens++;
+                else if (ch == ')' && openParens > 0) openParens--;
+            }
+
+            if (openParens > 0)
+                return src.Substring(0, chosenCut) + ellipsis + new string(')', openParens);
+
+            return src.Substring(0, chosenCut) + ellipsis;
+        }
+
+        private static bool IsWordBoundaryFollower(char c)
+        {
+            return char.IsWhiteSpace(c) ||
+                   c == '၊' || c == '။' ||
+                   c == ',' || c == ';' || c == ':' ||
+                   c == ')' || c == ']' ||
+                   c == '•' || c == '|' || c == '—';
+        }
+
+        private static bool IsTrimBeforeEllipsisChar(char c)
+        {
+            return char.IsWhiteSpace(c) ||
+                   c == '၊' || c == '။' ||
+                   c == ',' || c == ';' || c == ':' ||
+                   c == '•' || c == '|' || c == '—' || c == '-' ||
+                   c == '(' || c == '[';
+        }
+
         private static bool IsSurroundedByMyanmarLetters(string text, int start, int length)
         {
             bool prevIsLetter = start > 0 && IsMyanmarLetterOrMark(text[start - 1]);

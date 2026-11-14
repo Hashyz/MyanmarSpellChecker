@@ -3982,5 +3982,355 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.Contains("MaybeTrimUnderMemoryPressure", wordScannerSrc);
             Assert.Contains("MaybeTrimUnderMemoryPressure", excelScannerSrc);
         }
+
+        [Fact]
+        public void V65_ComprehensiveLinguisticQualityPrecisionRecallRankingAndGlossGate()
+        {
+            string dbPath = Path.Combine(TestPaths.RepoRoot, "data", "mlc_thatpon.db");
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            MyanmarTrie trie = repo.LoadIntoTrie(AntiTamperGuard.ReconstructProtectedFallbackKey());
+            trie.PrewarmSearchIndexes();
+            var engine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // =========================================================================
+            // 1. Quantitative Gold Benchmark: Precision, Recall, F1, Top-1 & MRR
+            // =========================================================================
+            var goldErrorBenchmark = new (string Sentence, string TargetWrongSubstr, string ExpectedFixSubstr)[]
+            {
+                // A. Classic Orthography & Pali Pat-Sint (10)
+                ("နိုင်ငံတော်သမ္မဒက မိန့်ခွန်းပြောကြားပါသည်။", "သမ္မဒ", "သမ္မတ"),
+                ("ကော်မတီဥက္ကဌက အစည်းအဝေးဖွင့်လှစ်ပါသည်။", "ဥက္ကဌ", "ဥက္ကဋ္ဌ"),
+                ("ဝန်ထမ်းများ ကျင့်ဝပ်လိုက်နာရပါမည်။", "ကျင့်ဝပ်", "ကျင့်ဝတ်"),
+                ("ရင်းနှီးမြုပ်နှံမှု ကော်မရှင်မှ ခွင့်ပြုပါသည်။", "မြုပ်နှံ", "မြှုပ်နှံ"),
+                ("ပတ်ဝန်ကျင် ထိန်းသိမ်းရေးလုပ်ငန်း ဆောင်ရွက်ပါသည်။", "ပတ်ဝန်ကျင်", "ပတ်ဝန်းကျင်"),
+                ("ပြည်တွင်းပြည်ပ ဆယ်သွယ်ရေးစနစ် တိုးတက်ပါသည်။", "ဆယ်သွယ်", "ဆက်သွယ်"),
+                ("လူနာကို ဆေးရုံကုတင်ပေါ်တွင် ကုသပေးပါသည်။", "ကုတင်", "ခုတင်"),
+                ("ခေတ်မှီနည်းပညာဖြင့် စိုက်ပျိုးထုတ်လုပ်ပါသည်။", "ခေတ်မှီ", "ခေတ်မီ"),
+                ("အချုပ်အချာအာဏာ တည်တံ့ခိုင်မြဲရေး ဆောင်ရွက်ပါသည်။", "အချုပ်အချာ", "အချုပ်အခြာ"),
+                ("ပညာသျှင်များက စာတမ်းဖတ်ကြားပါသည်။", "ပညာသျှင်", "ပညာရှင်"),
+
+                // B. Compound Homophones & Real-Word Shadow Traps (8)
+                ("ယခုလောလောဆည်တွင် လုပ်ငန်းများ စတင်နေပါသည်။", "လောလောဆည်", "လောလောဆယ်"),
+                ("လက်တလော အခြေအနေကို တင်ပြအပ်ပါသည်။", "လက်တလော", "လတ်တလော"),
+                ("ကျေးရွာတွင် လယ်လုပ်ငန် လုပ်ကိုင်ကြပါသည်။", "လယ်လုပ်ငန်", "လယ်လုပ်ငန်း"),
+                ("ကုန်ပစ္စည်းများကို သေချာစွာ ထုတ်ပိုးထားပါသည်။", "ထုတ်ပိုး", "ထုပ်ပိုး"),
+                ("စီမံကိန်းကို အကောင်အထည်ဖော် ဆောင်ရွတ်ပါသည်။", "ဆောင်ရွတ်", "ဆောင်ရွက်"),
+                ("အစည်းအဝေးတွင် တင်ပြွေဆေးနွေးသူများ တက်ရောက်ပါသည်။", "တင်ပြွေဆေးနွေး", "တင်ပြဆွေးနွေး"),
+                ("သဘာဝအလျှောက် ပေါက်ရောက်သော သစ်တောဖြစ်ပါသည်။", "အလျှောက်", "အလျောက်"),
+                ("ကော်ဗူးအတွင်း ရေထည့်သွင်းထားပါသည်။", "ကော်ဗူး", "ကော်ဘူး"),
+
+                // C. Contextual Homophones & Classifier Agreement (8)
+                ("ကြိုးကို တင်းကျပ်စွာ ချဉ်ထားပါသည်။", "ချဉ်", "ချည်"),
+                ("ဟင်းရည်အရသာ အလွန်ချည်နေပါသည်။", "ချည်", "ချဉ်"),
+                ("တောထဲတွင် ဆင်နှစ်ယောက် သွားလာနေပါသည်။", "ယောက်", "ကောင်"),
+                ("စာကြည့်တိုက်တွင် စာအုပ်သုံးကောင် ငှားရမ်းပါသည်။", "ကောင်", "အုပ်"),
+                ("အဝတ်အစားများကို ရေဖြင့် လျော်ဖွပ်ပါသည်။", "လျော်", "လျှော်"),
+                ("နစ်နာကြေးငွေ လျှော်ပေးရန် ဆုံးဖြတ်ပါသည်။", "လျှော်", "လျော်"),
+                ("အမှိုက်များကို စည်မဲ့ကမ်းမဲ့ မစွန့်ပစ်ရပါ။", "စည်မဲ့ကမ်းမဲ့", "စည်းမဲ့ကမ်းမဲ့"),
+                ("ရေလုပ်ငန်ဖြင့် အသက်မွေးဝမ်းကျောင်း ပြုကြပါသည်။", "ရေလုပ်ငန်", "ရေလုပ်ငန်း"),
+
+                // D. 'တ' vs 'တစ်' & 'ခုနစ်' vs 'ခုနှစ်' Numerals (8)
+                ("အခမ်းအနားသို့ လူတယောက် တက်ရောက်ပါသည်။", "တယောက်", "တစ်ယောက်"),
+                ("တလအတွင်း အစီရင်ခံစာ တင်ပြရပါမည်။", "တလ", "တစ်လ"),
+                ("တဖန် ပြန်လည်စိစစ်ရန် ညွှန်ကြားပါသည်။", "တဖန်", "တစ်ဖန်"),
+                ("တပြိုင်နက် ဆောင်ရွက်ရမည့် လုပ်ငန်းဖြစ်ပါသည်။", "တပြိုင်နက်", "တစ်ပြိုင်နက်"),
+                ("တချို့တဝက်ကိုသာ လက်ခံရရှိပါသည်။", "တဝက်", "တစ်ဝက်"),
+                ("တောင်စဉ်ခုနှစ်ထပ်ကို ဖြတ်ကျော်ခဲ့ပါသည်။", "ခုနှစ်ထပ်", "ခုနစ်ထပ်"),
+                ("ရက်သတ္တပတ် တပတ်လျှင် ငါးရက် တာဝန်ထမ်းဆောင်ပါသည်။", "တပတ်", "တစ်ပတ်"),
+                ("စာအုပ်တအုပ် ဖတ်ရှုလေ့လာပါသည်။", "တအုပ်", "တစ်အုပ်"),
+
+                // E. Unicode Typography, Zero/Wa Confusion & Historical Names (7)
+                ("တာ၀န်ရှိသူများက စစ်ဆေးပါသည်။", "တာ၀န်", "တာဝန်"),
+                ("လုပ်ငန်းများ အောင်မြင်စွာ ပြီးစီးပီ ဖြစ်ပါသည်။", "ပီ", "ပြီ"),
+                ("စာရင်းစစ်ဆေးပီး ဖြစ်ပါသည်။", "ပီး", "ပြီး"),
+                ("ဉပဒေနှင့်အညီ ဆောင်ရွက်ရပါမည်။", "ဉပဒေ", "ဥပဒေ"),
+                ("အနောက်ဖက်လွန်မင်း လက်ထက်တွင် ထွန်းကားခဲ့ပါသည်။", "အနောက်ဖက်လွန်မင်း", "အနောက်ဘက်လွန်မင်း"),
+                ("အရှေ့ဖက်တွင် တောင်တန်းများ တည်ရှိပါသည်။", "အရှေ့ဖက်", "အရှေ့ဘက်"),
+                ("မြင့်မိုရ်တောင်သည် မြင့်မားလှပါသည်။", "မြင့်မိုရ်", "မြင်းမိုရ်"),
+
+                // F. Formal Ministry Register, Casual Omissions & Particles (7)
+                ("အစီရင်ခံစာကို တင်ပြပါတယ်။", "ပါတယ်", "ပါသည်"),
+                ("ဝန်ထမ်းတွေ အစည်းအဝေး တက်ရောက်ပါသည်။", "တွေ", "များ"),
+                ("ယင်းကိစ္စ ဟုတ်ဘူး ဟု ဖြေကြားပါသည်။", "ဟုတ်ဘူး", "မဟုတ်ပါ"),
+                ("စာရွက်စာတမ်းများ ယူလာအုံး ဟု ပြောပါသည်။", "အုံး", "ဦး"),
+                ("အကြောင်းအရာကို သိဘူး ဟု ဆိုပါသည်။", "သိဘူး", "မသိပါ"),
+                ("လျှောက်လွှာများကို စီစစ်ပြီး ဖြစ်ပါသည်။", "စီစစ်", "စိစစ်"),
+                ("စည်းကမ်း ဖောက်ဖျက်သူကို အရေးယူမည် ဖစ်ပါသည်။", "ဖစ်", "ဖြစ်"),
+
+                // G. Myanmar NRC (National Registration Card) Clerical Typos (4)
+                ("နိုင်ငံသားစိစစ်ရေးကတ် ၉/လ၀န(နိုင်)၁၂၃၄၅၆ ကိုင်ဆောင်သူဖြစ်ပါသည်။", "လ၀န", "လဝန"),
+                ("နိုင်ငံသားစိစစ်ရေးကတ် ၁၂/ဦကတ(နိုင်)၁၂၃၄၅၆ ကိုင်ဆောင်သူဖြစ်ပါသည်။", "ဦကတ", "ဥကတ"),
+                ("နိုင်ငံသားစိစစ်ရေးကတ် ဇဘသ/နိုင် ကိုင်ဆောင်သူဖြစ်ပါသည်။", "ဇဘသ", "ဇဗသ"),
+                ("နိုင်ငံသားစိစစ်ရေးကတ် ၉/ဇဗသ(နိင်)၁၂၃၄၅၆ ကိုင်ဆောင်သူဖြစ်ပါသည်။", "နိင်", "နိုင်")
+            };
+
+            string[] hardCleanUnseenProse =
+            {
+                "ပြည်ထောင်စုသမ္မတမြန်မာနိုင်ငံတော် ပညာရေးဝန်ကြီးဌာနမှ ထုတ်ပြန်ကြေညာပါသည်။",
+                "မြန်မာစာအဖွဲ့က မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်းကို ပြုစုထုတ်ဝေထားပါသည်။",
+                "ကျောက်ဆည်တက္ကသိုလ် ဘူမိဗေဒဌာနတွင် သုတေသနလုပ်ငန်းများ ဆောင်ရွက်လျက်ရှိပါသည်။",
+                "မြန်မာနိုင်ငံရဲတပ်ဖွဲ့သည် ပြည်သူ့လုံခြုံရေးနှင့် ရဲလုပ်ငန်းများကို ဥပဒေနှင့်အညီ ဆောင်ရွက်ပါသည်။",
+                "လယ်သမားများသည် မိုးစပါးစိုက်ပျိုးရေးနှင့် လယ်လုပ်ငန်းများကို လုပ်ကိုင်ကြပါသည်။",
+                "ပင်လယ်ကမ်းရိုးတန်းဒေသတွင် ရေလုပ်ငန်းဖြင့် အသက်မွေးဝမ်းကျောင်းပြုကြပါသည်။",
+                "ယခုလောလောဆယ်တွင် စီမံကိန်းလုပ်ငန်းများ ပုံမှန်လည်ပတ်လျက်ရှိပါသည်။",
+                "လတ်တလော ဖြစ်ပေါ်နေသော မိုးလေဝသအခြေအနေကို အသိပေးထုတ်ပြန်ပါသည်။",
+                "နိုင်ငံသားစိစစ်ရေးကတ်ပြားအမှတ် ၉/ဇဗသ(နိုင်)၁၂၃၄၅၆ နှင့် ၁၂/ဥကတ(နိုင်)၀၁၂၃၄၅ တို့ကို စိစစ်ပြီးဖြစ်ပါသည်။",
+                "ဂျပန်နိုင်ငံ နီးဂတခရိုင်နှင့် ယမဂတခရိုင်တို့တွင် ဆီးနှင်းထူထပ်စွာ ကျရောက်ပါသည်။",
+                "အခိတခရိုင်တွင် စိုက်ပျိုးရေးနှင့် သစ်တောလုပ်ငန်းများ ထွန်းကားပါသည်။",
+                "ထိုင်းနိုင်ငံ မဟီတလတက္ကသိုလ်တွင် ဆေးပညာသုတေသန စာတမ်းဖတ်ကြားပါသည်။",
+                "ရှေးဟောင်းသမိုင်းဝင် ယတလဝိဟာရ စေတီတော်ကြီးကို ဖူးမြော်ကြည်ညိုကြပါသည်။",
+                "ဥယျာဉ်အတွင်း သွတ်တပတ်ပင်များ စိမ်းလန်းစိုပြည်စွာ ပေါက်ရောက်နေပါသည်။",
+                "ကလေးငယ်သည် အသံပီသစွာ စကားပီအောင် လေ့ကျင့်ပြောဆိုပါသည်။",
+                "ပင်လယ်ကမ်းခြေတွင် ခရုသပီ ခွံလှလှများကို လေ့လာတွေ့ရှိရပါသည်။",
+                "ရှေးခေတ်မင်းများသည် ဆင်ကိုးစီးနှင့် မြင်းတစ်စီးကို ချီးမြှင့်တော်မူပါသည်။",
+                "အဘိဓမ္မာကျမ်းဂန်တွင် အာယတန ၁၂ ပါးဝင် တရားတော်များကို ဟောကြားထားပါသည်။",
+                "ဗုဒ္ဓဘာသာဝင်များသည် ရတနာသုံးပါးဝင် ဂုဏ်တော်များကို ပူဇော်ကန်တော့ကြပါသည်။",
+                "ဆရာမများ စာသင်ကြားရာ စာသင်ခန်းများကို သန့်ရှင်းသပ်ရပ်စွာ ထားရှိပါသည်။",
+                "ဝန်ကြီးဌာနမှ ညွှန်ကြားချက်စာအရ လုပ်ငန်းစဉ်များကို အချိန်မီ ဆောင်ရွက်ပါသည်။",
+                "အိပ်ခန်းအတွင်းရှိ ခုတင်အုံးတားကို သေချာစွာ တပ်ဆင်ထားပါသည်။",
+                "ညောင်ရမ်းခေတ်တွင် အနောက်ဘက်လွန်မင်းသည် နိုင်ငံတော်ကို စည်းလုံးခဲ့ပါသည်။",
+                "အိန္ဒိယနိုင်ငံ အင်ဒရာပရာဒေ့ရှ် ပြည်နယ်တွင် စက်မှုလုပ်ငန်းများ ဖွံ့ဖြိုးပါသည်။",
+                "ဗင်နီဇွဲလားဘိုလီဗာရီယန်သမ္မတနိုင်ငံနှင့် သံတမန်ဆက်ဆံရေး ထူထောင်ထားပါသည်။",
+                "ကချင်ပြည်နယ် ကန်ပိုက်တီးမြို့တွင် နယ်စပ်ကုန်သွယ်ရေးစခန်း ဖွင့်လှစ်ထားပါသည်။",
+                "ပဲခူးမြို့နယ် လှာကဒေါင်ကျေးရွာအမည်ကို မှတ်တမ်းတင်ထားရှိပါသည်။",
+                "တာဂျစ်ကစ္စတန်နိုင်ငံသုံး ငွေကြေးမှာ တာဂျစ်ဆိုမိုနီ ဖြစ်ပါသည်။",
+                "အီလက်ထရွန်နစ် ဆားကစ်ပြားနှင့် ဖိုက်ဘာဆက်ကြောင်းများကို တပ်ဆင်စစ်ဆေးပါသည်။",
+                "သက်တမ်းတို စပါးမျိုးစေ့များကို တောင်သူများထံ ဖြန့်ဖြူးပေးအပ်ပါသည်။",
+                "မော်တော်ယာဉ်များအတွက် ဓာတ်ဆီပန့်များကို စနစ်တကျ တပ်ဆင်ထားပါသည်။",
+                "ကမ္ဘောဒီးယားနိုင်ငံရှိ အန်ကောဝတ် ဘုရားကျောင်းတော်ကြီးသည် ထင်ရှားပါသည်။",
+                "အမေရိကန်ပြည်ထောင်စု ဟားဗတ်တက္ကသိုလ်နှင့် ဆီလီကွန်ဗယ်လီဒေသတို့ ထင်ရှားပါသည်။",
+                "တရုတ်နိုင်ငံ ကွမ်တုံပြည်နယ်တွင် ကုန်ထုတ်လုပ်ငန်းများ တိုးတက်လျက်ရှိပါသည်။",
+                "အန္တာတိကတိုက်တွင် ပင်ဂွင်းငှက်များ နေထိုင်ကျက်စားကြပါသည်။",
+                "မဟောသဓာ သုခမိန်၏ ပညာဉာဏ်ကြီးမားပုံကို စာပေတွင် လေ့လာရပါသည်။",
+                "တောင်စဉ်ခုနစ်ထပ်နှင့် သီတာခုနစ်တန်အကြောင်း စာပေကျမ်းဂန်၌ ဖော်ပြထားပါသည်။",
+                "၂၀၂၆ ခုနှစ် ဇန်နဝါရီလတွင် နှစ်ပတ်လည်အစည်းအဝေး ကျင်းပပြုလုပ်ပါသည်။",
+                "ဝန်ထမ်းတစ်ဦးချင်းစီက တာဝန်ဝတ္တရားများကို ကျေပွန်စွာ ထမ်းဆောင်ကြပါသည်။",
+                "ကုန်ပစ္စည်းများကို သွင်းယူထုပ်ပိုးသည့် စက်ရုံသစ်ကြီးကို စစ်ဆေးပါသည်။",
+                "ပြည်သူ့ဘဏ္ဍာငွေစာရင်းများကို ဥပဒေနှင့်အညီ စနစ်တကျ စိစစ်ပါသည်။",
+                "အစည်းအဝေးတွင် တင်ပြဆွေးနွေးသူများက အကြံပြုချက်များ တင်သွင်းကြပါသည်။",
+                "မိဖုရားခေါင်ကြီးနှင့် မှူးမတ်ဗိုလ်ပါများ ညီလာခံသို့ တက်ရောက်ကြပါသည်။",
+                "ဗိုလ်တထောင်မြို့နယ်တွင် ဆိပ်ကမ်းလုပ်ငန်းများ စည်ကားလျက်ရှိပါသည်။",
+                "ဂီတနည်းပြဆရာက တူရိယာတီးမှုတ်နည်းကို စနစ်တကျ သင်ကြားပေးပါသည်။",
+                "မိုးရေစီးကြောင်းကြောင့် ရေစီးကမ်းပြိုမှု မဖြစ်ပွားစေရန် ကာကွယ်ပါသည်။",
+                "ကြိုးကို တင်းကျပ်စွာ ချည်နှောင်ပြီး စနစ်တကျ သိမ်းဆည်းထားပါသည်။",
+                "သံပရာသီးနှင့် မန်ကျည်းသီးတို့သည် ချဉ်သောအရသာ ရှိပါသည်။",
+                "အဝတ်အထည်များကို သန့်စင်အောင် လျှော်ဖွပ်ပြီး နေလှန်းထားပါသည်။",
+                "ပျက်စီးဆုံးရှုံးမှုအတွက် နစ်နာကြေးငွေ ပေးလျော်ရန် သဘောတူညီပါသည်။",
+                "ဘဏ်စနစ်ဖြင့် အခွန်အခများ ငွေပေးချေခြင်းကို ဆောင်ရွက်နိုင်ပါသည်။",
+                "နှစ်နိုင်ငံ ကိုယ်စားလှယ်များ ချစ်ကြည်ရင်းနှီးစွာ စကားပြောဆိုကြပါသည်။"
+            };
+
+            int truePositives = 0;
+            int falseNegatives = 0;
+            int falsePositives = 0;
+            int top1Hits = 0;
+            double reciprocalRankSum = 0.0;
+            var missedDetails = new List<string>();
+            var fpDetails = new List<string>();
+
+            foreach (var (sentence, targetWrong, expectedFix) in goldErrorBenchmark)
+            {
+                var issues = engine.CheckText(sentence, cacheParagraph: false);
+                string normTarget = UnicodeNormalizer.NormalizeCanonicalOrder(targetWrong);
+                string normFix = UnicodeNormalizer.NormalizeCanonicalOrder(expectedFix);
+                int targetStart = sentence.IndexOf(targetWrong, StringComparison.Ordinal);
+                int targetEnd = targetStart >= 0 ? targetStart + targetWrong.Length : -1;
+
+                ProofingIssue? matchedIssue = null;
+                foreach (var iss in issues)
+                {
+                    string normOrig = UnicodeNormalizer.NormalizeCanonicalOrder(iss.OriginalText);
+                    bool overlapsTarget = targetStart >= 0 && iss.StartIndex < targetEnd && (iss.StartIndex + iss.Length) > targetStart;
+                    if (overlapsTarget ||
+                        normOrig.IndexOf(normTarget, StringComparison.Ordinal) >= 0 ||
+                        normTarget.IndexOf(normOrig, StringComparison.Ordinal) >= 0 ||
+                        iss.Suggestions.Any(s => UnicodeNormalizer.NormalizeCanonicalOrder(s.Replacement).IndexOf(normFix, StringComparison.Ordinal) >= 0))
+                    {
+                        matchedIssue = iss;
+                    }
+                    else
+                    {
+                        falsePositives++;
+                        fpDetails.Add($"[CarrierFP] '{sentence}' -> '{iss.OriginalText}'");
+                    }
+                }
+
+                if (matchedIssue == null)
+                {
+                    falseNegatives++;
+                    missedDetails.Add($"[FN] '{sentence}' expected '{targetWrong} -> {expectedFix}'");
+                }
+                else
+                {
+                    truePositives++;
+                    int foundRank = -1;
+                    for (int r = 0; r < matchedIssue.Suggestions.Count; r++)
+                    {
+                        string candRep = UnicodeNormalizer.NormalizeCanonicalOrder(matchedIssue.Suggestions[r].Replacement);
+                        string repairedSentence = UnicodeNormalizer.NormalizeCanonicalOrder(
+                            sentence.Substring(0, matchedIssue.StartIndex) +
+                            matchedIssue.Suggestions[r].Replacement +
+                            sentence.Substring(matchedIssue.StartIndex + matchedIssue.Length));
+
+                        if (candRep.IndexOf(normFix, StringComparison.Ordinal) >= 0 ||
+                            repairedSentence.IndexOf(normFix, StringComparison.Ordinal) >= 0)
+                        {
+                            foundRank = r + 1;
+                            break;
+                        }
+                    }
+
+                    if (foundRank == 1)
+                        top1Hits++;
+                    if (foundRank > 0)
+                        reciprocalRankSum += 1.0 / foundRank;
+                    else
+                        missedDetails.Add($"[RankMiss] '{sentence}' flagged '{matchedIssue.OriginalText}' but suggestions [{string.Join(", ", matchedIssue.Suggestions.Select(s => s.Replacement))}] missed '{expectedFix}'");
+                }
+            }
+
+            foreach (string cleanSentence in hardCleanUnseenProse)
+            {
+                var cleanIssues = engine.CheckText(cleanSentence, cacheParagraph: false);
+                if (cleanIssues.Count > 0)
+                {
+                    falsePositives += cleanIssues.Count;
+                    fpDetails.Add($"[CleanFP] '{cleanSentence}' -> [{string.Join("; ", cleanIssues.Select(i => $"{i.OriginalText}->{i.Suggestions.FirstOrDefault()?.Replacement}"))}]");
+                }
+            }
+
+            double precision = truePositives + falsePositives > 0 ? (double)truePositives / (truePositives + falsePositives) : 0.0;
+            double recall = truePositives + falseNegatives > 0 ? (double)truePositives / (truePositives + falseNegatives) : 0.0;
+            double f1 = (precision + recall) > 0 ? (2.0 * precision * recall) / (precision + recall) : 0.0;
+            double top1Accuracy = truePositives > 0 ? (double)top1Hits / goldErrorBenchmark.Length : 0.0;
+            double mrr = goldErrorBenchmark.Length > 0 ? reciprocalRankSum / goldErrorBenchmark.Length : 0.0;
+
+            Console.WriteLine($"[V65 QUALITY GATE] TP={truePositives}/{goldErrorBenchmark.Length} | FP={falsePositives} | FN={falseNegatives} | Precision={precision:P2} | Recall={recall:P2} | F1={f1:P2} | Top1={top1Accuracy:P2} ({top1Hits}/{goldErrorBenchmark.Length}) | MRR={mrr:F4}");
+            if (missedDetails.Count > 0)
+                Console.WriteLine("[V65 MISSED DETAILS]\n" + string.Join("\n", missedDetails));
+            if (fpDetails.Count > 0)
+                Console.WriteLine("[V65 FP DETAILS]\n" + string.Join("\n", fpDetails));
+
+            Assert.True(fpDetails.Count == 0, $"Expected 0 false positives across 52 hard clean sentences + 52 error carriers, got {fpDetails.Count}:\n" + string.Join("\n", fpDetails));
+            Assert.True(precision >= 0.98, $"Precision {precision:P2} fell below 98% gate. FP details: {string.Join("; ", fpDetails)}");
+            Assert.True(recall >= 0.96, $"Recall {recall:P2} fell below 96% gate. Missed: {string.Join("; ", missedDetails)}");
+            Assert.True(f1 >= 0.97, $"F1 {f1:P2} fell below 97% gate.");
+            Assert.True(top1Accuracy >= 0.96, $"Top-1 Suggestion Accuracy {top1Accuracy:P2} fell below 96% gate. Details: {string.Join("; ", missedDetails)}");
+            Assert.True(mrr >= 0.97, $"Mean Reciprocal Rank {mrr:F4} fell below 0.97 gate. Details: {string.Join("; ", missedDetails)}");
+
+            // Verify GeneralStandard mode maps omitted-'မ' colloquial negations ('ဟုတ်ဘူး -> မဟုတ်ဘူး', 'သိဘူး -> မသိဘူး') even before quotative 'ဟု'
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+            var genHoteHits = generalEngine.CheckText("ယင်းကိစ္စ ဟုတ်ဘူး ဟု ပြောတယ်။", cacheParagraph: false);
+            Assert.Contains(genHoteHits, h => h.OriginalText == "ဟုတ်ဘူး" && h.Suggestions.FirstOrDefault()?.Replacement == "မဟုတ်ဘူး");
+            var genThiHits = generalEngine.CheckText("အကြောင်းအရာကို သိဘူး ဟု ဆိုတယ်။", cacheParagraph: false);
+            Assert.Contains(genThiHits, h => h.OriginalText == "သိဘူး" && h.Suggestions.FirstOrDefault()?.Replacement == "မသိဘူး");
+
+            // =========================================================================
+            // 2. Syllable- & Word-Safe Truncation Gate (Zero 'ဖမ…' Mid-Syllable Cuts)
+            // =========================================================================
+            string fisheryCue = "ရေသတ္တဝါများကို မွေးမြူခြင်း၊ ဖမ်းဆီးခြင်း လုပ်ငန်း။";
+            string truncatedFishery = MyanmarSyllableBreaker.TruncateAtSyllableBoundary(fisheryCue, 32, "…");
+            Assert.DoesNotContain("ဖမ…", truncatedFishery);
+            Assert.Equal("ရေသတ္တဝါများကို မွေးမြူခြင်း…", truncatedFishery);
+
+            var fisheryCand = new SuggestionCandidate { Replacement = "ရေလုပ်ငန်း", Score = 100.0, MeaningCue = fisheryCue };
+            Assert.DoesNotContain("ဖမ…", fisheryCand.DisplayLabel);
+
+            var mutilatedEllipsisEntries = new List<string>();
+            int ellipsisGlossCount = 0;
+            foreach (var entry in trie.GetAllEntries())
+            {
+                string cue = entry.MeaningCue ?? string.Empty;
+                int ellIdx = cue.IndexOf('…');
+                if (ellIdx <= 0)
+                    continue;
+                ellipsisGlossCount++;
+                char beforeEll = cue[ellIdx - 1];
+                bool orphanedPreBaseE = beforeEll == '\u1031' && (ellIdx < 2 || cue[ellIdx - 2] < '\u1000' || cue[ellIdx - 2] > '\u103E');
+                // Must never end right on virama (\u1039), orphaned pre-base vowel E (\u1031), or high surrogate
+                if (beforeEll == '\u1039' || orphanedPreBaseE || char.IsHighSurrogate(beforeEll))
+                {
+                    mutilatedEllipsisEntries.Add($"{entry.Word}: {cue}");
+                }
+            }
+            Assert.True(ellipsisGlossCount > 1000, $"Expected >1,000 shortened glosses audited, got {ellipsisGlossCount}");
+            Assert.True(mutilatedEllipsisEntries.Count == 0,
+                $"Expected 0 mutilated mid-cluster ellipsis glosses, got {mutilatedEllipsisEntries.Count}: {string.Join("; ", mutilatedEllipsisEntries.Take(10))}");
+
+            // =========================================================================
+            // 3. Semantic Gloss Accuracy & Lexicon Purification Gate
+            // =========================================================================
+            static string Norm(string s) => UnicodeNormalizer.NormalizeCanonicalOrder(s);
+            Assert.True(trie.TryGetExactEntries(Norm("ကစားနေ"), out var kasaNe) && kasaNe != null && kasaNe.All(e => !Norm(e.MeaningCue).Contains(Norm("ဗိမာန်"))));
+            Assert.True(trie.TryGetExactEntries(Norm("ကိုးကွယ်ရာ"), out var koKweYa) && koKweYa != null && koKweYa.All(e => !Norm(e.MeaningCue).Contains(Norm("ဆယ်ဆတက်ကိန်း"))));
+            Assert.True(trie.TryGetExactEntries(Norm("စက်မွေ့ရာ"), out var setMweYa) && setMweYa != null && setMweYa.Any(e => Norm(e.MeaningCue).StartsWith(Norm("စက် နှင့် မွေ့ရာ"), StringComparison.Ordinal) && !Norm(e.MeaningCue).Contains(Norm("ဆယ်ဆတက်ကိန်း"))));
+            Assert.True(trie.TryGetExactEntries(Norm("စစ်ဗိုလ်ပါ"), out var sitBoPa) && sitBoPa != null && sitBoPa.Any(e => Norm(e.MeaningCue).StartsWith(Norm("စစ် နှင့် ဗိုလ်ပါ"), StringComparison.Ordinal)));
+            Assert.True(trie.TryGetExactEntries(Norm("ငွေပေးချေ"), out var ngwePeChe) && ngwePeChe != null && ngwePeChe.Any(e => Norm(e.MeaningCue).StartsWith(Norm("ငွေ နှင့် ပေးချေ"), StringComparison.Ordinal)));
+            Assert.True(trie.TryGetExactEntries(Norm("စကားပြောဆို"), out var sakaPyoSo) && sakaPyoSo != null && sakaPyoSo.Any(e => Norm(e.MeaningCue).StartsWith(Norm("စကား နှင့် ပြောဆို"), StringComparison.Ordinal)));
+            Assert.True(trie.TryGetExactEntries(Norm("လယ်လုပ်ငန်း"), out var leLokNgan) && leLokNgan != null && leLokNgan.All(e => !Norm(e.MeaningCue).Contains(Norm("နှင့် ငန်း"))));
+
+            string[] purgedCrowdAndNgramLeaks =
+            {
+                "ခေတ်မှီအောင်ပြုခြင်း",
+                "တဖန်",
+                "တပြိုင်နက်",
+                "တောင်စဉ်ခုနှစ်ထပ်",
+                "အနောက်ဖက်လွန်မင်း",
+                "ကြောင်းကြေညာ",
+                "ခြင်းသို့မဟုတ်",
+                "တွင်တည်ရှိ",
+                "ဟုတ်ဘူး",
+                "သိဘူး",
+                "ထားကြောင်း"
+            };
+            foreach (string badLeak in purgedCrowdAndNgramLeaks)
+            {
+                Assert.False(trie.ContainsExactWord(badLeak), $"Condemned crowd/N-gram leak '{badLeak}' must NOT exist as a valid headword in MyanmarTrie.");
+            }
+
+            // =========================================================================
+            // 4. 100% Self-Proofing Gate Across All 6 Official Source TSV Files
+            // =========================================================================
+            string officialDir = Path.Combine(TestPaths.RepoRoot, "data", "sources", "official");
+            string[] officialTsvs = Directory.GetFiles(officialDir, "*.tsv", SearchOption.TopDirectoryOnly);
+            Assert.True(officialTsvs.Length >= 6, $"Expected >= 6 official TSV files, found {officialTsvs.Length}");
+
+            int totalOfficialRowsChecked = 0;
+            var tsvSelfProofDefects = new List<string>();
+            foreach (string tsvFile in officialTsvs)
+            {
+                string fileName = Path.GetFileName(tsvFile);
+                foreach (string rawLine in File.ReadAllLines(tsvFile))
+                {
+                    if (string.IsNullOrWhiteSpace(rawLine) || rawLine.StartsWith("#", StringComparison.Ordinal))
+                        continue;
+                    int tabIdx = rawLine.IndexOf('\t');
+                    string hw = (tabIdx > 0 ? rawLine.Substring(0, tabIdx) : rawLine).Trim();
+                    if (string.IsNullOrEmpty(hw) || hw.Equals("Word", StringComparison.OrdinalIgnoreCase) || hw.Equals("Headword", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    totalOfficialRowsChecked++;
+                    var genHwIssues = generalEngine.CheckText(hw, cacheParagraph: false);
+                    if (genHwIssues.Count > 0)
+                    {
+                        tsvSelfProofDefects.Add($"{fileName} [GeneralStandard]: '{hw}' -> [{string.Join(", ", genHwIssues.Select(i => $"{i.IssueType}:{i.OriginalText}->{i.Suggestions.FirstOrDefault()?.Replacement}"))}]");
+                        continue;
+                    }
+
+                    var hwIssues = engine.CheckText(hw, cacheParagraph: false);
+                    bool isSeedColloquialParticleFile = string.Equals(fileName, "mlc_core_seed_lexicon.tsv", StringComparison.OrdinalIgnoreCase);
+                    foreach (var hi in hwIssues)
+                    {
+                        if (!isSeedColloquialParticleFile || hi.IssueType != ProofingIssueType.OfficialStyleGrammarError)
+                        {
+                            tsvSelfProofDefects.Add($"{fileName} [FormalOfficial]: '{hw}' -> {hi.IssueType}:{hi.OriginalText}->{hi.Suggestions.FirstOrDefault()?.Replacement}");
+                        }
+                    }
+                }
+            }
+            Assert.True(totalOfficialRowsChecked >= 12000, $"Expected >= 12,000 official TSV headwords self-proofed, got {totalOfficialRowsChecked}");
+            Assert.True(tsvSelfProofDefects.Count == 0,
+                $"Expected 0 self-proofing defects across {totalOfficialRowsChecked} official TSV headwords, got {tsvSelfProofDefects.Count}:\n" + string.Join("\n", tsvSelfProofDefects.Take(25)));
+        }
     }
 }

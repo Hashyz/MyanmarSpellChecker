@@ -145,7 +145,17 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
             "နာရနီ", "ပတ်ချာလှည့်", "မျဉ်းပြိုင်တံ", "ရဲရဲညီး", "ရှောက်ရွာမိုး", "လင်းကဲတဖြာ",
             "သက်သေခန်း", "သီတဂု", "အံသကိုဋ်", "ဣဿရမူလိ", "ပိန်ညော်", "ပြိန်မြက်", "ဖင့်နွှဲ့",
             // V32 Whole-Corpus Data Validation & Sanitization: vulgar / bound-fragment derivative leaks
-            "စောက်ရေး", "တို့အဖွဲ့", "တို့အရေး", "ဆိုင်ရာဥပဒေ", "ရေးလုပ်ငန်း"
+            "စောက်ရေး", "တို့အဖွဲ့", "တို့အရေး", "ဆိုင်ရာဥပဒေ", "ရေးလုပ်ငန်း",
+            // V36 Active-Lexicon Self-Proofing Purification: pre-1986 crowd leaks, condemned 'တ-' numeral leaks, & boundary N-grams
+            "ခေတ်မှီတိမ်းယိမ်းခြင်း", "ခေတ်မှီအောင်ပြုခြင်း", "ဒိဗ္ဗစက္ခုအဘိညာဏ်", "ကော်ဗူး", "စွေ့ကနဲ", "ဆတ်ကနဲ",
+            "တောင်ဖက်ရွေ့ခြင်း", "တောင်ဖက်ဝန်း", "တောင်ဖက်သို့နေသွားခြင်း", "ဘယ်ဖက်မျက်ခုံး",
+            "မြောက်ဖက်ယွန်းခြင်း", "အနောက်ဖက်ယွန်း", "အနောက်ဖက်လွန်မင်း",
+            "တစ်ချို့တစ်ဝက်", "တောင်စဉ်ခုနှစ်ထပ်", "နတ်ဆိုးကတချိန်လုံး", "ဥတလုံး", "သက်တနှစ်",
+            "တခဏ", "တချိန်", "တချိန်တည်း", "တစုံ", "တထပ်တည်းသောထမင်း", "တထပ်ရှိအခန်းစုံ",
+            "တနေကုန်", "တနေ့", "တနှစ်", "တပတ်ရစ်", "တပေါင်းတည်း",
+            "တပြိုင်တည်း", "တပြိုင်တည်းပြု", "တပြိုင်တည်းဖြစ်ခြင်း", "တပြိုင်နက်",
+            "တဖန်", "တဖန်ဆောင်ယူ", "တဖန်ဓာတ်အားသွင်းခြင်း", "တဖန်ပြုခြင်း", "တဖန်အပ်နှင်း", "တဖန်အသစ်ပြုခြင်း",
+            "နောက်တဖန်", "အသစ်တဖန်", "တဝက်", "ဟုတ်ဘူး", "သိဘူး", "ထားကြောင်း"
         };
 
         private static readonly HashSet<string> ToxicExternalRuleWrongForms = new HashSet<string>(StringComparer.Ordinal)
@@ -197,7 +207,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
         private static readonly Regex MedialAfterVowelCompilerRegex = new Regex(@"(?<Vowel>[\u102D-\u1030\u1032\u1036]+)(?<Medial>[\u103D\u103E]+)", RegexOptions.Compiled);
         private static readonly Regex VisualOrderRaInWordRegex = new Regex(@"(?<=[\u102B-\u1038\u103A\u103D\u103E])(?<ERa>\u103C+\u1031*|\u1031+\u103C+)(?<Cons>[\u1000-\u1021])(?<Sub>\u1039[\u1000-\u1021])?(?<Med>[\u103B\u103D\u103E]*)", RegexOptions.Compiled);
         private static readonly Regex VisualOrderBoundaryERaRegex = new Regex(@"(?<=^|[\s\u104A\u104B(\[""'“‘/—\-•:,;])(?<ERa>[\u1031\u103C]+)(?<Cons>[\u1000-\u1021])(?<Sub>\u1039[\u1000-\u1021])?(?<Med>[\u103B\u103D\u103E]*)", RegexOptions.Compiled);
-        private static readonly Regex ImpossibleHeadwordSequenceRegex = new Regex(@"[\u1033-\u1035]|\u103E\u103A|\u103A(?!(?<=\u1014\u103A)\u102F\u1015\u103A)[\u102B-\u1032]|[\u1000-\u1003\u1005-\u1008\u100B-\u100E\u1010-\u1013\u1015-\u1018\u101F\u1021][\u103B-\u103D]*\u103E", RegexOptions.Compiled);
+        private static readonly Regex ImpossibleHeadwordSequenceRegex = new Regex(@"[\u1033-\u1035]|(?<!\u101B)\u103E\u103A|\u103A(?!(?<=\u1014\u103A)\u102F\u1015\u103A)[\u102B-\u1032]|[\u1000-\u1003\u1005-\u1008\u100B-\u100E\u1010-\u1013\u1015-\u1018\u101F\u1021][\u103B-\u103D]*\u103E", RegexOptions.Compiled);
         private static readonly Regex ShiftedShweMojibakeRegex = new Regex(@"(?<Pfx>\u101B\u103D|\u101C\u103D|\u1019\u103D|\u101A\u103D)(?<C2>(?:\u1004\u103A\u1039)?[\u1000-\u1021][\u103B-\u103D]*)(?<Hs>\u103E+)(?<Es>\u1031+)(?<After>(?:[\u102B-\u1030\u1032\u1036-\u103A]|[\u1000-\u1021]\u103A)*)", RegexOptions.Compiled);
         private static readonly Regex ShiftedMweMojibakeRegex = new Regex(@"(?<Pfx>\u1019\u103C|\u1000\u103C|\u1001\u103C|\u1001\u103B|\u1000\u103B|\u1015\u103C)(?!(?:\u1004\u103D\u1031(?![\u1000-\u1021]\u103A)|\u101E\u103D\u1031\u1038|\u1019\u103C\u103D\u1031\u1000\u103C\u102E\u1038))(?<C2>(?:\u1004\u103A\u1039)?[\u1000-\u1021][\u103B\u103C]*)(?<Ws>\u103D+)(?<Es>\u1031+)(?<After>(?:[\u102B-\u1030\u1032\u1036-\u103A]|[\u1000-\u1021]\u103A)*)", RegexOptions.Compiled);
         private static readonly Regex KeepShiftedEVowelAfterRegex = new Regex(@"^(?:[\u102B\u102C](?:\u1000\u103A|\u1004\u103A|\u103A)|[\u1037\u1038]+$)", RegexOptions.Compiled);
@@ -405,6 +415,34 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                            !w.StartsWith("ပါဠိ", StringComparison.Ordinal);
                 case "လျက်":
                     return !w.StartsWith("လျက်ဆား", StringComparison.Ordinal);
+                case "ကြောင်း":
+                    return !w.StartsWith("ကြောင်းတူ", StringComparison.Ordinal) &&
+                           !w.StartsWith("ကြောင်းလမ်း", StringComparison.Ordinal) &&
+                           !w.StartsWith("ကြောင်းရာ", StringComparison.Ordinal) &&
+                           !w.StartsWith("ကြောင်းအင်", StringComparison.Ordinal) &&
+                           !w.StartsWith("ကြောင်းပေး", StringComparison.Ordinal) &&
+                           !w.StartsWith("ကြောင်းထိုး", StringComparison.Ordinal) &&
+                           !w.StartsWith("ကြောင်းကြောင်း", StringComparison.Ordinal);
+                case "ခြင်း":
+                    return !w.StartsWith("ခြင်းလုံး", StringComparison.Ordinal) &&
+                           !w.StartsWith("ခြင်းတောင်း", StringComparison.Ordinal) &&
+                           !w.StartsWith("ခြင်းကြား", StringComparison.Ordinal) &&
+                           !w.StartsWith("ခြင်းလင်း", StringComparison.Ordinal) &&
+                           !w.StartsWith("ခြင်းခြင်း", StringComparison.Ordinal) &&
+                           !w.StartsWith("ခြင်းရာ", StringComparison.Ordinal);
+                case "တွင်":
+                    return !w.StartsWith("တွင်ကျယ်", StringComparison.Ordinal) &&
+                           !w.StartsWith("တွင်ခုံ", StringComparison.Ordinal) &&
+                           !w.StartsWith("တွင်ခံ", StringComparison.Ordinal) &&
+                           !w.StartsWith("တွင်တွင်", StringComparison.Ordinal);
+                case "၌":
+                case "ဖြင့်":
+                case "ဖြင့်":
+                case "သဖြင့်":
+                case "သဖြင့်":
+                case "ကြောင့်":
+                case "ကြောင့်":
+                    return true;
                 default:
                     return false;
             }
@@ -2625,7 +2663,9 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                         }
                         else if (!isForeignPropn && curCue.Length <= 42 && curCue.IndexOf(aDef, StringComparison.Ordinal) < 0 && curCue.IndexOf(" — ", StringComparison.Ordinal) < 0)
                         {
-                            string shortAbDef = aDef.Length > 95 ? (aDef.Substring(0, 92).TrimEnd() + "...") : aDef;
+                            string shortAbDef = aDef.Length > 95
+                                ? MyanmarSpellChecker.Core.Nlp.MyanmarSyllableBreaker.TruncateAtSyllableBoundary(aDef, 95, "…")
+                                : aDef;
                             string baseCur = khwePosInAb > 0 ? curCue.Substring(0, khwePosInAb).Trim() : curCue;
                             existingAb.MeaningCue = string.IsNullOrEmpty(savedKhweTail)
                                 ? (baseCur + " — " + shortAbDef)
@@ -3487,6 +3527,14 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                                         kv.Key.IndexOf("ကော့မှုး", StringComparison.Ordinal) < 0 &&
                                         kv.Key.IndexOf("ဆည်းမြောင်း", StringComparison.Ordinal) < 0;
                 if (kv.Value.IsOfficialThatpon || isProtectedPropn || protectedCorrectForms.Contains(kv.Key)) continue;
+                if (KnownWrongBlacklist.Contains(kv.Key) ||
+                    (kv.Value.PosTag != "ENCYC" && kv.Value.PosTag != "PROVERB" &&
+                     kv.Value.PosTag != "SAYING" && kv.Value.PosTag != "EN_LEX" &&
+                     StartsWithBoundClausalParticle(kv.Key)))
+                {
+                    pollutedWordsToRemove.Add(kv.Key);
+                    continue;
+                }
                 var wSyls = SyllableCountRegex.Matches(kv.Key);
                 int n = wSyls.Count;
                 if (n < 2) continue;
@@ -3616,7 +3664,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     string[] eCols = rawLine.Split('\t');
                     string shortCue = eCols.Length >= 3 ? NormalizeMyanmar(eCols[2].Trim()) : "မြန်မာစွယ်စုံကျမ်းဝင် ဝေါဟာရ";
                     if (shortCue.Length > 110)
-                        shortCue = shortCue.Substring(0, 107).TrimEnd() + "…";
+                        shortCue = MyanmarSpellChecker.Core.Nlp.MyanmarSyllableBreaker.TruncateAtSyllableBoundary(shortCue, 110, "…");
 
                     var promItem = new EntryItem
                     {
@@ -3779,7 +3827,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
 
                 g = g.Trim(' ', '။', '.', '•', '၊', '-');
                 if (g.Length > 48)
-                    g = g.Substring(0, 45).TrimEnd() + "…";
+                    g = MyanmarSpellChecker.Core.Nlp.MyanmarSyllableBreaker.TruncateAtSyllableBoundary(g, 48, "…");
                 return BalanceShortenedParentheses(g);
             }
 
@@ -3864,7 +3912,9 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 ("ဆရာ", "ပညာသင်ကြားပေးသူ / ကျွမ်းကျင်ပညာရှင်", false), ("ဘေး", "အန္တရာယ်၊ ဘေးဥပဒ်", false),
                 ("လမ်း", "သွားလာရာ လမ်းကြောင်း", false), ("ရေ", "သောက်သုံးရေ / အရည်", false), ("မီး", "အပူနှင့် အလင်းစွမ်းအင်", false),
                 ("မြေ", "ကမ္ဘာမြေပြင်", false), ("လေ", "လေထု", false), ("စိတ်", "သိတတ်သော သဘောတရား", false),
-                ("လယ်", "စပါးစိုက်ပျိုးရာ လယ်ယာမြေ", true), ("ရုံး", "အုပ်ချုပ်စီမံရာ ရုံးဌာန", true), ("ရေး", "စာရေးသားခြင်း / အရေးကိစ္စ", true)
+                ("လယ်", "စပါးစိုက်ပျိုးရာ လယ်ယာမြေ", true), ("ရုံး", "အုပ်ချုပ်စီမံရာ ရုံးဌာန", true), ("ရေး", "စာရေးသားခြင်း / အရေးကိစ္စ", true),
+                ("ကစား", "ပျော်ရွှင်ဖွယ် လှုပ်ရှားပြုလုပ်သည်", true), ("ငွေ", "သုံးစွဲရောင်းဝယ်ရာ ငွေကြေး", true),
+                ("စစ်", "စစ်မက်ရေးရာ / တပ်မတော်ဆိုင်ရာ", true), ("စက်", "စက်ယန္တရား / အိပ်စက်တော်မူခြင်း", true)
             };
             for (int cr = 0; cr < commonCompoundRoots.Length; cr++)
             {
@@ -4004,7 +4054,31 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 ("ဆိုင်", "{0}ရောင်းဝယ်ရာ ဆိုင် ({1})။"),
                 ("ကွင်း", "{0}ရာ ကွင်းပြင်နေရာ ({1})။"),
                 ("ပင်", "{0}အပင်မျိုး ({1})။"),
-                ("သီး", "{0}ပင်မှ သီးသော အသီး ({1})။")
+                ("သီး", "{0}ပင်မှ သီးသော အသီး ({1})။"),
+                ("လက်မှတ်", "{0}ဆိုင်ရာ အသိအမှတ်ပြု စာရွက်လက်မှတ် ({1})။"),
+                ("စာချုပ်", "{0}ဆိုင်ရာ သဘောတူညီချက် စာချုပ် ({1})။"),
+                ("ဝန်ထမ်း", "{0}ဆိုင်ရာ တာဝန်ထမ်းဆောင်သူ ဝန်ထမ်း ({1})။")
+            };
+
+            (string Suffix, string Template)[] productiveVerbalSuffixes = new (string, string)[]
+            {
+                ("နေ", "{0}ခြင်း ပြုလုပ်ဆဲဖြစ်သည် ({1})။"),
+                ("ရာ", "{0}သည့် နေရာဌာန သို့မဟုတ် အကြောင်းအရာ ({1})။"),
+                ("ခဲ့", "{0}ခြင်း ပြုလုပ်ပြီးဖြစ်သည် ({1})။"),
+                ("မိ", "{0}ခြင်း အမှတ်မထင် ပြုလုပ်သည် ({1})။"),
+                ("နိုင်", "{0}ခြင်း ပြုလုပ်စွမ်းရှိသည် ({1})။"),
+                ("တတ်", "{0}လေ့ရှိသည် / ကျွမ်းကျင်သည် ({1})။"),
+                ("စေ", "{0}ခြင်း ဖြစ်ပေါ်စေသည် ({1})။")
+            };
+
+            var homographParticleRightBlock = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "နေ", "ရာ", "ခဲ့", "ပြီ", "မိ", "ပါ", "ကြောင်း", "ခြင်း",
+                "တွင်", "၌", "ဖြင့်", "ဖြင့်", "ဟာ", "ကား", "၏", "သို့", "မှ"
+            };
+            var homographParticleLeftBlock = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "ကြောင်း", "ခြင်း", "တွင်", "၌", "ဖြင့်", "ဖြင့်", "ဟာ", "ကား", "၏", "သို့"
             };
 
             bool IsExactSyllableBoundary(MatchCollection sylMatches, int charPos)
@@ -4022,6 +4096,8 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
             int mmCompoundSynthesized = 0;
             int mmPaliOrOrthSynthesized = 0;
 
+            // Pass 1 (A–Z complete): Translate English senses across ALL headwords first so 'ပ..အ' verb/noun stems
+            // (e.g. 'ပေးချေ', 'ပြောဆို') are already in realMmStemDefs before 'က..န' compounds synthesize in Pass 2!
             for (int i = 0; i < allEntries.Count; i++)
             {
                 var e = allEntries[i];
@@ -4051,7 +4127,6 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                         : (e.UsageNote + " | သတ်ပုံအညွှန်း: " + oldCue);
                 }
 
-                // 1. Try translating English sense via 52,270-entry Wiktionary+UHS English->Myanmar sense table
                 string enSource = null;
                 if (oldWasEnglish)
                 {
@@ -4069,6 +4144,10 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                             : e.UsageNote.Substring(enIdx + "အင်္ဂလိပ်အနက်:".Length)).Trim();
                     }
                 }
+                if (enSource == null && !isForeignPropn && mmToEnGlossList.TryGetValue(e.Word, out var directEnSenses) && directEnSenses.Count > 0)
+                {
+                    enSource = string.Join("; ", directEnSenses);
+                }
                 string translatedMm = LookupEnglishSenseInMm(enSource ?? "", e.Word);
                 if (!string.IsNullOrEmpty(translatedMm) && hasMyanmarConsonantRx.IsMatch(translatedMm))
                 {
@@ -4077,10 +4156,36 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     if (shortTrans.Length >= 2 && !string.Equals(shortTrans, e.Word, StringComparison.Ordinal))
                         realMmStemDefs[e.Word] = shortTrans;
                     mmTranslatedFromEn++;
-                    continue;
                 }
+            }
+
+            // Pass 2: Productive Derivational Morphology, Two-Constituent Compound Synthesis & Pali/Collocation Fallback
+            // Sub-pass 0 synthesizes 2-syllable stems first (registering Official 2-syl stems into realMmStemDefs)
+            // before Sub-pass 1 synthesizes 3..6-syllable compounds (so 'ငွေပေးချေ' -> 'ငွေ + ပေးချေ', 'စကားပြောဆို' -> 'စကား + ပြောဆို').
+            for (int subPass = 0; subPass < 2; subPass++)
+            {
+            for (int i = 0; i < allEntries.Count; i++)
+            {
+                var e = allEntries[i];
+                if (!NeedsAuthenticMmDefinition(e.MeaningCue, e.Word))
+                    continue;
 
                 var wSylMatches = SyllableCountRegex.Matches(e.Word);
+                if (subPass == 0 && wSylMatches.Count != 2)
+                    continue;
+                if (subPass == 1 && wSylMatches.Count == 2)
+                    continue;
+
+                bool isForeignPropn =
+                    e.PosTag == "PROPN" &&
+                    (string.IsNullOrEmpty(e.UsageNote) ||
+                     (e.UsageNote.IndexOf("မြန်မာနိုင်ငံ", StringComparison.Ordinal) < 0 &&
+                      e.UsageNote.IndexOf("မြို့နယ်", StringComparison.Ordinal) < 0));
+
+                string oldCue = (e.MeaningCue ?? "").Trim();
+                bool oldWasColloc = oldCue.StartsWith("တွဲဖက်:", StringComparison.Ordinal) ||
+                                    oldCue.StartsWith("သတ်ပုံကျမ်း တွဲဖက်အညွှန်း", StringComparison.Ordinal) ||
+                                    oldCue.StartsWith("သတ်ပုံကျမ်း ခွဲထားအမှန်", StringComparison.Ordinal);
 
                 // 2. Productive Burmese Derivational Morphology (suffixes & 'အ-' / 'မ-' prefixes)
                 bool morphDone = false;
@@ -4097,6 +4202,57 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                         if (realMmStemDefs.TryGetValue(stem, out stemGloss))
                         {
                             e.MeaningCue = string.Format(productiveSuffixes[sx].Template, stem, stemGloss);
+                            mmMorphSynthesized++;
+                            morphDone = true;
+                            break;
+                        }
+                    }
+                }
+                if (!morphDone && wSylMatches.Count >= 2)
+                {
+                    for (int vx = 0; vx < productiveVerbalSuffixes.Length; vx++)
+                    {
+                        string vSuf = productiveVerbalSuffixes[vx].Suffix;
+                        if (e.Word.Length > vSuf.Length + 1 && e.Word.EndsWith(vSuf, StringComparison.Ordinal))
+                        {
+                            int stemCharLen = e.Word.Length - vSuf.Length;
+                            if (!IsExactSyllableBoundary(wSylMatches, stemCharLen))
+                                continue;
+                            string stem = e.Word.Substring(0, stemCharLen);
+                            string stemGloss;
+                            if (!realMmStemDefs.TryGetValue(stem, out stemGloss))
+                                continue;
+
+                            EntryItem sEnt;
+                            bool stemIsVerbOrOfficial = map.TryGetValue(stem, out sEnt) &&
+                                sEnt != null &&
+                                (sEnt.PosTag == "V" || sEnt.PosTag == "N/V" || sEnt.PosTag == "ADV" ||
+                                 (sEnt.IsOfficialThatpon && sEnt.Frequency >= 15 && sEnt.PosTag != "NUM"));
+                            if (!stemIsVerbOrOfficial)
+                                continue;
+
+                            // Yield to an authentic [Official Noun + Official >=2-syl Noun] compound split when stem itself is not Official (e.g. 'စက်မွေ့ရာ' -> 'စက် + မွေ့ရာ')
+                            bool hasBetterOfficialNounSplit = false;
+                            if (wSylMatches.Count >= 3 && (sEnt == null || !sEnt.IsOfficialThatpon))
+                            {
+                                for (int sp = 1; sp <= wSylMatches.Count - 2; sp++)
+                                {
+                                    int spPos = wSylMatches[sp].Index;
+                                    string lp = e.Word.Substring(0, spPos);
+                                    string rp = e.Word.Substring(spPos);
+                                    EntryItem le, re;
+                                    if (map.TryGetValue(lp, out le) && le != null && le.IsOfficialThatpon && le.PosTag != "NUM" &&
+                                        map.TryGetValue(rp, out re) && re != null && re.IsOfficialThatpon)
+                                    {
+                                        hasBetterOfficialNounSplit = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (hasBetterOfficialNounSplit)
+                                continue;
+
+                            e.MeaningCue = string.Format(productiveVerbalSuffixes[vx].Template, stem, stemGloss);
                             mmMorphSynthesized++;
                             morphDone = true;
                             break;
@@ -4133,6 +4289,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 {
                     double bestSplitScore = double.NegativeInfinity;
                     string bestCompoundDef = null;
+                    string bestTwoSylStemGloss = null;
                     for (int split = 1; split < wSylMatches.Count; split++)
                     {
                         int splitCharPos = wSylMatches[split].Index;
@@ -4140,17 +4297,25 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                         string rightPart = e.Word.Substring(splitCharPos);
                         if (leftPart.Length < 2 || rightPart.Length < 2)
                             continue;
+                        int leftSyls = split;
+                        int rightSyls = wSylMatches.Count - split;
+                        if (leftSyls == 1 && homographParticleLeftBlock.Contains(leftPart))
+                            continue;
+                        if (rightSyls == 1 && homographParticleRightBlock.Contains(rightPart))
+                            continue;
                         string leftGloss, rightGloss;
                         if (realMmStemDefs.TryGetValue(leftPart, out leftGloss) &&
                             realMmStemDefs.TryGetValue(rightPart, out rightGloss))
                         {
-                            int leftSyls = split;
-                            int rightSyls = wSylMatches.Count - split;
                             EntryItem lEnt, rEnt;
                             int leftFreq = map.TryGetValue(leftPart, out lEnt) ? Math.Max(1, lEnt.Frequency) : 1;
                             int rightFreq = map.TryGetValue(rightPart, out rEnt) ? Math.Max(1, rEnt.Frequency) : 1;
                             bool leftOff = lEnt != null && lEnt.IsOfficialThatpon;
                             bool rightOff = rEnt != null && rEnt.IsOfficialThatpon;
+                            double trailingSingleVerbPenalty =
+                                (wSylMatches.Count >= 3 && rightSyls == 1 && (rightPart == "ချေ" || rightPart == "ဆို" || rightPart == "ပြု" || rightPart == "ထား" || rightPart == "ပေး"))
+                                ? -6.0
+                                : 0.0;
 
                             double splitScore = Math.Log10(leftFreq + 1) * 2.2
                                               + Math.Log10(rightFreq + 1) * 2.8
@@ -4158,18 +4323,28 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                                               + (leftSyls >= 2 ? 2.0 : 0.0)
                                               - Math.Abs(leftSyls - rightSyls) * 0.6
                                               + (leftOff ? 1.0 : 0.0)
-                                              + (rightOff ? 1.5 : 0.0);
+                                              + (rightOff ? 1.5 : 0.0)
+                                              + (leftOff && rightOff && rightSyls >= 2 ? 3.0 : 0.0)
+                                              + trailingSingleVerbPenalty;
                             if (splitScore > bestSplitScore)
                             {
                                 bestSplitScore = splitScore;
                                 bestCompoundDef = leftPart + " နှင့် " + rightPart + " ပေါင်းစပ်ဝေါဟာရ — " +
                                                   leftPart + " (" + leftGloss + ") + " + rightPart + " (" + rightGloss + ")။";
+                                if (subPass == 0 && e.IsOfficialThatpon)
+                                {
+                                    bestTwoSylStemGloss = ShortenStemGloss(leftGloss + "၊ " + rightGloss, e.Word);
+                                }
                             }
                         }
                     }
                     if (!string.IsNullOrEmpty(bestCompoundDef))
                     {
                         e.MeaningCue = bestCompoundDef;
+                        if (subPass == 0 && e.IsOfficialThatpon && !string.IsNullOrEmpty(bestTwoSylStemGloss) && !realMmStemDefs.ContainsKey(e.Word))
+                        {
+                            realMmStemDefs[e.Word] = bestTwoSylStemGloss;
+                        }
                         mmCompoundSynthesized++;
                         continue;
                     }
@@ -4227,6 +4402,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     e.MeaningCue = "ခေတ်သုံး မြန်မာစာပေနှင့် ရုံးသုံး စံသတ်ပုံအမှန် နာမ်ဝေါဟာရ။";
                 }
                 mmPaliOrOrthSynthesized++;
+            }
             }
 
             // Re-attach preserved Official 462-Page Book Khwe-Htar '(နှိုင်းယှဉ်: ...)' comparison suffixes onto MeaningCue
@@ -4585,7 +4761,8 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     {
                         string cleanWik = SanitizeBilingualMmText(wikParts[wi]);
                         if (cleanWik.Length > 105)
-                            cleanWik = BalanceShortenedParentheses(cleanWik.Substring(0, 102).TrimEnd() + "…");
+                            cleanWik = BalanceShortenedParentheses(
+                                MyanmarSpellChecker.Core.Nlp.MyanmarSyllableBreaker.TruncateAtSyllableBoundary(cleanWik, 105, "…"));
                         AddSenseUnique(cleanWik);
                     }
                 }
@@ -4595,7 +4772,8 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
 
                 string finalCue = string.Join(" • ", senses);
                 if (finalCue.Length > 165)
-                    finalCue = BalanceShortenedParentheses(finalCue.Substring(0, 162).TrimEnd() + "…");
+                    finalCue = BalanceShortenedParentheses(
+                        MyanmarSpellChecker.Core.Nlp.MyanmarSyllableBreaker.TruncateAtSyllableBoundary(finalCue, 165, "…"));
 
                 // Extract up to 3 verified canonical Myanmar headwords for 1-click jump pills
                 var crossLinks = new List<string>(3);
@@ -4803,7 +4981,13 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 new KeyValuePair<string, string>("အလိုအလျှောက်", "အလိုအလျောက်"),
                 new KeyValuePair<string, string>("လေဟာပြင်", "လဟာပြင်"),
                 new KeyValuePair<string, string>("ပတ်ဝန်ကျင်", "ပတ်ဝန်းကျင်"),
-                new KeyValuePair<string, string>("ကုတင်", "ခုတင်")
+                new KeyValuePair<string, string>("ကုတင်", "ခုတင်"),
+                new KeyValuePair<string, string>("စည်မဲ့ကမ်းမဲ့", "စည်းမဲ့ကမ်းမဲ့"),
+                new KeyValuePair<string, string>("ဖြစ်ပြီးပီး", "ဖြစ်ပြီး"),
+                new KeyValuePair<string, string>("အချင်းချင် ", "အချင်းချင်း "),
+                new KeyValuePair<string, string>("ဆယ်သွယ် ရရှိ", "ဆက်သွယ် ရရှိ"),
+                new KeyValuePair<string, string>("မသသော ", "မသိသော "),
+                new KeyValuePair<string, string>("( ငျ် )", "(ဥပမာ - င်္က)")
             };
 
             Regex safeTaNiProseRx = new Regex(@"(?<!ဂီ)တနည်း", RegexOptions.Compiled);
@@ -4984,6 +5168,10 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 if (s.IndexOf('½') >= 0)
                 {
                     s = degreeHalfMojibakeRx.Replace(s, "$1°");
+                }
+                if (s.IndexOf('…') >= 0)
+                {
+                    s = Regex.Replace(s, @"[\u1000-\u1021]?[\u103B-\u103E]*\u1039+(?=…)", "");
                 }
 
                 bool hasEthnicCitation = ethnicCitationRx.IsMatch(s);

@@ -87,17 +87,9 @@ namespace MyanmarSpellChecker.Core.Models
                     cue = cue.Substring(0, cmpIdx).TrimEnd(' ', '•', '—', '-');
                 }
 
-                if (cue.Length > 34)
+                if (cue.Length > 38)
                 {
-                    cue = cue.Substring(0, 32).TrimEnd() + "…";
-                    int openDepth = 0;
-                    for (int i = 0; i < cue.Length; i++)
-                    {
-                        if (cue[i] == '(') openDepth++;
-                        else if (cue[i] == ')' && openDepth > 0) openDepth--;
-                    }
-                    if (openDepth > 0)
-                        cue += new string(')', openDepth);
+                    cue = Nlp.MyanmarSyllableBreaker.TruncateAtSyllableBoundary(cue, 38, "…");
                 }
 
                 return $"{Replacement}  [{cue}]";

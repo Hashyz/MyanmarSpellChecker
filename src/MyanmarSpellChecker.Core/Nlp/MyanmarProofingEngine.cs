@@ -2629,6 +2629,38 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return true;
             }
 
+            // 18. '[Number/Numeral] + [Classifier] + ဝင်' ("included in the N items/members", e.g. 'အာယတန ၁၂ ပါးဝင်', 'ရတနာသုံးပါးဝင်' != 'ပါဝင်')
+            if (windowLen == 2 && lastSyl == "ဝင်" && NumeralClassifiers.Contains(firstSyl))
+            {
+                for (int p = tokIdx - 1; p >= Math.Max(0, tokIdx - 3); p--)
+                {
+                    if (tokens[p].Kind == TokenKind.Whitespace)
+                        continue;
+                    if (tokens[p].Kind == TokenKind.MyanmarNumber ||
+                        (tokens[p].Text.Length > 0 && char.IsDigit(tokens[p].Text[0])) ||
+                        (tokens[p].Kind == TokenKind.MyanmarSyllable && PureNumerals.Contains(tokens[p].NormalizedText)))
+                    {
+                        return true;
+                    }
+                    break;
+                }
+            }
+
+            // 19. Locative/object nominalizer '[Exact >=2-syl Verb/Compound] + ရာ' (e.g. 'စာသင်ကြားရာ' != 'ကြားရ', 'နေထိုင်ရာ')
+            if (windowLen == 2 && lastSyl == "ရာ" && localOffset >= 1 &&
+                IsEndOfExactMultiWordMinLen(exactMultiWordBits, localOffset, 2) &&
+                !_trie.TryGetWrongFormRule(firstSyl + lastSyl, out _))
+            {
+                return true;
+            }
+
+            // 20. Nominalized '[...ချက်] + စာ' (e.g. 'ညွှန်ကြားချက်စာ', 'အကြောင်းကြားချက်စာ' != 'ချက်စား')
+            if (windowLen == 2 && firstSyl == "ချက်" && lastSyl == "စာ" && localOffset >= 1 &&
+                IsEndOfExactMultiWordMinLen(exactMultiWordBits, localOffset, 2))
+            {
+                return true;
+            }
+
             return false;
         }
 

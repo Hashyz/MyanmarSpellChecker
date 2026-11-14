@@ -1030,7 +1030,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             string clean = raw.Trim();
             if (clean.Length <= maxLen)
                 return clean;
-            return clean.Substring(0, maxLen - 3).TrimEnd() + "...";
+            return MyanmarSyllableBreaker.TruncateAtSyllableBoundary(clean, maxLen, "…");
         }
     }
 }

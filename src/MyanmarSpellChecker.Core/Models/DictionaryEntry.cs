@@ -219,7 +219,9 @@ namespace MyanmarSpellChecker.Core.Models
                 if (chips.Count == 0)
                 {
                     string raw = UsageNote.Trim();
-                    return raw.Length > 75 ? raw.Substring(0, 72).TrimEnd() + "..." : raw;
+                    return raw.Length > 75
+                        ? Nlp.MyanmarSyllableBreaker.TruncateAtSyllableBoundary(raw, 75, "…")
+                        : raw;
                 }
 
                 return string.Join("  |  ", chips);
