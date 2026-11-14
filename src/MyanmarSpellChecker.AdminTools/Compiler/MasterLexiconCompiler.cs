@@ -143,7 +143,9 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
             "မြင်းသျှင်", "သမက်သျှင်", "သမီးသျှင်", "သောတသျှင်", "အတတ်သျှင်", "ဓနသျှင်",
             "ကသပေါင်", "ခလာသီး", "ချိန်ခွင်ပေါင်း", "ချုံပိတ်ပေါင်", "ငါးကတို", "ထီနမိဒ္ဓ",
             "နာရနီ", "ပတ်ချာလှည့်", "မျဉ်းပြိုင်တံ", "ရဲရဲညီး", "ရှောက်ရွာမိုး", "လင်းကဲတဖြာ",
-            "သက်သေခန်း", "သီတဂု", "အံသကိုဋ်", "ဣဿရမူလိ", "ပိန်ညော်", "ပြိန်မြက်", "ဖင့်နွှဲ့"
+            "သက်သေခန်း", "သီတဂု", "အံသကိုဋ်", "ဣဿရမူလိ", "ပိန်ညော်", "ပြိန်မြက်", "ဖင့်နွှဲ့",
+            // V32 Whole-Corpus Data Validation & Sanitization: vulgar / bound-fragment derivative leaks
+            "စောက်ရေး", "တို့အဖွဲ့", "တို့အရေး", "ဆိုင်ရာဥပဒေ", "ရေးလုပ်ငန်း"
         };
 
         private static readonly HashSet<string> ToxicExternalRuleWrongForms = new HashSet<string>(StringComparer.Ordinal)
@@ -191,7 +193,9 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
         private static readonly Regex BigramLineRegex = new Regex(@"^\('([^']+)',\s*'([^']+)'\)\t(\d+)$", RegexOptions.Compiled);
         private static readonly Regex VulgarOrnagaiEnglishRegex = new Regex(@"\b(arse|arsehole|ass|asshole|bitch|fuck|fucking|shit|bullshit|bastard|whore|slut|cunt|dick|cock|penis|vagina|anus|piss|masturbat\w*|porn\w*|mistress|snob)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex VowelBeforeStackRegex = new Regex(@"(?<Vowel>[\u102B-\u1032\u1036]+)(?<Stack>(?:\u1039[\u1000-\u1021])+[\u103B-\u103E]*)", RegexOptions.Compiled);
-        private static readonly Regex MedialAfterVowelCompilerRegex = new Regex(@"(?<Vowel>[\u102D-\u1030\u1032]+)(?<Medial>\u103D?\u103E|\u103D)", RegexOptions.Compiled);
+        private static readonly Regex MedialAfterVowelCompilerRegex = new Regex(@"(?<Vowel>[\u102D-\u1030\u1032\u1036]+)(?<Medial>[\u103D\u103E]+)", RegexOptions.Compiled);
+        private static readonly Regex VisualOrderRaInWordRegex = new Regex(@"(?<=[\u102B-\u1038\u103A\u103D\u103E])(?<ERa>\u103C+\u1031*|\u1031+\u103C+)(?<Cons>[\u1000-\u1021])(?<Sub>\u1039[\u1000-\u1021])?(?<Med>[\u103B\u103D\u103E]*)", RegexOptions.Compiled);
+        private static readonly Regex VisualOrderBoundaryERaRegex = new Regex(@"(?<=^|[\s\u104A\u104B(\[""'“‘/—\-•:,;])(?<ERa>[\u1031\u103C]+)(?<Cons>[\u1000-\u1021])(?<Sub>\u1039[\u1000-\u1021])?(?<Med>[\u103B\u103D\u103E]*)", RegexOptions.Compiled);
         private static readonly Regex ImpossibleHeadwordSequenceRegex = new Regex(@"[\u1033-\u1035]|\u103E\u103A|\u103A(?!(?<=\u1014\u103A)\u102F\u1015\u103A)[\u102B-\u1032]|[\u1000-\u1003\u1005-\u1008\u100B-\u100E\u1010-\u1013\u1015-\u1018\u101F\u1021][\u103B-\u103D]*\u103E", RegexOptions.Compiled);
         private static readonly Regex ShiftedShweMojibakeRegex = new Regex(@"\u101B\u103D(?<C2>(?:\u1004\u103A\u1039)?[\u1000-\u1021][\u103B-\u103D]*)(?<Hs>\u103E+)(?<Es>\u1031+)(?<After>(?:[\u102B-\u1030\u1032\u1036-\u103A]|[\u1000-\u1021]\u103A)*)", RegexOptions.Compiled);
         private static readonly Regex ShiftedMweMojibakeRegex = new Regex(@"(?<Pfx>\u1019\u103C|\u1000\u103C|\u1001\u103C|\u1001\u103B)(?!(?:\u1004\u103D\u1031(?![\u1000-\u1021]\u103A)|\u101E\u103D\u1031\u1038|\u1019\u103C\u103D\u1031\u1000\u103C\u102E\u1038))(?<C2>(?:\u1004\u103A\u1039)?[\u1000-\u1021][\u103B\u103C]*)(?<Ws>\u103D+)(?<Es>\u1031+)(?<After>(?:[\u102B-\u1030\u1032\u1036-\u103A]|[\u1000-\u1021]\u103A)*)", RegexOptions.Compiled);
@@ -471,6 +475,10 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 s = s.Replace("\uFFFF", "\u1004\u103A\u1039");
             }
 
+            s = s.Replace("\u100B\u103F\u100C", "\u100B\u1039\u100C")
+                 .Replace("ပြဵ", "ပြ")
+                 .Replace("မဵနိုင်", "မ~နိုင်");
+
             return NormalizeMyanmar(s);
         }
 
@@ -489,11 +497,11 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
 
             // Pre-normalize E+medial and reversed medials WITHOUT collapsing duplicate \u1031\u1031 / \u103E\u103E / \u103D\u103D!
             s = MedialAfterERegex.Replace(s, "$1\u1031");
-            s = s.Replace("\u103E\u103D", "\u103D\u103E")
+            s = s.Replace("\u103E\u103B", "\u103B\u103E")
+                 .Replace("\u103E\u103C", "\u103C\u103E")
+                 .Replace("\u103E\u103D", "\u103D\u103E")
                  .Replace("\u103D\u103B", "\u103B\u103D")
-                 .Replace("\u103D\u103C", "\u103C\u103D")
-                 .Replace("\u103E\u103B", "\u103B\u103E")
-                 .Replace("\u103E\u103C", "\u103C\u103E");
+                 .Replace("\u103D\u103C", "\u103C\u103D");
 
             for (int i = 0; i < ExactShweMweMojibakeFixes.Length; i++)
             {
@@ -571,11 +579,43 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
             return s;
         }
 
+        private static string RepairVisualOrderERa(string s)
+        {
+            if (string.IsNullOrEmpty(s))
+                return string.Empty;
+            if (s.IndexOf("ခိုင်မြဲြုခင်း", StringComparison.Ordinal) >= 0)
+                s = s.Replace("ခိုင်မြဲြုခင်း", "ခိုင်မြဲခြင်း");
+            if (s.IndexOf("နှင်ြ ", StringComparison.Ordinal) >= 0)
+                s = s.Replace("နှင်ြ ", "နှင့် ");
+            if (s.IndexOf('\u103C') >= 0)
+            {
+                s = VisualOrderRaInWordRegex.Replace(s, delegate(Match m)
+                {
+                    string era = m.Groups["ERa"].Value;
+                    bool hasE = era.IndexOf('\u1031') >= 0;
+                    return m.Groups["Cons"].Value + m.Groups["Sub"].Value + "\u103C" + m.Groups["Med"].Value + (hasE ? "\u1031" : "");
+                });
+            }
+            if (s.IndexOf('\u103C') >= 0 || s.IndexOf('\u1031') >= 0)
+            {
+                s = VisualOrderBoundaryERaRegex.Replace(s, delegate(Match m)
+                {
+                    string era = m.Groups["ERa"].Value;
+                    bool hasE = era.IndexOf('\u1031') >= 0;
+                    bool hasRa = era.IndexOf('\u103C') >= 0;
+                    return m.Groups["Cons"].Value + m.Groups["Sub"].Value + (hasRa ? "\u103C" : "") + m.Groups["Med"].Value + (hasE ? "\u1031" : "");
+                });
+            }
+            return s;
+        }
+
         public static string NormalizeMyanmar(string raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) return "";
             string s = RepairWinInnwaGlitches(raw);
 
+            s = s.Replace("\u100B\u103F\u100C", "\u100B\u1039\u100C");
+            s = RepairVisualOrderERa(s);
             s = s.Replace("\u1025\u102E", "\u1026");
             if (s.IndexOf('\u1026') >= 0)
             {
@@ -587,7 +627,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
             }
             s = s.Replace("\u101E\u1039\u101E", "\u103F");
             s = Regex.Replace(s, @"\u103F{2,}", "\u103F");
-            s = Regex.Replace(s, @"(?<!\u1039)\u1005\u103B", "\u1008");
+            s = Regex.Replace(s, @"(?<!\u1039)\u1005\u103B|\u1008\u103B", "\u1008");
             s = s.Replace("\u101E\u103C\u1031\u102C\u103A", "\u102A");
             s = s.Replace("\u1029\u1031\u102C\u103A", "\u102A");
             s = Regex.Replace(s, @"\u101E\u103C(?![\u102B-\u103E])", "\u1029");
@@ -633,6 +673,10 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
             s = s.Replace("\u102F\u102D", "\u102D\u102F");
             s = s.Replace("\u1030\u102D", "\u102D\u1030");
             s = s.Replace("\u102F\u102E", "\u102E\u102F");
+            s = s.Replace("\u102D\u102E", "\u102E").Replace("\u102E\u102D", "\u102E");
+            s = s.Replace("\u102F\u1030", "\u1030").Replace("\u1030\u102F", "\u1030");
+            s = s.Replace("\u1036\u102D", "\u102D\u1036");
+            s = s.Replace("\u1036\u102E", "\u102E\u1036");
             s = s.Replace("\u1036\u102F", "\u102F\u1036");
             s = s.Replace("\u1036\u1030", "\u102F\u1036");
             s = s.Replace("\u1019\u103E\u102F\u1036", "\u1019\u103E\u102F\u1014\u103A");
@@ -641,11 +685,119 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
             s = s.Replace("\u1037\u1036", "\u1036\u1037");
             s = s.Replace("\u1037\u103A", "\u103A\u1037");
             s = s.Replace("\u1037\u102F", "\u102F\u1037");
+            s = s.Replace("\u102C\u1038\u102C", "\u102C\u1038").Replace("\u102B\u1038\u102B", "\u102B\u1038");
             s = s.Replace("\u103A\u1037\u103A", "\u103A\u1037").Replace("\u1037\u103A\u1037", "\u103A\u1037");
             s = s.Replace("\u1037\u1038", "\u1038").Replace("\u1038\u1037", "\u1038");
             s = Regex.Replace(s, @"([\u102B-\u1032\u1036-\u103E])\1+", "$1");
 
             return s;
+        }
+
+        private static string SanitizeOrnagaiPosTag(string rawPos)
+        {
+            if (string.IsNullOrWhiteSpace(rawPos))
+                return string.Empty;
+
+            string p = Regex.Replace(rawPos, @"[\u200B-\u200F\uFEFF\uF000-\uF8FF]+", "");
+            p = Regex.Replace(p, @"\s+", " ").Trim(' ', '.', ',', ';', '=');
+            if (p.Length == 0)
+                return string.Empty;
+
+            if (p.StartsWith("also ", StringComparison.OrdinalIgnoreCase) ||
+                p.StartsWith("null ", StringComparison.OrdinalIgnoreCase) ||
+                p.StartsWith("(forming", StringComparison.OrdinalIgnoreCase) ||
+                p.StartsWith("(French", StringComparison.OrdinalIgnoreCase) ||
+                p.StartsWith("[C]", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(p, "gp", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(p, "sa", StringComparison.OrdinalIgnoreCase))
+            {
+                return string.Empty;
+            }
+
+            // Repair upstream Ornagai 'm'/'in' -> 'idm' export corruptions & typos
+            p = p.Replace("idmnidmef", "indef")
+                 .Replace("idmnfidml", "idm, infml")
+                 .Replace("idm (idmnf", "idm, infml")
+                 .Replace("idm (fidml", "idm, infml")
+                 .Replace("idm (Bridm", "idm, Brit")
+                 .Replace("(IDM)(infm", "idm, infml")
+                 .Replace("IDM(infml)", "idm, infml")
+                 .Replace("IDM(infml", "idm, infml")
+                 .Replace("IDM (infml", "idm, infml")
+                 .Replace("IDM(Brit)", "idm, Brit")
+                 .Replace("IDM (sayin", "idm")
+                 .Replace("[PHRV](inf", "phrv, infml")
+                 .Replace("phrv (idmn", "phrv")
+                 .Replace("phrv (Brid", "phrv, Brit")
+                 .Replace("n (Bridmt", "n, Brit")
+                 .Replace("Bridmt", "Brit")
+                 .Replace("idmnterj", "interj")
+                 .Replace("coidmb for", "comb form")
+                 .Replace("coidmb", "comb")
+                 .Replace("Aidmj", "adj")
+                 .Replace("syidmb", "symb")
+                 .Replace("cheidm", "chem")
+                 .Replace("usu sidmng", "usu sing")
+                 .Replace("sidmng", "sing")
+                 .Replace("sidmgn", "sing")
+                 .Replace("fidml", "fml")
+                 .Replace("model v", "modal v")
+                 .Replace("interf adv", "interrog adv");
+
+            if (string.Equals(p, "perp", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(p, "prap", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(p, "preps", StringComparison.OrdinalIgnoreCase))
+                p = "prep";
+            else if (string.Equals(p, "adh", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(p, "a", StringComparison.OrdinalIgnoreCase))
+                p = "adj";
+
+            // Flatten nested brackets so '[pos]' rendering never produces '[[...]]'
+            p = p.Replace("n[pl]", "n, pl")
+                 .Replace("n(pl)", "n, pl")
+                 .Replace("n (pl)", "n, pl")
+                 .Replace("n,pl", "n, pl")
+                 .Replace("n[sing]", "n, sg")
+                 .Replace("n[sg]", "n, sg")
+                 .Replace("[sg]", "sg")
+                 .Replace("v[pt]", "v, pt")
+                 .Replace("v[pp]", "v, pp")
+                 .Replace("v[ing]", "v, -ing")
+                 .Replace("v[ping]", "v, -ing")
+                 .Replace("v[sg]", "v, sg")
+                 .Replace("v[ag]", "v, sg")
+                 .Replace("v[int]", "vi")
+                 .Replace("adj[com]", "adj, comp")
+                 .Replace("adj[er]", "adj, comp")
+                 .Replace("adj[sup]", "adj, superl")
+                 .Replace("adj[sp]", "adj, superl")
+                 .Replace("adj[est]", "adj, superl")
+                 .Replace("adv[com]", "adv, comp")
+                 .Replace("adv[sup]", "adv, superl");
+
+            // Strip any VARCHAR(10)-truncated open parenthesis tail (e.g. 'n(esp sing' -> 'n', 'int(archai' -> 'interj')
+            int openParen = p.IndexOf('(');
+            while (openParen >= 0)
+            {
+                int closeParen = p.IndexOf(')', openParen);
+                if (closeParen < 0)
+                {
+                    p = p.Substring(0, openParen).Trim(' ', ',', ';', '-');
+                    break;
+                }
+                openParen = p.IndexOf('(', closeParen + 1);
+            }
+
+            if (string.Equals(p, "int", StringComparison.OrdinalIgnoreCase))
+                p = "interj";
+            else if (string.Equals(p, "IDM", StringComparison.Ordinal))
+                p = "idm";
+            else if (string.Equals(p, "PHRV", StringComparison.Ordinal))
+                p = "phrv";
+
+            p = p.Replace("[", "").Replace("]", "").Trim(' ', '.', ',', ';', '-', '=');
+            p = Regex.Replace(p, @"\s{2,}", " ");
+            return p;
         }
 
         private static int CountSyllables(string word)
@@ -689,6 +841,8 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                         return false;
                 }
             }
+            if (MyanmarSpellChecker.Core.Nlp.UnicodeNormalizer.HasLookalikeError(word, out _, out _))
+                return false;
             return true;
         }
 
@@ -1879,7 +2033,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     if (string.IsNullOrEmpty(engWord) || engWord.StartsWith("_", StringComparison.Ordinal) || engWord.StartsWith("-", StringComparison.Ordinal) ||
                         VulgarOrnagaiEnglishRegex.IsMatch(engWord))
                         continue;
-                    string rawPos = cols.Length >= 3 ? cols[2].Trim() : "";
+                    string rawPos = SanitizeOrnagaiPosTag(cols.Length >= 3 ? cols[2].Trim() : "");
                     string mappedPos = MapOrnagaiPos(rawPos);
                     string engCue = string.IsNullOrEmpty(rawPos) ? engWord : (engWord + " (" + rawPos + ")");
 
@@ -3395,7 +3549,18 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     int tabIdx = egLine.IndexOf('\t');
                     if (tabIdx <= 0 || tabIdx + 1 >= egLine.Length) continue;
                     string ek = egLine.Substring(0, tabIdx).Trim();
-                    string mv = NormalizeMyanmar(egLine.Substring(tabIdx + 1).Trim());
+                    if (string.Equals(ek, "roof liles", StringComparison.OrdinalIgnoreCase)) continue;
+                    string rawMv = egLine.Substring(tabIdx + 1).Trim();
+                    var wikZgSpans = MyanmarSpellChecker.Core.Nlp.UnicodeNormalizer.FindZawgyiSpans(rawMv);
+                    if (wikZgSpans.Count > 0)
+                    {
+                        for (int zi = wikZgSpans.Count - 1; zi >= 0; zi--)
+                        {
+                            var sp = wikZgSpans[zi];
+                            rawMv = rawMv.Substring(0, sp.StartIndex) + sp.ConvertedUnicode + rawMv.Substring(sp.StartIndex + sp.Length);
+                        }
+                    }
+                    string mv = NormalizeMyanmar(rawMv);
                     if (ek.Length >= 2 && mv.Length >= 2 && !enToMmGlossMap.ContainsKey(ek))
                     {
                         enToMmGlossMap[ek] = mv;
@@ -3418,6 +3583,9 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 if (string.IsNullOrWhiteSpace(word) || string.IsNullOrWhiteSpace(gloss))
                     return false;
                 string normWord = NormalizeMyanmar(word.Trim());
+                string wholeClean = NormalizeMyanmar(gloss.Trim(' ', '။', '၊', '.', ';', ':', '•', '~', '"', '\'', '“', '”', '(', ')'));
+                if (wholeClean.Length > 0 && string.Equals(wholeClean, normWord, StringComparison.Ordinal))
+                    return true;
                 string[] parts = gloss.Split(new char[] { '•', '၊', ';', '/' }, StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length == 0)
                     return true;
@@ -3480,22 +3648,68 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 return s;
             }
 
-            string ShortenStemGloss(string g)
+            string ShortenStemGloss(string g, string stemWord = null)
             {
                 if (string.IsNullOrEmpty(g)) return "";
-                g = Regex.Replace(g.Trim(), @"^[၁၂၃၄၅၆၇၈၉၀0-9]+\s*[၊။\.\)]\s*", "");
+                g = g.Trim();
                 int khweIdx = g.IndexOf("(နှိုင်းယှဉ်:", StringComparison.Ordinal);
-                if (khweIdx > 0) g = g.Substring(0, khweIdx);
+                if (khweIdx > 0) g = g.Substring(0, khweIdx).Trim();
+
+                int dashIdx = g.IndexOf(" — ", StringComparison.Ordinal);
+                if (dashIdx > 0)
+                {
+                    string leftDash = g.Substring(0, dashIdx).Trim();
+                    string rightDash = g.Substring(dashIdx + 3).Trim();
+                    if (leftDash.IndexOf('~') >= 0 && rightDash.Length >= 2 && rightDash.IndexOf('~') < 0)
+                        g = rightDash;
+                    else if (dashIdx > 8)
+                        g = leftDash;
+                }
+
+                g = Regex.Replace(g, @"^[၁၂၃၄၅၆၇၈၉၀0-9]+\s*[၊။\.\)]\s*", "");
                 int bulletIdx = g.IndexOf(" • ", StringComparison.Ordinal);
                 if (bulletIdx > 4) g = g.Substring(0, bulletIdx);
-                int dashIdx = g.IndexOf(" — ", StringComparison.Ordinal);
-                if (dashIdx > 8) g = g.Substring(0, dashIdx);
                 int sentIdx = g.IndexOf('။');
                 if (sentIdx > 3) g = g.Substring(0, sentIdx);
-                g = g.Trim(' ', '။', '.', '•', '၊');
+
+                if (g.IndexOf('~') >= 0)
+                {
+                    g = Regex.Replace(g, @"\(\s*~[^)]*\)", "").Trim();
+                    g = !string.IsNullOrEmpty(stemWord) ? g.Replace("~", stemWord) : g.Replace("~", "");
+                    g = Regex.Replace(g, @"-(?=\s*[၊။,;)]|$)", "");
+                }
+
+                g = g.Trim(' ', '။', '.', '•', '၊', '-');
                 if (g.Length > 48)
                     g = g.Substring(0, 45).TrimEnd() + "…";
                 return BalanceShortenedParentheses(g);
+            }
+
+            void PromoteEnglishCueToUsageNote(EntryItem target, string rawEnCue)
+            {
+                if (target == null || string.IsNullOrWhiteSpace(rawEnCue))
+                    return;
+                string enPart = rawEnCue.Trim();
+                string pronPart = null;
+                int pronIdx = enPart.IndexOf("• အသံထွက်:", StringComparison.Ordinal);
+                if (pronIdx < 0) pronIdx = enPart.IndexOf("| အသံထွက်:", StringComparison.Ordinal);
+                if (pronIdx >= 0)
+                {
+                    pronPart = enPart.Substring(pronIdx + 1).Trim();
+                    enPart = enPart.Substring(0, pronIdx).Trim();
+                }
+                if (!string.IsNullOrEmpty(pronPart) && (string.IsNullOrEmpty(target.UsageNote) || target.UsageNote.IndexOf("အသံထွက်:", StringComparison.Ordinal) < 0))
+                {
+                    target.UsageNote = string.IsNullOrEmpty(target.UsageNote)
+                        ? pronPart
+                        : (target.UsageNote + " | " + pronPart);
+                }
+                if (!string.IsNullOrEmpty(enPart) && (string.IsNullOrEmpty(target.UsageNote) || target.UsageNote.IndexOf("အင်္ဂလိပ်", StringComparison.Ordinal) < 0))
+                {
+                    target.UsageNote = string.IsNullOrEmpty(target.UsageNote)
+                        ? ("အင်္ဂလိပ်အနက်: " + enPart)
+                        : (target.UsageNote + " | အင်္ဂလိပ်အနက်: " + enPart);
+                }
             }
 
             // Step P3-a: Remove redundant English-only / placeholder duplicate homograph entries when primary headword already has a Myanmar definition
@@ -3513,12 +3727,9 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                               primary.UsageNote.IndexOf("မြို့နယ်", StringComparison.Ordinal) < 0));
                         if (!primaryForeignPropn &&
                             !string.IsNullOrWhiteSpace(e.MeaningCue) &&
-                            startsWithLatinGlossRx.IsMatch(e.MeaningCue) &&
-                            (primary.UsageNote == null || primary.UsageNote.IndexOf("အင်္ဂလိပ်", StringComparison.Ordinal) < 0))
+                            startsWithLatinGlossRx.IsMatch(e.MeaningCue))
                         {
-                            primary.UsageNote = string.IsNullOrEmpty(primary.UsageNote)
-                                ? ("အင်္ဂလိပ်အနက်: " + e.MeaningCue)
-                                : (primary.UsageNote + " | အင်္ဂလိပ်အနက်: " + e.MeaningCue);
+                            PromoteEnglishCueToUsageNote(primary, e.MeaningCue);
                         }
                         dedupedEnglishHomographs++;
                         return true;
@@ -3532,27 +3743,34 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
             for (int i = 0; i < allEntries.Count; i++)
             {
                 var e = allEntries[i];
+                if (e.Word.Length <= 5 && (e.PosTag == "PROPN" || e.PosTag == "ENCYC"))
+                    continue;
                 if (!NeedsAuthenticMmDefinition(e.MeaningCue, e.Word) && !realMmStemDefs.ContainsKey(e.Word))
                 {
-                    string sg = ShortenStemGloss(e.MeaningCue);
-                    if (sg.Length >= 2 && !string.Equals(sg, e.Word, StringComparison.Ordinal))
+                    string sg = ShortenStemGloss(e.MeaningCue, e.Word);
+                    if (sg.Length >= 2 &&
+                        !string.Equals(sg, e.Word, StringComparison.Ordinal) &&
+                        sg.IndexOf("မြို့နယ်/ဒေသအမည်", StringComparison.Ordinal) < 0)
+                    {
                         realMmStemDefs[e.Word] = sg;
+                    }
                 }
             }
 
             // Common 1-syllable Burmese modifiers/roots fallback for transparent compound definitions
-            (string Mod, string Def)[] commonCompoundRoots = new (string, string)[]
+            (string Mod, string Def, bool OverrideHomograph)[] commonCompoundRoots = new (string, string, bool)[]
             {
-                ("ကောင်း", "မွန်မြတ်သင့်လျော်သော"), ("ဆိုး", "မကောင်းသော"), ("ကြီး", "ပမာဏ/အဆင့် မြင့်မားသော"),
-                ("ငယ်", "သေးငယ်သော"), ("သစ်", "အသစ်ဖြစ်သော"), ("ဟောင်း", "ရှေးကျသော"),
-                ("ကင်း", "လွတ်ကင်းသော"), ("ပြည့်", "ပြည့်စုံသော"), ("မဲ့", "ကင်းမဲ့သော"),
-                ("ဆရာ", "ပညာသင်ကြားပေးသူ / ကျွမ်းကျင်ပညာရှင်"), ("ဘေး", "အန္တရာယ်၊ ဘေးဥပဒ်"),
-                ("လမ်း", "သွားလာရာ လမ်းကြောင်း"), ("ရေ", "သောက်သုံးရေ / အရည်"), ("မီး", "အပူနှင့် အလင်းစွမ်းအင်"),
-                ("မြေ", "ကမ္ဘာမြေပြင်"), ("လေ", "လေထု"), ("စိတ်", "သိတတ်သော သဘောတရား")
+                ("ကောင်း", "မွန်မြတ်သင့်လျော်သော", false), ("ဆိုး", "မကောင်းသော", false), ("ကြီး", "ပမာဏ/အဆင့် မြင့်မားသော", false),
+                ("ငယ်", "သေးငယ်သော", false), ("သစ်", "အသစ်ဖြစ်သော", false), ("ဟောင်း", "ရှေးကျသော", false),
+                ("ကင်း", "လွတ်ကင်းသော", false), ("ပြည့်", "ပြည့်စုံသော", false), ("မဲ့", "ကင်းမဲ့သော", false),
+                ("ဆရာ", "ပညာသင်ကြားပေးသူ / ကျွမ်းကျင်ပညာရှင်", false), ("ဘေး", "အန္တရာယ်၊ ဘေးဥပဒ်", false),
+                ("လမ်း", "သွားလာရာ လမ်းကြောင်း", false), ("ရေ", "သောက်သုံးရေ / အရည်", false), ("မီး", "အပူနှင့် အလင်းစွမ်းအင်", false),
+                ("မြေ", "ကမ္ဘာမြေပြင်", false), ("လေ", "လေထု", false), ("စိတ်", "သိတတ်သော သဘောတရား", false),
+                ("လယ်", "စပါးစိုက်ပျိုးရာ လယ်ယာမြေ", true), ("ရုံး", "အုပ်ချုပ်စီမံရာ ရုံးဌာန", true), ("ရေး", "စာရေးသားခြင်း / အရေးကိစ္စ", true)
             };
             for (int cr = 0; cr < commonCompoundRoots.Length; cr++)
             {
-                if (!realMmStemDefs.ContainsKey(commonCompoundRoots[cr].Mod))
+                if (commonCompoundRoots[cr].OverrideHomograph || !realMmStemDefs.ContainsKey(commonCompoundRoots[cr].Mod))
                     realMmStemDefs[commonCompoundRoots[cr].Mod] = commonCompoundRoots[cr].Def;
             }
 
@@ -3642,7 +3860,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                                     return comb;
                             }
                         }
-                        if (enToMmGlossMap.TryGetValue(enWords[1], out w2Mm) && enWords[1].Length >= 4)
+                        if (enToMmGlossMap.TryGetValue(enWords[1], out w2Mm) && enWords[1].Length >= 4 && !string.Equals(enWords[1], "work", StringComparison.Ordinal))
                         {
                             string filtered = StripSelfSenseFromGloss(headword, w2Mm);
                             if (!string.IsNullOrEmpty(filtered)) return filtered;
@@ -3724,11 +3942,9 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                                     oldCue.StartsWith("သတ်ပုံကျမ်း တွဲဖက်အညွှန်း", StringComparison.Ordinal) ||
                                     oldCue.StartsWith("သတ်ပုံကျမ်း ခွဲထားအမှန်", StringComparison.Ordinal);
 
-                if (oldWasEnglish && !isForeignPropn && (e.UsageNote == null || e.UsageNote.IndexOf("အင်္ဂလိပ်", StringComparison.Ordinal) < 0))
+                if (oldWasEnglish && !isForeignPropn)
                 {
-                    e.UsageNote = string.IsNullOrEmpty(e.UsageNote)
-                        ? ("အင်္ဂလိပ်အနက်: " + oldCue)
-                        : (e.UsageNote + " | အင်္ဂလိပ်အနက်: " + oldCue);
+                    PromoteEnglishCueToUsageNote(e, oldCue);
                 }
                 else if (oldWasColloc && !isForeignPropn && (e.UsageNote == null || e.UsageNote.IndexOf("သတ်ပုံအညွှန်း:", StringComparison.Ordinal) < 0))
                 {
@@ -3738,7 +3954,12 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 }
 
                 // 1. Try translating English sense via 52,270-entry Wiktionary+UHS English->Myanmar sense table
-                string enSource = oldWasEnglish ? oldCue : null;
+                string enSource = null;
+                if (oldWasEnglish)
+                {
+                    int pCut = oldCue.IndexOf("• အသံထွက်:", StringComparison.Ordinal);
+                    enSource = pCut >= 0 ? oldCue.Substring(0, pCut).Trim() : oldCue;
+                }
                 if (enSource == null && !string.IsNullOrEmpty(e.UsageNote))
                 {
                     int enIdx = e.UsageNote.IndexOf("အင်္ဂလိပ်အနက်:", StringComparison.Ordinal);
@@ -3754,7 +3975,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 if (!string.IsNullOrEmpty(translatedMm) && hasMyanmarConsonantRx.IsMatch(translatedMm))
                 {
                     e.MeaningCue = translatedMm;
-                    string shortTrans = ShortenStemGloss(translatedMm);
+                    string shortTrans = ShortenStemGloss(translatedMm, e.Word);
                     if (shortTrans.Length >= 2 && !string.Equals(shortTrans, e.Word, StringComparison.Ordinal))
                         realMmStemDefs[e.Word] = shortTrans;
                     mmTranslatedFromEn++;
@@ -4300,8 +4521,82 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
             Console.WriteLine(string.Format("  - V23 Bilingual & Phonetic Upgrade: +{0} G2P pronunciations | +{1} MM->EN headword glosses | +{2} EN_LEX English->Myanmar entries!",
                 g2pNotesEnriched, bilingualNotesEnriched, enLexAdded));
 
-            // Final enterprise hygiene + V26 Full 360° Prose Consistency Pass across all MeaningCue, UsageNote, and Rule Explanations
+            // Final enterprise hygiene + V32 Whole-Corpus 360° Data Validation & Sanitization Pass across all MeaningCue, UsageNote, and Rule Explanations
             Regex parenSensitiveEnRx = new Regex(@"\([^)]*\b(arse|arsehole|asshole|bitch|fuck|shit|bastard|whore|slut|cunt|mistress|snob)\b[^)]*\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+            Regex wikiSectionHeaderRx = new Regex(@"={2,}\s*([^=]+?)\s*={2,}", RegexOptions.Compiled);
+            Regex degreeHalfMojibakeRx = new Regex(@"([၀-၉0-9]+)\s*½", RegexOptions.Compiled);
+            Regex ethnicCitationRx = new Regex(@"[\u105A-\u109F\uAA60-\uAA7F]|(?:မွန်|ရှမ်း|ကရင်|ပအိုဝ်း|တအာင်း|ကယား|ပလောင်)(?:\s*[-–—၊:]|ဘာသာ|စကား|ဝေါဟာရ|အခေါ်)", RegexOptions.Compiled);
+            Regex symbolPuaRx = new Regex(@"[\uE000-\uF8FF]+", RegexOptions.Compiled);
+            Regex wikiInterwikiRx = new Regex(@"\[\[:?[a-z]{2,3}:|(?<=:\s*):[a-z]{2,3}:", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+            Regex wikiNoteCaptionRx = new Regex(@"(ဗဟုသုတ:\s*)[^|\[]*?\]\]\s*", RegexOptions.Compiled);
+
+            KeyValuePair<string, string>[] mojibakeAndEtymologyFixes = new KeyValuePair<string, string>[]
+            {
+                new KeyValuePair<string, string>("လိပ်၊ ခကဘန", "အင်္ဂလိပ်၊ cube"),
+                new KeyValuePair<string, string>("လိပ်၊ ခသကစသည", "အင်္ဂလိပ်၊ coupon"),
+                new KeyValuePair<string, string>("လိပ်၊ စမေူငေါနညအ", "အင်္ဂလိပ်၊ parliament"),
+                new KeyValuePair<string, string>("လိပ်၊ တငမန", "အင်္ဂလိပ်၊ wire"),
+                new KeyValuePair<string, string>("လိပ်၊ နိငအသမ", "အင်္ဂလိပ်၊ editor"),
+                new KeyValuePair<string, string>("လိပ်၊ ဗစမငူ", "အင်္ဂလိပ်၊ April"),
+                new KeyValuePair<string, string>("လိပ်၊ မောသည", "အင်္ဂလိပ်၊ rayon"),
+                new KeyValuePair<string, string>("လိပ်၊ လသကခ့နမ", "အင်္ဂလိပ်၊ voucher"),
+                new KeyValuePair<string, string>("လိပ်၊ ါကမေိ", "အင်္ဂလိပ်၊ guard"),
+                new KeyValuePair<string, string>("လိပ်၊ျနခသညိ", "အင်္ဂလိပ်၊ second"),
+                new KeyValuePair<string, string>("လိပ်၊ျအကိငသ", "အင်္ဂလိပ်၊ studio"),
+                new KeyValuePair<string, string>("လိပ်၊ျအသညန", "အင်္ဂလိပ်၊ stone"),
+                new KeyValuePair<string, string>("\u100B\u103F\u100C", "\u100B\u1039\u100C"),
+                new KeyValuePair<string, string>("ပြဵ", "ပြ"),
+                new KeyValuePair<string, string>("မဵနိုင်", "မ~နိုင်"),
+                new KeyValuePair<string, string>("ဥပေဒပြန်ဋ္ဌာန်း", "ဥပဒေပြဋ္ဌာန်း"),
+                new KeyValuePair<string, string>("ဥပဒေပြန်ဋ္ဌာန်း", "ဥပဒေပြဋ္ဌာန်း"),
+                new KeyValuePair<string, string>("ဥပေဒ", "ဥပဒေ"),
+                new KeyValuePair<string, string>("ရတ္ဂ်ဘဘောလုံး", "ရက်ဂ်ဘီဘောလုံး"),
+                new KeyValuePair<string, string>("ရတ်္ဂဘီ", "ရက်ဂ်ဘီ"),
+                new KeyValuePair<string, string>("ရတ္ဂ်ဘီ", "ရက်ဂ်ဘီ"),
+                new KeyValuePair<string, string>("ဂျတ္ဇ်", "ဂျက်ဇ်"),
+                new KeyValuePair<string, string>("ဖရွိုက္ဒ်", "ဖရွိုက်ဒ်"),
+                new KeyValuePair<string, string>("အမိုးအုဋ္ဌ်ကြွပ်", "အမိုးအုတ်ကြွပ်"),
+                new KeyValuePair<string, string>("ရေရွတ်ဆရေးသော", "ရေရွတ်ဆဲရေးသော"),
+                new KeyValuePair<string, string>("ဆွဆောင်သည်", "ဆွဲဆောင်သည်"),
+                new KeyValuePair<string, string>("အက်စစ်ဓာတ် ကသောမိုး", "အက်စစ်ဓာတ်ကဲသောမိုး"),
+                new KeyValuePair<string, string>("ကြောက်ရွှံ့", "ကြောက်ရွံ့"),
+                new KeyValuePair<string, string>("ကြောက်ရွှံ", "ကြောက်ရွံ့"),
+                new KeyValuePair<string, string>("သွေးထိုးလှုံဆော်", "သွေးထိုးလှုံ့ဆော်"),
+                new KeyValuePair<string, string>("လမ္မော်ရောင်", "လိမ္မော်ရောင်"),
+                new KeyValuePair<string, string>("သသည္", "သည်"),
+                new KeyValuePair<string, string>("မြန်မာသက္က်ရာဇ်", "မြန်မာသက္ကရာဇ်"),
+                new KeyValuePair<string, string>("စတုရဂင်္", "စတုရင်္ဂ"),
+                new KeyValuePair<string, string>("မူဠ္", "မူဠှ"),
+                new KeyValuePair<string, string>("အာမေဍ္ဍိတ်", "အာမေဍိတ်"),
+                new KeyValuePair<string, string>("အီသီယီုးပီးယား", "အီသီယိုးပီးယား"),
+                new KeyValuePair<string, string>("အသုံးြုပမူ", "အသုံးပြုမှု"),
+                new KeyValuePair<string, string>("အသုံးြုပ", "အသုံးပြု"),
+                new KeyValuePair<string, string>("တရားမျှတမူ", "တရားမျှတမှု"),
+                new KeyValuePair<string, string>("မှန်ကန်မူ", "မှန်ကန်မှု"),
+                new KeyValuePair<string, string>("စွပ်ြုတ်", "စွပ်ပြုတ်"),
+                new KeyValuePair<string, string>("ယှဉ်ြိုင်", "ယှဉ်ပြိုင်"),
+                new KeyValuePair<string, string>("တောင်းနိုင်ြောင်း", "တောင်းနိုင်ကြောင်း"),
+                new KeyValuePair<string, string>("မြင်းအိြုမင်းနာ", "မြင်းအိုမြင်းနာ"),
+                new KeyValuePair<string, string>("ယခြုမစ်ကြီးနား", "ယခုမြစ်ကြီးနား"),
+                new KeyValuePair<string, string>("ရွှေလြီမစ်ဝှမ်း", "ရွှေလီမြစ်ဝှမ်း"),
+                new KeyValuePair<string, string>("မျောက်အတ္တလန္တိတ်စင်ရောျကြီး", "မြောက်အတ္တလန္တိတ်စင်ရော်ကြီး"),
+                new KeyValuePair<string, string>("မျောက်အတ္တလန္တိတ်", "မြောက်အတ္တလန္တိတ်"),
+                new KeyValuePair<string, string>("\u1031\u102C\u103B", "\u1031\u102C\u103A"),
+                new KeyValuePair<string, string>("လူနည်းုအုပ်ချုပ်မှု", "လူနည်းစုအုပ်ချုပ်မှု"),
+                new KeyValuePair<string, string>("အာလူးံမကာ", "အာလူးဖုံးကာ"),
+                new KeyValuePair<string, string>("လူမှုရေးောင်ရွက်သူ", "လူမှုရေးဆောင်ရွက်သူ"),
+                new KeyValuePair<string, string>("တာပြတ် ျေးရွာ", "တာပြတ်ကျေးရွာ"),
+                new KeyValuePair<string, string>("ဧရာဝတီတိုင်း သေကြီး", "ဧရာဝတီတိုင်းဒေသကြီး"),
+                new KeyValuePair<string, string>("ကျိုတ်လတ်မြို့နယ်", "ကျိုက်လတ်မြို့နယ်"),
+                new KeyValuePair<string, string>("မြို့နယ် ျောင်းစု ျေးရွာ", "မြို့နယ် ကျောင်းစုကျေးရွာ"),
+                new KeyValuePair<string, string>("လဇ\u103A", "လစ်ဇ်"),
+                new KeyValuePair<string, string>("ဥက္ကဋ္ဌ်", "ဥက္ကဋ္ဌ"),
+                new KeyValuePair<string, string>("ဥက်ကဋ်ဌျ", "ဥက္ကဋ္ဌ"),
+                new KeyValuePair<string, string>("ဆဲလ်စီယပ်။ ½။", "ဆဲလ်စီယပ် (°C)။"),
+                new KeyValuePair<string, string>("link=link=link=", ""),
+                new KeyValuePair<string, string>("link=", "")
+            };
+
             KeyValuePair<string, string>[] proseOrthFixes = new KeyValuePair<string, string>[]
             {
                 new KeyValuePair<string, string>("၄င်း", "၎င်း"),
@@ -4321,9 +4616,11 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 new KeyValuePair<string, string>("ႈဦးချို", "ဦးချို"),
                 new KeyValuePair<string, string>("ှုဦးချို", "ဦးချို"),
                 new KeyValuePair<string, string>("ပတ်သတ်", "ပတ်သက်"),
+                new KeyValuePair<string, string>("ပက်သက်", "ပတ်သက်"),
                 new KeyValuePair<string, string>("အချိန်မှီ", "အချိန်မီ"),
                 new KeyValuePair<string, string>("ခေတ်မှီ", "ခေတ်မီ"),
                 new KeyValuePair<string, string>("ကွန်ပြူတာ", "ကွန်ပျူတာ"),
+                new KeyValuePair<string, string>("ကွန်ယက်", "ကွန်ရက်"),
                 new KeyValuePair<string, string>("စံနစ်", "စနစ်"),
                 new KeyValuePair<string, string>("ယေဘူယျ", "ယေဘုယျ"),
                 new KeyValuePair<string, string>("ယျေဘုယျ", "ယေဘုယျ"),
@@ -4340,44 +4637,218 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 new KeyValuePair<string, string>("အဌမ", "အဋ္ဌမ"),
                 new KeyValuePair<string, string>("ပြဌာန်း", "ပြဋ္ဌာန်း"),
                 new KeyValuePair<string, string>("ဥက္ကဌ", "ဥက္ကဋ္ဌ"),
+                new KeyValuePair<string, string>("ဒိဌိ", "ဒိဋ္ဌိ"),
                 new KeyValuePair<string, string>("သဏ္ဍာန်", "သဏ္ဌာန်"),
                 new KeyValuePair<string, string>("သဏ္ဍန်", "သဏ္ဌာန်"),
                 new KeyValuePair<string, string>("တောင်ကိုးရီးယား", "တောင်ကိုရီးယား"),
                 new KeyValuePair<string, string>("ကိုရီယား", "ကိုရီးယား"),
-                new KeyValuePair<string, string>("သတ္ထု", "သတ္တု")
+                new KeyValuePair<string, string>("သတ္ထု", "သတ္တု"),
+                new KeyValuePair<string, string>("အရာဝတ္တု", "အရာဝတ္ထု"),
+                new KeyValuePair<string, string>("အဆောက်အဦး", "အဆောက်အဦ"),
+                new KeyValuePair<string, string>("တစိတ်တပိုင်း", "တစ်စိတ်တစ်ပိုင်း"),
+                new KeyValuePair<string, string>("တနည်း", "တစ်နည်း"),
+                new KeyValuePair<string, string>("တစ်ဘက်", "တစ်ဖက်"),
+                new KeyValuePair<string, string>("ဝိညာဏ်", "ဝိညာဉ်"),
+                new KeyValuePair<string, string>("ဩစတေးလျ", "ဩစတြေးလျ"),
+                new KeyValuePair<string, string>("ဩစတီးယား", "ဩစတြီးယား"),
+                new KeyValuePair<string, string>("သမာရိုးကျ", "သမားရိုးကျ"),
+                new KeyValuePair<string, string>("နယ်နမိတ်", "နယ်နိမိတ်"),
+                new KeyValuePair<string, string>("ဂျာမဏီ", "ဂျာမနီ"),
+                new KeyValuePair<string, string>("ဘေဂျင်းမြို့", "ပေကျင်းမြို့"),
+                new KeyValuePair<string, string>("ဘေကျင်းမြို့", "ပေကျင်းမြို့"),
+                new KeyValuePair<string, string>("မက္ကစီကို", "မက္ကဆီကို"),
+                new KeyValuePair<string, string>("ဒီပဲရင်း", "ဒီပဲယင်း"),
+                new KeyValuePair<string, string>("ဒီဇိုင်းနာ", "ဒီဇိုင်နာ"),
+                new KeyValuePair<string, string>("နျူးကလီးယား", "နျူကလီးယား"),
+                new KeyValuePair<string, string>("နိုင်ဝင်ဘာ", "နိုဝင်ဘာ"),
+                new KeyValuePair<string, string>("နိဿယည်း", "နိဿရည်း"),
+                new KeyValuePair<string, string>("ခရစ်ယန်", "ခရစ်ယာန်"),
+                new KeyValuePair<string, string>("ပိုင်သျှင်", "ပိုင်ရှင်"),
+                new KeyValuePair<string, string>("ပညာသျှင်", "ပညာရှင်"),
+                new KeyValuePair<string, string>("အချုပ်အချာ", "အချုပ်အခြာ"),
+                new KeyValuePair<string, string>("အသိအမတ်", "အသိအမှတ်"),
+                new KeyValuePair<string, string>("မြူနီစပယ်", "မြူနီစီပယ်"),
+                new KeyValuePair<string, string>("မြူနီဆီပယ်", "မြူနီစီပယ်"),
+                new KeyValuePair<string, string>("မျိုးစိပ်", "မျိုးစိတ်"),
+                new KeyValuePair<string, string>("ရင်းနှီးမြုပ်နှံ", "ရင်းနှီးမြှုပ်နှံ"),
+                new KeyValuePair<string, string>("မြင့်မိုရ်", "မြင်းမိုရ်"),
+                new KeyValuePair<string, string>("သဘာဝအလျှောက်", "သဘာဝအလျောက်"),
+                new KeyValuePair<string, string>("အလိုအလျှောက်", "အလိုအလျောက်"),
+                new KeyValuePair<string, string>("လေဟာပြင်", "လဟာပြင်"),
+                new KeyValuePair<string, string>("ပတ်ဝန်ကျင်", "ပတ်ဝန်းကျင်"),
+                new KeyValuePair<string, string>("ကုတင်", "ခုတင်")
             };
 
-            string SanitizeProseField(string rawText)
+            string ApplySafeProseOrthFixes(string text, bool isUsageNote)
+            {
+                if (string.IsNullOrEmpty(text))
+                    return text;
+
+                if (isUsageNote)
+                {
+                    string[] pipes = text.Split(new[] { " | " }, StringSplitOptions.None);
+                    bool changed = false;
+                    for (int pi = 0; pi < pipes.Length; pi++)
+                    {
+                        string seg = pipes[pi].TrimStart();
+                        if (seg.StartsWith("အသံထွက်:", StringComparison.Ordinal) ||
+                            seg.StartsWith("နှိုင်းယှဉ်:", StringComparison.Ordinal) ||
+                            seg.StartsWith("ပါဠိအနက်:", StringComparison.Ordinal) ||
+                            seg.StartsWith("ရင်းမြစ်:", StringComparison.Ordinal) ||
+                            seg.StartsWith("သာဓက:", StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+                        string updated = pipes[pi];
+                        for (int fi = 0; fi < proseOrthFixes.Length; fi++)
+                        {
+                            string bad = proseOrthFixes[fi].Key;
+                            if (updated.IndexOf(bad, StringComparison.Ordinal) >= 0)
+                                updated = updated.Replace(bad, proseOrthFixes[fi].Value);
+                        }
+                        if (!ReferenceEquals(updated, pipes[pi]))
+                        {
+                            pipes[pi] = updated;
+                            changed = true;
+                        }
+                    }
+                    return changed ? string.Join(" | ", pipes) : text;
+                }
+                else
+                {
+                    int cmpIdx = text.IndexOf("(နှိုင်းယှဉ်:", StringComparison.Ordinal);
+                    string mainPart = cmpIdx > 0 ? text.Substring(0, cmpIdx) : text;
+                    string tailPart = cmpIdx > 0 ? text.Substring(cmpIdx) : string.Empty;
+                    for (int fi = 0; fi < proseOrthFixes.Length; fi++)
+                    {
+                        string bad = proseOrthFixes[fi].Key;
+                        if (mainPart.IndexOf(bad, StringComparison.Ordinal) >= 0)
+                            mainPart = mainPart.Replace(bad, proseOrthFixes[fi].Value);
+                    }
+                    return cmpIdx > 0 ? (mainPart + tailPart) : mainPart;
+                }
+            }
+
+            string DeduplicateUsagePronunciation(string usageNote)
+            {
+                if (string.IsNullOrEmpty(usageNote) || usageNote.IndexOf("အသံထွက်:", StringComparison.Ordinal) < 0)
+                    return usageNote;
+
+                string[] pipes = usageNote.Split(new[] { " | " }, StringSplitOptions.RemoveEmptyEntries);
+                bool seenPron = false;
+                var kept = new List<string>(pipes.Length);
+                for (int pi = 0; pi < pipes.Length; pi++)
+                {
+                    string seg = pipes[pi].Trim();
+                    int innerBulletPron = seg.IndexOf("• အသံထွက်:", StringComparison.Ordinal);
+                    if (innerBulletPron >= 0)
+                    {
+                        string extraPron = seg.Substring(innerBulletPron + 1).Trim();
+                        seg = seg.Substring(0, innerBulletPron).Trim();
+                        if (!seenPron && extraPron.Length > "အသံထွက်:".Length)
+                        {
+                            kept.Add(extraPron);
+                            seenPron = true;
+                        }
+                    }
+                    if (seg.StartsWith("အသံထွက်:", StringComparison.Ordinal))
+                    {
+                        if (seenPron) continue;
+                        seenPron = true;
+                    }
+                    if (seg.StartsWith("အင်္ဂလိပ်အနက်:", StringComparison.Ordinal))
+                    {
+                        string val = seg.Substring("အင်္ဂလိပ်အနက်:".Length).Trim();
+                        if (val.Length >= 2 && val[0] == '"' && val[val.Length - 1] == '"')
+                            val = val.Substring(1, val.Length - 2).Trim();
+                        seg = "အင်္ဂလိပ်အနက်: " + val;
+                    }
+                    if (seg.Length > 0)
+                        kept.Add(seg);
+                }
+                return string.Join(" | ", kept);
+            }
+
+            string SanitizeProseField(string rawText, bool isUsageNote = false)
             {
                 if (string.IsNullOrEmpty(rawText))
                     return string.Empty;
 
                 string s = ZeroWidthRegex.Replace(rawText, "");
-                bool hasEthnicCitation = s.IndexOf("မွန်", StringComparison.Ordinal) >= 0 ||
-                                         s.IndexOf("ရှမ်း", StringComparison.Ordinal) >= 0 ||
-                                         s.IndexOf("ကရင်", StringComparison.Ordinal) >= 0 ||
-                                         s.IndexOf("ပအိုဝ်း", StringComparison.Ordinal) >= 0 ||
-                                         s.IndexOf("တအာင်း", StringComparison.Ordinal) >= 0 ||
-                                         s.IndexOf("ကယား", StringComparison.Ordinal) >= 0 ||
-                                         s.IndexOf("ပလောင်", StringComparison.Ordinal) >= 0;
+
+                // Clean CSV doubled quotes, Symbol-font PUA, MediaWiki caption/link remnants, degree mojibake, and WinInnwa/OCR glitches
+                if (s.IndexOf('\uF064') >= 0)
+                    s = s.Replace('\uF064', 'δ');
+                if (symbolPuaRx.IsMatch(s))
+                    s = symbolPuaRx.Replace(s, " ");
+                if (s.IndexOf("\"\"", StringComparison.Ordinal) >= 0)
+                {
+                    s = s.Replace("\"\"\"", "\"").Replace("\"\"", "\"");
+                }
+                if (s.IndexOf("==", StringComparison.Ordinal) >= 0)
+                {
+                    s = wikiSectionHeaderRx.Replace(s, "$1 — ");
+                    s = Regex.Replace(s, @"={2,}", " ");
+                }
+                if (s.IndexOf("[[", StringComparison.Ordinal) >= 0 || s.IndexOf(":en:", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    s = wikiInterwikiRx.Replace(s, "");
+                }
+                if (s.IndexOf("]]", StringComparison.Ordinal) >= 0)
+                {
+                    if (isUsageNote && s.IndexOf("ဗဟုသုတ:", StringComparison.Ordinal) >= 0)
+                        s = wikiNoteCaptionRx.Replace(s, "$1");
+                    int closeBr = s.IndexOf("]]", StringComparison.Ordinal);
+                    int openBr = s.IndexOf("[[", StringComparison.Ordinal);
+                    if (closeBr >= 0 && (openBr < 0 || closeBr < openBr) && closeBr < s.Length - 8)
+                        s = s.Substring(closeBr + 2).TrimStart();
+                    s = s.Replace("]]", "");
+                }
+                if (s.IndexOf("[[", StringComparison.Ordinal) >= 0)
+                {
+                    s = s.Replace("[[", "");
+                }
+                for (int mi = 0; mi < mojibakeAndEtymologyFixes.Length; mi++)
+                {
+                    string bad = mojibakeAndEtymologyFixes[mi].Key;
+                    if (s.IndexOf(bad, StringComparison.Ordinal) >= 0)
+                        s = s.Replace(bad, mojibakeAndEtymologyFixes[mi].Value);
+                }
+                if (s.IndexOf('½') >= 0)
+                {
+                    s = degreeHalfMojibakeRx.Replace(s, "$1°");
+                }
+
+                bool hasEthnicCitation = ethnicCitationRx.IsMatch(s);
+
+                if (!hasEthnicCitation && (s.IndexOf(' ') >= 0 || s.IndexOf('\u00A0') >= 0))
+                {
+                    s = ProseSpaceBeforeCombiningRegex.Replace(s, "");
+                }
+
+                // Repair WinInnwa shifted-E / visual-order Ra mojibake FIRST so FindZawgyiSpans never misclassifies shifted Unicode medials
+                s = RepairShiftedEAndMedialMojibake(s);
+                s = RepairVisualOrderERa(s);
 
                 if (!hasEthnicCitation)
                 {
-                    if (s.IndexOf(' ') >= 0 || s.IndexOf('\u00A0') >= 0)
-                        s = ProseSpaceBeforeCombiningRegex.Replace(s, "");
                     if (s.IndexOf('\u1033') >= 0) s = s.Replace('\u1033', '\u102F');
                     if (s.IndexOf('\u1034') >= 0) s = s.Replace('\u1034', '\u1030');
                     if (s.IndexOf('\u1071') >= 0) s = s.Replace("\u1071", "\u1039\u1010");
                     if (s.IndexOf('\u1094') >= 0) s = s.Replace('\u1094', '\u1037');
                     if (s.IndexOf('\u1095') >= 0) s = s.Replace('\u1095', '\u1037');
-                }
 
-                s = RepairShiftedEAndMedialMojibake(s);
-                for (int fi = 0; fi < proseOrthFixes.Length; fi++)
-                {
-                    string bad = proseOrthFixes[fi].Key;
-                    if (s.IndexOf(bad, StringComparison.Ordinal) >= 0)
-                        s = s.Replace(bad, proseOrthFixes[fi].Value);
+                    var zgSpans = MyanmarSpellChecker.Core.Nlp.UnicodeNormalizer.FindZawgyiSpans(s);
+                    if (zgSpans.Count > 0)
+                    {
+                        for (int zi = zgSpans.Count - 1; zi >= 0; zi--)
+                        {
+                            var sp = zgSpans[zi];
+                            s = s.Substring(0, sp.StartIndex) + sp.ConvertedUnicode + s.Substring(sp.StartIndex + sp.Length);
+                        }
+                        s = RepairShiftedEAndMedialMojibake(s);
+                        s = RepairVisualOrderERa(s);
+                    }
                 }
 
                 if (s.IndexOf('\u1025') >= 0)
@@ -4389,6 +4860,10 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                          .Replace("\u1025\u103E", "\u1009\u103E")
                          .Replace("\u1025\u1037\u103A", "\u1009\u103A\u1037");
                 }
+                if (s.IndexOf('\u1005') >= 0 || s.IndexOf('\u1008') >= 0)
+                {
+                    s = Regex.Replace(s, @"(?<!\u1039)\u1005\u103B|\u1008\u103B", "\u1008");
+                }
                 if (s.IndexOf('\u1039') >= 0)
                 {
                     s = VowelBeforeStackRegex.Replace(s, "${Stack}${Vowel}");
@@ -4397,7 +4872,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 {
                     s = MedialAfterERegex.Replace(s, "$1\u1031");
                 }
-                if (!hasEthnicCitation && (s.IndexOf('\u103D') >= 0 || s.IndexOf('\u103E') >= 0))
+                if (s.IndexOf('\u103D') >= 0 || s.IndexOf('\u103E') >= 0)
                 {
                     s = MedialAfterVowelCompilerRegex.Replace(s, "${Medial}${Vowel}");
                 }
@@ -4406,7 +4881,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     s = ProseMixedDigitWaRegex.Replace(s, m => new string('\u1040', m.Value.Length));
                 }
 
-                // Re-normalize Tall/Round AA after shifted-E repairs (e.g. 'ရွငှေါး -> ရွှေငါး', 'မြပွေါ -> မြွေပါ')
+                // Re-normalize Tall/Round AA on non-ethnic prose after shifted-E & visual-Ra repairs
                 if (!hasEthnicCitation)
                 {
                     if (s.IndexOf('\u102B') >= 0)
@@ -4417,27 +4892,102 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     {
                         s = Regex.Replace(s, @"(?<=(?:(?<!\u1039)|\u1004\u103A\u1039)(?:[\u1001\u1002\u1004\u1012\u1015\u101D]|\u1012\u103D)\u1031?)\u102C(?!တမ)", "\u102B");
                     }
-                    s = s.Replace("\u1037\u103A", "\u103A\u1037")
-                         .Replace("\u1037\u102C", "\u102C\u1037")
-                         .Replace("\u1037\u102B", "\u102B\u1037")
-                         .Replace("\u1037\u1036", "\u1036\u1037")
-                         .Replace("\u1037\u102F", "\u102F\u1037")
-                         .Replace("\u1036\u102F", "\u102F\u1036")
-                         .Replace("\u102F\u102D", "\u102D\u102F")
-                         .Replace("\u103A\u1037\u103A", "\u103A\u1037")
-                         .Replace("\u1037\u103A\u1037", "\u103A\u1037");
-                    s = Regex.Replace(s, @"([\u102B-\u1032\u1036-\u103E])\1+", "$1");
                 }
+
+                // Universal Unicode 5.1+ UTN#11 combining mark order (valid for Burmese AND Mon/Shan/Karen citations!)
+                s = s.Replace("\u103E\u103D", "\u103D\u103E")
+                     .Replace("\u103D\u103B", "\u103B\u103D")
+                     .Replace("\u103D\u103C", "\u103C\u103D")
+                     .Replace("\u103E\u103B", "\u103B\u103E")
+                     .Replace("\u103E\u103C", "\u103C\u103E")
+                     .Replace("\u102F\u102D", "\u102D\u102F")
+                     .Replace("\u1030\u102D", "\u102D\u1030")
+                     .Replace("\u102F\u102E", "\u102E\u102F")
+                     .Replace("\u102D\u102E", "\u102E")
+                     .Replace("\u102E\u102D", "\u102E")
+                     .Replace("\u102F\u1030", "\u1030")
+                     .Replace("\u1030\u102F", "\u1030")
+                     .Replace("\u1036\u102D", "\u102D\u1036")
+                     .Replace("\u1036\u102E", "\u102E\u1036")
+                     .Replace("\u1036\u102F", "\u102F\u1036")
+                     .Replace("\u1036\u1030", "\u1030\u1036")
+                     .Replace("\u1037\u103A", "\u103A\u1037")
+                     .Replace("\u1038\u103A", "\u103A\u1038")
+                     .Replace("\u1037\u102C", "\u102C\u1037")
+                     .Replace("\u1037\u102B", "\u102B\u1037")
+                     .Replace("\u1037\u1036", "\u1036\u1037")
+                     .Replace("\u1037\u102F", "\u102F\u1037")
+                     .Replace("\u102C\u1038\u102C", "\u102C\u1038")
+                     .Replace("\u102B\u1038\u102B", "\u102B\u1038")
+                     .Replace("\u103A\u1037\u103A", "\u103A\u1037")
+                     .Replace("\u1037\u103A\u1037", "\u103A\u1037");
+                if (!hasEthnicCitation && s.IndexOf('\u1038') >= 0)
+                {
+                    s = Regex.Replace(s, @"\u1038[\u102B-\u103E]+", "\u1038");
+                }
+                s = Regex.Replace(s, @"([\u102B-\u1032\u1036-\u103E])\1+", "$1");
+
+                if (s.IndexOf("လစ်ဇ်", StringComparison.Ordinal) >= 0 || s.IndexOf("လဇ်", StringComparison.Ordinal) >= 0)
+                    s = Regex.Replace(s, @"ဖရန[\u1037\u103A\u103B]+လ(?:စ်)?ဇ်", "ဖရန\u103A\u1037လစ်ဇ်");
+                if (s.IndexOf("ဥက္ကဋ္ဌ", StringComparison.Ordinal) >= 0 && s.IndexOf("မင", StringComparison.Ordinal) >= 0)
+                    s = Regex.Replace(s, @"မင[\u1037\u1038\u103B]+မင[\u1037\u1038\u103B]+ဥက္ကဋ္ဌ", "မင်းမင\u103A\u1037ဥက္ကဋ္ဌ");
+                if (s.IndexOf('\u103B') >= 0 && s.IndexOf("\u1031\u102C\u103B", StringComparison.Ordinal) >= 0)
+                    s = s.Replace("\u1031\u102C\u103B", "\u1031\u102C\u103A");
+
+                s = ApplySafeProseOrthFixes(s, isUsageNote);
+
+                // Clean double dandas & duplicate punctuation
+                if (s.IndexOf("။)။", StringComparison.Ordinal) >= 0)
+                    s = s.Replace("။)။", ")။");
+                if (s.IndexOf('။') >= 0)
+                    s = Regex.Replace(s, @"။(?:\s*။)+", "။");
+                if (s.IndexOf("၊၊", StringComparison.Ordinal) >= 0)
+                    s = Regex.Replace(s, @"၊{2,}", "၊");
+                s = Regex.Replace(s, @"\s{2,}", " ");
 
                 return s.Trim();
             }
 
             string EnsureBalancedParentheses(string text)
             {
-                if (string.IsNullOrEmpty(text) || text.IndexOf('(') < 0)
+                if (string.IsNullOrEmpty(text) || (text.IndexOf('(') < 0 && text.IndexOf(')') < 0))
                     return text;
 
                 string s = text.Trim();
+                // Strip orphan ')' when depth would drop below 0 (e.g. ') ===...===' or 'ထိုင်ရန်) တင်ပျဉ်ခွေ')
+                if (s.IndexOf(')') >= 0)
+                {
+                    var sbPar = new StringBuilder(s.Length);
+                    int depth = 0;
+                    for (int ci = 0; ci < s.Length; ci++)
+                    {
+                        char ch = s[ci];
+                        if (ch == '(')
+                        {
+                            depth++;
+                            sbPar.Append(ch);
+                        }
+                        else if (ch == ')')
+                        {
+                            if (depth > 0)
+                            {
+                                depth--;
+                                sbPar.Append(ch);
+                            }
+                            else if (ci > 0 && ci + 1 < s.Length && s[ci - 1] >= '0' && s[ci - 1] <= '9')
+                            {
+                                // Convert list marker '1)' to '1.' instead of leaving an unbalanced ')'
+                                sbPar.Append('.');
+                            }
+                        }
+                        else
+                        {
+                            sbPar.Append(ch);
+                        }
+                    }
+                    s = Regex.Replace(sbPar.ToString(), @"\s{2,}", " ").Trim();
+                }
+
                 while (s.EndsWith("(", StringComparison.Ordinal))
                     s = s.Substring(0, s.Length - 1).TrimEnd(' ', '—', '-', '၊', ',', ';');
 
@@ -4459,9 +5009,50 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 return s + closeStr;
             }
 
+            string NormalizeRuleExplanation(string rawExpl, string wrongForm)
+            {
+                if (string.IsNullOrEmpty(rawExpl))
+                    return string.Empty;
+                string s = ZeroWidthRegex.Replace(rawExpl, "").Trim();
+                const string wfToken = "\uE000";
+                bool masked = !string.IsNullOrEmpty(wrongForm) && s.IndexOf(wrongForm, StringComparison.Ordinal) >= 0;
+                if (masked)
+                    s = s.Replace(wrongForm, wfToken);
+                s = s.Replace("\u1037\u103A", "\u103A\u1037")
+                     .Replace("\u1037\u102C", "\u102C\u1037")
+                     .Replace("\u1037\u102B", "\u102B\u1037")
+                     .Replace("\u1037\u1036", "\u1036\u1037")
+                     .Replace("\u1037\u102F", "\u102F\u1037")
+                     .Replace("\u1036\u102F", "\u102F\u1036")
+                     .Replace("\u102F\u102D", "\u102D\u102F");
+                if (masked)
+                    s = s.Replace(wfToken, wrongForm);
+                return s;
+            }
+
+            string NormalizeTriggerList(string rawTriggers)
+            {
+                if (string.IsNullOrEmpty(rawTriggers))
+                    return rawTriggers;
+                string[] parts = rawTriggers.Split('|');
+                for (int pi = 0; pi < parts.Length; pi++)
+                {
+                    if (!string.IsNullOrWhiteSpace(parts[pi]))
+                        parts[pi] = NormalizeMyanmar(parts[pi].Trim());
+                }
+                return string.Join("|", parts);
+            }
+
             for (int i = 0; i < allEntries.Count; i++)
             {
                 string mc = allEntries[i].MeaningCue;
+                if (allEntries[i].PosTag == "ENCYC")
+                {
+                    if (allEntries[i].Word == "အီရန်နိုင်ငံရှိ နိုင်ငံရေးပါတီများ")
+                        mc = "အီရန်နိုင်ငံရှိ ထင်ရှားသော နိုင်ငံရေးပါတီများနှ\u1004\u103A\u1037 အတိုက်အခံအဖွဲ့အစည်းများ စာရင်း။";
+                    else if (allEntries[i].Word == "အီရန်နိုင်ငံရှိ ရွေးကောက်ပွဲများ")
+                        mc = "အီရန်နိုင်ငံတွင် နိုင်ငံတော်သမ္မတ၊ လွှတ်တော် (Majlis) နှ\u1004\u103A\u1037 ကျွမ်းကျင်သူများကောင်စီ ရွေးကောက်တင်မြှောက်သည\u103A\u1037 စနစ်။";
+                }
                 if (!string.IsNullOrEmpty(mc) && VulgarOrnagaiEnglishRegex.IsMatch(mc))
                 {
                     mc = parenSensitiveEnRx.Replace(mc, "");
@@ -4469,12 +5060,16 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     mc = Regex.Replace(mc, @"\(\s*\)", "");
                     mc = Regex.Replace(mc, @"\s{2,}", " ").Trim();
                 }
-                mc = SanitizeProseField(mc);
+                mc = SanitizeProseField(mc, isUsageNote: false);
                 if (allEntries[i].PosTag != "EN_LEX" && IsSelfReferentialGloss(allEntries[i].Word, mc))
                 {
-                    if (allEntries[i].Word == "ကိုယ်ပိုင်အုပ်ချုပ်ခွင့်ရဒေသ")
+                    if (allEntries[i].Word == "ကိုယ်ပိုင်အုပ်ချုပ်ခွင့်ရဒေသ" || allEntries[i].Word == "ကိုယ်ပိုင်အုပ်ချုပ်ခွင\u103A\u1037ရဒေသ")
                     {
-                        mc = "ဖွဲ့စည်းပုံအခြေခံဥပဒေအရ သတ်မှတ်ထားသော ကိုယ်ပိုင်အုပ်ချုပ်ခွင့်ရ နယ်မြေဒေသ။";
+                        mc = "ဖွဲ့စည်းပုံအခြေခံဥပဒေအရ သတ်မှတ်ထားသော ကိုယ်ပိုင်အုပ်ချုပ်ခွင\u103A\u1037ရ နယ်မြေဒေသ။";
+                    }
+                    else if (allEntries[i].PosTag == "ENCYC" && allEntries[i].Word.IndexOf("ရွာ", StringComparison.Ordinal) >= 0)
+                    {
+                        mc = "မြန်မာနိုင်ငံရှိ ကျေးရွာ/ဒေသအမည်။";
                     }
                     else if (allEntries[i].IsOfficialThatpon)
                     {
@@ -4482,24 +5077,31 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     }
                     else
                     {
-                        mc = "ခေတ်သုံး မြန်မာစာပေနှင့် ရုံးသုံး စံသတ်ပုံအမှန် ဝေါဟာရ။";
+                        mc = "ခေတ်သုံး မြန်မာစာပေနှ\u1004\u103A\u1037 ရုံးသုံး စံသတ်ပုံအမှန် ဝေါဟာရ။";
                     }
+                    mc = SanitizeProseField(mc, isUsageNote: false);
                 }
                 allEntries[i].MeaningCue = EnsureBalancedParentheses(mc);
                 if (!string.IsNullOrEmpty(allEntries[i].UsageNote))
                 {
-                    allEntries[i].UsageNote = SanitizeProseField(allEntries[i].UsageNote);
+                    string un = DeduplicateUsagePronunciation(allEntries[i].UsageNote);
+                    un = SanitizeProseField(un, isUsageNote: true);
+                    allEntries[i].UsageNote = DeduplicateUsagePronunciation(un);
                 }
             }
             for (int i = 0; i < cleanRules.Count; i++)
             {
                 if (!string.IsNullOrEmpty(cleanRules[i].Explanation))
-                    cleanRules[i].Explanation = ZeroWidthRegex.Replace(cleanRules[i].Explanation, "").Trim();
+                    cleanRules[i].Explanation = NormalizeRuleExplanation(cleanRules[i].Explanation, cleanRules[i].WrongForm);
             }
             for (int i = 0; i < cleanCtxRules.Count; i++)
             {
                 if (!string.IsNullOrEmpty(cleanCtxRules[i].Explanation))
-                    cleanCtxRules[i].Explanation = ZeroWidthRegex.Replace(cleanCtxRules[i].Explanation, "").Trim();
+                    cleanCtxRules[i].Explanation = NormalizeRuleExplanation(cleanCtxRules[i].Explanation, cleanCtxRules[i].WrongForm);
+                if (!string.IsNullOrEmpty(cleanCtxRules[i].TriggerWords))
+                    cleanCtxRules[i].TriggerWords = NormalizeTriggerList(cleanCtxRules[i].TriggerWords);
+                if (!string.IsNullOrEmpty(cleanCtxRules[i].AntiTriggerWords))
+                    cleanCtxRules[i].AntiTriggerWords = NormalizeTriggerList(cleanCtxRules[i].AntiTriggerWords);
             }
 
             allEntries = allEntries.OrderBy(e => e.Word, StringComparer.Ordinal).ToList();

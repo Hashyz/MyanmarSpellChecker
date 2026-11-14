@@ -3356,5 +3356,179 @@ namespace MyanmarSpellChecker.Core.Tests
             int dispClose = disp.Count(c => c == ')');
             Assert.Equal(dispOpen, dispClose);
         }
+
+        [Fact]
+        public void V61_WholeCorpusDataValidationAndSanitizationGate()
+        {
+            // 1. Live UnicodeNormalizer Canonical Reorder & Redundant Medial Detection (V32 Upgrades)
+            var liveNormPairs = new (string Raw, string Expected)[]
+            {
+                ("သီးန\u1036\u103E", "သီးနှံ"),
+                ("လ\u1036\u103E\u102F\u1037ဆော်", "လှုံ့ဆော်"),
+                ("ရ\u1036\u103D\u103E\u1037", "ရွှံ့"),
+                ("ရ\u1036\u103E\u102F\u1038", "ရှုံး"),
+                ("အဘိ\u1007\u1039\u1008\u103B\u102C", "အဘိ\u1007\u1039\u1008\u102C"),
+                ("\u1008\u103Bေး", "ဈေး")
+            };
+            foreach (var (raw, expected) in liveNormPairs)
+            {
+                Assert.True(UnicodeNormalizer.HasLookalikeError(raw, out string fixedForm, out _),
+                    $"Expected HasLookalikeError=true for '{raw}'.");
+                Assert.Equal(expected, fixedForm);
+                Assert.Equal(expected, UnicodeNormalizer.FixLookalikeCharacters(raw));
+            }
+
+            // 2. Load Both Master JSON & Encrypted Runtime DB and Verify Curated Domain/Official Sanitization
+            var master = EncryptedDictionaryRepository.ParseFromJsonFile(TestPaths.MasterJsonPath);
+            var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
+            MyanmarTrie trie = repo.LoadIntoTrie(AntiTamperGuard.ReconstructProtectedFallbackKey());
+
+            string[] requiredCanonicalWords =
+            {
+                "ကြေးငွေစနစ်", "ငွေကြေးစနစ်", "တရားဝင်ပိုင်ရှင်", "တရားဝင်ပေးခြင်း",
+                "ဒွါရ", "ဘာရဒွါဇ", "အယ်လ်ဂိုရီသမ်", "ကုက္ကို", "ရွှေကုက္ကို",
+                "လွမ်ပရာဘမ်", "ဂွာတီမာလာ", "နီကာရာဂွာ", "မာနာဂွာ", "အန်တီဂွာနှင့်ဘာဘူဒါ",
+                "အာရောဂျံ", "အာယုဝဍ္ဎနဆေး", "အဘိဇ္ဈာ", "ဪ",
+                "ရဲလုပ်ငန်း", "လယ်လုပ်ငန်း", "ရုံးလုပ်ငန်း"
+            };
+            foreach (string w in requiredCanonicalWords)
+            {
+                Assert.True(trie.ContainsExactWord(w), $"Expected sanitized canonical headword '{w}' in active lexicon.");
+            }
+
+            string[] forbiddenCondemnedOrJunkWords =
+            {
+                "ကြေးငွေစံနစ်", "ငွေကြေးစံနစ်", "တရားဝင်ပိုင်သျှင်", "ဒွာရ",
+                "ချော့ကလက်", "ကုက္ကိုလ်", "ရွှေကုက္ကိုလ်", "အာရောဂ္ဃျံ", "အဘိဇ္ဈျာ",
+                "စောက်ရေး", "တို့အဖွဲ့", "တို့အရေး", "ဆိုင်ရာဥပဒေ", "ရေးလုပ်ငန်း"
+            };
+            foreach (string bad in forbiddenCondemnedOrJunkWords)
+            {
+                Assert.False(trie.ContainsExactWord(bad), $"Condemned/junk form '{bad}' must NOT exist in active lexicon.");
+            }
+
+            Assert.True(trie.TryGetExactEntries("လယ်လုပ်ငန်း", out var leEntries) && leEntries != null);
+            Assert.All(leEntries, e =>
+            {
+                Assert.DoesNotContain("အလယ် အလတ်", e.MeaningCue ?? "");
+                Assert.DoesNotContain("နှင့် ငန်း", e.MeaningCue ?? "");
+            });
+
+            // 3. Whole-Corpus 360° Zero-Defect Audit across ALL Entries, Rules, ContextRules, and Bigrams
+            var badSubseqRx = new System.Text.RegularExpressions.Regex(
+                @"(?:[\u102B-\u1030\u1032\u1036][\u103B-\u103E]|\u103A\u103A|\u1039\u1039|\u1031\u1031|\u102D\u102E|\u102E\u102D|\u102F\u1030|\u1030\u102F|\u1037\u103A|\u1038\u103A|\u1038[\u102B-\u103E]|\u1036[\u102D-\u1030]|[\u102B-\u1038\u103A]\u103C|\u1008\u103B|\u100B\u103F\u100C)",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+            var corruptedArtifactRx = new System.Text.RegularExpressions.Regex(
+                @"idmn|fidml|coidmb|Aidmj|syidmb|sidmn|sidmg|Bridm|cheidm|\[\[|\]\]|[\uE000-\uF8FF]",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+            var degreeHalfRx = new System.Text.RegularExpressions.Regex(@"[၀-၉0-9]\s*½", System.Text.RegularExpressions.RegexOptions.Compiled);
+            var ethnicScriptOrLabelRx = new System.Text.RegularExpressions.Regex(
+                @"[\u105A-\u109F\uAA60-\uAA7F]|(?:မွန်|ရှမ်း|ကရင်|ပအိုဝ်း|တအာင်း|ကယား|ပလောင်)(?:\s*[-–—၊:]|ဘာသာ|စကား|ဝေါဟာရ|အခေါ်)",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+            var usagePronHeaderRx = new System.Text.RegularExpressions.Regex(@"(?:^|\|\s*)အသံထွက်:", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+            var activeWords = new HashSet<string>(StringComparer.Ordinal);
+            var defects = new List<string>();
+
+            foreach (var e in master.Entries)
+            {
+                string pos = e.PosTag ?? "";
+                bool isDeferred = pos == "EN_LEX" || pos == "ENCYC" || pos == "PROVERB" || pos == "SAYING" || pos == "RHETORIC";
+                if (!isDeferred && e.Word.IndexOf(' ') < 0)
+                {
+                    activeWords.Add(e.Word);
+                    if (UnicodeNormalizer.HasLookalikeError(e.Word, out _, out string desc))
+                        defects.Add($"HW Lookalike '{e.Word}': {desc}");
+                    if (badSubseqRx.IsMatch(e.Word))
+                        defects.Add($"HW BadSubseq '{e.Word}'");
+                    if (UnicodeNormalizer.FindZawgyiSpans(e.Word).Count > 0)
+                        defects.Add($"HW Zawgyi '{e.Word}'");
+                }
+
+                string mc = e.MeaningCue ?? "";
+                string un = e.UsageNote ?? "";
+                bool hasEthnic = ethnicScriptOrLabelRx.IsMatch(mc) || ethnicScriptOrLabelRx.IsMatch(un);
+
+                string mcTrim = mc.Trim(' ', '။', '၊', '.', '"', '\'');
+                if (mcTrim.Length > 0 && string.Equals(mcTrim, e.Word, StringComparison.Ordinal))
+                    defects.Add($"Tautology MeaningCue '{e.Word}': {mc}");
+
+                if (badSubseqRx.IsMatch(mc))
+                    defects.Add($"Cue BadSubseq '{e.Word}': {mc}");
+                if (!hasEthnic && UnicodeNormalizer.FindZawgyiSpans(mc).Count > 0)
+                    defects.Add($"Cue Zawgyi '{e.Word}': {mc}");
+
+                int depth = 0;
+                bool negParen = false;
+                for (int ci = 0; ci < mc.Length; ci++)
+                {
+                    if (mc[ci] == '(') depth++;
+                    else if (mc[ci] == ')') { depth--; if (depth < 0) negParen = true; }
+                }
+                if (depth != 0 || negParen)
+                    defects.Add($"Unbalanced Paren '{e.Word}': {mc}");
+
+                if (badSubseqRx.IsMatch(un))
+                    defects.Add($"Note BadSubseq '{e.Word}': {un}");
+                if (!hasEthnic && UnicodeNormalizer.FindZawgyiSpans(un).Count > 0)
+                    defects.Add($"Note Zawgyi '{e.Word}': {un}");
+                if (usagePronHeaderRx.Matches(un).Count > 1)
+                    defects.Add($"Dup Pron '{e.Word}': {un}");
+
+                if (corruptedArtifactRx.IsMatch(mc) || corruptedArtifactRx.IsMatch(un))
+                    defects.Add($"Artifact/PUA/Wiki '{e.Word}': {mc}");
+                if (mc.Contains("\"\"") || un.Contains("\"\"") || mc.Contains("==") || un.Contains("==") ||
+                    mc.Contains("။)။") || un.Contains("။)။") || mc.Contains("။။") || un.Contains("။။") ||
+                    degreeHalfRx.IsMatch(mc) || degreeHalfRx.IsMatch(un))
+                {
+                    defects.Add($"Formatting Defect '{e.Word}': {mc}");
+                }
+
+                bool isSynthCue = mc.Contains("ပေါင်းစပ်ဝေါဟာရ —") ||
+                                  ((mc.Contains("ခြင်းဆိုင်ရာ ") || mc.Contains("သည့် အပြုအမူ") || mc.Contains("သည့် ကိစ္စရပ်") || mc.Contains("ဆိုင်ရာ ရုံးဌာန")) && mc.EndsWith(")။", StringComparison.Ordinal));
+                if (isSynthCue && mc.Contains("~"))
+                    defects.Add($"Unexpanded Tilde '{e.Word}': {mc}");
+            }
+
+            var condemnedSet = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var r in master.OrthographyRules)
+            {
+                condemnedSet.Add(r.WrongForm);
+                if (activeWords.Contains(r.WrongForm))
+                    defects.Add($"Rule WrongForm in Active Lexicon: '{r.WrongForm}'");
+                if (r.CorrectForm.IndexOf(' ') < 0 && !activeWords.Contains(r.CorrectForm))
+                    defects.Add($"Rule CorrectForm Missing from Active Lexicon: '{r.CorrectForm}'");
+                if (UnicodeNormalizer.HasLookalikeError(r.CorrectForm, out _, out string rDesc) || badSubseqRx.IsMatch(r.CorrectForm))
+                    defects.Add($"Rule CorrectForm Defect '{r.CorrectForm}': {rDesc}");
+                string maskedExpl = (r.Explanation ?? "").Replace("('င်္')", "က").Replace("'င်္'", "က");
+                if (!string.IsNullOrEmpty(r.WrongForm)) maskedExpl = maskedExpl.Replace(r.WrongForm, "က");
+                if (badSubseqRx.IsMatch(maskedExpl) || UnicodeNormalizer.FindZawgyiSpans(maskedExpl).Count > 0)
+                    defects.Add($"Rule Explanation Defect '{r.WrongForm}': {r.Explanation}");
+            }
+
+            foreach (var cr in master.ContextRules)
+            {
+                if (UnicodeNormalizer.HasLookalikeError(cr.CorrectForm, out _, out string cDesc) || badSubseqRx.IsMatch(cr.CorrectForm))
+                    defects.Add($"CtxRule CorrectForm Defect '{cr.CorrectForm}': {cDesc}");
+                string maskedExpl = (cr.Explanation ?? "").Replace("('င်္')", "က").Replace("'င်္'", "က");
+                if (!string.IsNullOrEmpty(cr.WrongForm)) maskedExpl = maskedExpl.Replace(cr.WrongForm, "က");
+                if (badSubseqRx.IsMatch(maskedExpl) || UnicodeNormalizer.FindZawgyiSpans(maskedExpl).Count > 0)
+                    defects.Add($"CtxRule Explanation Defect '{cr.WrongForm}': {cr.Explanation}");
+                if (badSubseqRx.IsMatch(cr.TriggerWords ?? "") || badSubseqRx.IsMatch(cr.AntiTriggerWords ?? ""))
+                    defects.Add($"CtxRule Trigger Defect '{cr.WrongForm}': {cr.TriggerWords}");
+            }
+
+            foreach (var bg in master.WordBigrams)
+            {
+                if (condemnedSet.Contains(bg.LeftWord) || condemnedSet.Contains(bg.RightWord) ||
+                    badSubseqRx.IsMatch(bg.LeftWord) || badSubseqRx.IsMatch(bg.RightWord))
+                {
+                    defects.Add($"Bigram Defect: ({bg.LeftWord}, {bg.RightWord})");
+                }
+            }
+
+            Assert.True(defects.Count == 0,
+                $"Expected 0 whole-corpus validation defects across {master.Entries.Count} entries, {master.OrthographyRules.Count} rules, {master.ContextRules.Count} context rules, and {master.WordBigrams.Count} bigrams, but found {defects.Count}: {string.Join(" || ", defects.Take(8))}");
+        }
     }
 }

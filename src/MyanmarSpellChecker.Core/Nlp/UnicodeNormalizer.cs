@@ -96,7 +96,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         // 4c. Accidental Shift+F Virama '\u1039' typed instead of Asat '\u103A' before a consonant+Ya-pin cluster (e.g. 'လိုအပ္ချက်' -> 'လိုအပ်ချက်')
         private static readonly Regex AccidentalViramaBeforeYaPinPattern = new Regex(
-            @"(?<!\u1004\u103A)\u1039(?=[\u1000-\u1021]\u103B)",
+            @"(?<!\u1004\u103A)\u1039(?=[\u1000-\u1007\u1009-\u1021]\u103B)",
             RegexOptions.Compiled);
 
         // 4d. Non-existent Burmese rhyme 'မှုံ / မှုံ့' (\u1019\u103E\u102F\u1036 — 0x in 462p သတ်ပုံကျမ်း) -> 'မှုန် / မှုန့်' (45x in 462p သတ်ပုံကျမ်း)
@@ -111,9 +111,9 @@ namespace MyanmarSpellChecker.Core.Nlp
             @"(?<Cluster>[\u1000-\u1008\u1010-\u1012\u1015-\u1019\u101C\u101E][\u103B-\u103E]*[\u102B-\u1032\u1037\u1038]*)\u1004\u103A\u1039(?:(?![\u1000-\u1003\u1018\u101E])(?!(?<=တန\u1004\u103A\u1039)\u101C)|(?<=[\u102B\u102C\u102E\u1030\u1031\u1032\u1037\u1038]\u1004\u103A\u1039))",
             RegexOptions.Compiled);
 
-        // 6. Unstacked 'စ' + 'ျ' (U+1005 U+103B) misused instead of 'ဈ' (U+1008), e.g. စျေး -> ဈေး, စျာန် -> ဈာန်
+        // 6. Unstacked 'စ' + 'ျ' (U+1005 U+103B) or redundant 'ဈ' + 'ျ' (U+1008 U+103B) instead of 'ဈ' (U+1008), e.g. စျေး/ဈျေး -> ဈေး, အဘိဇ္ဈျာ -> အဘိဇ္ဈာ
         private static readonly Regex MisusedCyaPattern = new Regex(
-            @"(?<!\u1039)\u1005\u103B",
+            @"(?<!\u1039)\u1005\u103B|\u1008\u103B",
             RegexOptions.Compiled);
 
         // 7. 'သြော်' / 'ဩော်' misused instead of 'ဪ' (U+102A), or 'သြ' (U+101E U+103C without vowel) misused instead of 'ဩ' (U+1029)
@@ -160,9 +160,9 @@ namespace MyanmarSpellChecker.Core.Nlp
             @"\u102D+\u1030+|\u1030+\u102D+",
             RegexOptions.Compiled);
 
-        // 12b-ii. Medial Wa/Ha (\u103D/\u103E) typed after upper/lower/ai vowel causing dotted circles (e.g. 'လွဲှအပ် -> လွှဲအပ်', 'ညိှနှိုင်း -> ညှိနှိုင်း')
+        // 12b-ii. Medial Wa/Ha (\u103D/\u103E) typed after upper/lower/ai vowel or anusvara causing dotted circles (e.g. 'လွဲှအပ် -> လွှဲအပ်', 'ညိှနှိုင်း -> ညှိနှိုင်း', 'သီးနံှ -> သီးနှံ', 'လံှု့ဆော် -> လှုံ့ဆော်', 'ရံွှ့ -> ရွှံ့')
         private static readonly Regex MedialAfterVowelPattern = new Regex(
-            @"(?<Vowel>[\u102D-\u1030\u1032]+)(?<Medial>\u103D?\u103E|\u103D)",
+            @"(?<Vowel>[\u102D-\u1030\u1032\u1036]+)(?<Medial>[\u103D\u103E]+)",
             RegexOptions.Compiled);
 
         // 12b-iii. Swapped lower/upper vowels rendering dotted circles in Pyidaungsu (e.g. 'ကြုိး' \u102F\u102D -> 'ကြိုး' \u102D\u102F)
@@ -273,7 +273,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                         if (c == '\u102D' || c == '\u103D' || c == '\u103E' || c == '\u1039') return true;
                         break;
                     case '\u1036':
-                        if (c == '\u102F' || c == '\u1039') return true;
+                        if ((c >= '\u102D' && c <= '\u1030') || c == '\u103D' || c == '\u103E' || c == '\u1039') return true;
                         break;
                     case '\u1037':
                         if (c == '\u102B' || c == '\u102C' || c == '\u102F' || c == '\u1036' || c == '\u103A') return true;
@@ -386,7 +386,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     {
                         mask |= LookalikeIuCombo;
                     }
-                    else if ((c == '\u103D' || c == '\u103E') && ((prev >= '\u102D' && prev <= '\u1030') || prev == '\u1032'))
+                    else if ((c == '\u103D' || c == '\u103E') && ((prev >= '\u102D' && prev <= '\u1030') || prev == '\u1032' || prev == '\u1036'))
                     {
                         mask |= LookalikeMedialAfterVowel;
                     }
@@ -409,7 +409,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     {
                         mask |= LookalikeDecomposedUu;
                     }
-                    else if (prev == '\u1005' && c == '\u103B')
+                    else if ((prev == '\u1005' || prev == '\u1008') && c == '\u103B')
                     {
                         mask |= LookalikeMisusedCya;
                     }
@@ -490,8 +490,11 @@ namespace MyanmarSpellChecker.Core.Nlp
             result = result.Replace("\u1030\u102D", "\u102D\u1030"); // ူ + ိ -> ိူ
             result = result.Replace("\u102F\u102E", "\u102E\u102F"); // ု + ီ -> ီု
 
-            // 3. Lower vowel (102F) before Anusvara (1036)
+            // 3. Upper/Lower vowel (102D..1030) before Anusvara (1036)
+            result = result.Replace("\u1036\u102D", "\u102D\u1036"); // ံ + ိ -> ိံ
+            result = result.Replace("\u1036\u102E", "\u102E\u1036"); // ံ + ီ -> ီံ
             result = result.Replace("\u1036\u102F", "\u102F\u1036"); // ံ + ု -> ုံ
+            result = result.Replace("\u1036\u1030", "\u1030\u1036"); // ံ + ူ -> ူံ
 
             // 4. Vowel / Anusvara / Asat before Dot Below (1037)
             result = result.Replace("\u1037\u102C", "\u102C\u1037"); // ့ + ာ -> ာ့
@@ -651,7 +654,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             if ((mask & LookalikeMisusedCya) != 0 && MisusedCyaPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
-                explanation = "စလုံး ယပင့် 'စျ' (U+1005 U+103B) အစား သတ်ပုံကျမ်းဝင် ဇမြင်းဆွဲဗျည်း 'ဈ' (U+1008) ဖြင့် ရေးသားရမည် (ဥပမာ - ဈေး၊ ဈာန်)။";
+                explanation = "စလုံး ယပင့် 'စျ' (သို့မဟုတ် 'ဈ' နောက် ယပင့်ပို 'ဈျ') အစား သတ်ပုံကျမ်းဝင် ဇမြင်းဆွဲဗျည်း 'ဈ' (U+1008) ဖြင့် ရေးသားရမည် (ဥပမာ - ဈေး၊ ဈာန်၊ အဘိဇ္ဈာ)။";
                 return true;
             }
 
