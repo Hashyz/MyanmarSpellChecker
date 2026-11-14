@@ -103,6 +103,27 @@ namespace MyanmarSpellChecker.Core.Dictionary
             }
         }
 
+        /// <summary>
+        /// Captures an in-memory snapshot set with a single file timestamp check so rendering
+        /// 12–45 dictionary cards performs zero per-card NTFS stat syscalls on the UI thread.
+        /// </summary>
+        public HashSet<string> GetSnapshotSet()
+        {
+            lock (_syncLock)
+            {
+                EnsureFreshUnderLock();
+                return new HashSet<string>(_wordSet, StringComparer.OrdinalIgnoreCase);
+            }
+        }
+
+        public static bool ContainsNormalized(HashSet<string>? snapshot, string? word)
+        {
+            if (snapshot == null || snapshot.Count == 0)
+                return false;
+            string norm = NormalizeKey(word);
+            return !string.IsNullOrEmpty(norm) && snapshot.Contains(norm);
+        }
+
         private static string NormalizeKey(string? word)
         {
             if (string.IsNullOrWhiteSpace(word))

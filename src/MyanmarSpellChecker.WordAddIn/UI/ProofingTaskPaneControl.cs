@@ -199,6 +199,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         private readonly List<string> _dictHistory = new List<string>();
         private int _dictHistoryIndex = -1;
         private bool _suppressDictHistoryPush;
+        private bool _suppressSearchTextChanged;
         private bool _showingSavedBookmarksView;
         private ProofingStyleMode _currentStyleMode = ProofingStyleMode.GeneralStandard;
         private EcoModePreference _lastEcoPref = EcoModePreference.Auto;
@@ -240,7 +241,11 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         public event Func<IEnumerable<string>, List<DictionaryEntry>>? RequestGetBookmarkedEntries;
         public event Func<string, bool, bool, List<DictionaryEntry>>? RequestSearchReferenceCorpus;
         public event Func<List<DictionaryEntry>>? RequestGetFeaturedKnowledge;
+        public event Func<List<DictionaryEntry>>? RequestGetFeaturedProverbs;
         public event Func<bool>? RequestIsDictionaryIndexReady;
+        public event Func<bool>? RequestIsEngineReady;
+        public event Func<long>? RequestGetEngineMutationVersion;
+        public event Action? RequestPrewarmDictionary;
         public event Func<string>? RequestGetSelectedDocumentText;
         public event Action<bool>? RequestConvertLegacyFonts;
         public event Action<bool, bool>? RequestFormatNumerals;
@@ -259,7 +264,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             Font = _fontBody;
             Dock = DockStyle.Fill;
 
-            _searchDebounceTimer = new Timer { Interval = 250 };
+            _searchDebounceTimer = new Timer { Interval = 140 };
             _searchDebounceTimer.Tick += (s, e) =>
             {
                 _searchDebounceTimer.Stop();
@@ -724,8 +729,19 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             _txtDictionarySearch.HandleCreated += (s, e) => UpdateCueBanners();
             _txtDictionarySearch.TextChanged += (s, e) =>
             {
+                if (_suppressSearchTextChanged)
+                    return;
                 _searchDebounceTimer.Stop();
                 _searchDebounceTimer.Start();
+            };
+            _txtDictionarySearch.KeyDown += (s, e) =>
+            {
+                if (e.KeyCode == Keys.Enter)
+                {
+                    e.SuppressKeyPress = true;
+                    _searchDebounceTimer.Stop();
+                    ExecuteDictionarySearchNow();
+                }
             };
 
             int initAuxBtnH = MeasureSingleLineButtonHeight(_fontSmall, 11);
@@ -753,7 +769,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             _btnClearSearch.Click += (s, e) =>
             {
                 _showingSavedBookmarksView = false;
-                _txtDictionarySearch.Text = string.Empty;
+                SetDictionarySearchTextSilently(string.Empty);
                 ExecuteDictionarySearchNow();
                 _txtDictionarySearch.Focus();
             };
@@ -1158,17 +1174,40 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             _txtDictionarySearch.SelectAll();
         }
 
+        private void SetDictionarySearchTextSilently(string? text)
+        {
+            _searchDebounceTimer.Stop();
+            _suppressSearchTextChanged = true;
+            try
+            {
+                string target = text ?? string.Empty;
+                if (!string.Equals(_txtDictionarySearch.Text, target, StringComparison.Ordinal))
+                {
+                    _txtDictionarySearch.Text = target;
+                }
+            }
+            finally
+            {
+                _suppressSearchTextChanged = false;
+                _searchDebounceTimer.Stop();
+            }
+        }
+
         public void OpenDictionaryWithQuery(string query)
         {
             string cleaned = (query ?? string.Empty).Trim();
             _showingSavedBookmarksView = false;
             _dictCategoryFilter = DictionaryCategoryFilter.All;
             UpdateDictionaryCategoryStyles();
-            SwitchWorkspaceTab(TaskPaneWorkspaceTab.Dictionary);
-            _searchDebounceTimer.Stop();
-            _txtDictionarySearch.Text = cleaned;
-            _searchDebounceTimer.Stop();
-            ExecuteDictionarySearchNow();
+            SetDictionarySearchTextSilently(cleaned);
+            if (_activeTab != TaskPaneWorkspaceTab.Dictionary)
+            {
+                SwitchWorkspaceTab(TaskPaneWorkspaceTab.Dictionary);
+            }
+            else
+            {
+                ExecuteDictionarySearchNow();
+            }
         }
 
         public void OpenCustomWordsTab()
@@ -1407,6 +1446,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                     RefreshProofingCardsFull();
                     break;
                 case TaskPaneWorkspaceTab.Dictionary:
+                    TriggerBackgroundDictionaryPrewarmIfNeeded();
                     UpdateDictionaryNavButtons();
                     if (_showingSavedBookmarksView)
                         RenderSavedBookmarksView();
@@ -1586,6 +1626,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             switch (_activeTab)
             {
                 case TaskPaneWorkspaceTab.Dictionary:
+                    TriggerBackgroundDictionaryPrewarmIfNeeded();
                     UpdateDictionaryNavButtons();
                     if (_showingSavedBookmarksView)
                         RenderSavedBookmarksView();

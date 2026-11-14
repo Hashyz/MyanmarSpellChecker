@@ -4559,5 +4559,138 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.Contains(clericalIssues, i => i.Suggestions[0].Replacement == "တစ်အုပ်တစ်မ");
             Assert.Contains(clericalIssues, i => i.Suggestions[0].Replacement == "မွေးမြူရေး");
         }
+
+        [Fact]
+        public void V41_DictionaryZeroDelayLatencyAndCollocationIndexGate()
+        {
+            var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
+            var trie = repo.LoadIntoTrie(MyanmarSpellChecker.Core.Security.AntiTamperGuard.ReconstructProtectedFallbackKey());
+            var engine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+
+            Assert.False(engine.IsDictionarySearchReady);
+            engine.PrewarmDictionaryIndexes();
+            Assert.True(engine.IsDictionarySearchReady);
+
+            // 1. O(1) Top6CollocationSlots index integrity & Eco trim recovery
+            var collocationsWarm = engine.GetTopCollocations("စီမံ", 6);
+            Assert.NotEmpty(collocationsWarm);
+            Assert.All(collocationsWarm, c => Assert.Contains("စီမံ", c));
+
+            trie.TrimReferenceAndSearchCaches();
+            Assert.False(engine.IsDictionarySearchReady);
+
+            var collocationsAfterTrim = engine.GetTopCollocations("စီမံ", 6);
+            Assert.Equal(collocationsWarm, collocationsAfterTrim);
+
+            engine.PrewarmDictionaryIndexes();
+            Assert.True(engine.IsDictionarySearchReady);
+
+            // 2. O(1) Featured Proverbs rotation (replaces expensive "အ" bucket scan on empty Proverbs pill click)
+            var proverbsSw = System.Diagnostics.Stopwatch.StartNew();
+            var featuredProverbs = engine.GetFeaturedProverbEntries(10);
+            proverbsSw.Stop();
+            Assert.Equal(10, featuredProverbs.Count);
+            Assert.All(featuredProverbs, p => Assert.True(p.IsProverbOrSayingEntry));
+            Assert.True(proverbsSw.Elapsed.TotalMilliseconds < 15.0,
+                $"Featured proverbs lookup took {proverbsSw.Elapsed.TotalMilliseconds:F2} ms");
+
+            // 3. Full Search + 12-Card Off-Thread View Preparation Latency Gate (< 15 ms average across all query types)
+            string tempBookmarksPath = Path.Combine(Path.GetTempPath(), $"msc_v41_bm_{Guid.NewGuid():N}.txt");
+            try
+            {
+                var testBookmarkStore = new MyanmarSpellChecker.Core.Dictionary.DictionaryBookmarkStore(tempBookmarksPath);
+                testBookmarkStore.ToggleBookmark("သတ်ပုံ");
+
+                string[] diverseQueries =
+                {
+                    "စီမံ",
+                    "သတ်ပုံ",
+                    "အ",
+                    "abandon",
+                    "negotiate",
+                    "mingalaba",
+                    "kyaukse",
+                    "ျမန္မာ",
+                    "xz"
+                };
+
+                var cache = new MyanmarSpellChecker.Core.Dictionary.DictionaryLookupCache(32);
+                long mutVer = engine.MutationVersion;
+
+                var totalSw = System.Diagnostics.Stopwatch.StartNew();
+                foreach (string q in diverseQueries)
+                {
+                    string eff = MyanmarTrie.NormalizeSearchQuery(q, out bool fromZg);
+                    var matches = engine.SearchDictionary(q, 45);
+                    var prepared = MyanmarSpellChecker.Core.Dictionary.DictionaryViewPreparationService.PrepareCardsSlice(
+                        matches,
+                        startIndex: 0,
+                        maxCount: 12,
+                        isEnglishUi: true,
+                        maxSynonymsPerCard: 8,
+                        maxAntonymsPerCard: 8,
+                        maxCollocationsPerCard: 6,
+                        getSynonyms: w => engine.GetSynonyms(w, 8),
+                        getAntonyms: w => engine.GetAntonyms(w, 8),
+                        getCollocations: w => engine.GetTopCollocations(w, 6),
+                        getHomophoneSummary: w => engine.GetHomophoneSiblingsSummary(w),
+                        bookmarkStore: testBookmarkStore);
+
+                    cache.Store(
+                        mutVer,
+                        isEnglishUi: true,
+                        categoryId: 0,
+                        trimmedQuery: q,
+                        view: new MyanmarSpellChecker.Core.Dictionary.CachedDictionaryQueryView(q, eff, fromZg, 1.0, matches, prepared));
+
+                    if (q == "သတ်ပုံ")
+                    {
+                        Assert.NotEmpty(prepared);
+                        Assert.Contains(prepared, c => c.Entry.Word == "သတ်ပုံ" && c.IsBookmarked);
+                    }
+                }
+                totalSw.Stop();
+
+                double avgWarmMs = totalSw.Elapsed.TotalMilliseconds / diverseQueries.Length;
+                Assert.True(avgWarmMs < 15.0,
+                    $"Expected warm search + 12-card enrichment average < 15.0 ms, got {avgWarmMs:F2} ms (total {totalSw.Elapsed.TotalMilliseconds:F2} ms)");
+
+                // 4. Sub-millisecond LRU cache hit & instant invalidation on MutationVersion advance
+                var hitSw = System.Diagnostics.Stopwatch.StartNew();
+                bool hit = cache.TryGet(mutVer, isEnglishUi: true, categoryId: 0, trimmedQuery: "abandon", out var hitView);
+                hitSw.Stop();
+                Assert.True(hit);
+                Assert.NotNull(hitView);
+                Assert.NotEmpty(hitView!.InitialCards);
+                Assert.True(hitSw.Elapsed.TotalMilliseconds < 2.0);
+
+                Assert.False(cache.TryGet(mutVer + 1, isEnglishUi: true, categoryId: 0, trimmedQuery: "abandon", out _));
+            }
+            finally
+            {
+                if (File.Exists(tempBookmarksPath))
+                {
+                    try { File.Delete(tempBookmarksPath); } catch { }
+                }
+            }
+
+            // 5. Static UI Pipeline Verification across BOTH Word & Excel Dictionary Tabs
+            string repoRoot = Path.GetFullPath(Path.Combine(TestPaths.DataDirectory, ".."));
+            string wordPaneSrc = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "ProofingTaskPaneControl.cs"));
+            string wordDictSrc = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "ProofingTaskPaneControl.DictionaryTab.cs"));
+            string excelPaneSrc = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "ExcelProofingTaskPaneControl.cs"));
+            string excelDictSrc = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "ExcelProofingTaskPaneControl.DictionaryTab.cs"));
+
+            Assert.Contains("SetDictionarySearchTextSilently", wordPaneSrc);
+            Assert.Contains("SetDictionarySearchTextSilently", excelPaneSrc);
+            Assert.Contains("DictionaryViewPreparationService.PrepareCardsSlice", wordDictSrc);
+            Assert.Contains("DictionaryViewPreparationService.PrepareCardsSlice", excelDictSrc);
+            Assert.Contains("BeginCardsBatchUpdate()", wordDictSrc);
+            Assert.Contains("BeginCardsBatchUpdate()", excelDictSrc);
+            Assert.Contains("Controls.AddRange", wordDictSrc);
+            Assert.Contains("Controls.AddRange", excelDictSrc);
+            Assert.DoesNotContain("_txtDictionarySearch.Text =", wordDictSrc);
+            Assert.DoesNotContain("_txtDictionarySearch.Text =", excelDictSrc);
+        }
     }
 }

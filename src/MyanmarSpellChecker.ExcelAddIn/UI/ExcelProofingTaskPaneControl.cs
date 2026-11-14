@@ -199,6 +199,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private ExcelScanOutcomeMetadata? _lastScanOutcome;
         private int _undoAvailableCount;
         private string _undoLatestLabel = string.Empty;
+        private bool _isEngineWarmingUp;
         private bool _hasLoadedLexiconStats;
         private int _cachedWordCount;
         private int _cachedOfficialCount;
@@ -213,6 +214,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private readonly List<string> _dictHistory = new List<string>();
         private int _dictHistoryIndex = -1;
         private bool _suppressDictHistoryPush;
+        private bool _suppressSearchTextChanged;
         private bool _showingSavedBookmarksView;
         private ProofingStyleMode _currentStyleMode = ProofingStyleMode.GeneralStandard;
         private SpreadsheetScanScope _currentScanScope = SpreadsheetScanScope.ActiveSheet;
@@ -237,7 +239,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         public event Func<string, List<DictionaryEntry>>? RequestDictionarySearch;
         public event Func<string, bool, bool, List<DictionaryEntry>>? RequestSearchReferenceCorpus;
         public event Func<List<DictionaryEntry>>? RequestGetFeaturedKnowledge;
+        public event Func<List<DictionaryEntry>>? RequestGetFeaturedProverbs;
         public event Func<bool>? RequestIsDictionaryIndexReady;
+        public event Func<bool>? RequestIsEngineReady;
+        public event Func<long>? RequestGetEngineMutationVersion;
+        public event Action? RequestPrewarmDictionary;
         public event Func<string, List<string>>? RequestGetSynonyms;
         public event Func<string, List<string>>? RequestGetAntonyms;
         public event Func<string, List<string>>? RequestGetCollocations;
@@ -269,7 +275,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             Font = _fontBody;
             Dock = DockStyle.Fill;
 
-            _searchDebounceTimer = new Timer { Interval = 250 };
+            _searchDebounceTimer = new Timer { Interval = 140 };
             _searchDebounceTimer.Tick += (s, e) =>
             {
                 _searchDebounceTimer.Stop();
@@ -721,8 +727,19 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _txtDictionarySearch.HandleCreated += (s, e) => UpdateCueBanners();
             _txtDictionarySearch.TextChanged += (s, e) =>
             {
+                if (_suppressSearchTextChanged)
+                    return;
                 _searchDebounceTimer.Stop();
                 _searchDebounceTimer.Start();
+            };
+            _txtDictionarySearch.KeyDown += (s, e) =>
+            {
+                if (e.KeyCode == Keys.Enter)
+                {
+                    e.SuppressKeyPress = true;
+                    _searchDebounceTimer.Stop();
+                    ExecuteDictionarySearchNow();
+                }
             };
 
             _btnClearDictSearch = CreateActionButton(
@@ -732,7 +749,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _btnClearDictSearch.Click += (s, e) =>
             {
                 _showingSavedBookmarksView = false;
-                _txtDictionarySearch.Clear();
+                SetDictionarySearchTextSilently(string.Empty);
                 ExecuteDictionarySearchNow();
                 _txtDictionarySearch.Focus();
             };
@@ -1183,6 +1200,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
         public void SetEngineWarmupState()
         {
+            _isEngineWarmingUp = true;
             _lblLexiconStats.Text = UiLocalizer.Pick(
                 "Loading offline dictionary & orthography...",
                 "အဘိဓာန်နှင့် သတ်ပုံကျမ်း ဖွင့်လှစ်နေသည်...");
@@ -1193,6 +1211,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
         public void SetLexiconStats(int wordCount, int officialCount, int ruleCount, int referenceCount, int encycCount)
         {
+            _isEngineWarmingUp = false;
             _hasLoadedLexiconStats = true;
             _cachedWordCount = wordCount;
             _cachedOfficialCount = officialCount;
@@ -1339,17 +1358,41 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 RenderCustomWordsWorkspace();
         }
 
+        private void SetDictionarySearchTextSilently(string? text)
+        {
+            _searchDebounceTimer.Stop();
+            _suppressSearchTextChanged = true;
+            try
+            {
+                string target = text ?? string.Empty;
+                if (!string.Equals(_txtDictionarySearch.Text, target, StringComparison.Ordinal))
+                {
+                    _txtDictionarySearch.Text = target;
+                }
+            }
+            finally
+            {
+                _suppressSearchTextChanged = false;
+                _searchDebounceTimer.Stop();
+            }
+        }
+
         public void OpenDictionaryWithQuery(string? query = null)
         {
             _showingSavedBookmarksView = false;
             _dictCategoryFilter = DictionaryCategoryFilter.All;
             UpdateDictionaryCategoryStyles();
-            SwitchWorkspaceTab(TaskPaneWorkspaceTab.Dictionary);
             if (!string.IsNullOrWhiteSpace(query))
             {
-                _searchDebounceTimer.Stop();
-                _txtDictionarySearch.Text = query!.Trim();
-                _searchDebounceTimer.Stop();
+                SetDictionarySearchTextSilently(query!.Trim());
+            }
+
+            if (_activeTab != TaskPaneWorkspaceTab.Dictionary)
+            {
+                SwitchWorkspaceTab(TaskPaneWorkspaceTab.Dictionary);
+            }
+            else
+            {
                 ExecuteDictionarySearchNow();
             }
             _txtDictionarySearch.Focus();
@@ -1360,6 +1403,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
         private void SwitchWorkspaceTab(TaskPaneWorkspaceTab tab)
         {
+            if (_activeTab == tab && _cardsPanel.Controls.Count > 0)
+            {
+                UpdateTabButtonStyles();
+                return;
+            }
+
             _activeTab = tab;
             _proofingToolbar.Visible = tab == TaskPaneWorkspaceTab.Proofing;
             _dictionaryToolbar.Visible = tab == TaskPaneWorkspaceTab.Dictionary;
@@ -1373,6 +1422,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     RenderProofingCards();
                     break;
                 case TaskPaneWorkspaceTab.Dictionary:
+                    TriggerBackgroundDictionaryPrewarmIfNeeded();
                     UpdateDictionaryNavButtons();
                     if (_showingSavedBookmarksView)
                     {
@@ -1387,7 +1437,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                             sel.Length <= 36 &&
                             sel.IndexOf('\n') < 0)
                         {
-                            _txtDictionarySearch.Text = sel;
+                            SetDictionarySearchTextSilently(sel);
                         }
                     }
                     ExecuteDictionarySearchNow();

@@ -400,6 +400,29 @@ namespace MyanmarSpellChecker.ExcelAddIn
 
             _ribbonUi?.Invalidate();
 
+            // Gentle idle background prewarm on 64-bit non-low-spec hosts so the very first Dictionary search
+            // responds in < 1 ms (32-bit Office & Potato PCs keep 0 MB startup overhead until Dictionary is opened).
+            var engineToPrewarm = _proofingEngine;
+            if (engineToPrewarm != null &&
+                Environment.Is64BitProcess &&
+                !EcoPerformanceGovernor.Hardware.IsLowSpecHardware &&
+                EcoPerformanceGovernor.CurrentPreference != EcoModePreference.AlwaysOn)
+            {
+                Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(1800).ConfigureAwait(false);
+                        if (ReferenceEquals(_proofingEngine, engineToPrewarm) &&
+                            EcoPerformanceGovernor.CurrentPreference != EcoModePreference.AlwaysOn)
+                        {
+                            engineToPrewarm.PrewarmDictionaryIndexes();
+                        }
+                    }
+                    catch { }
+                });
+            }
+
             // Perform gentle non-blocking streaming full-sheet scan if a workbook is already open (never blocks startup!)
             try
             {
@@ -991,12 +1014,20 @@ namespace MyanmarSpellChecker.ExcelAddIn
 
             ctrl.RequestDictionarySearch += query =>
                 _proofingEngine?.SearchDictionary(query, 45) ?? new List<DictionaryEntry>();
+            ctrl.RequestIsEngineReady += () =>
+                _proofingEngine != null;
+            ctrl.RequestGetEngineMutationVersion += () =>
+                _proofingEngine?.MutationVersion ?? 0L;
+            ctrl.RequestPrewarmDictionary += () =>
+                _proofingEngine?.PrewarmDictionaryIndexes();
             ctrl.RequestIsDictionaryIndexReady += () =>
                 _proofingEngine?.IsDictionarySearchReady ?? true;
             ctrl.RequestSearchReferenceCorpus += (query, incProverbs, incEncyc) =>
                 _proofingEngine?.SearchReferenceCorpus(query, incProverbs, incEncyc, 40) ?? new List<DictionaryEntry>();
             ctrl.RequestGetFeaturedKnowledge += () =>
                 _proofingEngine?.GetFeaturedKnowledgeEntries(8) ?? new List<DictionaryEntry>();
+            ctrl.RequestGetFeaturedProverbs += () =>
+                _proofingEngine?.GetFeaturedProverbEntries(10) ?? new List<DictionaryEntry>();
             ctrl.RequestGetSynonyms += word =>
                 _proofingEngine?.GetSynonyms(word, 8) ?? new List<string>();
             ctrl.RequestGetAntonyms += word =>

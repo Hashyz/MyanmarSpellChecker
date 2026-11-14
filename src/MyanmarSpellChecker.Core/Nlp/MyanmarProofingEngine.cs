@@ -407,6 +407,14 @@ namespace MyanmarSpellChecker.Core.Nlp
         }
 
         public bool IsDictionarySearchReady => _trie.IsSearchIndexReady;
+        public long MutationVersion => _trie.MutationVersion;
+
+        public void PrewarmDictionaryIndexes()
+        {
+            _lexiconRwLock.EnterReadLock();
+            try { _trie.PrewarmSearchIndexes(); }
+            finally { _lexiconRwLock.ExitReadLock(); }
+        }
 
         public List<DictionaryEntry> SearchDictionary(string query, int maxResults = 30)
         {
@@ -458,6 +466,13 @@ namespace MyanmarSpellChecker.Core.Nlp
         {
             _lexiconRwLock.EnterReadLock();
             try { return _trie.GetFeaturedKnowledgeEntries(count); }
+            finally { _lexiconRwLock.ExitReadLock(); }
+        }
+
+        public List<DictionaryEntry> GetFeaturedProverbEntries(int count = 10)
+        {
+            _lexiconRwLock.EnterReadLock();
+            try { return _trie.GetFeaturedProverbEntries(count); }
             finally { _lexiconRwLock.ExitReadLock(); }
         }
 

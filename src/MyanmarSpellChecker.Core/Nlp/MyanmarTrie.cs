@@ -274,13 +274,15 @@ namespace MyanmarSpellChecker.Core.Nlp
         }
 
         public long MutationVersion => Volatile.Read(ref _mutationVersion);
-        public bool IsSearchIndexReady => _searchAndSynonymIndexBuilt;
+        public bool IsSearchIndexReady => _searchAndSynonymIndexBuilt && _synonymAndAntonymIndexBuilt && _collocationIndexBuilt;
         public bool IsReferenceCorpusLoaded => _lazyReferenceLoader == null && _referenceCorpus.Count > 0;
 
-        // Lazy-built sub-millisecond Inverted ASCII/Code Index, Reference Syllable Index & Bi-directional Synonym/Antonym Indexes
+        // Lazy-built sub-millisecond Inverted ASCII/Code Index, Reference Syllable Index, Collocation Adjacency & Bi-directional Synonym/Antonym Indexes
         private readonly object _searchIndexLock = new object();
+        private readonly object _collocationIndexLock = new object();
         private volatile bool _synonymAndAntonymIndexBuilt;
         private volatile bool _searchAndSynonymIndexBuilt;
+        private volatile bool _collocationIndexBuilt;
         private Dictionary<string, List<DictionaryEntry>> _latinTokenIndex = new Dictionary<string, List<DictionaryEntry>>(StringComparer.OrdinalIgnoreCase);
         private string[] _sortedLatinTokens = Array.Empty<string>();
         private readonly Dictionary<string, List<string>> _synonymIndex = new Dictionary<string, List<string>>(StringComparer.Ordinal);
@@ -291,8 +293,9 @@ namespace MyanmarSpellChecker.Core.Nlp
         private Dictionary<string, List<DictionaryEntry>> _bilingualExactIndex = new Dictionary<string, List<DictionaryEntry>>(StringComparer.OrdinalIgnoreCase);
         private Dictionary<string, List<DictionaryEntry>> _referenceSyllableIndex = new Dictionary<string, List<DictionaryEntry>>(StringComparer.Ordinal);
         private Dictionary<string, List<DictionaryEntry>> _referenceCueSyllableIndex = new Dictionary<string, List<DictionaryEntry>>(StringComparer.Ordinal);
-        private readonly ConcurrentDictionary<string, List<string>> _collocationCache = new ConcurrentDictionary<string, List<string>>(StringComparer.Ordinal);
+        private Dictionary<string, string[]> _topCollocationsByWord = new Dictionary<string, string[]>(StringComparer.Ordinal);
         private List<DictionaryEntry>? _featuredEncycPool;
+        private List<DictionaryEntry>? _featuredProverbPool;
         private int _featuredRotationCursor;
 
         private static readonly HashSet<string> CueStopSyllables = new HashSet<string>(StringComparer.Ordinal)
@@ -347,6 +350,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             EncyclopediaCount += deferredEncycCount;
             BilingualLexiconCount += deferredBilingualCount;
             _featuredEncycPool = null;
+            _featuredProverbPool = null;
             _lazyReferenceLoader = loader;
             _reloadableReferenceLoader = loader;
         }
@@ -361,10 +365,15 @@ namespace MyanmarSpellChecker.Core.Nlp
         /// </summary>
         public void TrimReferenceAndSearchCaches()
         {
-            _collocationCache.Clear();
             _homophoneSummaryCache.Clear();
             s_strictSkeletonCache.Clear();
             s_phoneticSkeletonCache.Clear();
+
+            lock (_collocationIndexLock)
+            {
+                _collocationIndexBuilt = false;
+                _topCollocationsByWord = new Dictionary<string, string[]>(StringComparer.Ordinal);
+            }
 
             lock (_searchIndexLock)
             {
@@ -378,6 +387,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 _referenceSyllableIndex = new Dictionary<string, List<DictionaryEntry>>(StringComparer.Ordinal);
                 _referenceCueSyllableIndex = new Dictionary<string, List<DictionaryEntry>>(StringComparer.Ordinal);
                 _featuredEncycPool = null;
+                _featuredProverbPool = null;
 
                 if (_reloadableReferenceLoader != null &&
                     _lazyReferenceLoader == null &&
@@ -1001,6 +1011,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 if (prev == 0)
                     BigramCount++;
                 _wordBigramIndex[key] = count;
+                _collocationIndexBuilt = false;
                 Interlocked.Increment(ref _mutationVersion);
             }
         }
@@ -1379,10 +1390,79 @@ namespace MyanmarSpellChecker.Core.Nlp
         }
 
         /// <summary>
-        /// Pre-builds all inverted search, Latin code, synonym, antonym, and syllable-unit indexes on a background thread
+        /// Returns a rotating set of Myanmar proverbs &amp; traditional sayings (စကားပုံနှင့် ဆိုရိုးစကား) in O(1) without broad syllable scans.
+        /// </summary>
+        public List<DictionaryEntry> GetFeaturedProverbEntries(int count = 10)
+        {
+            var results = new List<DictionaryEntry>();
+            if (count <= 0)
+                return results;
+
+            int seedCursor = Interlocked.Add(ref _featuredRotationCursor, 613) & int.MaxValue;
+            EnsureReferenceCorpusLoaded();
+
+            List<DictionaryEntry>? pool = _featuredProverbPool;
+            if (pool == null)
+            {
+                lock (_searchIndexLock)
+                {
+                    pool = _featuredProverbPool;
+                    if (pool == null)
+                    {
+                        var built = new List<DictionaryEntry>();
+                        for (int ri = 0; ri < _referenceCorpus.Count; ri++)
+                        {
+                            var cand = _referenceCorpus[ri];
+                            if (cand.IsProverbOrSayingEntry && !string.IsNullOrEmpty(cand.MeaningCue))
+                            {
+                                built.Add(cand);
+                            }
+                        }
+                        _featuredProverbPool = built;
+                        pool = built;
+                    }
+                }
+            }
+
+            if (pool.Count > 0)
+            {
+                int totalPool = pool.Count;
+                int target = Math.Min(count, totalPool);
+                int stride = Math.Max(19, totalPool / Math.Max(1, target + 2));
+                if (stride % 2 == 0)
+                    stride++;
+
+                int cursor = seedCursor % totalPool;
+                var picked = new HashSet<string>(StringComparer.Ordinal);
+                int scanned = 0;
+                while (results.Count < target && scanned < totalPool)
+                {
+                    var cand = pool[cursor];
+                    if (picked.Add(cand.Word))
+                    {
+                        results.Add(cand);
+                        cursor = (cursor + stride) % totalPool;
+                    }
+                    else
+                    {
+                        cursor = (cursor + 1) % totalPool;
+                    }
+                    scanned++;
+                }
+            }
+
+            return results;
+        }
+
+        /// <summary>
+        /// Pre-builds all inverted search, Latin code, synonym, antonym, collocation, and syllable-unit indexes on a background thread
         /// so the user's very first Dictionary or Thesaurus lookup executes in &lt; 1 ms with zero UI-thread stall.
         /// </summary>
-        public void PrewarmSearchIndexes() => EnsureSearchAndSynonymIndexBuilt();
+        public void PrewarmSearchIndexes()
+        {
+            EnsureSearchAndSynonymIndexBuilt();
+            EnsureCollocationIndexBuilt();
+        }
 
         private void EnsureSynonymAndAntonymIndexBuilt()
         {
@@ -1501,17 +1581,18 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         private void EnsureSearchAndSynonymIndexBuilt()
         {
-            if (_searchAndSynonymIndexBuilt)
-                return;
-
-            lock (_searchIndexLock)
+            if (!_searchAndSynonymIndexBuilt)
             {
-                if (_searchAndSynonymIndexBuilt)
-                    return;
-
-                EnsureSearchAndSynonymIndexBuiltCore();
-                _searchAndSynonymIndexBuilt = true;
+                lock (_searchIndexLock)
+                {
+                    if (!_searchAndSynonymIndexBuilt)
+                    {
+                        EnsureSearchAndSynonymIndexBuiltCore();
+                        _searchAndSynonymIndexBuilt = true;
+                    }
+                }
             }
+            EnsureCollocationIndexBuilt();
         }
 
         private static bool HasAnyAsciiLetterOrPlus(string s, int start, int end)
@@ -1948,9 +2029,114 @@ namespace MyanmarSpellChecker.Core.Nlp
             return UnicodeNormalizer.NormalizeCanonicalOrder(UnicodeNormalizer.FixLookalikeCharacters(trimmed));
         }
 
+        private sealed class Top6CollocationSlots
+        {
+            public readonly string[] Lefts = new string[6];
+            public readonly string[] Rights = new string[6];
+            public readonly int[] Counts = new int[6];
+            public int Length;
+
+            public void TryAdd(string left, string right, int count)
+            {
+                if (Length == 6 && count <= Counts[5])
+                    return;
+
+                for (int i = 0; i < Length; i++)
+                {
+                    if (string.Equals(Lefts[i], left, StringComparison.Ordinal) &&
+                        string.Equals(Rights[i], right, StringComparison.Ordinal))
+                    {
+                        return;
+                    }
+                }
+
+                int insertAt = Length < 6 ? Length : 5;
+                if (Length < 6)
+                    Length++;
+
+                while (insertAt > 0 && count > Counts[insertAt - 1])
+                {
+                    Lefts[insertAt] = Lefts[insertAt - 1];
+                    Rights[insertAt] = Rights[insertAt - 1];
+                    Counts[insertAt] = Counts[insertAt - 1];
+                    insertAt--;
+                }
+
+                Lefts[insertAt] = left;
+                Rights[insertAt] = right;
+                Counts[insertAt] = count;
+            }
+
+            public string[] ToPhraseArray()
+            {
+                if (Length == 0)
+                    return Array.Empty<string>();
+                var arr = new string[Length];
+                for (int i = 0; i < Length; i++)
+                {
+                    arr[i] = Lefts[i] + " " + Rights[i];
+                }
+                return arr;
+            }
+        }
+
+        private void EnsureCollocationIndexBuilt()
+        {
+            if (_collocationIndexBuilt || _wordBigramIndex.Count == 0)
+                return;
+
+            lock (_collocationIndexLock)
+            {
+                if (_collocationIndexBuilt || _wordBigramIndex.Count == 0)
+                    return;
+
+                var accum = new Dictionary<string, Top6CollocationSlots>(16384, StringComparer.Ordinal);
+                foreach (var kvp in _wordBigramIndex)
+                {
+                    string left = kvp.Key.Left;
+                    string right = kvp.Key.Right;
+                    int count = kvp.Value;
+                    if (left.Length == 0 || right.Length == 0 || string.Equals(left, right, StringComparison.Ordinal))
+                        continue;
+
+                    if (!CueStopSyllables.Contains(right))
+                    {
+                        if (!accum.TryGetValue(left, out var leftSlots))
+                        {
+                            leftSlots = new Top6CollocationSlots();
+                            accum[left] = leftSlots;
+                        }
+                        leftSlots.TryAdd(left, right, count);
+                    }
+
+                    if (!CueStopSyllables.Contains(left))
+                    {
+                        if (!accum.TryGetValue(right, out var rightSlots))
+                        {
+                            rightSlots = new Top6CollocationSlots();
+                            accum[right] = rightSlots;
+                        }
+                        rightSlots.TryAdd(left, right, count);
+                    }
+                }
+
+                var built = new Dictionary<string, string[]>(accum.Count, StringComparer.Ordinal);
+                foreach (var entry in accum)
+                {
+                    if (entry.Value.Length > 0)
+                    {
+                        built[entry.Key] = entry.Value.ToPhraseArray();
+                    }
+                }
+
+                _topCollocationsByWord = built;
+                _collocationIndexBuilt = true;
+            }
+        }
+
         /// <summary>
         /// Returns top real-world Myanmar corpus collocations (common partner phrases) for <paramref name="word"/>
-        /// using the in-memory 110,000+ word bigram corpus with zero permanent extra index RAM.
+        /// in O(1) sub-microsecond time via the compact lazy top-6 collocation index (evicted cleanly by TrimReferenceAndSearchCaches).
         /// </summary>
         public List<string> GetTopCollocations(string word, int maxCount = 6)
         {
@@ -1961,8 +2147,19 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (norm.Length == 0)
                 return new List<string>(0);
 
-            if (maxCount == 6 && _collocationCache.TryGetValue(norm, out var cached))
-                return cached;
+            if (maxCount <= 6)
+            {
+                EnsureCollocationIndexBuilt();
+                var map = _topCollocationsByWord;
+                if (!map.TryGetValue(norm, out string[]? topArr) || topArr.Length == 0)
+                    return new List<string>(0);
+
+                int take = Math.Min(maxCount, topArr.Length);
+                var fastList = new List<string>(take);
+                for (int i = 0; i < take; i++)
+                    fastList.Add(topArr[i]);
+                return fastList;
+            }
 
             var scored = new List<(string Phrase, int Count)>(16);
             foreach (var kvp in _wordBigramIndex)
@@ -1988,13 +2185,6 @@ namespace MyanmarSpellChecker.Core.Nlp
             {
                 if (seen.Add(scored[i].Phrase))
                     result.Add(scored[i].Phrase);
-            }
-
-            if (maxCount == 6)
-            {
-                if (_collocationCache.Count > 512)
-                    _collocationCache.Clear();
-                _collocationCache[norm] = result;
             }
 
             return result;
@@ -2283,16 +2473,18 @@ namespace MyanmarSpellChecker.Core.Nlp
                         }
                     }
 
-                    // Mid-token substring fallback only when exact + prefix yielded zero candidates
-                    if (candidatePool.Count == 0)
+                    // Mid-token substring fallback only when exact + prefix yielded zero candidates and anchor has >= 3 chars
+                    if (candidatePool.Count == 0 && anchorTok.Length >= 3)
                     {
-                        for (int k = 0; k < _sortedLatinTokens.Length; k++)
+                        int subPoolCap = maxResults * 3;
+                        for (int k = 0; k < _sortedLatinTokens.Length && candidatePool.Count < subPoolCap; k++)
                         {
                             string keyTok = _sortedLatinTokens[k];
-                            if (keyTok.IndexOf(anchorTok, StringComparison.OrdinalIgnoreCase) >= 0 &&
+                            if (keyTok.Length > anchorTok.Length &&
+                                keyTok.IndexOf(anchorTok, StringComparison.OrdinalIgnoreCase) >= 0 &&
                                 _latinTokenIndex.TryGetValue(keyTok, out var subBucket))
                             {
-                                for (int i = 0; i < subBucket.Count; i++)
+                                for (int i = 0; i < subBucket.Count && candidatePool.Count < subPoolCap; i++)
                                     AddCandidate(subBucket[i]);
                             }
                         }
@@ -2650,7 +2842,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                     int hwMatched = 0;
                     if (bestHwBucket != null)
                     {
-                        for (int i = 0; i < bestHwBucket.Count && results.Count < lexicalCap; i++)
+                        int hwScanCap = qUnits.Count == 1 ? Math.Min(bestHwBucket.Count, 2400) : bestHwBucket.Count;
+                        for (int i = 0; i < hwScanCap && results.Count < lexicalCap; i++)
                         {
                             var cand = bestHwBucket[i];
                             if (cand.Word.IndexOf(norm, StringComparison.Ordinal) >= 0)
@@ -2681,7 +2874,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                         int cueMatched = 0;
                         if (bestCueBucket != null)
                         {
-                            for (int i = 0; i < bestCueBucket.Count && results.Count < lexicalCap; i++)
+                            int cueScanCap = qUnits.Count == 1 ? Math.Min(bestCueBucket.Count, 2400) : bestCueBucket.Count;
+                            for (int i = 0; i < cueScanCap && results.Count < lexicalCap; i++)
                             {
                                 var cand = bestCueBucket[i];
                                 if ((!string.IsNullOrEmpty(cand.MeaningCue) && cand.MeaningCue.IndexOf(norm, StringComparison.Ordinal) >= 0) ||
@@ -2821,30 +3015,41 @@ namespace MyanmarSpellChecker.Core.Nlp
             var bestTitleBucket = PickSmallestSyllableBucket(_referenceSyllableIndex, qUnits, skipStopSyllables: false, out _);
             if (bestTitleBucket != null)
             {
-                var prefixList = new List<DictionaryEntry>();
-                var substrList = new List<DictionaryEntry>();
-                for (int i = 0; i < bestTitleBucket.Count; i++)
+                int listCap = Math.Max(48, maxResults * 3);
+                int titleScanCap = qUnits.Count == 1 ? Math.Min(bestTitleBucket.Count, 2400) : bestTitleBucket.Count;
+                var prefixList = new List<DictionaryEntry>(Math.Min(64, listCap));
+                var substrList = new List<DictionaryEntry>(Math.Min(64, listCap));
+                for (int i = 0; i < titleScanCap; i++)
                 {
                     var re = bestTitleBucket[i];
                     if (!MatchesFilter(re))
                         continue;
                     if (re.Word.StartsWith(norm, StringComparison.Ordinal))
-                        prefixList.Add(re);
-                    else if (re.Word.IndexOf(norm, StringComparison.Ordinal) >= 0 || (qUnits.Count == 1 && norm.Length <= 4))
+                    {
+                        if (prefixList.Count < listCap)
+                            prefixList.Add(re);
+                    }
+                    else if (substrList.Count < listCap &&
+                             (re.Word.IndexOf(norm, StringComparison.Ordinal) >= 0 || (qUnits.Count == 1 && norm.Length <= 4)))
+                    {
                         substrList.Add(re);
+                    }
+
+                    if (prefixList.Count >= listCap && substrList.Count >= listCap)
+                        break;
                 }
 
-                foreach (var p in prefixList.OrderBy(x => x.Word.Length))
+                prefixList.Sort((a, b) => a.Word.Length.CompareTo(b.Word.Length));
+                for (int i = 0; i < prefixList.Count && results.Count < maxResults; i++)
                 {
-                    AddRefUnique(p);
-                    if (results.Count >= maxResults) break;
+                    AddRefUnique(prefixList[i]);
                 }
-                if (results.Count < maxResults)
+                if (results.Count < maxResults && substrList.Count > 0)
                 {
-                    foreach (var sub in substrList.OrderBy(x => x.Word.Length))
+                    substrList.Sort((a, b) => a.Word.Length.CompareTo(b.Word.Length));
+                    for (int i = 0; i < substrList.Count && results.Count < maxResults; i++)
                     {
-                        AddRefUnique(sub);
-                        if (results.Count >= maxResults) break;
+                        AddRefUnique(substrList[i]);
                     }
                 }
             }
@@ -2855,7 +3060,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                 var bestRefCueBucket = PickSmallestSyllableBucket(_referenceCueSyllableIndex, qUnits, skipStopSyllables: true, out _);
                 if (bestRefCueBucket != null)
                 {
-                    for (int i = 0; i < bestRefCueBucket.Count && results.Count < maxResults; i++)
+                    int refCueScanCap = qUnits.Count == 1 ? Math.Min(bestRefCueBucket.Count, 2000) : bestRefCueBucket.Count;
+                    for (int i = 0; i < refCueScanCap && results.Count < maxResults; i++)
                     {
                         var refEntry = bestRefCueBucket[i];
                         if (!MatchesFilter(refEntry))

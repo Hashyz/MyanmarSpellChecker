@@ -407,6 +407,29 @@ namespace MyanmarSpellChecker.WordAddIn
 
             _ribbonUi?.Invalidate();
 
+            // Gentle idle background prewarm on 64-bit non-low-spec hosts so the very first Dictionary search
+            // responds in < 1 ms (32-bit Office & Potato PCs keep 0 MB startup overhead until Dictionary is opened).
+            var engineToPrewarm = _proofingEngine;
+            if (engineToPrewarm != null &&
+                Environment.Is64BitProcess &&
+                !EcoPerformanceGovernor.Hardware.IsLowSpecHardware &&
+                EcoPerformanceGovernor.CurrentPreference != EcoModePreference.AlwaysOn)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(1800).ConfigureAwait(false);
+                        if (ReferenceEquals(_proofingEngine, engineToPrewarm) &&
+                            EcoPerformanceGovernor.CurrentPreference != EcoModePreference.AlwaysOn)
+                        {
+                            engineToPrewarm.PrewarmDictionaryIndexes();
+                        }
+                    }
+                    catch { }
+                });
+            }
+
             // If a non-empty document is already open when background loading finishes, schedule a calm deferred scan
             // after Task Pane & Ribbon UI finish painting (huge 50+ page docs auto-scan only the nearby viewport!)
             try
@@ -1071,6 +1094,12 @@ namespace MyanmarSpellChecker.WordAddIn
             };
             ctrl.RequestDictionarySearch += query =>
                 _proofingEngine?.SearchDictionary(query, 45) ?? new List<DictionaryEntry>();
+            ctrl.RequestIsEngineReady += () =>
+                _proofingEngine != null;
+            ctrl.RequestGetEngineMutationVersion += () =>
+                _proofingEngine?.MutationVersion ?? 0L;
+            ctrl.RequestPrewarmDictionary += () =>
+                _proofingEngine?.PrewarmDictionaryIndexes();
             ctrl.RequestIsDictionaryIndexReady += () =>
                 _proofingEngine?.IsDictionarySearchReady ?? true;
             ctrl.RequestSearchReferenceCorpus += (query, incProverbs, incEncyc) =>
@@ -1085,6 +1114,8 @@ namespace MyanmarSpellChecker.WordAddIn
                 _proofingEngine?.LookupBookmarkedEntries(words) ?? new List<DictionaryEntry>();
             ctrl.RequestGetFeaturedKnowledge += () =>
                 _proofingEngine?.GetFeaturedKnowledgeEntries(8) ?? new List<DictionaryEntry>();
+            ctrl.RequestGetFeaturedProverbs += () =>
+                _proofingEngine?.GetFeaturedProverbEntries(10) ?? new List<DictionaryEntry>();
             ctrl.RequestGetSelectedDocumentText += () =>
             {
                 try

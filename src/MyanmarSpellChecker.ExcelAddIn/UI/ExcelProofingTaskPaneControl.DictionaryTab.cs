@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Htet Yar Zar (ထက်ရာဇာ)
+// M.Sc. Part II Candidate in Geology (M.Sc. Part I Completed), Department of Geology, Kyaukse University
+// Kyaukse, Mandalay Region, Myanmar. Preserving author attribution is mandatory under GPLv3 Section 7(b) (see NOTICE).
+
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -15,6 +20,44 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 {
     public sealed partial class ExcelProofingTaskPaneControl
     {
+        // ================= EXCEL DICTIONARY & PROVERBS EXPLORER (ZERO-UI-FREEZE PIPELINE) =================
+
+        private const int InitialDictionaryRenderLimit = 12;
+        private const int DictionaryAppendBatchSize = 20;
+
+        private readonly DictionaryLookupCache _dictLookupCache = new DictionaryLookupCache(32);
+        private int _dictAsyncSearchVersion;
+        private int _dictPrewarmInFlight;
+
+        private void TriggerBackgroundDictionaryPrewarmIfNeeded()
+        {
+            if (IsDisposed || RequestPrewarmDictionary == null)
+                return;
+            if (RequestIsEngineReady != null && !RequestIsEngineReady.Invoke())
+                return;
+            if (RequestIsDictionaryIndexReady != null && RequestIsDictionaryIndexReady.Invoke())
+                return;
+
+            if (Interlocked.CompareExchange(ref _dictPrewarmInFlight, 1, 0) != 0)
+                return;
+
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    RequestPrewarmDictionary?.Invoke();
+                }
+                catch { }
+                finally
+                {
+                    Interlocked.Exchange(ref _dictPrewarmInFlight, 0);
+                }
+            });
+        }
+
+        private bool IsDictionaryEngineStillWarmingUp() =>
+            _isEngineWarmingUp || (RequestIsEngineReady != null && !RequestIsEngineReady.Invoke());
+
         private void PushDictionaryHistory(string query)
         {
             string cleaned = (query ?? string.Empty).Trim();
@@ -52,9 +95,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _suppressDictHistoryPush = true;
             try
             {
-                _searchDebounceTimer.Stop();
-                _txtDictionarySearch.Text = _dictHistory[_dictHistoryIndex];
-                _searchDebounceTimer.Stop();
+                SetDictionarySearchTextSilently(_dictHistory[_dictHistoryIndex]);
                 ExecuteDictionarySearchNow();
             }
             finally
@@ -117,29 +158,100 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             }
         }
 
-        private int _dictAsyncSearchVersion;
-
-        private bool ShouldRunDictionaryLookupAsync()
+        private PreparedDictionaryCard[] PrepareCardsOffThread(
+            IReadOnlyList<DictionaryEntry> entries,
+            int startIndex,
+            int count,
+            bool isEnglishUi)
         {
-            return IsHandleCreated &&
-                   !IsDisposed &&
-                   RequestIsDictionaryIndexReady != null &&
-                   !RequestIsDictionaryIndexReady.Invoke();
+            return DictionaryViewPreparationService.PrepareCardsSlice(
+                entries,
+                startIndex,
+                count,
+                isEnglishUi,
+                maxSynonymsPerCard: 6,
+                maxAntonymsPerCard: 4,
+                maxCollocationsPerCard: 5,
+                RequestGetSynonyms,
+                RequestGetAntonyms,
+                RequestGetCollocations,
+                RequestHomophoneSummary,
+                DictionaryBookmarkStore.Shared);
+        }
+
+        private void RenderDictionaryEngineWarmupCard(string pendingQuery)
+        {
+            BeginCardsBatchUpdate();
+            try
+            {
+                DisposeAndClearCardsPanel();
+
+                _lblDictSummary.Text = UiLocalizer.Pick(
+                    "⟳ Connecting offline Myanmar dictionary engine...",
+                    "⟳ Offline အဘိဓာန် အင်ဂျင်ကို စတင်ချိတ်ဆက်နေပါသည်...");
+
+                int cardWidth = GetTargetCardWidth();
+                int innerWrap = Math.Max(180, cardWidth - 32);
+                var card = CreateStyledCardContainer(cardWidth, Color.FromArgb(24, 90, 188));
+                card.SuspendLayout();
+                card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                card.Controls.Add(new Label
+                {
+                    Text = string.IsNullOrWhiteSpace(pendingQuery)
+                        ? UiLocalizer.Pick(
+                            "Loading offline lexicon & encyclopedia in the background — ready in a moment...",
+                            "သတ်ပုံကျမ်းနှင့် စွယ်စုံအဘိဓာန်ကို နောက်ခံတွင် ဖွင့်လှစ်နေပါသည် — ခေတ္တစောင့်ဆိုင်းပေးပါ...")
+                        : UiLocalizer.Pick(
+                            $"Loading offline dictionary engine — \"{pendingQuery}\" will appear automatically in a moment...",
+                            $"အဘိဓာန်အင်ဂျင် ဖွင့်လှစ်ပြီးသည်နှင့် \"{pendingQuery}\" ကို အလိုအလျောက် ချက်ချင်းပြသပေးပါမည်..."),
+                    Font = _fontSmall,
+                    ForeColor = Color.FromArgb(58, 68, 84),
+                    AutoSize = true,
+                    MaximumSize = new Size(innerWrap, 0),
+                    Tag = WrapTag
+                }, 0, 0);
+                card.ResumeLayout(false);
+                _cardsPanel.Controls.Add(card);
+            }
+            finally
+            {
+                EndCardsBatchUpdate();
+            }
         }
 
         private void RenderSavedBookmarksView()
         {
+            _searchDebounceTimer.Stop();
             int ver = Interlocked.Increment(ref _dictAsyncSearchVersion);
             UpdateDictionaryNavButtons();
+
+            if (IsDictionaryEngineStillWarmingUp())
+            {
+                RenderDictionaryEngineWarmupCard(string.Empty);
+                return;
+            }
+
             var savedWords = DictionaryBookmarkStore.Shared.GetBookmarkedWords();
-            if (savedWords.Count > 0 && ShouldRunDictionaryLookupAsync())
+            if (savedWords.Count == 0)
+            {
+                RenderSavedBookmarksEntries(new List<DictionaryEntry>(), Array.Empty<PreparedDictionaryCard>(), ver);
+                return;
+            }
+
+            bool isEn = UiLocalizer.IsEnglish;
+            if (IsHandleCreated && !IsDisposed)
             {
                 _lblDictSummary.Text = UiLocalizer.Pick(
-                    "⏳ Preparing saved bookmarks...",
-                    "⏳ မှတ်သားထားသော ဝေါဟာရများ ပြင်ဆင်နေပါသည်...");
-                Task.Run(() =>
+                    "⏳ Loading saved bookmarks...",
+                    "⏳ မှတ်သားထားသော ဝေါဟာရများ ဖွင့်လှစ်နေပါသည်...");
+
+                _ = Task.Run(() =>
                 {
+                    if (ver != Volatile.Read(ref _dictAsyncSearchVersion))
+                        return;
+
                     var asyncEntries = RequestGetBookmarkedEntries?.Invoke(savedWords) ?? new List<DictionaryEntry>();
+                    var prepared = PrepareCardsOffThread(asyncEntries, 0, InitialDictionaryRenderLimit, isEn);
                     try
                     {
                         if (!IsDisposed && IsHandleCreated)
@@ -148,7 +260,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                             {
                                 if (IsDisposed || _activeTab != TaskPaneWorkspaceTab.Dictionary || !_showingSavedBookmarksView || ver != Volatile.Read(ref _dictAsyncSearchVersion))
                                     return;
-                                RenderSavedBookmarksEntries(asyncEntries);
+                                RenderSavedBookmarksEntries(asyncEntries, prepared, ver);
                             }));
                         }
                     }
@@ -157,52 +269,155 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 return;
             }
 
-            var entries = savedWords.Count > 0
-                ? (RequestGetBookmarkedEntries?.Invoke(savedWords) ?? new List<DictionaryEntry>())
-                : new List<DictionaryEntry>();
-            RenderSavedBookmarksEntries(entries);
+            var entries = RequestGetBookmarkedEntries?.Invoke(savedWords) ?? new List<DictionaryEntry>();
+            var syncPrepared = PrepareCardsOffThread(entries, 0, InitialDictionaryRenderLimit, isEn);
+            RenderSavedBookmarksEntries(entries, syncPrepared, ver);
         }
 
-        private void RenderSavedBookmarksEntries(List<DictionaryEntry> entries)
+        private void RenderSavedBookmarksEntries(
+            List<DictionaryEntry> entries,
+            PreparedDictionaryCard[] initialPrepared,
+            int renderVersion)
         {
             if (entries.Count == 0)
             {
-                _cardsPanel.SuspendLayout();
-                DisposeAndClearCardsPanel();
-
-                int cardWidth = GetTargetCardWidth();
-                int innerWrap = Math.Max(180, cardWidth - 32);
-
-                _lblDictSummary.Text = UiLocalizer.Pick(
-                    "★ Saved Dictionary Bookmarks (0) — synced across Word & Excel",
-                    "★ မှတ်သားထားသော အဘိဓာန် ဝေါဟာရများ (0) — Word နှင့် Excel ချိတ်ဆက်ထားသည်");
-
-                var empty = CreateStyledCardContainer(cardWidth, Color.FromArgb(196, 118, 12));
-                empty.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-                empty.Controls.Add(new Label
+                BeginCardsBatchUpdate();
+                try
                 {
-                    Text = UiLocalizer.Pick(
-                        "No saved dictionary bookmarks yet.\n• Click \"☆ Save\" on any Myanmar or English dictionary card to bookmark important words across both Excel and Word.",
-                        "မှတ်သားထားသော အဘိဓာန် ဝေါဟာရ မရှိသေးပါ။\n• မည်သည့် မြန်မာ သို့မဟုတ် အင်္ဂလိပ် အဘိဓာန်ကတ်တွင်မဆို \"☆ မှတ်မည်\" ကိုနှိပ်၍ Excel နှင့် Word နှစ်မျိုးလုံး၌ ပြန်လည်ကြည့်ရှုနိုင်ပါသည်။"),
-                    Font = _fontSmall,
-                    ForeColor = Color.FromArgb(70, 78, 92),
-                    AutoSize = true,
-                    MaximumSize = new Size(innerWrap, 0),
-                    Tag = WrapTag
-                }, 0, 0);
-                _cardsPanel.Controls.Add(empty);
-                _cardsPanel.ResumeLayout(true);
+                    DisposeAndClearCardsPanel();
+
+                    int cardWidth = GetTargetCardWidth();
+                    int innerWrap = Math.Max(180, cardWidth - 32);
+
+                    _lblDictSummary.Text = UiLocalizer.Pick(
+                        "★ Saved Dictionary Bookmarks (0) — synced across Word & Excel",
+                        "★ မှတ်သားထားသော အဘိဓာန် ဝေါဟာရများ (0) — Word နှင့် Excel ချိတ်ဆက်ထားသည်");
+
+                    var empty = CreateStyledCardContainer(cardWidth, Color.FromArgb(196, 118, 12));
+                    empty.SuspendLayout();
+                    empty.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                    empty.Controls.Add(new Label
+                    {
+                        Text = UiLocalizer.Pick(
+                            "No saved dictionary bookmarks yet.\n• Click \"☆ Save\" on any Myanmar or English dictionary card to bookmark important words across both Excel and Word.",
+                            "မှတ်သားထားသော အဘိဓာန် ဝေါဟာရ မရှိသေးပါ။\n• မည်သည့် မြန်မာ သို့မဟုတ် အင်္ဂလိပ် အဘိဓာန်ကတ်တွင်မဆို \"☆ မှတ်မည်\" ကိုနှိပ်၍ Excel နှင့် Word နှစ်မျိုးလုံး၌ ပြန်လည်ကြည့်ရှုနိုင်ပါသည်။"),
+                        Font = _fontSmall,
+                        ForeColor = Color.FromArgb(70, 78, 92),
+                        AutoSize = true,
+                        MaximumSize = new Size(innerWrap, 0),
+                        Tag = WrapTag
+                    }, 0, 0);
+                    empty.ResumeLayout(false);
+                    _cardsPanel.Controls.Add(empty);
+                }
+                finally
+                {
+                    EndCardsBatchUpdate();
+                }
                 return;
             }
 
-            RenderDictionaryResults(
+            RenderPreparedDictionaryResults(
                 UiLocalizer.Pick($"★ Saved Bookmarks ({entries.Count})", $"★ မှတ်သားထားသော ဝေါဟာရများ ({entries.Count})"),
                 entries,
+                initialPrepared,
                 0.0,
-                InitialDictionaryRenderLimit,
                 convertedFromZawgyi: false,
                 effectiveQuery: string.Empty,
-                isCustomHeaderTitle: true);
+                isCustomHeaderTitle: true,
+                renderVersion: renderVersion);
+        }
+
+        private void LoadFeaturedReferenceExcelView(bool isProverbs, string titleEn, string titleMm, string? fallbackQuery)
+        {
+            _searchDebounceTimer.Stop();
+            int ver = Interlocked.Increment(ref _dictAsyncSearchVersion);
+
+            if (IsDictionaryEngineStillWarmingUp())
+            {
+                RenderDictionaryEngineWarmupCard(string.Empty);
+                return;
+            }
+
+            bool isEn = UiLocalizer.IsEnglish;
+            Func<List<DictionaryEntry>>? provider = isProverbs ? RequestGetFeaturedProverbs : RequestGetFeaturedKnowledge;
+
+            if (IsHandleCreated && !IsDisposed)
+            {
+                bool indexCold = RequestIsDictionaryIndexReady != null && !RequestIsDictionaryIndexReady.Invoke();
+                _lblDictSummary.Text = indexCold
+                    ? UiLocalizer.Pick(
+                        "⏳ Preparing offline dictionary & encyclopedia index (first lookup only)...",
+                        "⏳ အဘိဓာန်နှင့် စွယ်စုံကျမ်း အညွှန်းစနစ် ပြင်ဆင်နေပါသည် (ပထမအကြိမ်သာ)...")
+                    : UiLocalizer.Pick("⟳ Loading featured entries...", "⟳ လေ့လာဖွယ် ဝေါဟာရများ ပြင်ဆင်နေပါသည်...");
+
+                _ = Task.Run(() =>
+                {
+                    if (ver != Volatile.Read(ref _dictAsyncSearchVersion))
+                        return;
+
+                    var sw = Stopwatch.StartNew();
+                    var asyncFeatured = provider?.Invoke() ?? new List<DictionaryEntry>();
+                    var prepared = PrepareCardsOffThread(asyncFeatured, 0, InitialDictionaryRenderLimit, isEn);
+                    sw.Stop();
+                    double ms = sw.Elapsed.TotalMilliseconds;
+
+                    try
+                    {
+                        if (!IsDisposed && IsHandleCreated)
+                        {
+                            BeginInvoke((Action)(() =>
+                            {
+                                if (IsDisposed || _activeTab != TaskPaneWorkspaceTab.Dictionary || ver != Volatile.Read(ref _dictAsyncSearchVersion))
+                                    return;
+                                if (asyncFeatured.Count > 0)
+                                {
+                                    RenderPreparedDictionaryResults(
+                                        UiLocalizer.Pick(titleEn, titleMm),
+                                        asyncFeatured,
+                                        prepared,
+                                        ms,
+                                        convertedFromZawgyi: false,
+                                        effectiveQuery: string.Empty,
+                                        isCustomHeaderTitle: true,
+                                        renderVersion: ver);
+                                }
+                                else if (!string.IsNullOrWhiteSpace(fallbackQuery))
+                                {
+                                    SetDictionarySearchTextSilently(fallbackQuery);
+                                    ExecuteDictionarySearchNow();
+                                }
+                            }));
+                        }
+                    }
+                    catch { }
+                });
+                return;
+            }
+
+            var syncSw = Stopwatch.StartNew();
+            var featured = provider?.Invoke() ?? new List<DictionaryEntry>();
+            var syncPrepared = PrepareCardsOffThread(featured, 0, InitialDictionaryRenderLimit, isEn);
+            syncSw.Stop();
+            if (featured.Count > 0)
+            {
+                RenderPreparedDictionaryResults(
+                    UiLocalizer.Pick(titleEn, titleMm),
+                    featured,
+                    syncPrepared,
+                    syncSw.Elapsed.TotalMilliseconds,
+                    convertedFromZawgyi: false,
+                    effectiveQuery: string.Empty,
+                    isCustomHeaderTitle: true,
+                    renderVersion: ver);
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(fallbackQuery))
+            {
+                SetDictionarySearchTextSilently(fallbackQuery);
+                ExecuteDictionarySearchNow();
+            }
         }
 
         private void SetDictionaryCategory(DictionaryCategoryFilter filter)
@@ -214,63 +429,36 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             if (filter == DictionaryCategoryFilter.EncyclopediaKnowledge && string.IsNullOrWhiteSpace(_txtDictionarySearch.Text))
             {
-                int ver = Interlocked.Increment(ref _dictAsyncSearchVersion);
-                if (ShouldRunDictionaryLookupAsync())
-                {
-                    _lblDictSummary.Text = UiLocalizer.Pick(
-                        "⏳ Preparing offline dictionary & encyclopedia index (first lookup only)...",
-                        "⏳ အဘိဓာန်နှင့် စွယ်စုံကျမ်း အညွှန်းစနစ် ပြင်ဆင်နေပါသည် (ပထမအကြိမ်သာ)...");
-                    Task.Run(() =>
-                    {
-                        var sw = Stopwatch.StartNew();
-                        var asyncFeatured = RequestGetFeaturedKnowledge?.Invoke() ?? new List<DictionaryEntry>();
-                        sw.Stop();
-                        try
-                        {
-                            if (!IsDisposed && IsHandleCreated)
-                            {
-                                BeginInvoke((Action)(() =>
-                                {
-                                    if (IsDisposed || _activeTab != TaskPaneWorkspaceTab.Dictionary || ver != Volatile.Read(ref _dictAsyncSearchVersion))
-                                        return;
-                                    if (asyncFeatured.Count > 0)
-                                    {
-                                        RenderDictionaryResults(
-                                            UiLocalizer.Pick("Encyclopedia (Featured)", "စွယ်စုံဗဟုသုတ (လေ့လာဖွယ်)"),
-                                            asyncFeatured,
-                                            sw.Elapsed.TotalMilliseconds,
-                                            InitialDictionaryRenderLimit,
-                                            convertedFromZawgyi: false,
-                                            effectiveQuery: string.Empty,
-                                            isCustomHeaderTitle: true);
-                                    }
-                                    else
-                                    {
-                                        ExecuteDictionarySearchNow();
-                                    }
-                                }));
-                            }
-                        }
-                        catch { }
-                    });
-                    return;
-                }
+                LoadFeaturedReferenceExcelView(
+                    isProverbs: false,
+                    "Encyclopedia (Featured)",
+                    "စွယ်စုံဗဟုသုတ (လေ့လာဖွယ်)",
+                    fallbackQuery: "မြန်မာသဒ္ဒါ");
+                return;
+            }
 
-                var syncSw = Stopwatch.StartNew();
-                var featured = RequestGetFeaturedKnowledge?.Invoke() ?? new List<DictionaryEntry>();
-                syncSw.Stop();
-                if (featured.Count > 0)
-                {
-                    RenderDictionaryResults(
-                        UiLocalizer.Pick("Encyclopedia (Featured)", "စွယ်စုံဗဟုသုတ (လေ့လာဖွယ်)"),
-                        featured,
-                        syncSw.Elapsed.TotalMilliseconds,
-                        InitialDictionaryRenderLimit,
-                        convertedFromZawgyi: false,
-                        effectiveQuery: string.Empty,
-                        isCustomHeaderTitle: true);
-                    return;
-                }
+            if (filter == DictionaryCategoryFilter.ProverbsAndSayings && string.IsNullOrWhiteSpace(_txtDictionarySearch.Text))
+            {
+                LoadFeaturedReferenceExcelView(
+                    isProverbs: true,
+                    "Myanmar Proverbs & Sayings (Featured)",
+                    "မြန်မာစကားပုံနှင့် ဆိုရိုးစကားများ (လေ့လာဖွယ်)",
+                    fallbackQuery: "စကားပုံ");
+                return;
+            }
+
+            if (filter == DictionaryCategoryFilter.SpecializedDomains && string.IsNullOrWhiteSpace(_txtDictionarySearch.Text))
+            {
+                SetDictionarySearchTextSilently("ဥပဒေ");
+                ExecuteDictionarySearchNow();
+                return;
+            }
+
+            if (filter == DictionaryCategoryFilter.ProperNounsAndPlaces && string.IsNullOrWhiteSpace(_txtDictionarySearch.Text))
+            {
+                SetDictionarySearchTextSilently("နိုင်ငံ");
+                ExecuteDictionarySearchNow();
+                return;
             }
 
             ExecuteDictionarySearchNow();
@@ -332,6 +520,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
         private void ExecuteDictionarySearchNow()
         {
+            _searchDebounceTimer.Stop();
             if (_activeTab != TaskPaneWorkspaceTab.Dictionary)
                 return;
 
@@ -341,7 +530,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             if (string.IsNullOrWhiteSpace(query))
             {
                 UpdateDictionaryNavButtons();
-                RenderDictionaryDiscoveryCards();
+                RenderDictionaryDiscoveryCards(ver);
                 return;
             }
 
@@ -351,33 +540,84 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             }
             UpdateDictionaryNavButtons();
 
-            string effectiveQuery = MyanmarTrie.NormalizeSearchQuery(query, out bool convertedFromZawgyi);
-            DictionaryCategoryFilter categorySnapshot = _dictCategoryFilter;
-
-            if (ShouldRunDictionaryLookupAsync())
+            if (IsDictionaryEngineStillWarmingUp())
             {
-                _lblDictSummary.Text = UiLocalizer.Pick(
-                    "⏳ Preparing offline dictionary index (first lookup only)...",
-                    "⏳ အဘိဓာန် အညွှန်းစနစ် ပြင်ဆင်နေပါသည် (ပထမအကြိမ်သာ)...");
-                Task.Run(() =>
+                RenderDictionaryEngineWarmupCard(query);
+                return;
+            }
+
+            DictionaryCategoryFilter categorySnapshot = _dictCategoryFilter;
+            bool isEn = UiLocalizer.IsEnglish;
+            long mutVer = RequestGetEngineMutationVersion?.Invoke() ?? 0L;
+
+            if (_dictLookupCache.TryGet(mutVer, isEn, (int)categorySnapshot, query, out var cachedView) && cachedView != null)
+            {
+                RenderPreparedDictionaryResults(
+                    cachedView.RawQuery,
+                    cachedView.AllMatches,
+                    cachedView.InitialCards,
+                    0.1,
+                    cachedView.ConvertedFromZawgyi,
+                    cachedView.EffectiveQuery,
+                    isCustomHeaderTitle: false,
+                    renderVersion: ver);
+                return;
+            }
+
+            if (IsHandleCreated && !IsDisposed)
+            {
+                bool indexCold = RequestIsDictionaryIndexReady != null && !RequestIsDictionaryIndexReady.Invoke();
+                _lblDictSummary.Text = indexCold
+                    ? UiLocalizer.Pick(
+                        "⏳ Preparing offline dictionary index (first lookup only)...",
+                        "⏳ အဘိဓာန် အညွှန်းစနစ် ပြင်ဆင်နေပါသည် (ပထမအကြိမ်သာ)...")
+                    : UiLocalizer.Pick(
+                        $"⟳ Searching \"{query}\"...",
+                        $"⟳ \"{query}\" ကို ရှာဖွေနေပါသည်...");
+
+                _ = Task.Run(() =>
                 {
+                    if (ver != Volatile.Read(ref _dictAsyncSearchVersion))
+                        return;
+
+                    string effectiveQuery = MyanmarTrie.NormalizeSearchQuery(query, out bool convertedFromZawgyi);
                     var (asyncFiltered, asyncMs) = ExecuteExcelDictionaryQueryCore(query, effectiveQuery, categorySnapshot);
+
+                    if (ver != Volatile.Read(ref _dictAsyncSearchVersion))
+                        return;
+
+                    var preparedInitial = PrepareCardsOffThread(asyncFiltered, 0, InitialDictionaryRenderLimit, isEn);
+                    long currentMutVer = RequestGetEngineMutationVersion?.Invoke() ?? mutVer;
+                    _dictLookupCache.Store(
+                        currentMutVer,
+                        isEn,
+                        (int)categorySnapshot,
+                        query,
+                        new CachedDictionaryQueryView(query, effectiveQuery, convertedFromZawgyi, asyncMs, asyncFiltered, preparedInitial));
+
                     try
                     {
                         if (!IsDisposed && IsHandleCreated)
                         {
                             BeginInvoke((Action)(() =>
                             {
-                                if (IsDisposed || _activeTab != TaskPaneWorkspaceTab.Dictionary || _showingSavedBookmarksView || ver != Volatile.Read(ref _dictAsyncSearchVersion))
+                                if (IsDisposed ||
+                                    _activeTab != TaskPaneWorkspaceTab.Dictionary ||
+                                    _showingSavedBookmarksView ||
+                                    ver != Volatile.Read(ref _dictAsyncSearchVersion))
+                                {
                                     return;
-                                RenderDictionaryResults(
+                                }
+
+                                RenderPreparedDictionaryResults(
                                     query,
                                     asyncFiltered,
+                                    preparedInitial,
                                     asyncMs,
-                                    InitialDictionaryRenderLimit,
                                     convertedFromZawgyi,
                                     effectiveQuery,
-                                    isCustomHeaderTitle: false);
+                                    isCustomHeaderTitle: false,
+                                    renderVersion: ver);
                             }));
                         }
                     }
@@ -386,88 +626,128 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 return;
             }
 
-            var (filtered, elapsedMs) = ExecuteExcelDictionaryQueryCore(query, effectiveQuery, categorySnapshot);
-            RenderDictionaryResults(
+            string syncEffective = MyanmarTrie.NormalizeSearchQuery(query, out bool syncZawgyi);
+            var (syncFiltered, syncElapsedMs) = ExecuteExcelDictionaryQueryCore(query, syncEffective, categorySnapshot);
+            var syncPrepared = PrepareCardsOffThread(syncFiltered, 0, InitialDictionaryRenderLimit, isEn);
+            long syncMutVer = RequestGetEngineMutationVersion?.Invoke() ?? mutVer;
+            _dictLookupCache.Store(
+                syncMutVer,
+                isEn,
+                (int)categorySnapshot,
                 query,
-                filtered,
-                elapsedMs,
-                InitialDictionaryRenderLimit,
-                convertedFromZawgyi,
-                effectiveQuery,
-                isCustomHeaderTitle: false);
+                new CachedDictionaryQueryView(query, syncEffective, syncZawgyi, syncElapsedMs, syncFiltered, syncPrepared));
+
+            RenderPreparedDictionaryResults(
+                query,
+                syncFiltered,
+                syncPrepared,
+                syncElapsedMs,
+                syncZawgyi,
+                syncEffective,
+                isCustomHeaderTitle: false,
+                renderVersion: ver);
         }
 
-        private void RenderDictionaryDiscoveryCards()
+        private void RenderDictionaryDiscoveryCards(int renderVersion)
         {
-            int ver = Interlocked.Increment(ref _dictAsyncSearchVersion);
-            _cardsPanel.SuspendLayout();
-            DisposeAndClearCardsPanel();
+            TriggerBackgroundDictionaryPrewarmIfNeeded();
 
-            int cardWidth = GetTargetCardWidth();
-            int innerWrap = Math.Max(180, cardWidth - 32);
-
-            _lblDictSummary.Text = UiLocalizer.Pick(
-                "Bilingual EN ⇄ MM (57,000+), Official Thatpon (95,000+), Encyclopedia (25,000+) & Romanized Search",
-                "အင်္ဂလိပ် ⇄ မြန်မာ (၅၇,၀၀၀+)၊ သတ်ပုံကျမ်း (၉၅,၀၀၀+)၊ စွယ်စုံကျမ်း (၂၅,၀၀၀+) နှင့် အသံထွက်ရှာဖွေမှု");
-
-            var card = CreateStyledCardContainer(cardWidth, Color.FromArgb(24, 90, 188));
-            int r = 0;
-
-            card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            card.Controls.Add(new Label
+            BeginCardsBatchUpdate();
+            try
             {
-                Text = UiLocalizer.Pick(
-                    "Bilingual EN ⇄ MM Dictionary, Phonetics & Encyclopedia (Excel Offline)",
-                    "အင်္ဂလိပ် ⇄ မြန်မာ အဘိဓာန်ကြီး၊ အသံထွက် နှင့် စွယ်စုံဗဟုသုတကျမ်း (Excel Offline)"),
-                Font = _fontBodyBold,
-                ForeColor = Color.FromArgb(20, 52, 108),
-                AutoSize = true,
-                MaximumSize = new Size(innerWrap, 0),
-                Tag = WrapTag,
-                Margin = new Padding(0, 0, 0, 5)
-            }, 0, r++);
+                DisposeAndClearCardsPanel();
 
-            card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            card.Controls.Add(new Label
-            {
-                Text = UiLocalizer.Pick(
-                    "• Select any Myanmar or English cell and open Dictionary to look it up automatically, or type Romanized Burmese (\"mingalaba\", \"thatpon\") or Zawgyi.\n• Includes dual pronunciation + offline English audio (▶ EN), numbered senses, collocations (▸), and shared ★ Saved bookmarks —",
-                    "• Excel အကွက်ကိုရွေး၍ အဘိဓာန်ဖွင့်ပါက အလိုအလျောက် ရှာပေးသည့်အပြင် English, Romanized (\"mingalaba\") သို့မဟုတ် ဇော်ဂျီဖြင့်လည်း ရှာဖွေနိုင်ပါသည်။\n• အသံထွက် + အင်္ဂလိပ် အသံထွက် (▶ EN)၊ တွဲဖက်သုံးဝေါဟာရ (▸) နှင့် ★ မှတ်သားစနစ်များ ပါဝင်ပါသည် —"),
-                Font = _fontSmall,
-                ForeColor = Color.FromArgb(58, 68, 84),
-                AutoSize = true,
-                MaximumSize = new Size(innerWrap, 0),
-                Tag = WrapTag,
-                Margin = new Padding(0, 0, 0, 6)
-            }, 0, r++);
+                int cardWidth = GetTargetCardWidth();
+                int innerWrap = Math.Max(180, cardWidth - 32);
 
-            var sampleFlow = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Top,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                WrapContents = true
-            };
+                _lblDictSummary.Text = UiLocalizer.Pick(
+                    "Bilingual EN ⇄ MM (57,000+), Official Thatpon (95,000+), Encyclopedia (25,000+) & Romanized Search",
+                    "အင်္ဂလိပ် ⇄ မြန်မာ (၅၇,၀၀၀+)၊ သတ်ပုံကျမ်း (၉၅,၀၀၀+)၊ စွယ်စုံကျမ်း (၂၅,၀၀၀+) နှင့် အသံထွက်ရှာဖွေမှု");
 
-            string[] samples = { "ဘဏ္ဍာရေး", "abandon", "mingalaba", "negotiate", "စာရင်းအင်း", "မြန်မာသဒ္ဒါ", "ကျောက်ဆည်" };
-            foreach (string s in samples)
+                var card = CreateStyledCardContainer(cardWidth, Color.FromArgb(24, 90, 188));
+                card.SuspendLayout();
+                int r = 0;
+
+                card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                card.Controls.Add(new Label
+                {
+                    Text = UiLocalizer.Pick(
+                        "Bilingual EN ⇄ MM Dictionary, Phonetics & Encyclopedia (Excel Offline)",
+                        "အင်္ဂလိပ် ⇄ မြန်မာ အဘိဓာန်ကြီး၊ အသံထွက် နှင့် စွယ်စုံဗဟုသုတကျမ်း (Excel Offline)"),
+                    Font = _fontBodyBold,
+                    ForeColor = Color.FromArgb(20, 52, 108),
+                    AutoSize = true,
+                    MaximumSize = new Size(innerWrap, 0),
+                    Tag = WrapTag,
+                    Margin = new Padding(0, 0, 0, 5)
+                }, 0, r++);
+
+                card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                card.Controls.Add(new Label
+                {
+                    Text = UiLocalizer.Pick(
+                        "• Select any Myanmar or English cell and open Dictionary to look it up automatically, or type Romanized Burmese (\"mingalaba\", \"thatpon\") or Zawgyi.\n• Includes dual pronunciation + offline English audio (▶ EN), numbered senses, collocations (▸), and shared ★ Saved bookmarks —",
+                        "• Excel အကွက်ကိုရွေး၍ အဘိဓာန်ဖွင့်ပါက အလိုအလျောက် ရှာပေးသည့်အပြင် English, Romanized (\"mingalaba\") သို့မဟုတ် ဇော်ဂျီဖြင့်လည်း ရှာဖွေနိုင်ပါသည်။\n• အသံထွက် + အင်္ဂလိပ် အသံထွက် (▶ EN)၊ တွဲဖက်သုံးဝေါဟာရ (▸) နှင့် ★ မှတ်သားစနစ်များ ပါဝင်ပါသည် —"),
+                    Font = _fontSmall,
+                    ForeColor = Color.FromArgb(58, 68, 84),
+                    AutoSize = true,
+                    MaximumSize = new Size(innerWrap, 0),
+                    Tag = WrapTag,
+                    Margin = new Padding(0, 0, 0, 6)
+                }, 0, r++);
+
+                var sampleFlow = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Top,
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    WrapContents = true
+                };
+                sampleFlow.SuspendLayout();
+
+                string[] samples = { "ဘဏ္ဍာရေး", "abandon", "mingalaba", "negotiate", "စာရင်းအင်း", "မြန်မာသဒ္ဒါ", "ကျောက်ဆည်" };
+                var sampleChips = new Control[samples.Length];
+                for (int i = 0; i < samples.Length; i++)
+                {
+                    string captured = samples[i];
+                    var chip = CreatePillButton(
+                        $"▸ {captured}",
+                        Color.FromArgb(238, 244, 255),
+                        Color.FromArgb(22, 74, 158),
+                        Color.FromArgb(196, 214, 245),
+                        _fontBrandStats);
+                    chip.Click += (sender, e) => OpenDictionaryWithQuery(captured);
+                    sampleChips[i] = chip;
+                }
+                sampleFlow.Controls.AddRange(sampleChips);
+                sampleFlow.ResumeLayout(false);
+
+                card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                card.Controls.Add(sampleFlow, 0, r++);
+                card.ResumeLayout(false);
+                _cardsPanel.Controls.Add(card);
+            }
+            finally
             {
-                string captured = s;
-                var chip = CreatePillButton($"▸ {captured}", Color.FromArgb(238, 244, 255), Color.FromArgb(22, 74, 158), Color.FromArgb(196, 214, 245), _fontBrandStats);
-                chip.Click += (sender, e) => OpenDictionaryWithQuery(captured);
-                sampleFlow.Controls.Add(chip);
+                EndCardsBatchUpdate();
             }
 
-            card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            card.Controls.Add(sampleFlow, 0, r++);
-            _cardsPanel.Controls.Add(card);
+            if (IsDictionaryEngineStillWarmingUp() || RequestGetFeaturedKnowledge == null)
+                return;
 
-            if (ShouldRunDictionaryLookupAsync())
+            bool isEn = UiLocalizer.IsEnglish;
+            if (IsHandleCreated && !IsDisposed)
             {
-                _cardsPanel.ResumeLayout(true);
-                Task.Run(() =>
+                _ = Task.Run(() =>
                 {
+                    if (renderVersion != Volatile.Read(ref _dictAsyncSearchVersion))
+                        return;
+
                     var asyncFeatured = RequestGetFeaturedKnowledge?.Invoke() ?? new List<DictionaryEntry>();
+                    var preparedFeatured = PrepareCardsOffThread(asyncFeatured, 0, 4, isEn);
+                    if (preparedFeatured.Length == 0)
+                        return;
+
                     try
                     {
                         if (!IsDisposed && IsHandleCreated)
@@ -478,19 +758,27 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                                     _activeTab != TaskPaneWorkspaceTab.Dictionary ||
                                     _showingSavedBookmarksView ||
                                     !string.IsNullOrWhiteSpace(_txtDictionarySearch.Text) ||
-                                    ver != Volatile.Read(ref _dictAsyncSearchVersion))
+                                    renderVersion != Volatile.Read(ref _dictAsyncSearchVersion))
                                 {
                                     return;
                                 }
 
-                                _cardsPanel.SuspendLayout();
-                                int cw = GetTargetCardWidth();
-                                int iw = Math.Max(180, cw - 32);
-                                foreach (var entry in asyncFeatured.Take(5))
+                                BeginCardsBatchUpdate();
+                                try
                                 {
-                                    _cardsPanel.Controls.Add(BuildDictionaryEntryCard(entry, cw, iw));
+                                    int cw = GetTargetCardWidth(reserveScrollbarForMultipleCards: true);
+                                    int iw = Math.Max(180, cw - 32);
+                                    var extraCards = new Control[preparedFeatured.Length];
+                                    for (int i = 0; i < preparedFeatured.Length; i++)
+                                    {
+                                        extraCards[i] = BuildPreparedDictionaryEntryCard(preparedFeatured[i], cw, iw);
+                                    }
+                                    _cardsPanel.Controls.AddRange(extraCards);
                                 }
-                                _cardsPanel.ResumeLayout(true);
+                                finally
+                                {
+                                    EndCardsBatchUpdate();
+                                }
                             }));
                         }
                     }
@@ -499,107 +787,225 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 return;
             }
 
-            var featured = RequestGetFeaturedKnowledge?.Invoke() ?? new List<DictionaryEntry>();
-            foreach (var entry in featured.Take(5))
+            var syncFeatured = RequestGetFeaturedKnowledge.Invoke();
+            var syncPreparedFeatured = PrepareCardsOffThread(syncFeatured, 0, 4, isEn);
+            if (syncPreparedFeatured.Length > 0)
             {
-                _cardsPanel.Controls.Add(BuildDictionaryEntryCard(entry, cardWidth, innerWrap));
+                BeginCardsBatchUpdate();
+                try
+                {
+                    int cw = GetTargetCardWidth(reserveScrollbarForMultipleCards: true);
+                    int iw = Math.Max(180, cw - 32);
+                    var extraCards = new Control[syncPreparedFeatured.Length];
+                    for (int i = 0; i < syncPreparedFeatured.Length; i++)
+                    {
+                        extraCards[i] = BuildPreparedDictionaryEntryCard(syncPreparedFeatured[i], cw, iw);
+                    }
+                    _cardsPanel.Controls.AddRange(extraCards);
+                }
+                finally
+                {
+                    EndCardsBatchUpdate();
+                }
             }
-
-            _cardsPanel.ResumeLayout(true);
         }
 
-        private const int InitialDictionaryRenderLimit = 15;
-
-        private void RenderDictionaryResults(
+        private void RenderPreparedDictionaryResults(
             string query,
             List<DictionaryEntry> entries,
+            PreparedDictionaryCard[] initialPreparedCards,
             double elapsedMs,
-            int maxRender = InitialDictionaryRenderLimit,
-            bool convertedFromZawgyi = false,
-            string effectiveQuery = "",
-            bool isCustomHeaderTitle = false)
+            bool convertedFromZawgyi,
+            string effectiveQuery,
+            bool isCustomHeaderTitle,
+            int renderVersion)
         {
-            _cardsPanel.SuspendLayout();
-            DisposeAndClearCardsPanel();
-
-            int cardWidth = GetTargetCardWidth();
-            int innerWrap = Math.Max(180, cardWidth - 32);
-
-            string speedSuffix = elapsedMs > 0.0 ? $" ({elapsedMs:0.0} ms)" : string.Empty;
-            string zawgyiSuffix = convertedFromZawgyi && !string.IsNullOrEmpty(effectiveQuery)
-                ? $"  [Zawgyi → {effectiveQuery}]"
-                : string.Empty;
-
-            if (isCustomHeaderTitle)
+            BeginCardsBatchUpdate();
+            try
             {
-                _lblDictSummary.Text = $"{query}{speedSuffix}";
-            }
-            else
-            {
-                _lblDictSummary.Text = entries.Count > 0
-                    ? UiLocalizer.Pick(
-                        $"Found {entries.Count} result(s) for \"{query}\"{zawgyiSuffix}{speedSuffix}",
-                        $"\"{query}\" အတွက် ရလဒ် ({entries.Count}) ပုဒ် တွေ့ရှိသည်{zawgyiSuffix}{speedSuffix}")
-                    : UiLocalizer.Pick(
-                        $"No dictionary entries matched \"{query}\"{zawgyiSuffix}",
-                        $"\"{query}\" နှင့် ကိုက်ညီသော အဘိဓာန်ရလဒ် မတွေ့ရှိပါ{zawgyiSuffix}");
-            }
+                DisposeAndClearCardsPanel();
 
-            if (entries.Count == 0)
-            {
-                var empty = CreateStyledCardContainer(cardWidth, Color.FromArgb(180, 120, 24));
-                empty.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-                empty.Controls.Add(new Label
+                int cardWidth = GetTargetCardWidth(reserveScrollbarForMultipleCards: initialPreparedCards.Length > 2);
+                int innerWrap = Math.Max(180, cardWidth - 32);
+
+                string speedSuffix = elapsedMs > 0.0 ? $" ({elapsedMs:0.0} ms)" : string.Empty;
+                string zawgyiSuffix = convertedFromZawgyi && !string.IsNullOrEmpty(effectiveQuery)
+                    ? $"  [Zawgyi → {effectiveQuery}]"
+                    : string.Empty;
+
+                if (isCustomHeaderTitle)
                 {
-                    Text = UiLocalizer.Pick(
-                        $"No match for \"{query}\" — try searching an English word, Myanmar root syllable, or Romanized spelling (e.g., \"mingalaba\").",
-                        $"\"{query}\" ကို မတွေ့ရှိပါ — အင်္ဂလိပ်စာလုံး၊ မြန်မာ အရင်းခံစကားလုံး သို့မဟုတ် Romanized အသံထွက် (ဥပမာ \"mingalaba\") ဖြင့် ပြန်လည်ရှာဖွေကြည့်ပါ။"),
-                    Font = _fontSmall,
-                    ForeColor = Color.FromArgb(88, 68, 28),
-                    AutoSize = true,
-                    MaximumSize = new Size(innerWrap, 0),
-                    Tag = WrapTag
-                }, 0, 0);
-                _cardsPanel.Controls.Add(empty);
-                _cardsPanel.ResumeLayout(true);
+                    _lblDictSummary.Text = $"{query}{speedSuffix}";
+                }
+                else
+                {
+                    _lblDictSummary.Text = entries.Count > 0
+                        ? UiLocalizer.Pick(
+                            $"Found {entries.Count} result(s) for \"{query}\"{zawgyiSuffix}{speedSuffix}",
+                            $"\"{query}\" အတွက် ရလဒ် ({entries.Count}) ပုဒ် တွေ့ရှိသည်{zawgyiSuffix}{speedSuffix}")
+                        : UiLocalizer.Pick(
+                            $"No dictionary entries matched \"{query}\"{zawgyiSuffix}",
+                            $"\"{query}\" နှင့် ကိုက်ညီသော အဘိဓာန်ရလဒ် မတွေ့ရှိပါ{zawgyiSuffix}");
+                }
+
+                if (entries.Count == 0 || initialPreparedCards.Length == 0)
+                {
+                    var empty = CreateStyledCardContainer(cardWidth, Color.FromArgb(180, 120, 24));
+                    empty.SuspendLayout();
+                    empty.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                    empty.Controls.Add(new Label
+                    {
+                        Text = UiLocalizer.Pick(
+                            $"No match for \"{query}\" — try searching an English word, Myanmar root syllable, or Romanized spelling (e.g., \"mingalaba\").",
+                            $"\"{query}\" ကို မတွေ့ရှိပါ — အင်္ဂလိပ်စာလုံး၊ မြန်မာ အရင်းခံစကားလုံး သို့မဟုတ် Romanized အသံထွက် (ဥပမာ \"mingalaba\") ဖြင့် ပြန်လည်ရှာဖွေကြည့်ပါ။"),
+                        Font = _fontSmall,
+                        ForeColor = Color.FromArgb(88, 68, 28),
+                        AutoSize = true,
+                        MaximumSize = new Size(innerWrap, 0),
+                        Tag = WrapTag
+                    }, 0, 0);
+                    empty.ResumeLayout(false);
+                    _cardsPanel.Controls.Add(empty);
+                    return;
+                }
+
+                bool hasMore = entries.Count > initialPreparedCards.Length;
+                var controlsBatch = new Control[initialPreparedCards.Length + (hasMore ? 1 : 0)];
+                for (int i = 0; i < initialPreparedCards.Length; i++)
+                {
+                    controlsBatch[i] = BuildPreparedDictionaryEntryCard(initialPreparedCards[i], cardWidth, innerWrap);
+                }
+
+                if (hasMore)
+                {
+                    controlsBatch[initialPreparedCards.Length] = CreateShowMoreExcelDictionaryButton(
+                        entries,
+                        nextStartIndex: initialPreparedCards.Length,
+                        cardWidth: cardWidth,
+                        renderVersion: renderVersion);
+                }
+
+                _cardsPanel.Controls.AddRange(controlsBatch);
+            }
+            finally
+            {
+                EndCardsBatchUpdate();
+            }
+        }
+
+        private Button CreateShowMoreExcelDictionaryButton(
+            List<DictionaryEntry> allEntries,
+            int nextStartIndex,
+            int cardWidth,
+            int renderVersion)
+        {
+            int remaining = Math.Max(0, allEntries.Count - nextStartIndex);
+            var moreBtn = CreatePillButton(
+                UiLocalizer.Pick(
+                    $"▾ Show ({remaining}) more result(s)",
+                    $"▾ နောက်ထပ် ရလဒ် ({remaining}) ပုဒ် ဆက်လက်ပြသရန်"),
+                Color.FromArgb(235, 243, 255),
+                Color.FromArgb(20, 74, 162),
+                Color.FromArgb(190, 212, 246),
+                _fontSmallBold);
+            moreBtn.Width = cardWidth;
+            moreBtn.Margin = new Padding(0, 2, 0, 8);
+            moreBtn.Click += (s, e) => AppendMoreExcelDictionaryCards(moreBtn, allEntries, nextStartIndex, renderVersion);
+            return moreBtn;
+        }
+
+        private void AppendMoreExcelDictionaryCards(
+            Button clickedMoreBtn,
+            List<DictionaryEntry> allEntries,
+            int startIndex,
+            int renderVersion)
+        {
+            if (IsDisposed || startIndex >= allEntries.Count)
+                return;
+
+            clickedMoreBtn.Enabled = false;
+            clickedMoreBtn.Text = UiLocalizer.Pick("⏳ Loading more results...", "⏳ နောက်ထပ် ရလဒ်များ ဖွင့်လှစ်နေသည်...");
+            bool isEn = UiLocalizer.IsEnglish;
+
+            if (IsHandleCreated)
+            {
+                _ = Task.Run(() =>
+                {
+                    if (renderVersion != Volatile.Read(ref _dictAsyncSearchVersion))
+                        return;
+
+                    var nextSlice = PrepareCardsOffThread(allEntries, startIndex, DictionaryAppendBatchSize, isEn);
+                    try
+                    {
+                        if (!IsDisposed && IsHandleCreated)
+                        {
+                            BeginInvoke((Action)(() =>
+                            {
+                                if (IsDisposed ||
+                                    _activeTab != TaskPaneWorkspaceTab.Dictionary ||
+                                    renderVersion != Volatile.Read(ref _dictAsyncSearchVersion))
+                                {
+                                    return;
+                                }
+                                CommitAppendedExcelDictionarySlice(clickedMoreBtn, allEntries, startIndex, nextSlice, renderVersion);
+                            }));
+                        }
+                    }
+                    catch { }
+                });
                 return;
             }
 
-            int takeCount = Math.Min(entries.Count, maxRender);
-            for (int i = 0; i < takeCount; i++)
-            {
-                _cardsPanel.Controls.Add(BuildDictionaryEntryCard(entries[i], cardWidth, innerWrap));
-            }
-
-            if (entries.Count > takeCount)
-            {
-                int remaining = entries.Count - takeCount;
-                var moreBtn = CreatePillButton(
-                    UiLocalizer.Pick(
-                        $"▾ Show ({remaining}) more result(s)",
-                        $"▾ နောက်ထပ် ရလဒ် ({remaining}) ပုဒ် ဆက်လက်ပြသရန်"),
-                    Color.FromArgb(235, 243, 255),
-                    Color.FromArgb(20, 74, 162),
-                    Color.FromArgb(190, 212, 246),
-                    _fontSmallBold);
-                moreBtn.Width = cardWidth;
-                moreBtn.Margin = new Padding(0, 2, 0, 8);
-                moreBtn.Click += (s, e) => RenderDictionaryResults(
-                    query,
-                    entries,
-                    elapsedMs,
-                    takeCount + 30,
-                    convertedFromZawgyi,
-                    effectiveQuery,
-                    isCustomHeaderTitle);
-                _cardsPanel.Controls.Add(moreBtn);
-            }
-
-            _cardsPanel.ResumeLayout(true);
+            var syncSlice = PrepareCardsOffThread(allEntries, startIndex, DictionaryAppendBatchSize, isEn);
+            CommitAppendedExcelDictionarySlice(clickedMoreBtn, allEntries, startIndex, syncSlice, renderVersion);
         }
 
-        private Control BuildDictionaryEntryCard(DictionaryEntry entry, int cardWidth, int innerWrap)
+        private void CommitAppendedExcelDictionarySlice(
+            Button clickedMoreBtn,
+            List<DictionaryEntry> allEntries,
+            int startIndex,
+            PreparedDictionaryCard[] nextSlice,
+            int renderVersion)
         {
+            BeginCardsBatchUpdate();
+            try
+            {
+                if (!clickedMoreBtn.IsDisposed)
+                {
+                    _cardsPanel.Controls.Remove(clickedMoreBtn);
+                    clickedMoreBtn.Dispose();
+                }
+
+                if (nextSlice.Length == 0)
+                    return;
+
+                int cardWidth = GetTargetCardWidth(reserveScrollbarForMultipleCards: true);
+                int innerWrap = Math.Max(180, cardWidth - 32);
+                int nextRenderedTotal = startIndex + nextSlice.Length;
+                bool hasMore = allEntries.Count > nextRenderedTotal;
+
+                var batch = new Control[nextSlice.Length + (hasMore ? 1 : 0)];
+                for (int i = 0; i < nextSlice.Length; i++)
+                {
+                    batch[i] = BuildPreparedDictionaryEntryCard(nextSlice[i], cardWidth, innerWrap);
+                }
+
+                if (hasMore)
+                {
+                    batch[nextSlice.Length] = CreateShowMoreExcelDictionaryButton(allEntries, nextRenderedTotal, cardWidth, renderVersion);
+                }
+
+                _cardsPanel.Controls.AddRange(batch);
+            }
+            finally
+            {
+                EndCardsBatchUpdate();
+            }
+        }
+
+        private Control BuildPreparedDictionaryEntryCard(PreparedDictionaryCard prepared, int cardWidth, int innerWrap)
+        {
+            var entry = prepared.Entry;
             bool isBilingual = entry.IsBilingualLexiconEntry;
             Color stripe = isBilingual
                 ? Color.FromArgb(20, 88, 168)
@@ -608,6 +1014,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     : (entry.IsProverbOrSayingEntry ? Color.FromArgb(196, 118, 12) : Color.FromArgb(24, 90, 188)));
 
             var card = CreateStyledCardContainer(cardWidth, stripe);
+            card.SuspendLayout();
             int r = 0;
 
             var topRow = new TableLayoutPanel
@@ -619,6 +1026,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 RowCount = 1,
                 Margin = new Padding(0, 0, 0, 3)
             };
+            topRow.SuspendLayout();
             topRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 68F));
             topRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32F));
             topRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -648,15 +1056,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             topRow.Controls.Add(lblHead, 0, 0);
             topRow.Controls.Add(lblPos, 1, 0);
+            topRow.ResumeLayout(false);
             card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             card.Controls.Add(topRow, 0, r++);
 
-            // Compact Dual Pronunciation Line + Offline English TTS Audio Button ([▶ EN])
-            var pronInfo = entry.IsReferenceEntry
-                ? default
-                : MyanmarPhoneticTranscriber.GetPronunciation(entry.Word, entry.BurmesePronunciation);
-            string speakEn = entry.GetSpeakableEnglishText();
-            if (pronInfo.HasValue || !string.IsNullOrEmpty(speakEn))
+            string speakEn = prepared.SpeakableEnglish;
+            if (prepared.PronInfo.HasValue || !string.IsNullOrEmpty(speakEn))
             {
                 var pronRow = new TableLayoutPanel
                 {
@@ -669,12 +1074,13 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     Padding = new Padding(6, 3, 6, 3),
                     Margin = new Padding(0, 0, 0, 4)
                 };
+                pronRow.SuspendLayout();
                 pronRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
                 pronRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
                 pronRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-                string pronDisplay = pronInfo.HasValue
-                    ? MyanmarPhoneticTranscriber.FormatCompactDualLine(pronInfo, UiLocalizer.IsEnglish)
+                string pronDisplay = prepared.PronInfo.HasValue
+                    ? prepared.PronCompactDualLine
                     : UiLocalizer.Pick($"English Audio: {speakEn}", $"အင်္ဂလိပ် အသံထွက်: {speakEn}");
                 var lblPron = new Label
                 {
@@ -686,9 +1092,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     Dock = DockStyle.Fill,
                     Margin = new Padding(0, 2, 4, 2)
                 };
-                if (pronInfo.HasValue && !string.IsNullOrWhiteSpace(pronInfo.Ipa))
+                if (!string.IsNullOrEmpty(prepared.PronIpaTooltip))
                 {
-                    _toolTip.SetToolTip(lblPron, MyanmarPhoneticTranscriber.FormatIpaTooltip(pronInfo));
+                    _toolTip.SetToolTip(lblPron, prepared.PronIpaTooltip);
                 }
                 pronRow.Controls.Add(lblPron, 0, 0);
 
@@ -713,6 +1119,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     pronRow.Controls.Add(btnSpeakEn, 1, 0);
                 }
 
+                pronRow.ResumeLayout(false);
                 card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
                 card.Controls.Add(pronRow, 0, r++);
             }
@@ -734,13 +1141,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 }, 0, r++);
             }
 
-            var formattedSenses = entry.GetFormattedSenses();
-            if (formattedSenses.Count > 0)
+            if (prepared.FormattedSenses.Count > 0)
             {
                 card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
                 card.Controls.Add(new Label
                 {
-                    Text = string.Join("\n", formattedSenses),
+                    Text = string.Join("\n", prepared.FormattedSenses),
                     Font = _fontBody,
                     ForeColor = Color.FromArgb(30, 40, 56),
                     AutoSize = true,
@@ -750,12 +1156,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 }, 0, r++);
             }
 
-            if (!isBilingual && !string.IsNullOrWhiteSpace(entry.FormattedUsageDetails))
+            if (!string.IsNullOrEmpty(prepared.CollapsedUsageDetails))
             {
                 card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
                 card.Controls.Add(new Label
                 {
-                    Text = entry.FormattedUsageDetails,
+                    Text = prepared.CollapsedUsageDetails,
                     Font = _fontSmall,
                     ForeColor = Color.FromArgb(66, 78, 96),
                     AutoSize = true,
@@ -765,15 +1171,14 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 }, 0, r++);
             }
 
-            string homo = !entry.IsReferenceEntry ? (RequestHomophoneSummary?.Invoke(entry.Word) ?? string.Empty) : string.Empty;
-            if (!string.IsNullOrWhiteSpace(homo))
+            if (!string.IsNullOrWhiteSpace(prepared.HomophoneSummary))
             {
                 card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
                 card.Controls.Add(new Label
                 {
                     Text = UiLocalizer.Pick(
-                        $"Homophone Comparison — {homo}",
-                        $"သံတူကြောင်းကွဲ နှိုင်းယှဉ်ချက် — {homo}"),
+                        $"Homophone Comparison — {prepared.HomophoneSummary}",
+                        $"သံတူကြောင်းကွဲ နှိုင်းယှဉ်ချက် — {prepared.HomophoneSummary}"),
                     Font = _fontBrandStats,
                     ForeColor = Color.FromArgb(148, 86, 8),
                     BackColor = Color.FromArgb(255, 248, 232),
@@ -785,29 +1190,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 }, 0, r++);
             }
 
-            List<string> syns;
-            if (isBilingual && !string.IsNullOrWhiteSpace(entry.Synonyms))
-            {
-                syns = entry.Synonyms
-                    .Split(new[] { '၊', ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
-                    .Select(x => x.Trim())
-                    .Where(x => x.Length >= 1)
-                    .Distinct(StringComparer.Ordinal)
-                    .Take(6)
-                    .ToList();
-            }
-            else
-            {
-                syns = !entry.IsReferenceEntry
-                    ? (RequestGetSynonyms?.Invoke(entry.Word) ?? new List<string>())
-                    : new List<string>();
-            }
-
-            var ants = !entry.IsReferenceEntry
-                ? (RequestGetAntonyms?.Invoke(entry.Word) ?? new List<string>())
-                : new List<string>();
-
-            if (syns.Count > 0 || ants.Count > 0)
+            int relCount = prepared.Synonyms.Count + prepared.Antonyms.Count;
+            if (relCount > 0)
             {
                 var relFlow = new FlowLayoutPanel
                 {
@@ -817,52 +1201,59 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     WrapContents = true,
                     Margin = new Padding(0, 0, 0, 4)
                 };
-                foreach (string syn in syns.Take(6))
+                relFlow.SuspendLayout();
+                var relChips = new Control[relCount];
+                int idx = 0;
+                for (int i = 0; i < prepared.Synonyms.Count; i++)
                 {
-                    string cap = syn;
+                    string cap = prepared.Synonyms[i];
                     var chip = CreatePillButton($"⇄ {cap}", Color.FromArgb(236, 246, 240), Color.FromArgb(16, 102, 52), Color.FromArgb(186, 222, 198), _fontBrandStats);
                     chip.Click += (s, e) => OpenDictionaryWithQuery(cap);
-                    relFlow.Controls.Add(chip);
+                    relChips[idx++] = chip;
                 }
-                foreach (string ant in ants.Take(4))
+                for (int i = 0; i < prepared.Antonyms.Count; i++)
                 {
-                    string cap = ant;
+                    string cap = prepared.Antonyms[i];
                     var chip = CreatePillButton($"≠ {cap}", Color.FromArgb(254, 240, 240), Color.FromArgb(168, 32, 32), Color.FromArgb(236, 198, 198), _fontBrandStats);
                     chip.Click += (s, e) => OpenDictionaryWithQuery(cap);
-                    relFlow.Controls.Add(chip);
+                    relChips[idx++] = chip;
                 }
+                relFlow.Controls.AddRange(relChips);
+                relFlow.ResumeLayout(false);
+
                 card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
                 card.Controls.Add(relFlow, 0, r++);
             }
 
-            if (!entry.IsReferenceEntry)
+            if (prepared.Collocations.Count > 0)
             {
-                var collocations = RequestGetCollocations?.Invoke(entry.Word) ?? new List<string>();
-                if (collocations.Count > 0)
+                var collocFlow = new FlowLayoutPanel
                 {
-                    var collocFlow = new FlowLayoutPanel
-                    {
-                        Dock = DockStyle.Top,
-                        AutoSize = true,
-                        AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                        WrapContents = true,
-                        Margin = new Padding(0, 0, 0, 4)
-                    };
-                    foreach (string colloc in collocations.Take(5))
-                    {
-                        string cap = colloc;
-                        var chip = CreatePillButton($"▸ {cap}", Color.FromArgb(244, 242, 255), Color.FromArgb(66, 38, 138), Color.FromArgb(208, 198, 244), _fontBrandStats);
-                        _toolTip.SetToolTip(
-                            chip,
-                            UiLocalizer.Pick(
-                                $"Common collocation — click to look up \"{cap}\"",
-                                $"အသုံးများသော တွဲဖက်ဝေါဟာရ — \"{cap}\" ကို နှိပ်၍ ရှာဖွေပါ"));
-                        chip.Click += (s, e) => OpenDictionaryWithQuery(cap);
-                        collocFlow.Controls.Add(chip);
-                    }
-                    card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-                    card.Controls.Add(collocFlow, 0, r++);
+                    Dock = DockStyle.Top,
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    WrapContents = true,
+                    Margin = new Padding(0, 0, 0, 4)
+                };
+                collocFlow.SuspendLayout();
+                var collocChips = new Control[prepared.Collocations.Count];
+                for (int i = 0; i < prepared.Collocations.Count; i++)
+                {
+                    string cap = prepared.Collocations[i];
+                    var chip = CreatePillButton($"▸ {cap}", Color.FromArgb(244, 242, 255), Color.FromArgb(66, 38, 138), Color.FromArgb(208, 198, 244), _fontBrandStats);
+                    _toolTip.SetToolTip(
+                        chip,
+                        UiLocalizer.Pick(
+                            $"Common collocation — click to look up \"{cap}\"",
+                            $"အသုံးများသော တွဲဖက်ဝေါဟာရ — \"{cap}\" ကို နှိပ်၍ ရှာဖွေပါ"));
+                    chip.Click += (s, e) => OpenDictionaryWithQuery(cap);
+                    collocChips[i] = chip;
                 }
+                collocFlow.Controls.AddRange(collocChips);
+                collocFlow.ResumeLayout(false);
+
+                card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                card.Controls.Add(collocFlow, 0, r++);
             }
 
             var btnRow = new FlowLayoutPanel
@@ -872,9 +1263,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 WrapContents = true
             };
+            btnRow.SuspendLayout();
 
             string wordToUse = entry.Word;
-            bool initialSaved = DictionaryBookmarkStore.Shared.IsBookmarked(wordToUse);
+            bool initialSaved = prepared.IsBookmarked;
             var btnSave = CreatePillButton(
                 initialSaved
                     ? UiLocalizer.Pick("★ Saved", "★ မှတ်ပြီး")
@@ -886,6 +1278,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             btnSave.Click += (s, e) =>
             {
                 bool nowSaved = DictionaryBookmarkStore.Shared.ToggleBookmark(wordToUse);
+                _dictLookupCache.Clear();
                 btnSave.Text = nowSaved
                     ? UiLocalizer.Pick("★ Saved", "★ မှတ်ပြီး")
                     : UiLocalizer.Pick("☆ Save", "☆ မှတ်မည်");
@@ -922,12 +1315,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 _fontBrandStats);
             btnInsert.Click += (s, e) => RequestInsertTextIntoCell?.Invoke(wordToUse);
 
-            btnRow.Controls.Add(btnSave);
-            btnRow.Controls.Add(btnCopy);
-            btnRow.Controls.Add(btnInsert);
+            btnRow.Controls.AddRange(new Control[] { btnSave, btnCopy, btnInsert });
+            btnRow.ResumeLayout(false);
 
             card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             card.Controls.Add(btnRow, 0, r++);
+            card.ResumeLayout(false);
 
             return card;
         }
