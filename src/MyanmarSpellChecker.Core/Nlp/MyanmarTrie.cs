@@ -735,22 +735,47 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (count <= 0 || startIndex < 0 || startIndex + count > tokens.Count)
                 return false;
 
-            TrieNode? cur = _root;
-            for (int i = 0; i < count - 1; i++)
-            {
-                if (!cur.TryGetChild(tokens[startIndex + i].NormalizedText, out cur) || cur == null)
-                    return false;
-            }
-
             string lastSyl = tokens[startIndex + count - 1].NormalizedText;
             if (string.IsNullOrEmpty(lastSyl))
                 return false;
 
-            if (cur.HasAnyChildWithPrefix(lastSyl, requireLonger: true))
-                return true;
+            TrieNode? cur = _root;
+            TrieNode? prevCur = null;
+            bool walkedAllButLast = true;
+            for (int i = 0; i < count - 1; i++)
+            {
+                if (i == count - 2)
+                    prevCur = cur;
 
-            if (cur.TryGetChild(lastSyl, out TrieNode? exactLast) && exactLast != null && exactLast.HasAnyChild())
-                return true;
+                if (!cur.TryGetChild(tokens[startIndex + i].NormalizedText, out cur) || cur == null)
+                {
+                    walkedAllButLast = false;
+                    break;
+                }
+            }
+
+            if (walkedAllButLast && cur != null)
+            {
+                if (cur.HasAnyChildWithPrefix(lastSyl, requireLonger: true))
+                    return true;
+
+                if (cur.TryGetChild(lastSyl, out TrieNode? exactLast) && exactLast != null && exactLast.HasAnyChild())
+                    return true;
+            }
+
+            // Mid-coda-asat CMS truncation (e.g. 'အမှတ ....' chopped from 'အမှတ်' into ['အ','မှ','တ'], 'ဈေးဆနှုန ....', 'ရေးနှင့ ....'):
+            // when the final truncated fragment lost its trailing '\u103A', check merged [prevSyl + lastSyl] under prevCur.
+            if (count >= 2 && prevCur != null && lastSyl.Length <= 2 && lastSyl.IndexOf('\u103A') < 0 &&
+                lastSyl[0] >= '\u1000' && lastSyl[0] <= '\u1021')
+            {
+                string mergedPrefix = tokens[startIndex + count - 2].NormalizedText + lastSyl;
+                if (prevCur.HasAnyChildWithPrefix(mergedPrefix, requireLonger: true))
+                    return true;
+
+                string withAsat = UnicodeNormalizer.NormalizeCanonicalOrder(mergedPrefix + "\u103A");
+                if (prevCur.TryGetChild(withAsat, out _))
+                    return true;
+            }
 
             return false;
         }

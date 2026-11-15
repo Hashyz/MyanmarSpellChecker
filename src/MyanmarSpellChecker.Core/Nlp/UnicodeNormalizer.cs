@@ -227,6 +227,7 @@ namespace MyanmarSpellChecker.Core.Nlp
         private const uint LookalikeReversedMedial = 1u << 19;
         private const uint LookalikeSwappedLowerUpperVowel = 1u << 20;
         private const uint LookalikeVowelBeforeStack = 1u << 21;
+        private const uint LookalikeVisualPreBase = 1u << 22;
 
         /// <summary>
         /// Zero-allocation O(N) check returning false when <paramref name="s"/> is already in canonical Myanmar combining order.
@@ -351,6 +352,23 @@ namespace MyanmarSpellChecker.Core.Nlp
                 else if (c == '\u1009')
                 {
                     mask |= LookalikeNya1009;
+                }
+                else if (c == '\u1031')
+                {
+                    bool validPrevForE = rel > 0 &&
+                                         ((prev >= '\u1000' && prev <= '\u102A') || (prev >= '\u103B' && prev <= '\u103F'));
+                    if (!validPrevForE && i + 1 < end)
+                    {
+                        mask |= LookalikeVisualPreBase;
+                    }
+                }
+                else if (c == '\u103C')
+                {
+                    bool validPrevForRa = rel > 0 && prev >= '\u1000' && prev <= '\u1021';
+                    if (!validPrevForRa && i + 1 < end)
+                    {
+                        mask |= LookalikeVisualPreBase;
+                    }
                 }
                 else if (c == '\u102B')
                 {
@@ -537,6 +555,11 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return NormalizeCanonicalOrder(token);
 
             string fixedToken = token;
+            if ((mask & LookalikeVisualPreBase) != 0)
+            {
+                fixedToken = RepairVisualOrderPreBaseSyllablesCore(fixedToken);
+                mask = ComputeLookalikeTriggerMask(fixedToken);
+            }
             if ((mask & LookalikeZeroWidth) != 0)
             {
                 fixedToken = ZeroWidthCorruptionPattern.Replace(fixedToken, string.Empty);
@@ -665,6 +688,13 @@ namespace MyanmarSpellChecker.Core.Nlp
             {
                 correctedToken = FixLookalikeCharacters(token);
                 explanation = "ရုံးသုံးစံနှုန်းအရ '၄င်း / ၄်င်း / ၎င်းင်း' အစား ယူနီကုဒ် '၎င်း' (U+104E + င်း) ကို တိကျစွာ ရေးသားရမည်။";
+                return true;
+            }
+
+            if ((mask & LookalikeVisualPreBase) != 0 && FindVisualOrderPreBaseSyllables(token).Count > 0)
+            {
+                correctedToken = FixLookalikeCharacters(token);
+                explanation = "သဝေထိုး ('ေ') သို့မဟုတ် ရရစ် ('ြ') ကို အခြေခံဗျည်းရှေ့မှ (ဇော်ဂျီလက်ကွက်အတိုင်း) မှားယွင်းရိုက်နှိပ်ထားပါသည် — ယူနီကုဒ်စံနှုန်းအရ အခြေခံဗျည်းကို ဦးစွာရိုက်နှိပ်ရမည်။";
                 return true;
             }
 
@@ -1318,6 +1348,233 @@ namespace MyanmarSpellChecker.Core.Nlp
             return (illegalEVisarga >= 1 && totalSignals >= 2) ||
                    (invalidMaVirama >= 1 && totalSignals >= 2) ||
                    totalSignals >= 3;
+        }
+
+        public readonly struct VisualOrderSyllableSpan
+        {
+            public VisualOrderSyllableSpan(int startIndex, int length, string originalText, string logicalUnicode)
+            {
+                StartIndex = startIndex;
+                Length = length;
+                OriginalText = originalText;
+                LogicalUnicode = logicalUnicode;
+            }
+
+            public int StartIndex { get; }
+            public int Length { get; }
+            public string OriginalText { get; }
+            public string LogicalUnicode { get; }
+        }
+
+        private static bool IsVisualFormatChar(char c)
+        {
+            return (c >= '\u200B' && c <= '\u200D') || c == '\uFEFF' || c == '\u2060' || c == '\u00AD';
+        }
+
+        /// <summary>
+        /// Detects Unicode clerk visual-order pre-base 'ေ' (U+1031) and/or 'ြ' (U+103C) sequences
+        /// (including ZWNJ-masked '\u200C\u1031\u1012\u102B\u103A' -> 'ဒေါ်', '\u200C\u103C\u1031\u1019\u102C\u1000\u103A' -> 'မြောက်',
+        /// '\u103C\u1019\u1014\u103A' -> 'မြန်', '\u200C\u1031\u1040' -> 'ဝေ') and reconstructs canonical Pyidaungsu syllables.
+        /// Zero-allocation O(N) fast path when neither U+1031 nor U+103C occurs in <paramref name="text"/>.
+        /// </summary>
+        public static IReadOnlyList<VisualOrderSyllableSpan> FindVisualOrderPreBaseSyllables(string text)
+        {
+            if (string.IsNullOrEmpty(text) || text.Length < 2)
+                return Array.Empty<VisualOrderSyllableSpan>();
+
+            if (text.IndexOf('\u1031') < 0 && text.IndexOf('\u103C') < 0)
+                return Array.Empty<VisualOrderSyllableSpan>();
+
+            List<VisualOrderSyllableSpan>? results = null;
+            int n = text.Length;
+
+            for (int i = 0; i < n - 1; i++)
+            {
+                int rawStart = i;
+                int markPos = i;
+                while (markPos < n && IsVisualFormatChar(text[markPos]))
+                    markPos++;
+
+                if (markPos >= n)
+                    break;
+
+                char firstMark = text[markPos];
+                if (firstMark != '\u1031' && firstMark != '\u103C')
+                    continue;
+
+                bool separatedByInvisible = markPos > rawStart;
+                if (!separatedByInvisible && rawStart > 0)
+                {
+                    char prev = text[rawStart - 1];
+                    if (firstMark == '\u1031')
+                    {
+                        if ((prev >= '\u1000' && prev <= '\u102A') || (prev >= '\u103B' && prev <= '\u103F'))
+                            continue;
+                    }
+                    else
+                    {
+                        if (prev >= '\u1000' && prev <= '\u1021')
+                            continue;
+                    }
+                }
+
+                bool hasPreE = false;
+                bool hasPreRa = false;
+                int cur = markPos;
+                while (cur < n)
+                {
+                    char mc = text[cur];
+                    if (mc == '\u1031')
+                    {
+                        hasPreE = true;
+                        cur++;
+                    }
+                    else if (mc == '\u103C')
+                    {
+                        hasPreRa = true;
+                        cur++;
+                    }
+                    else if (IsVisualFormatChar(mc))
+                    {
+                        cur++;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+
+                if (cur >= n)
+                    break;
+
+                char baseRaw = text[cur];
+                bool isBaseConsonant = (baseRaw >= '\u1000' && baseRaw <= '\u1021') || baseRaw == '\u1040';
+                if (!isBaseConsonant)
+                    continue;
+
+                char logicalBase = baseRaw == '\u1040' ? '\u101D' : baseRaw;
+                int pos = cur + 1;
+
+                // 1. Subscript stacks & medials attached to base consonant
+                int afterStackAndMedials = pos;
+                while (pos < n)
+                {
+                    char c = text[pos];
+                    if (c == '\u1039' && pos + 1 < n && text[pos + 1] >= '\u1000' && text[pos + 1] <= '\u1021')
+                    {
+                        pos += 2;
+                        afterStackAndMedials = pos;
+                    }
+                    else if (c >= '\u103B' && c <= '\u103E')
+                    {
+                        pos++;
+                        afterStackAndMedials = pos;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+
+                // 2. Dependent vowels & anusvara
+                while (pos < n && ((text[pos] >= '\u102B' && text[pos] <= '\u1032') || text[pos] == '\u1036'))
+                    pos++;
+
+                // 3. Devowelizer Asat directly on Tall/Round AA ('ဒေါ်', 'ကော်') OR killed coda consonant ('က်', 'င်', 'င့်', 'န်း') OR open-syllable tones ('ရေး', 'ဝေး', 'အေး')
+                if (pos < n && text[pos] == '\u103A' && (text[pos - 1] == '\u102B' || text[pos - 1] == '\u102C'))
+                {
+                    pos++;
+                    while (pos < n && (text[pos] == '\u1037' || text[pos] == '\u1038'))
+                        pos++;
+                }
+                else
+                {
+                    bool consumedCoda = false;
+                    if (pos < n && text[pos] >= '\u1000' && text[pos] <= '\u1021')
+                    {
+                        int codaCons = pos;
+                        int look = codaCons + 1;
+                        if (look < n && text[look] == '\u1037')
+                            look++;
+
+                        if (look < n && text[look] == '\u103A' &&
+                            !(text[codaCons] == '\u1004' && look + 1 < n && text[look + 1] == '\u1039'))
+                        {
+                            pos = look + 1;
+                            while (pos < n && (text[pos] == '\u1037' || text[pos] == '\u1038'))
+                                pos++;
+                            consumedCoda = true;
+                        }
+                    }
+
+                    if (!consumedCoda)
+                    {
+                        while (pos < n && (text[pos] == '\u1037' || text[pos] == '\u1038'))
+                            pos++;
+                    }
+                }
+
+                var sb = new StringBuilder((pos - cur) + 3);
+                sb.Append(logicalBase);
+                for (int k = cur + 1; k < afterStackAndMedials; k++)
+                {
+                    if (!IsVisualFormatChar(text[k]))
+                        sb.Append(text[k] == '\u1040' ? '\u101D' : text[k]);
+                }
+                if (hasPreRa)
+                    sb.Append('\u103C');
+                if (hasPreE)
+                    sb.Append('\u1031');
+                for (int k = afterStackAndMedials; k < pos; k++)
+                {
+                    if (!IsVisualFormatChar(text[k]))
+                        sb.Append(text[k] == '\u1040' ? '\u101D' : text[k]);
+                }
+
+                string rebuilt = FinalizeVisualOrderSyllable(sb.ToString());
+                string rawSlice = text.Substring(rawStart, pos - rawStart);
+                if (!string.Equals(rawSlice, rebuilt, StringComparison.Ordinal))
+                {
+                    results ??= new List<VisualOrderSyllableSpan>(4);
+                    results.Add(new VisualOrderSyllableSpan(rawStart, pos - rawStart, rawSlice, rebuilt));
+                }
+
+                i = pos - 1;
+            }
+
+            return (IReadOnlyList<VisualOrderSyllableSpan>?)results ?? Array.Empty<VisualOrderSyllableSpan>();
+        }
+
+        private static string RepairVisualOrderPreBaseSyllablesCore(string s)
+        {
+            var spans = FindVisualOrderPreBaseSyllables(s);
+            if (spans.Count == 0)
+                return s;
+
+            var sb = new StringBuilder(s.Length);
+            int last = 0;
+            for (int i = 0; i < spans.Count; i++)
+            {
+                var sp = spans[i];
+                if (sp.StartIndex > last)
+                    sb.Append(s, last, sp.StartIndex - last);
+                sb.Append(sp.LogicalUnicode);
+                last = sp.StartIndex + sp.Length;
+            }
+            if (last < s.Length)
+                sb.Append(s, last, s.Length - last);
+            return sb.ToString();
+        }
+
+        private static string FinalizeVisualOrderSyllable(string candidate)
+        {
+            string norm = NormalizeCanonicalOrder(candidate);
+            norm = DuplicateCombiningMarkPattern.Replace(norm, "$1");
+            if (norm.IndexOf('\u102B') >= 0)
+                norm = MisusedTallAaPattern.Replace(norm, "\u102C");
+            if (norm.IndexOf('\u102C') >= 0)
+                norm = MisusedRoundAaPattern.Replace(norm, "\u102B");
+            return NormalizeCanonicalOrder(norm);
         }
     }
 }

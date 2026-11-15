@@ -5247,5 +5247,181 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.Contains("အကြောင်းအရာ", UnicodeNormalizer.NormalizeCanonicalOrder(partitionedIssues[0].Suggestions[0].Replacement));
             Assert.Contains("ပြည်ထောင်စုလွှတ်တော် ဥပဒေအမှတ် ၄၁", UnicodeNormalizer.NormalizeCanonicalOrder(partitionedIssues[1].Suggestions[0].Replacement));
         }
+
+        [Fact]
+        public void V46_GovernmentWordSheets_TwoWayValidation_PrecisionRecall_AndThroughputBenchmark()
+        {
+            var model = EncryptedDictionaryRepository.ParseFromJsonFile(TestPaths.MasterJsonPath);
+            var trie = new MyanmarTrie();
+            foreach (var se in SeedDictionaryProvider.GetOfficialSeedEntries()) trie.InsertEntry(se);
+            foreach (var sr in SeedDictionaryProvider.GetOfficialOrthographyRules()) trie.InsertOrthographyRule(sr);
+            foreach (var e in model.Entries) trie.InsertEntry(e);
+            foreach (var r in model.OrthographyRules) trie.InsertOrthographyRule(r);
+            if (model.ContextRules != null)
+                foreach (var cr in model.ContextRules) trie.InsertContextualRule(cr);
+            if (model.WordBigrams != null)
+                foreach (var bg in model.WordBigrams) trie.InsertWordBigram(bg.LeftWord, bg.RightWord, bg.Count);
+
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // 1. Bucket B (Precision Gate): 100% Precision (0 false positives) across verified multi-ministry cells & MCF dictionary entries
+            string[] verifiedCleanMinistryAndSheetCells =
+            {
+                "ကနဦးပေါင်းကူးဆက်သွယ်ခြင်း",
+                "အခြေခံပညာကျောင်းများရှိ ကျောင်းသားများ၏ တန်းစဉ်ကူး ပြောင်းနှုန်း",
+                "မနှင်းအိန္ဒြေခိုင်",
+                "ဒေါ်ခင်စိန်ရီ",
+                "(ဆရာဝန်ကိုင်) နားကြပ်",
+                "ကိုယ်တိုင်းနှင့်ချုပ်ထားသော အင်္ကျီ",
+                "ကြောင်းကျိုးဆက်နွှယ်နေသော အချက်အလက်များ",
+                "အခက်အလက် ဝေဆာသည်",
+                "ခြေမကိုင်မိ လက်မကိုင်မိဖြစ်သော",
+                "ပူဆွေးသောကရောက်ခြင်း",
+                "အသေးစိတ်ကျသော စီမံချက်",
+                "ရှေ့သို့ထိုးစိုက်ကျသည်",
+                "တွဲလျားကျသည်",
+                "ပျမ်းမျှကျသည်",
+                "တမ်းတချက်",
+                "တချက်ချက်မြည်သည်",
+                "မရှိသလောက်ပဲ ဖြစ်သည်",
+                "သုတ်သုတ်ပျာပျာပြေးခြင်း",
+                "သေနတ်အထုတ်",
+                "ပျစ်ပျစ်နှစ်နှစ် ပြောဆိုသည်",
+                "မွန်းမွန်းကျပ်ကျပ်",
+                "ပိုလွန်းခြင်း",
+                "ရပ်တန်းကရပ်သည်",
+                "လံကြုပ်ပုံပြင်",
+                "တုံ့လှယ်သည်",
+                "မိတ္ထီလာမြေပြင်အတတ်သင်လေတပ်စခန်း(လမသ)",
+                "စားသုံးသူဈေးဆနှုန ....",
+                "ယနေ့ နံနက် ၉ နာရီတွင် ရုံးအမှတ ....",
+                "ဒုတိယညွှန်ကြားရေးမှူးချု ....",
+                "ပရိုတက်စတင့် နှင့် အင်္ဂလိကန်",
+                "စတီယာရင် နှင့် အင်ဒတ်စထရီ",
+                "ဝှေခါ ကျောက်မျက်လုပ်ကွက်",
+                "မြနဒီလမ်း နှင့် ရွှေနဒီလမ်း",
+                "အောင်ဘာလေသိန်းဆုခွန် နှင့် ရသုံးမှန်းခြေငွေစာရင်းဦးစီးဌာန"
+            };
+
+            foreach (string cleanCell in verifiedCleanMinistryAndSheetCells)
+            {
+                var fpIssues = formalEngine.CheckText(cleanCell);
+                Assert.True(
+                    fpIssues.Count == 0,
+                    $"Expected 0 false positives for verified government/dictionary cell '{cleanCell}', got: " +
+                    string.Join("; ", fpIssues.Select(i => $"[{i.IssueType}] '{i.OriginalText}' -> '{i.Suggestions.FirstOrDefault()?.Replacement}' ({i.Message})")));
+            }
+
+            // 2. Visual-Order Pre-Base Clerk Keystroke Repair: '‌ေဒါ်ခင်စိန်ရီ' repairs '‌ေဒါ် -> ဒေါ်' in 1 click AND protects citizen name 'ခင်စိန်ရီ'
+            var dawVisualIssues = formalEngine.CheckText("\u200C\u1031\u1012\u102B\u103Aခင်စိန်ရီ");
+            var singleDawIssue = Assert.Single(dawVisualIssues);
+            Assert.Equal("\u200C\u1031\u1012\u102B\u103A", singleDawIssue.OriginalText);
+            Assert.Equal("ဒေါ်", UnicodeNormalizer.NormalizeCanonicalOrder(singleDawIssue.Suggestions[0].Replacement));
+
+            // 3. Bucket A (Recall Gate): 100% Recall with exact MLC/Unicode correction on real government spreadsheet clerk mistakes
+            (string WrongCell, string ExpectedFixSubstring)[] confirmedClerkMistakes =
+            {
+                ("\u200C\u1031ကျာက်မဲမြို့နယ်", "ကျောက်"),
+                ("\u200C\u103C\u1031မာက်ပိုင်း", "မြောက်"),
+                ("\u103Cမန်မာနိုင်ငံ", "မြန်"),
+                ("ဦး\u200C\u1031\u1040လင်းမောင်", "ဝေ"),
+                ("ဒေါ်\u103Cမရင်", "မြ"),
+                ("+\u1031ဒါ်မူမူ", "ဒေါ်"),
+                ("\u200C\u1031ရွှစံပယ်", "ရွှေ"),
+                ("အိမ္မဲမြို့နယ်", "အိမ်မဲ"),
+                ("မိုင်းပျင်းမြို့နယ်", "မိုင်းပြင်း"),
+                ("ချီဗွေမြို့နယ်", "ချီဖွေ"),
+                ("ဒီမောဆိုမြို့နယ်", "ဒီမော့ဆို"),
+                ("ဖလန်းခရိုင်", "ဖလမ်းခရိုင်"),
+                ("ကျိုက္မရောမြို့နယ်", "ကျိုက်မရော"),
+                ("အစားသောက်ဌာနခွဲ", "အစားအသောက်"),
+                ("စီးပွားရေးညွှန်ကိန်းများ", "ညွှန်းကိန်း"),
+                ("မျိုးစေ့အရည်အသွေးထိမ်းသိမ်းခြင်း", "ထိန်းသိမ်း"),
+                ("တာဝန်မှ နှုတ်ထွက်ခွင့်ပြုခြင်း", "နုတ်ထွက်"),
+                ("ကော်ပိုးရေးရှင်း", "ကော်ပိုရေးရှင်း"),
+                ("ပုံသဏ္ဎာန်", "ပုံသဏ္ဌာန်"),
+                ("အာမေဍ္ဍိတ်", "အာမေဍိတ်"),
+                ("အိန္ဓြေ", "ဣန္ဒြေ"),
+                ("ရောဂါပိုး ကူးဆက်ပျံ့နှံ့သည်", "ကူးစက်")
+            };
+
+            foreach (var (wrongCell, expectedFix) in confirmedClerkMistakes)
+            {
+                var detected = formalEngine.CheckText(wrongCell);
+                Assert.True(
+                    detected.Count > 0,
+                    $"Expected engine to flag clerk/encoding error in '{wrongCell}' (expected '{expectedFix}'), got 0 issues.");
+
+                bool matchedSuggestion = detected.Any(iss =>
+                    iss.Suggestions.Any(s =>
+                        UnicodeNormalizer.NormalizeCanonicalOrder(s.Replacement)
+                            .Contains(UnicodeNormalizer.NormalizeCanonicalOrder(expectedFix))));
+
+                Assert.True(
+                    matchedSuggestion,
+                    $"Expected suggestion containing '{expectedFix}' for '{wrongCell}', got: " +
+                    string.Join("; ", detected.Select(i => $"'{i.OriginalText}' -> [{string.Join(", ", i.Suggestions.Select(s => s.Replacement))}]")));
+            }
+
+            // 4. 2D Government Worksheet Block Throughput & Formula-Shield Benchmark (1,250 cells: 250 rows x 5 cols)
+            const int rows = 250;
+            const int cols = 5;
+            object?[,] valGrid = new object?[rows, cols];
+            object?[,] fmlGrid = new object?[rows, cols];
+
+            string[] cleanRotation =
+            {
+                "ကျေးလက်လမ်းဖွံ့ဖြိုးရေးဦးစီးဌာန",
+                "ရသုံးမှန်းခြေငွေစာရင်းဦးစီးဌာန",
+                "ဒေါ်ခင်စိန်ရီ",
+                "မနှင်းအိန္ဒြေခိုင်",
+                "ကနဦးပေါင်းကူးဆက်သွယ်ခြင်း"
+            };
+            string[] dirtyRotation =
+            {
+                "\u200C\u1031\u1012\u102B\u103Aခင်စိန်ရီ",
+                "အိမ္မဲမြို့နယ်",
+                "အစားသောက်ဌာနခွဲ",
+                "ကော်ပိုးရေးရှင်း",
+                "ဖလန်းခရိုင်"
+            };
+
+            for (int r = 0; r < rows; r++)
+            {
+                valGrid[r, 0] = (double)(r + 1);
+                fmlGrid[r, 0] = (double)(r + 1);
+
+                valGrid[r, 1] = cleanRotation[r % cleanRotation.Length];
+                fmlGrid[r, 1] = cleanRotation[r % cleanRotation.Length];
+
+                valGrid[r, 2] = dirtyRotation[r % dirtyRotation.Length];
+                fmlGrid[r, 2] = dirtyRotation[r % dirtyRotation.Length];
+
+                valGrid[r, 3] = $"MMR-RRD-2026-{r + 1:D4}";
+                fmlGrid[r, 3] = $"MMR-RRD-2026-{r + 1:D4}";
+
+                // Formula cell whose evaluated Value2 contains a Burmese typo MUST still be skipped 100% to protect Excel formulas
+                valGrid[r, 4] = "အိမ္မဲမြို့နယ် စုစုပေါင်း";
+                fmlGrid[r, 4] = $"=CONCATENATE(\"အိမ္မဲမြို့နယ် \", C{r + 1})";
+            }
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var sheetIssues = MyanmarSpellChecker.Core.Spreadsheet.SpreadsheetProofingHelper.ScanBlockValues(
+                formalEngine,
+                workbookName: "GovWordSheetBenchmark.xlsx",
+                sheetName: "MinistryAudit",
+                baseRowOneBased: 2,
+                baseColOneBased: 1,
+                rowCount: rows,
+                colCount: cols,
+                rawValue2Block: valGrid,
+                rawFormulaBlock: fmlGrid,
+                blockHasFormula: null);
+            sw.Stop();
+
+            Assert.Equal(rows, sheetIssues.Count);
+            Assert.All(sheetIssues, cellIss => Assert.Equal(3, cellIss.Column)); // Only Column 3 (1-based index of dirtyRotation) flagged; 0 in clean Col 2 or formula Col 5
+            Assert.True(sw.ElapsedMilliseconds < 1500, $"Expected 1,250-cell 2D worksheet scan < 1500 ms, took {sw.ElapsedMilliseconds} ms.");
+        }
     }
 }

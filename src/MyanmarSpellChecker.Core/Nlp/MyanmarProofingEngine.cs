@@ -995,12 +995,12 @@ namespace MyanmarSpellChecker.Core.Nlp
                 workingText = new string(masked);
             }
 
-            // 1b. Index-Mapped Invisible Format Projection for Pasted Web/Mobile/PDF Paragraphs
-            //     Strips U+200B/U+200C/U+200D/U+FEFF/U+2060/U+00AD and normalizes U+00A0/U+202F -> ' ' before NLP
-            //     so hidden zero-width syllable splitters never blind Viterbi, Grammar, or ContextDisambiguator,
-            //     then maps every detected issue back to exact raw Word.Range character offsets!
+            // 1b. Visual-Order Pre-Base Clerk Sequences ('‌ေဒါ်' -> 'ဒေါ်', '‌ြေမာက်' -> 'မြောက်', 'ြမန်မာ' -> 'မြန်မာ', 'ဦး‌ေ၀' -> 'ဦးဝေ')
+            //     + Index-Mapped Invisible Format Projection for Pasted Web/Mobile/PDF Paragraphs
+            var visualOrderSpans = UnicodeNormalizer.FindVisualOrderPreBaseSyllables(workingText);
             string nlpText = workingText;
-            int[]? projectedToRawIndex = null;
+            int[]? projectedRawStart = null;
+            int[]? projectedRawEnd = null;
             int invisibleFormatCount = 0;
             bool hasNbsp = false;
             for (int cIdx = 0; cIdx < workingText.Length; cIdx++)
@@ -1012,22 +1012,46 @@ namespace MyanmarSpellChecker.Core.Nlp
                     hasNbsp = true;
             }
 
-            if (invisibleFormatCount > 0)
+            if (visualOrderSpans.Count > 0 || invisibleFormatCount > 0)
             {
-                int projectedLen = workingText.Length - invisibleFormatCount;
-                var projChars = new char[projectedLen];
-                projectedToRawIndex = new int[projectedLen];
-                int p = 0;
-                for (int r = 0; r < workingText.Length; r++)
+                int approxCap = workingText.Length + 8;
+                var projChars = new List<char>(approxCap);
+                var rawStarts = new List<int>(approxCap);
+                var rawEnds = new List<int>(approxCap);
+
+                int voIdx = 0;
+                int r = 0;
+                while (r < workingText.Length)
                 {
-                    char ch = workingText[r];
-                    if (IsInvisibleFormatChar(ch))
+                    if (voIdx < visualOrderSpans.Count && r == visualOrderSpans[voIdx].StartIndex)
+                    {
+                        var vo = visualOrderSpans[voIdx];
+                        string logical = vo.LogicalUnicode;
+                        int logLen = logical.Length;
+                        for (int k = 0; k < logLen; k++)
+                        {
+                            projChars.Add(logical[k]);
+                            rawStarts.Add(k == 0 ? vo.StartIndex : vo.StartIndex + Math.Min(k, vo.Length - 1));
+                            rawEnds.Add(k == logLen - 1 ? vo.StartIndex + vo.Length : vo.StartIndex + Math.Min(k + 1, vo.Length));
+                        }
+                        r = vo.StartIndex + vo.Length;
+                        voIdx++;
                         continue;
-                    projChars[p] = IsNonBreakingSpaceChar(ch) ? ' ' : ch;
-                    projectedToRawIndex[p] = r;
-                    p++;
+                    }
+
+                    char ch = workingText[r];
+                    if (!IsInvisibleFormatChar(ch))
+                    {
+                        projChars.Add(IsNonBreakingSpaceChar(ch) ? ' ' : ch);
+                        rawStarts.Add(r);
+                        rawEnds.Add(r + 1);
+                    }
+                    r++;
                 }
-                nlpText = new string(projChars, 0, p);
+
+                nlpText = new string(projChars.ToArray());
+                projectedRawStart = rawStarts.ToArray();
+                projectedRawEnd = rawEnds.ToArray();
             }
             else if (hasNbsp)
             {
@@ -1179,26 +1203,63 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 5b. Remap projected NLP issues back to exact raw character offsets in `text`
-            if (projectedToRawIndex != null)
+            if (projectedRawStart != null && projectedRawEnd != null)
             {
                 for (int k = 0; k < nlpIssues.Count; k++)
                 {
                     ProofingIssue pi = nlpIssues[k];
-                    if (pi.Length <= 0 || pi.StartIndex < 0 || pi.StartIndex + pi.Length > projectedToRawIndex.Length)
+                    if (pi.Length <= 0 || pi.StartIndex < 0 || pi.StartIndex + pi.Length > projectedRawStart.Length)
                         continue;
 
-                    int rawStart = projectedToRawIndex[pi.StartIndex];
-                    int rawEnd = projectedToRawIndex[pi.StartIndex + pi.Length - 1] + 1;
+                    int rawStart = projectedRawStart[pi.StartIndex];
+                    int rawEnd = projectedRawEnd[pi.StartIndex + pi.Length - 1];
+                    if (rawEnd <= rawStart || rawStart < 0 || rawEnd > text.Length)
+                        continue;
+
                     pi.StartIndex = rawStart;
                     pi.Length = rawEnd - rawStart;
                     pi.OriginalText = text.Substring(rawStart, rawEnd - rawStart);
                     AddIssueIfNonOverlapping(issues, pi);
                 }
 
+                // Emit standalone visual-order pre-base clerk repairs ('‌ေဒါ်' -> 'ဒေါ်', '‌ြေမာက်' -> 'မြောက်', 'ြမန်' -> 'မြန်', '‌ေ၀' -> 'ဝေ')
+                // whenever not already subsumed by a wider multi-syllable spelling repair
+                for (int v = 0; v < visualOrderSpans.Count; v++)
+                {
+                    var vo = visualOrderSpans[v];
+                    if (IsIgnoredInSession(vo.OriginalText) || IsOverlappingAny(issues, vo.StartIndex, vo.Length))
+                        continue;
+
+                    var voIssue = new ProofingIssue
+                    {
+                        StartIndex = vo.StartIndex,
+                        Length = vo.Length,
+                        OriginalText = vo.OriginalText,
+                        IssueType = ProofingIssueType.LookalikeCharacterError,
+                        Message = $"သဝေထိုး ('ေ') သို့မဟုတ် ရရစ် ('ြ') ကို အခြေခံဗျည်းရှေ့မှ မှားယွင်းရိုက်နှိပ်ထားပါသည် — ယူနီကုဒ်စံနှုန်းအရ '{vo.LogicalUnicode}' ဟု အခြေခံဗျည်းကို ဦးစွာရိုက်နှိပ်ရမည်။",
+                        Suggestions = new List<SuggestionCandidate>
+                        {
+                            new SuggestionCandidate
+                            {
+                                Replacement = vo.LogicalUnicode,
+                                MeaningCue = "ပြည်ထောင်စုယူနီကုဒ် အက္ခရာအစီအစဉ်အမှန်",
+                                IsOfficialThatpon = true,
+                                SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(vo.LogicalUnicode),
+                                DiagnosticDetail = "အခြေခံဗျည်းရှေ့ ရောက်နေသော သဝေထိုး/ရရစ် အစီအစဉ်ပြင်ဆင်ချက်",
+                                Score = 100.0
+                            }
+                        }
+                    };
+                    _suggestionEngine.EnrichIssueWithSelectableChoices(voIssue, StyleMode, maxChoices: 4);
+                    var singleVoList = new List<ProofingIssue>(1) { voIssue };
+                    MyanmarLinguisticReasoningEngine.EnrichIssuesWithDeepReasoning(text, Array.Empty<SyllableToken>(), singleVoList, _trie, StyleMode);
+                    AddIssueIfNonOverlapping(issues, voIssue);
+                }
+
                 // Preserve isolated mid-word zero-width corruption warning (<= 2 zero-width chars in sentence)
                 // when the word itself had no spelling/meaning error, while avoiding false underlines on clean words
                 // across web/Facebook/PDF pasted paragraphs that inject U+200B between every syllable (>= 3 occurrences).
-                if (invisibleFormatCount <= 2)
+                if (invisibleFormatCount > 0 && invisibleFormatCount <= 2)
                 {
                     foreach (var zwIssue in OfficialStyleGrammarEngine.FindZeroWidthWordCorruptions(workingText))
                     {
@@ -3216,6 +3277,32 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return true;
             }
 
+            // 2c-ii. Never slice off the final syllable of a preceding exact Official multi-syllable word
+            //        to fuse with an already-valid standalone word or following exact multi-syllable word
+            //        (e.g. 'သောကရောက်သည်' must never slice 'ကရောက် -> ကျရောက်', 'တန်းစဉ်ကူး ပြောင်းနှုန်း' must never slice 'စဉ်ကူး -> စဉ့်ကူး')
+            if (windowLen == 2 && localOffset >= 1 &&
+                IsEndOfExactMultiWordMinLen(exactMultiWordBits, localOffset, 2) &&
+                (IsStartOfAnyExactMultiWord(exactMultiWordBits, localOffset + 1, runEnd - runStart) ||
+                 (_trie.IsStandaloneWord(lastSyl) && _trie.GetWordFrequency(lastSyl) >= 8)))
+            {
+                for (int prevLen = 2; prevLen <= Math.Min(6, localOffset + 1); prevLen++)
+                {
+                    int prevStartOffset = (localOffset + 1) - prevLen;
+                    if (!HasExactSpan(exactMultiWordBits, prevStartOffset, prevLen))
+                        continue;
+
+                    string prevWordNorm = ConcatNormalizedTokens(tokens, runStart + prevStartOffset, prevLen);
+                    if (_trie.TryGetExactEntries(prevWordNorm, out var prevEntries) && prevEntries != null)
+                    {
+                        for (int pe = 0; pe < prevEntries.Count; pe++)
+                        {
+                            if (prevEntries[pe].IsOfficialThatpon && prevEntries[pe].Frequency >= 2)
+                                return true;
+                        }
+                    }
+                }
+            }
+
             // 2d. Contextual gerund 'စီးခြင်း' ("riding/boarding/flowing") vs 'စီးချင်း' (only valid before 'ထိုး'/'တိုက်' in 'စီးချင်းထိုး')
             if (windowLen == 2 && firstSyl == "စီး" && lastSyl == "ခြင်း")
             {
@@ -3714,16 +3801,21 @@ namespace MyanmarSpellChecker.Core.Nlp
                 if (runLen >= 2 && GovParenBlockCodeRightRegex.IsMatch(rightSlice))
                     return true;
 
-                // Parenthesized sub-code immediately before '-1' / '/2', e.g. '(ဝင)-၁' in 'ပတခ(ဝင)-၁'
+                // Parenthesized bare-consonant Burmese agency/military/department acronyms, e.g. '(လမသ)', '(ကပစ)', '(မဟန)', '(လဝက)', 'ပတခ(ဝင)-၁'
                 if (startChar > 0 &&
-                    (fullText[startChar - 1] == '(' || fullText[startChar - 1] == '（') &&
-                    (fullText[endChar] == ')' || fullText[endChar] == '）') &&
-                    endChar + 1 < fullText.Length)
+                    (fullText[startChar - 1] == '(' || fullText[startChar - 1] == '（' || fullText[startChar - 1] == '[') &&
+                    (fullText[endChar] == ')' || fullText[endChar] == '）' || fullText[endChar] == ']'))
                 {
-                    int afterParenLen = Math.Min(14, fullText.Length - (endChar + 1));
-                    string afterParen = fullText.Substring(endChar + 1, afterParenLen);
-                    if (GovCodeRightContextRegex.IsMatch(afterParen))
+                    if (runLen >= 2)
                         return true;
+
+                    if (endChar + 1 < fullText.Length)
+                    {
+                        int afterParenLen = Math.Min(14, fullText.Length - (endChar + 1));
+                        string afterParen = fullText.Substring(endChar + 1, afterParenLen);
+                        if (GovCodeRightContextRegex.IsMatch(afterParen))
+                            return true;
+                    }
                 }
             }
 
@@ -3936,11 +4028,26 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return true;
             }
 
+            // Allow up to 2 horizontal spaces before CMS card ellipsis ('စီမ ....', 'ရုံးအမှတ ....', 'ဒုတိယညွှန်ကြားရေးမှူးချု …')
+            int pos = end;
+            int spaces = 0;
+            while (pos < fullText.Length && (fullText[pos] == ' ' || fullText[pos] == '\t') && spaces < 2)
+            {
+                pos++;
+                spaces++;
+            }
+            if (pos >= fullText.Length)
+                return false;
+
+            ch = fullText[pos];
             if (ch == '\u2026')
                 return true;
 
-            if (ch == '.' && end + 1 < fullText.Length && fullText[end + 1] == '.')
+            if (ch == '.' && pos + 1 < fullText.Length && fullText[pos + 1] == '.' &&
+                (spaces == 0 || (pos + 2 < fullText.Length && fullText[pos + 2] == '.')))
+            {
                 return true;
+            }
 
             return false;
         }
@@ -4081,52 +4188,74 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // Tier 1b: Dropped-Asat ('်', U+103A) Generative Syllable Merge (e.g. 'တယ' -> 'တယ်', 'မယ' -> 'မယ်', 'သည' -> 'သည်', 'စွမ်းဆောင်ရည' -> 'စွမ်းဆောင်ရည်')
-            // Excludes bare particle consonants 'က' and 'မ' so 'လက'/'ညက'/'စမ...' never false-merge!
+            // Excludes bare particle consonants 'က' and 'မ' so 'လက'/'ညက'/'စမ...' never false-merge,
+            // and never steals 'lastSyl' when the span is a prefix of a longer exact word ('မြနဒီ') or '[StandalonePrefix] + [EstablishedRightCompound]' ('မြနဂါး')!
             if (windowLen >= 2 && windowLen <= 5 && IsDroppedAsatBareConsonant(lastSyl, out char finalCons, out string trailingTone))
             {
+                bool blockedByLongerOrRightCompound = false;
+                for (int longerLen = windowLen + 1; longerLen <= 12; longerLen++)
+                {
+                    if (HasExactSpan(exactMultiWordBits, localOffset, longerLen))
+                    {
+                        blockedByLongerOrRightCompound = true;
+                        break;
+                    }
+                }
+
                 string prefixNorm = windowLen == 2
                     ? firstSyl
                     : ConcatNormalizedTokens(tokens, startIndex, windowLen - 1);
-                string asatMerged = UnicodeNormalizer.NormalizeCanonicalOrder(prefixNorm + finalCons + "\u103A" + trailingTone);
-                if (_trie.TryGetExactEntries(asatMerged, out var mergedEntries) && mergedEntries != null && mergedEntries.Count > 0)
-                {
-                    int maxMergedFreq = 0;
-                    for (int mIdx = 0; mIdx < mergedEntries.Count; mIdx++)
-                    {
-                        if (mergedEntries[mIdx].Frequency > maxMergedFreq)
-                            maxMergedFreq = mergedEntries[mIdx].Frequency;
-                    }
-                    int minReqFreq = windowLen == 2 ? 80 : 15;
-                    if (maxMergedFreq >= minReqFreq)
-                    {
-                        string chosenTarget = asatMerged;
-                        if (StyleMode == ProofingStyleMode.FormalOfficial)
-                        {
-                            if (chosenTarget == "တယ်") chosenTarget = "သည်";
-                            else if (chosenTarget == "မယ်") chosenTarget = "မည်";
-                        }
 
-                        var capSpan = GetTokenSpan(fullText, tokens, startIndex, windowLen);
-                        string capTarget = chosenTarget;
-                        var capFirstMerged = mergedEntries[0];
-                        return LatticeEdge.DeferredIssue(
-                            windowLen,
-                            0.85 + 0.10 * windowLen,
-                            capSpan.RawText,
-                            () =>
+                if (!blockedByLongerOrRightCompound &&
+                    _trie.IsStandaloneWord(prefixNorm) &&
+                    HasEstablishedExactRightCompound(tokens, startIndex + windowLen - 1, exactMultiWordBits, localOffset + windowLen - 1))
+                {
+                    blockedByLongerOrRightCompound = true;
+                }
+
+                if (!blockedByLongerOrRightCompound)
+                {
+                    string asatMerged = UnicodeNormalizer.NormalizeCanonicalOrder(prefixNorm + finalCons + "\u103A" + trailingTone);
+                    if (_trie.TryGetExactEntries(asatMerged, out var mergedEntries) && mergedEntries != null && mergedEntries.Count > 0)
+                    {
+                        int maxMergedFreq = 0;
+                        for (int mIdx = 0; mIdx < mergedEntries.Count; mIdx++)
+                        {
+                            if (mergedEntries[mIdx].Frequency > maxMergedFreq)
+                                maxMergedFreq = mergedEntries[mIdx].Frequency;
+                        }
+                        int minReqFreq = windowLen == 2 ? 80 : 15;
+                        if (maxMergedFreq >= minReqFreq)
+                        {
+                            string chosenTarget = asatMerged;
+                            if (StyleMode == ProofingStyleMode.FormalOfficial)
                             {
-                                var suggestions = _suggestionEngine.GetSuggestions(capTarget);
-                                EnsureTopSuggestionMetadata(suggestions, capSpan.RawText, capTarget, capFirstMerged.MeaningCue, capFirstMerged.PosTag, capFirstMerged.IsOfficialThatpon);
-                                return new ProofingIssue
+                                if (chosenTarget == "တယ်") chosenTarget = "သည်";
+                                else if (chosenTarget == "မယ်") chosenTarget = "မည်";
+                            }
+
+                            var capSpan = GetTokenSpan(fullText, tokens, startIndex, windowLen);
+                            string capTarget = chosenTarget;
+                            var capFirstMerged = mergedEntries[0];
+                            return LatticeEdge.DeferredIssue(
+                                windowLen,
+                                0.85 + 0.10 * windowLen,
+                                capSpan.RawText,
+                                () =>
                                 {
-                                    StartIndex = capSpan.StartIndex,
-                                    Length = capSpan.Length,
-                                    OriginalText = capSpan.RawText,
-                                    IssueType = ProofingIssueType.SpellingError,
-                                    Message = $"အသတ် ('်') ကျန်ခဲ့ပါသည် — '{capSpan.RawText}' အစား '{capTarget}' ဟု ရေးသားရမည်။",
-                                    Suggestions = suggestions
-                                };
-                            });
+                                    var suggestions = _suggestionEngine.GetSuggestions(capTarget);
+                                    EnsureTopSuggestionMetadata(suggestions, capSpan.RawText, capTarget, capFirstMerged.MeaningCue, capFirstMerged.PosTag, capFirstMerged.IsOfficialThatpon);
+                                    return new ProofingIssue
+                                    {
+                                        StartIndex = capSpan.StartIndex,
+                                        Length = capSpan.Length,
+                                        OriginalText = capSpan.RawText,
+                                        IssueType = ProofingIssueType.SpellingError,
+                                        Message = $"အသတ် ('်') ကျန်ခဲ့ပါသည် — '{capSpan.RawText}' အစား '{capTarget}' ဟု ရေးသားရမည်။",
+                                        Suggestions = suggestions
+                                    };
+                                });
+                        }
                     }
                 }
             }
@@ -4558,7 +4687,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 bool isEndOfMultiWordAtFirst = localOffset >= 1 && IsEndOfExactMultiWordMinLen(exactMultiWordBits, localOffset, 2);
                 if (((midSyl == "နေ" || midSyl == "ပေး" || midSyl == "ထား" || midSyl == "ခဲ့" || midSyl == "ရ" ||
                       midSyl == "သွား" || midSyl == "လာ" || midSyl == "နိုင်" || midSyl == "တတ်" || midSyl == "စေ" ||
-                      midSyl == "ပြီး" || midSyl == "ရှိ" || midSyl == "ဖြစ်") &&
+                      midSyl == "ပြီး" || midSyl == "ရှိ" || midSyl == "ဖြစ်" || midSyl == "လွန်း") &&
                      (isEndOfMultiWordAtFirst ||
                       (_trie.IsStandaloneWord(firstSyl) && _trie.GetWordFrequency(firstSyl) >= 2))) ||
                     (isEndOfMultiWordAtFirst && IsPureVerbSyllable(midSyl)))
@@ -4569,6 +4698,12 @@ namespace MyanmarSpellChecker.Core.Nlp
                     {
                         return null;
                     }
+                }
+
+                // Negated inadvertent verb 'မ + [OfficialVerb] + မိ' (e.g. 'ခြေမကိုင်မိ လက်မကိုင်မိ' != 'မတိုင်မီ')
+                if (firstSyl == "မ" && lastSyl == "မိ" && IsOfficialVerbOrAdjMonosyllable(midSyl))
+                {
+                    return null;
                 }
 
                 // Approximative particle 'ခန့်' after a numeral/classifier/quantifier + exact 2-syllable verb (e.g. 'ကျပ်ခန့်ရရှိ' != 'ခွင့်ရရှိ', '၆ သိန်း ကျော်ခန့်ရရှိရာ')
@@ -4609,6 +4744,17 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (windowLen == 2 && lastSyl == "လမ်း" && IsForeignOrPaliKilledCoda(firstSyl))
             {
                 return null;
+            }
+
+            // Productive L=2 verbal nominalization '[OfficialVerb] + ခြင်း/မှု' (e.g. 'ပြေးခြင်း' != 'ပေးခြင်း', 'စဉ်ခြင်း' != 'စေခြင်း')
+            // and productive reduplicated Official adjective/verb 'AA' (e.g. 'ပျစ်ပျစ်' != 'ပြစ်ပြစ်', 'ကျပ်ကျပ်' != 'ကျက်ကျက်')
+            if (windowLen == 2 && firstSyl.Length >= 2 && !_trie.TryGetWrongFormRule(firstSyl, out _))
+            {
+                if ((lastSyl == "ခြင်း" || lastSyl == "မှု") && IsOfficialVerbOrAdjMonosyllable(firstSyl))
+                    return null;
+
+                if (firstSyl == lastSyl && IsOfficialVerbOrAdjMonosyllable(firstSyl))
+                    return null;
             }
 
             // Ward/quarter names after an exact >=3-syllable proper noun (e.g. 'ရွှေဂုံတိုင်ရပ်ကွက်' must never slice 'ဂုံတိုင်ရပ်ကွက် -> ဂုံဘိုရပ်ကွက်')
@@ -5875,17 +6021,47 @@ namespace MyanmarSpellChecker.Core.Nlp
             return false;
         }
 
+        private bool IsOfficialVerbOrAdjMonosyllable(string normSyl)
+        {
+            if (string.IsNullOrEmpty(normSyl) || !_trie.TryGetExactEntries(normSyl, out var entries) || entries == null)
+                return false;
+
+            for (int i = 0; i < entries.Count; i++)
+            {
+                var e = entries[i];
+                if (!e.IsOfficialThatpon)
+                    continue;
+
+                string pos = (e.PosTag ?? string.Empty).Trim().ToUpperInvariant();
+                if (pos == "V" || pos == "ADJ" || pos == "ADV" || pos == "N/V")
+                    return true;
+            }
+            return false;
+        }
+
         private static bool IsBiographyPersonEntry(DictionaryEntry entry)
         {
             if (entry == null)
                 return false;
             if (string.Equals(entry.PosTag, "ENCYC", StringComparison.OrdinalIgnoreCase))
                 return true;
-            if (!entry.IsProperNoun && !string.Equals(entry.PosTag, "PROPN", StringComparison.OrdinalIgnoreCase))
-                return false;
 
             string cue = entry.MeaningCue ?? string.Empty;
             if (string.IsNullOrEmpty(cue))
+                return false;
+
+            // Catch Wikipedia biography entries even when merged under PosTag="N" (e.g. 'ခင်စန်းရီ' must never mutate citizen name 'ခင်စိန်ရီ')
+            if (!entry.IsOfficialThatpon &&
+                (cue.IndexOf("မြန်မာနိုင်ငံသား", StringComparison.Ordinal) >= 0 ||
+                 cue.IndexOf("နိုင်ငံရေးသမား", StringComparison.Ordinal) >= 0 ||
+                 cue.IndexOf("ပညာရှင်တစ်ဦး", StringComparison.Ordinal) >= 0 ||
+                 cue.IndexOf("တစ်ဦး ဖြစ်သည်", StringComparison.Ordinal) >= 0 ||
+                 cue.IndexOf("တစ်ဦးဖြစ်သည်", StringComparison.Ordinal) >= 0))
+            {
+                return true;
+            }
+
+            if (!entry.IsProperNoun && !string.Equals(entry.PosTag, "PROPN", StringComparison.OrdinalIgnoreCase))
                 return false;
 
             return cue.IndexOf("သရုပ်ဆောင်", StringComparison.Ordinal) >= 0 ||
