@@ -1088,6 +1088,20 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 finally { ctrl.SetScanningState(false); }
                 ctrl.ShowToastBanner(res.UserMessage, res.Success);
             };
+            ctrl.RequestRepairBrokenPdfText += selectionOnly =>
+            {
+                if (_scannerToolkit == null) return;
+                ExcelToolkitOutcome res;
+                try { res = _scannerToolkit.RepairBrokenPdfInScope(selectionOnly); }
+                finally { ctrl.SetScanningState(false); }
+                ctrl.ShowToastBanner(res.UserMessage, res.Success);
+            };
+            ctrl.RequestPasteCleanClipboard += () =>
+            {
+                if (_scannerToolkit == null) return;
+                ExcelToolkitOutcome res = _scannerToolkit.PasteAndRepairClipboardIntoActiveCell();
+                ctrl.ShowToastBanner(res.UserMessage, res.Success);
+            };
             ctrl.RequestFormatNumerals += (toMyanmar, selectionOnly) =>
             {
                 if (_scannerToolkit == null) return;
@@ -1621,6 +1635,18 @@ namespace MyanmarSpellChecker.ExcelAddIn
                   imageMso='FontDialog'
                   onAction='OnRibbonConvertFonts'
                   getScreentip='GetRibbonScreentip' />
+          <button id='BtnRepairBrokenPdf'
+                  getLabel='GetRibbonLabel'
+                  size='normal'
+                  imageMso='FileSaveAsPdfOrXps'
+                  onAction='OnRibbonRepairBrokenPdf'
+                  getScreentip='GetRibbonScreentip' />
+          <button id='BtnPasteCleanClipboard'
+                  getLabel='GetRibbonLabel'
+                  size='normal'
+                  imageMso='Paste'
+                  onAction='OnRibbonPasteCleanClipboard'
+                  getScreentip='GetRibbonScreentip' />
           <button id='BtnNumeralsToMyanmar'
                   getLabel='GetRibbonLabel'
                   size='normal'
@@ -1690,8 +1716,10 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 "BtnToggleUiLanguage" => UiLocalizer.Pick("UI: English ➔ မြန်မာ", "UI: မြန်မာ ➔ English"),
                 "BtnLicenseActivation" => UiLocalizer.Pick("About & License (GPLv3)", "ဖန်တီးသူနှင့် လိုင်စင် (GPLv3)"),
 
-                "GrpExcelTypography" => UiLocalizer.Pick("Font & Numeral Tools", "ဖောင့်နှင့် ကိန်းဂဏန်း ကိရိယာ"),
+                "GrpExcelTypography" => UiLocalizer.Pick("Font, PDF & Numerals", "ဖောင့်၊ PDF နှင့် ဂဏန်း ကိရိယာ"),
                 "BtnConvertFonts" => "WinInnwa/Zawgyi ➔ Pyidaungsu",
+                "BtnRepairBrokenPdf" => UiLocalizer.Pick("Repair Garbled PDF", "PDF စာသားပျက်ပြင်ရန်"),
+                "BtnPasteCleanClipboard" => UiLocalizer.Pick("Paste Clean (PDF/ZG)", "သန့်စင်ပြီး ကူးထည့်ရန်"),
                 "BtnNumeralsToMyanmar" => UiLocalizer.Pick("0-9 ➔ ၀-၉ (Text Cells)", "0-9 ➔ ၀-၉ (စာသားကွက်)"),
                 "BtnCleanPunctuation" => UiLocalizer.Pick("Clean ၊ / ။ & ZWSP", "ပုဒ်ဖြတ် ၊ / ။ ရှင်းမည်"),
 
@@ -1750,6 +1778,12 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 "BtnConvertFonts" => UiLocalizer.Pick(
                     "Convert legacy WinInnwa / Zawgyi text cells to Pyidaungsu Unicode without touching formulas",
                     "Formula နှင့် ဂဏန်းကွက်များကို မထိခိုက်ဘဲ Pyidaungsu Unicode သို့ ပြောင်းလဲရန်"),
+                "BtnRepairBrokenPdf" => UiLocalizer.Pick(
+                    "Reconstruct garbled Burmese PDF copy-paste across active sheet or selection without touching formulas (↶ Undo available)",
+                    "Formula များကို မထိခိုက်ဘဲ Sheet သို့မဟုတ် ရွေးကွက်အတွင်းရှိ PDF စာသားပျက်များကို ပြန်လည်တည်ဆောက်ရန်"),
+                "BtnPasteCleanClipboard" => UiLocalizer.Pick(
+                    "Repair garbled PDF or Zawgyi text from Clipboard and paste into active cell(s) without overwriting formulas",
+                    "Clipboard မှ PDF စာသားပျက် သို့မဟုတ် ဇော်ဂျီစာသားကို သန့်စင်၍ Formula မပျက်စေဘဲ ကူးထည့်ရန်"),
                 "BtnNumeralsToMyanmar" => UiLocalizer.Pick(
                     "Convert ASCII digits (0-9) inside text cells to Myanmar digits (၀-၉) while protecting numeric/formula cells",
                     "တွက်ချက်မှု ကိန်းဂဏန်းကွက်နှင့် Formula များကို မထိခိုက်ဘဲ စာသားကွက်ရှိ ဂဏန်းများ ပြောင်းရန်"),
@@ -1943,6 +1977,35 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 if (_scannerToolkit == null) return;
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
                 var res = _scannerToolkit.ConvertLegacyFontsInScope(selectionOnly: false);
+                ctrl?.ShowToastBanner(res.UserMessage, res.Success);
+            });
+        }
+
+        public void OnRibbonRepairBrokenPdf(Office.IRibbonControl control)
+        {
+            AddInDiagnostics.SafeExecute("OnRibbonRepairBrokenPdf", () =>
+            {
+                if (_scannerToolkit == null) return;
+                var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+                bool selOnly = false;
+                try
+                {
+                    if (_excelApp?.Selection is Excel.Range sel && Convert.ToInt64(sel.CountLarge) > 1)
+                        selOnly = true;
+                }
+                catch { }
+                var res = _scannerToolkit.RepairBrokenPdfInScope(selectionOnly: selOnly);
+                ctrl?.ShowToastBanner(res.UserMessage, res.Success);
+            });
+        }
+
+        public void OnRibbonPasteCleanClipboard(Office.IRibbonControl control)
+        {
+            AddInDiagnostics.SafeExecute("OnRibbonPasteCleanClipboard", () =>
+            {
+                if (_scannerToolkit == null) return;
+                var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+                var res = _scannerToolkit.PasteAndRepairClipboardIntoActiveCell();
                 ctrl?.ShowToastBanner(res.UserMessage, res.Success);
             });
         }

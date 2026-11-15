@@ -877,6 +877,48 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
         }
 
         /// <summary>
+        /// Reconstructs garbled Burmese PDF CMap copy-paste (e.g. ကကီေး -> ကြီး, ပပည်ရ ာင်စု -> ပြည်ထောင်စု, ဥပရေ -> ဥပဒေ)
+        /// on string text cells using the 96K MyanmarTrie + 110K Word Bigram Viterbi decoder while strictly skipping formula,
+        /// numeric, boolean, and clean Unicode cells, and applying Pyidaungsu font to repaired cells.
+        /// </summary>
+        public static List<CellWriteOperation> TransformBlockBrokenPdfToPyidaungsu(
+            string workbookName,
+            string sheetName,
+            int baseRowOneBased,
+            int baseColOneBased,
+            int rowCount,
+            int colCount,
+            object? rawValue2Block,
+            object? rawFormulaBlock,
+            bool? blockHasFormula,
+            MyanmarTrie? trie = null,
+            Func<int, int, string?>? getCellFontName = null)
+        {
+            return TransformTextCellsCore(
+                workbookName,
+                sheetName,
+                baseRowOneBased,
+                baseColOneBased,
+                rowCount,
+                colCount,
+                rawValue2Block,
+                rawFormulaBlock,
+                blockHasFormula,
+                (r, c, text) =>
+                {
+                    if (!ContainsMyanmarScript(text) || !UnicodeNormalizer.IsBrokenPdfFontCMapText(text))
+                        return (text, 0, null, null);
+
+                    string reconstructed = BrokenPdfCMapReconstructor.Reconstruct(text, trie, out int repairedLines);
+                    if (repairedLines <= 0 || string.Equals(reconstructed, text, StringComparison.Ordinal))
+                        return (text, 0, null, null);
+
+                    string? prevFont = getCellFontName?.Invoke(r, c);
+                    return (reconstructed, repairedLines, prevFont, "Pyidaungsu");
+                });
+        }
+
+        /// <summary>
         /// Smart 0-9 <-> ၀-၉ numeral conversion on string text cells ONLY.
         /// Never touches numeric cells (double/decimal) or formula cells so Excel SUM/AVERAGE/VLOOKUP math never breaks!
         /// </summary>

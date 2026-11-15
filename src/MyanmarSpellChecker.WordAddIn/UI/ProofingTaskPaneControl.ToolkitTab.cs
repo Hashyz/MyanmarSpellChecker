@@ -165,8 +165,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             var lblFHeader = new Label
             {
                 Text = UiLocalizer.Pick(
-                    "2. Font Converter, Numerals & Punctuation Cleaner",
-                    "၂။ ဖောင့်ပြောင်းစက်၊ ကိန်းဂဏန်း နှင့် ပုဒ်ဖြတ် သန့်စင်ရေး"),
+                    "2. Font Converter, Broken-PDF Repair, Numerals & Punctuation",
+                    "၂။ ဖောင့်ပြောင်းစက်၊ PDF စာသားပျက်ပြင်စက်၊ ကိန်းဂဏန်း နှင့် ပုဒ်ဖြတ်"),
                 Font = _fontBodyBold,
                 ForeColor = Color.FromArgb(18, 48, 104),
                 AutoSize = true,
@@ -224,6 +224,42 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             btnConvertFonts.Click += (s, e) => RequestConvertLegacyFonts?.Invoke(_toolkitSelectionOnly);
             fontCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             fontCard.Controls.Add(btnConvertFonts, 0, fRow++);
+
+            var btnRepairBrokenPdf = CreatePillButton(
+                UiLocalizer.Pick(
+                    "✦ Repair Garbled PDF Text ➔ Pyidaungsu",
+                    "✦ PDF စာသားပျက် ပြန်လည်တည်ဆောက်မည်"),
+                Color.FromArgb(14, 116, 108),
+                Color.White,
+                Color.FromArgb(10, 96, 88),
+                _fontSmallBold);
+            btnRepairBrokenPdf.Margin = new Padding(2, 0, 2, 5);
+            btnRepairBrokenPdf.Click += (s, e) => RequestRepairBrokenPdfText?.Invoke(_toolkitSelectionOnly);
+            _toolTip.SetToolTip(
+                btnRepairBrokenPdf,
+                UiLocalizer.Pick(
+                    "Reconstructs garbled Burmese PDF copy-paste (e.g. ကကီေး ➔ ကြီး, ပပည်ရ ာင်စု ➔ ပြည်ထောင်စု, ဥပရေ ➔ ဥပဒေ) across Body, Tables, Headers/Footers, Footnotes & TextBoxes (Ctrl+Z to undo)",
+                    "PDF မှ ကူးယူရာတွင် ပျက်စီးနေသော မြန်မာစာသားများ (ဥပမာ ကကီေး ➔ ကြီး၊ ပပည်ရ ာင်စု ➔ ပြည်ထောင်စု) ကို စာကိုယ်၊ ဇယား၊ အောက်ခြေမှတ်စုနှင့် TextBox အားလုံး၌ ပြန်လည်တည်ဆောက်ပေးသည်"));
+            fontCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            fontCard.Controls.Add(btnRepairBrokenPdf, 0, fRow++);
+
+            var btnPasteCleanClipboard = CreatePillButton(
+                UiLocalizer.Pick(
+                    "❖ Paste Clean from Clipboard (PDF / Zawgyi)",
+                    "❖ Clipboard မှ သန့်စင်ပြီး ကူးထည့်မည်"),
+                Color.FromArgb(234, 247, 245),
+                Color.FromArgb(12, 96, 88),
+                Color.FromArgb(172, 222, 214),
+                _fontSmallBold);
+            btnPasteCleanClipboard.Margin = new Padding(2, 0, 2, 5);
+            btnPasteCleanClipboard.Click += (s, e) => RequestPasteCleanClipboard?.Invoke();
+            _toolTip.SetToolTip(
+                btnPasteCleanClipboard,
+                UiLocalizer.Pick(
+                    "Repairs garbled PDF or Zawgyi text from the Windows Clipboard and pastes clean Pyidaungsu Unicode at the cursor (Ctrl+Z to undo)",
+                    "Clipboard ထဲရှိ PDF ဖောင့်ပျက် သို့မဟုတ် ဇော်ဂျီစာသားကို အလိုအလျောက် သန့်စင်ပြုပြင်၍ Pyidaungsu ဖောင့်ဖြင့် ကူးထည့်ပေးသည်"));
+            fontCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            fontCard.Controls.Add(btnPasteCleanClipboard, 0, fRow++);
 
             var numFmtGrid = new TableLayoutPanel
             {

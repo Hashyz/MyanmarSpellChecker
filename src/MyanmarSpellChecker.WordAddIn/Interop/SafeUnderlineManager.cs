@@ -13,6 +13,12 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
     {
         public string StoryName { get; set; } = UiLocalizer.Pick("Body", "စာကိုယ် (Body)");
         public Word.WdStoryType StoryType { get; set; } = Word.WdStoryType.wdMainTextStory;
+        /// <summary>
+        /// Unique per-document story/shape container slot (0 = Main Body Story, 1 = Footnotes, 2 = Endnotes, >= 3 = Header/Footer/Shape container).
+        /// Prevents StartOffset == 0 in Footnotes, Headers, or TextBox Shapes from colliding with Main Body offsets.
+        /// </summary>
+        public int StorySlotId { get; set; }
+        public Word.Range? StoryContainerRange { get; set; }
         public int ParagraphIndex { get; set; }
         public string ParagraphSnippet { get; set; } = string.Empty;
 
@@ -61,6 +67,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         {
             public Word.Document Document { get; set; } = null!;
             public Word.Range Range { get; set; } = null!;
+            public int StorySlotId { get; set; }
             public int CachedStart { get; set; }
             public int CachedEnd { get; set; }
             public Word.WdUnderline OriginalUnderline { get; set; }
@@ -98,16 +105,18 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         public bool HasEverAppliedWavyUnderlines(Word.Document? doc) =>
             doc != null && _documentsWithAppliedWavy.Contains(doc);
 
-        public bool HasTrackedInSpanForDocument(Word.Document? doc, int startOffset, int endOffset)
+        public bool HasTrackedInSpanForDocument(Word.Document? doc, int startOffset, int endOffset, int storySlotId = 0)
         {
             if (doc == null || _trackedRanges.Count == 0)
                 return false;
-            return HasTrackedInSpan(doc, startOffset, endOffset);
+            return HasTrackedInSpan(doc, startOffset, endOffset, storySlotId);
         }
 
-        private bool TryMarkNoProofSpanApplied(Word.Document doc, int startOffset, int endOffset)
+        private bool TryMarkNoProofSpanApplied(Word.Document doc, int storySlotId, int startOffset, int endOffset)
         {
-            long key = ((long)startOffset << 32) | (uint)endOffset;
+            long key = (((long)(storySlotId & 0xFFFF)) << 48) |
+                       (((long)((uint)startOffset & 0xFFFFFF)) << 24) |
+                       ((uint)endOffset & 0xFFFFFF);
             if (!_noProofAppliedSpans.TryGetValue(doc, out var set))
             {
                 set = new HashSet<long>();
@@ -141,7 +150,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             int paragraphStartOffset,
             int paragraphEndOffset,
             string cleanedParagraphText,
-            IReadOnlyList<ProofingIssue> issues)
+            IReadOnlyList<ProofingIssue> issues,
+            int storySlotId = 0,
+            Word.Range? storyContainerRange = null)
         {
             var list = new List<DocumentProofingItem>(issues.Count);
             string snippet = BuildTrimmedSnippet(cleanedParagraphText);
@@ -154,6 +165,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 {
                     StoryName = storyName,
                     StoryType = storyType,
+                    StorySlotId = storySlotId,
+                    StoryContainerRange = storyContainerRange,
                     ParagraphIndex = paragraphIndex,
                     ParagraphSnippet = snippet,
                     TargetRange = null,
@@ -198,7 +211,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             Word.WdStoryType storyType = Word.WdStoryType.wdMainTextStory,
             bool? knownDocHasNoUnderlines = null,
             int maxLiveUnderlines = MaxLiveWavyUnderlinesPerDocument,
-            bool allowResidualWavyScrub = true)
+            bool allowResidualWavyScrub = true,
+            int storySlotId = 0,
+            Word.Range? storyContainerRange = null)
         {
             var boundItems = new List<DocumentProofingItem>(issues.Count);
             if (doc == null || containerRange == null)
@@ -211,7 +226,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             string snippet = issues.Count > 0 ? BuildTrimmedSnippet(cleanedContainerText) : string.Empty;
             bool hasMyanmar = ContainsMyanmarCharacters(cleanedContainerText);
             bool docNeverHadAddInWavy = (knownDocHasNoUnderlines == true) || !HasEverAppliedWavyUnderlines(doc);
-            bool hasExistingTracked = !docNeverHadAddInWavy && HasTrackedInSpan(doc, containerStart, containerEnd);
+            bool hasExistingTracked = !docNeverHadAddInWavy && HasTrackedInSpan(doc, containerStart, containerEnd, storySlotId);
             bool hasPotentialWavy = false;
             if (!docNeverHadAddInWavy && allowResidualWavyScrub)
             {
@@ -243,7 +258,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                 // Only suppress built-in proofing on paragraphs that actually carry proofing issues, and at most once per span
                 // (prevents repeatedly mutating wdUndefined/9999999 mixed-language paragraphs on every scan).
-                if (hasMyanmar && issues.Count > 0 && TryMarkNoProofSpanApplied(doc, containerStart, containerEnd))
+                if (hasMyanmar && issues.Count > 0 && TryMarkNoProofSpanApplied(doc, storySlotId, containerStart, containerEnd))
                 {
                     try
                     {
@@ -259,7 +274,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 // 1. Restore & remove any previously tracked wavy underlines inside this container range
                 if (hasExistingTracked)
                 {
-                    RestoreAndRemoveTrackedInSpan(doc, containerStart, containerEnd);
+                    RestoreAndRemoveTrackedInSpan(doc, containerStart, containerEnd, storySlotId);
                 }
 
                 // 1b. Scrub any residual/inherited wdUnderlineWavy (e.g. from pasting over wavy text or typing spaces/numbers)
@@ -278,7 +293,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         containerStart,
                         containerEnd,
                         cleanedContainerText,
-                        issues);
+                        issues,
+                        storySlotId,
+                        storyContainerRange);
                 }
 
                 int currentDocTracked = GetTrackedCountForDocument(doc);
@@ -297,6 +314,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         {
                             StoryName = storyName,
                             StoryType = storyType,
+                            StorySlotId = storySlotId,
+                            StoryContainerRange = storyContainerRange,
                             ParagraphIndex = paragraphIndex,
                             ParagraphSnippet = snippet,
                             TargetRange = null,
@@ -358,6 +377,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         {
                             Document = doc,
                             Range = issueRange,
+                            StorySlotId = storySlotId,
                             CachedStart = resolvedStart,
                             CachedEnd = resolvedEnd,
                             OriginalUnderline = origUnderline,
@@ -370,6 +390,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         {
                             StoryName = storyName,
                             StoryType = storyType,
+                            StorySlotId = storySlotId,
+                            StoryContainerRange = storyContainerRange,
                             ParagraphIndex = paragraphIndex,
                             ParagraphSnippet = snippet,
                             TargetRange = issueRange,
@@ -540,9 +562,12 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
             try
             {
-                Word.Range? storyRange = null;
-                try { storyRange = targetDoc.StoryRanges[item.StoryType]; } catch { }
-                storyRange ??= targetDoc.Content;
+                Word.Range? storyRange = item.StoryContainerRange;
+                if (storyRange == null)
+                {
+                    try { storyRange = targetDoc.StoryRanges[item.StoryType]; } catch { }
+                    storyRange ??= targetDoc.Content;
+                }
                 if (storyRange == null)
                     return null;
 
@@ -727,7 +752,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 var matching = items
                     .Where(i => !i.IsResolved &&
                                 UnicodeNormalizer.NormalizeCanonicalOrder((i.Issue.OriginalText ?? string.Empty).Trim()) == targetNorm)
-                    .OrderByDescending(GetSortOffsetSafe)
+                    .OrderBy(i => i.StorySlotId)
+                    .ThenByDescending(GetSortOffsetSafe)
                     .ToList();
 
                 var resolvedRanges = new HashSet<Word.Range>();
@@ -798,13 +824,14 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     UiLocalizer.Pick("Myanmar Fix All", "မြန်မာစာ အမှားအားလုံး တစ်ပြိုင်နက် ပြင်ဆင်ခြင်း"),
                     out undoRecord);
 
-                // Sort in reverse order by live Range.Start so earlier replacements never affect later ranges.
+                // Sort by StorySlotId then reverse Range.Start so earlier replacements inside each story/shape never shift later ranges.
                 // Always skip Amber 'အနက်သံသယ (Context Check)' warnings so ambiguous meanings require explicit human approval.
                 var ordered = items
                     .Where(i => !i.IsResolved &&
                                 i.Issue.IsAutoFixSafe &&
                                 (filterPredicate == null || filterPredicate(i)))
-                    .OrderByDescending(GetSortOffsetSafe)
+                    .OrderBy(i => i.StorySlotId)
+                    .ThenByDescending(GetSortOffsetSafe)
                     .ToList();
 
                 var resolvedRanges = new HashSet<Word.Range>();
@@ -833,9 +860,13 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         resolvedRanges.Add(r);
                         replacedCount++;
 
-                        if (item.StoryType == Word.WdStoryType.wdMainTextStory)
+                        if (item.StorySlotId == 0 && item.StoryType == Word.WdStoryType.wdMainTextStory)
                         {
                             try { touchedMainIntervals.Add((r.Start, r.End)); } catch { }
+                        }
+                        else if (item.OriginalUnderline == Word.WdUnderline.wdUnderlineNone)
+                        {
+                            ScrubResidualWavyUnderlines(r);
                         }
                     }
                     catch
@@ -913,7 +944,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     .Where(i => !i.IsResolved &&
                                 approvedReplacements.TryGetValue(i, out string? rep) &&
                                 !string.IsNullOrEmpty(rep))
-                    .OrderByDescending(GetSortOffsetSafe)
+                    .OrderBy(i => i.StorySlotId)
+                    .ThenByDescending(GetSortOffsetSafe)
                     .ToList();
 
                 var resolvedRanges = new HashSet<Word.Range>();
@@ -944,9 +976,13 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         resolvedRanges.Add(r);
                         replacedCount++;
 
-                        if (item.StoryType == Word.WdStoryType.wdMainTextStory)
+                        if (item.StorySlotId == 0 && item.StoryType == Word.WdStoryType.wdMainTextStory)
                         {
                             try { touchedMainIntervals.Add((r.Start, r.End)); } catch { }
+                        }
+                        else if (item.OriginalUnderline == Word.WdUnderline.wdUnderlineNone)
+                        {
+                            ScrubResidualWavyUnderlines(r);
                         }
                     }
                     catch
@@ -1234,6 +1270,33 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     }
                 }
                 catch { }
+            }
+
+            // Tier 1a: Exact Floating-Shape Anchor & Table-Cell Offset Path (O(1) even for >10 floating shapes or >255-char spans).
+            // In Word COM, K floating shapes anchored to a paragraph occupy K invisible COM positions at containerStart..containerStart+K
+            // (not present in Range.Text), and a table cell's trailing "\r\a" occupies 1 COM unit for 2 .NET chars.
+            int unitDelta = (containerEnd - containerStart) - cleanedContainerText.Length;
+            if (unitDelta != 0)
+            {
+                for (int extra = 0; extra <= 1; extra++)
+                {
+                    int shiftedStart = directStart + unitDelta + extra;
+                    int shiftedEnd = shiftedStart + issueLength;
+                    if (shiftedStart != directStart && shiftedStart >= containerStart && shiftedEnd <= containerEnd)
+                    {
+                        try
+                        {
+                            Word.Range shifted = containerRange.Duplicate;
+                            shifted.SetRange(shiftedStart, shiftedEnd);
+                            string shiftedText = CleanWordControlChars(shifted.Text ?? string.Empty);
+                            if (string.Equals(shiftedText, cleanExpected, StringComparison.Ordinal))
+                            {
+                                return shifted;
+                            }
+                        }
+                        catch { }
+                    }
+                }
             }
 
             // Tier 1b: Bounded arithmetic offset probe (±10 chars) for list-numbered / zero-width / soft-hyphen paragraphs
@@ -1550,13 +1613,13 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         /// Verifies whether at least one tracked issue range inside <c>[startOffset, endOffset]</c>
         /// still carries a live <see cref="Word.WdUnderline.wdUnderlineWavy"/> on screen.
         /// </summary>
-        public bool HasLiveWavyUnderlineInSpan(Word.Document doc, int startOffset, int endOffset)
+        public bool HasLiveWavyUnderlineInSpan(Word.Document doc, int startOffset, int endOffset, int storySlotId = 0)
         {
             const int DriftWindow = 640;
             for (int i = 0; i < _trackedRanges.Count; i++)
             {
                 var tracked = _trackedRanges[i];
-                if (!ReferenceEquals(tracked.Document, doc))
+                if (!ReferenceEquals(tracked.Document, doc) || tracked.StorySlotId != storySlotId)
                     continue;
                 if (tracked.CachedEnd < startOffset - DriftWindow || tracked.CachedStart > endOffset + DriftWindow)
                     continue;
@@ -1578,13 +1641,13 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             return false;
         }
 
-        private bool HasTrackedInSpan(Word.Document doc, int startOffset, int endOffset)
+        private bool HasTrackedInSpan(Word.Document doc, int startOffset, int endOffset, int storySlotId = 0)
         {
             const int DriftWindow = 640;
             for (int i = 0; i < _trackedRanges.Count; i++)
             {
                 var tracked = _trackedRanges[i];
-                if (!ReferenceEquals(tracked.Document, doc))
+                if (!ReferenceEquals(tracked.Document, doc) || tracked.StorySlotId != storySlotId)
                     continue;
                 if (tracked.CachedEnd < startOffset - DriftWindow || tracked.CachedStart > endOffset + DriftWindow)
                     continue;
@@ -1603,13 +1666,13 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             return false;
         }
 
-        private void RestoreAndRemoveTrackedInSpan(Word.Document doc, int startOffset, int endOffset)
+        private void RestoreAndRemoveTrackedInSpan(Word.Document doc, int startOffset, int endOffset, int storySlotId = 0)
         {
             const int DriftWindow = 640;
             for (int i = _trackedRanges.Count - 1; i >= 0; i--)
             {
                 var tracked = _trackedRanges[i];
-                if (!ReferenceEquals(tracked.Document, doc))
+                if (!ReferenceEquals(tracked.Document, doc) || tracked.StorySlotId != storySlotId)
                     continue;
                 if (tracked.CachedEnd < startOffset - DriftWindow || tracked.CachedStart > endOffset + DriftWindow)
                     continue;

@@ -1189,9 +1189,11 @@ namespace MyanmarSpellChecker.WordAddIn
                 return true;
             };
 
-            // Flagship V11/V12 Document Toolkit & Official Ministry Suite Events
+            // Flagship V11/V12/V45 Document Toolkit & Official Ministry Suite Events
             ctrl.RequestRewriteToOfficialStyle += selectionOnly => ExecuteToolkitRewriteOfficialProse(selectionOnly);
             ctrl.RequestConvertLegacyFonts += selectionOnly => ExecuteToolkitConvertFonts(selectionOnly);
+            ctrl.RequestRepairBrokenPdfText += selectionOnly => ExecuteToolkitRepairBrokenPdf(selectionOnly);
+            ctrl.RequestPasteCleanClipboard += ExecuteToolkitPasteCleanClipboard;
             ctrl.RequestFormatNumerals += (toMyanmarDigits, selectionOnly) => ExecuteToolkitFormatNumerals(toMyanmarDigits, selectionOnly);
             ctrl.RequestFormatPunctuation += selectionOnly => ExecuteToolkitFormatPunctuation(selectionOnly);
             ctrl.RequestInsertOfficialTemplate += (kind, dt) => ExecuteInsertOfficialTemplate(kind, dt);
@@ -1253,6 +1255,56 @@ namespace MyanmarSpellChecker.WordAddIn
             }
 
             if (doc != null && _documentScanner != null)
+            {
+                _documentScanner.InvalidateParagraphCache(doc);
+                _documentScanner.ScanFullDocumentAsync(allowSmartPartialAutoScan: true);
+            }
+
+            ctrl?.ShowToastBanner(res.UserMessage, res.Success);
+        }
+
+        private void ExecuteToolkitRepairBrokenPdf(bool selectionOnly)
+        {
+            if (_wordApp == null) return;
+            Word.Document? doc = _wordApp.ActiveDocument;
+            if (doc != null) _underlineManager?.StripAllProofingUnderlines(doc);
+
+            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+            _bulkWriteCancelRequested = false;
+            ToolkitActionSummary res;
+            try
+            {
+                res = _toolkitService.RepairBrokenPdfTextInDocument(
+                    _wordApp,
+                    doc,
+                    _proofingEngine,
+                    selectionOnly,
+                    (pct, msg) => ctrl?.UpdateScanProgress(pct, msg),
+                    () => _bulkWriteCancelRequested);
+            }
+            finally
+            {
+                ctrl?.SetScanningState(false);
+            }
+
+            if (doc != null && _documentScanner != null)
+            {
+                _documentScanner.InvalidateParagraphCache(doc);
+                _documentScanner.ScanFullDocumentAsync(allowSmartPartialAutoScan: true);
+            }
+
+            ctrl?.ShowToastBanner(res.UserMessage, res.Success);
+        }
+
+        private void ExecuteToolkitPasteCleanClipboard()
+        {
+            if (_wordApp == null) return;
+            Word.Document? doc = _wordApp.ActiveDocument;
+
+            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+            ToolkitActionSummary res = _toolkitService.PasteAndRepairFromClipboard(_wordApp, doc, _proofingEngine);
+
+            if (res.Success && doc != null && _documentScanner != null)
             {
                 _documentScanner.InvalidateParagraphCache(doc);
                 _documentScanner.ScanFullDocumentAsync(allowSmartPartialAutoScan: true);
@@ -1654,6 +1706,18 @@ namespace MyanmarSpellChecker.WordAddIn
                   imageMso='FontDialog'
                   onAction='OnRibbonConvertFonts'
                   getScreentip='GetRibbonScreentip' />
+          <button id='BtnRepairBrokenPdf'
+                  getLabel='GetRibbonLabel'
+                  size='normal'
+                  imageMso='FileSaveAsPdfOrXps'
+                  onAction='OnRibbonRepairBrokenPdf'
+                  getScreentip='GetRibbonScreentip' />
+          <button id='BtnPasteCleanClipboard'
+                  getLabel='GetRibbonLabel'
+                  size='normal'
+                  imageMso='Paste'
+                  onAction='OnRibbonPasteCleanClipboard'
+                  getScreentip='GetRibbonScreentip' />
           <button id='BtnNumeralsToMyanmar'
                   getLabel='GetRibbonLabel'
                   size='normal'
@@ -1722,8 +1786,10 @@ namespace MyanmarSpellChecker.WordAddIn
                 "BtnToggleUiLanguage" => UiLocalizer.Pick("UI: English (⇄ မြန်မာ)", "UI: မြန်မာ (⇄ EN)"),
                 "BtnManageCustomWords" => UiLocalizer.Pick("Custom Words", "မှတ်သားဝေါဟာရ စီမံရန်"),
                 "BtnLicenseActivation" => UiLocalizer.Pick("About & GPLv3 License", "ဖန်တီးသူနှင့် လိုင်စင် (GPLv3)"),
-                "GrpTypographyToolkit" => UiLocalizer.Pick("Font & Numerals", "ဖောင့်နှင့် ကိန်းဂဏန်း ကိရိယာ"),
+                "GrpTypographyToolkit" => UiLocalizer.Pick("Font, PDF & Numerals", "ဖောင့်၊ PDF နှင့် ကိန်းဂဏန်း"),
                 "BtnConvertFonts" => "WinInnwa/Zawgyi ➔ Pyidaungsu",
+                "BtnRepairBrokenPdf" => UiLocalizer.Pick("Repair Garbled PDF", "PDF စာသားပျက်ပြင်ရန်"),
+                "BtnPasteCleanClipboard" => UiLocalizer.Pick("Paste Clean (PDF/ZG)", "သန့်စင်ပြီး ကူးထည့်ရန်"),
                 "BtnNumeralsToMyanmar" => "0-9 ➔ ၀-၉ (Smart)",
                 "BtnCleanPunctuation" => UiLocalizer.Pick("Clean Punctuation ၊ / ။", "ပုဒ်ဖြတ် ၊ / ။ ရှင်းမည်"),
                 "GrpOfficialSuite" => UiLocalizer.Pick("Official Suite & Audit", "ရုံးစာနှင့် အရည်အသွေး စစ်ဆေးချက်"),
@@ -1772,6 +1838,12 @@ namespace MyanmarSpellChecker.WordAddIn
                 "BtnConvertFonts" => UiLocalizer.Pick(
                     "Convert WinInnwa, WinResearcher, CE, and Zawgyi text to Pyidaungsu Unicode without breaking English fonts",
                     "WinInnwa, WinResearcher, CE နှင့် Zawgyi ဖောင့်များကို အင်္ဂလိပ်ဖောင့်နှင့် ပုံစံမပျက်စေဘဲ Pyidaungsu သို့ တစ်ချက်နှိပ် ပြောင်းလဲရန်"),
+                "BtnRepairBrokenPdf" => UiLocalizer.Pick(
+                    "Reconstruct garbled Burmese PDF copy-paste across selection or entire document (Body, Tables, Footnotes & TextBoxes)",
+                    "PDF မှ ကူးယူရာတွင် ပျက်စီးနေသော မြန်မာစာသားများကို ရွေးထားသည့်အပိုင်း သို့မဟုတ် စာတမ်းတစ်ခုလုံး၌ ပြန်လည်တည်ဆောက်ရန်"),
+                "BtnPasteCleanClipboard" => UiLocalizer.Pick(
+                    "Repair garbled PDF or Zawgyi text from Clipboard and paste clean Pyidaungsu Unicode at cursor (Single Ctrl+Z)",
+                    "Clipboard မှ PDF စာသားပျက် သို့မဟုတ် ဇော်ဂျီစာသားကို သန့်စင်၍ Pyidaungsu ဖောင့်ဖြင့် ကူးထည့်ရန် (Single Ctrl+Z)"),
                 "BtnNumeralsToMyanmar" => UiLocalizer.Pick(
                     "Smart convert 0-9 to Myanmar digits ၀-၉ while protecting URLs, emails, ISO-9001, A4, 5G",
                     "URL, Email, COVID-19, ISO-9001, A4, 5G တို့ကို မထိခိုက်ဘဲ မြန်မာဂဏန်း ပြောင်းလဲရန်"),
@@ -2010,6 +2082,27 @@ namespace MyanmarSpellChecker.WordAddIn
         public void OnRibbonConvertFonts(Office.IRibbonControl control)
         {
             AddInDiagnostics.SafeExecute("OnRibbonConvertFonts", () => ExecuteToolkitConvertFonts(selectionOnly: false));
+        }
+
+        public void OnRibbonRepairBrokenPdf(Office.IRibbonControl control)
+        {
+            AddInDiagnostics.SafeExecute("OnRibbonRepairBrokenPdf", () =>
+            {
+                bool selOnly = false;
+                try
+                {
+                    Word.Selection? sel = _wordApp?.Selection;
+                    if (sel?.Range != null && sel.Range.Start != sel.Range.End)
+                        selOnly = true;
+                }
+                catch { }
+                ExecuteToolkitRepairBrokenPdf(selectionOnly: selOnly);
+            });
+        }
+
+        public void OnRibbonPasteCleanClipboard(Office.IRibbonControl control)
+        {
+            AddInDiagnostics.SafeExecute("OnRibbonPasteCleanClipboard", ExecuteToolkitPasteCleanClipboard);
         }
 
         public void OnRibbonNumeralsToMyanmar(Office.IRibbonControl control)

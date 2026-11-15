@@ -180,6 +180,42 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             card.Controls.Add(btnFont, 0, r++);
 
+            var btnRepairPdf = CreateActionButton(
+                UiLocalizer.Pick(
+                    "✦ Repair Garbled PDF Text  ➔  Pyidaungsu",
+                    "✦ PDF စာသားပျက်  ➔  Pyidaungsu ပြန်လည်တည်ဆောက်မည်"),
+                Color.FromArgb(14, 116, 108),
+                Color.White,
+                Color.FromArgb(10, 96, 88),
+                _fontSmallBold);
+            btnRepairPdf.Margin = new Padding(0, 0, 0, 5);
+            btnRepairPdf.Click += (s, e) => RequestRepairBrokenPdfText?.Invoke(_toolkitSelectionOnly);
+            _toolTip.SetToolTip(
+                btnRepairPdf,
+                UiLocalizer.Pick(
+                    "Reconstructs garbled Burmese PDF copy-paste (e.g. ကကီေး ➔ ကြီး, ပပည်ရ ာင်စု ➔ ပြည်ထောင်စု, ဥပရေ ➔ ဥပဒေ) while strictly protecting Excel formulas (↶ Undo available)",
+                    "Excel Formula ကွက်များကို မထိခိုက်စေဘဲ PDF စာသားပျက်များ (ဥပမာ ကကီေး ➔ ကြီး) ကို Pyidaungsu ယူနီကုဒ်အမှန်သို့ ပြန်လည်တည်ဆောက်ပေးသည်"));
+            card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            card.Controls.Add(btnRepairPdf, 0, r++);
+
+            var btnPasteClean = CreateActionButton(
+                UiLocalizer.Pick(
+                    "❖ Paste Clean from Clipboard (PDF / Zawgyi)",
+                    "❖ Clipboard မှ သန့်စင်ပြီး အကွက်ထဲ ကူးထည့်မည်"),
+                Color.FromArgb(234, 247, 245),
+                Color.FromArgb(12, 96, 88),
+                Color.FromArgb(172, 222, 214),
+                _fontSmallBold);
+            btnPasteClean.Margin = new Padding(0, 0, 0, 5);
+            btnPasteClean.Click += (s, e) => RequestPasteCleanClipboard?.Invoke();
+            _toolTip.SetToolTip(
+                btnPasteClean,
+                UiLocalizer.Pick(
+                    "Repairs garbled PDF or Zawgyi text (single cell or tab-separated rows) from Clipboard and pastes clean Pyidaungsu without overwriting formulas (↶ Undo available)",
+                    "Clipboard ထဲရှိ PDF စာသားပျက် သို့မဟုတ် ဇော်ဂျီဇယားကွက်များကို သန့်စင်ပြုပြင်၍ Formula မပျက်စေဘဲ ကူးထည့်ပေးသည်"));
+            card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            card.Controls.Add(btnPasteClean, 0, r++);
+
             var numGrid = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,

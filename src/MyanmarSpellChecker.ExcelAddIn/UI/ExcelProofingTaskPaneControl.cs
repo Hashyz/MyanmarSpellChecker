@@ -260,6 +260,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
         // Spreadsheet Toolkit Events
         public event Action<bool>? RequestConvertLegacyFonts;
+        public event Action<bool>? RequestRepairBrokenPdfText;
+        public event Action? RequestPasteCleanClipboard;
         public event Action<bool, bool>? RequestFormatNumerals;
         public event Action<bool>? RequestRewriteToOfficialStyle;
         public event Action<bool>? RequestFormatPunctuation;

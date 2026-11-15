@@ -1921,6 +1921,255 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                         "✓ ပြောင်းလဲရန် WinInnwa / Zawgyi စာသားကွက် မတွေ့ရှိပါ (Formula ကွက်များကို အလိုအလျောက် ချန်လှပ်ထားသည်)။"));
         }
 
+        public ExcelToolkitOutcome RepairBrokenPdfInScope(bool selectionOnly)
+        {
+            return ExecuteBlockToolkitTransform(
+                selectionOnly,
+                UiLocalizer.Pick("Repair Garbled PDF Text ➔ Pyidaungsu", "PDF စာသားပျက် ➔ Pyidaungsu ပြုပြင်မှု"),
+                (wbName, ws, sheetName, baseR, baseC, rows, cols, val2, fml, hasFml) =>
+                {
+                    string? uniformFont = null;
+                    bool fontIsMixed = false;
+                    try
+                    {
+                        Excel.Range sub = ws.Range[ws.Cells[baseR, baseC], ws.Cells[baseR + rows - 1, baseC + cols - 1]];
+                        object? rawFontName = sub.Font.Name;
+                        if (rawFontName is string fn)
+                            uniformFont = fn;
+                        else
+                            fontIsMixed = true;
+                    }
+                    catch
+                    {
+                        fontIsMixed = true;
+                    }
+
+                    return SpreadsheetProofingHelper.TransformBlockBrokenPdfToPyidaungsu(
+                        wbName,
+                        sheetName,
+                        baseR,
+                        baseC,
+                        rows,
+                        cols,
+                        val2,
+                        fml,
+                        hasFml,
+                        _engine.Trie,
+                        (r, c) =>
+                        {
+                            if (!fontIsMixed)
+                                return uniformFont;
+                            try
+                            {
+                                Excel.Range cell = (Excel.Range)ws.Cells[baseR + r, baseC + c];
+                                return cell.Font.Name as string;
+                            }
+                            catch
+                            {
+                                return null;
+                            }
+                        });
+                },
+                (cells, changes) => cells > 0
+                    ? UiLocalizer.Pick(
+                        $"✓ Reconstructed ({cells}) garbled PDF Burmese cell(s) into Pyidaungsu Unicode — formulas protected (↶ Undo available).",
+                        $"✓ PDF စာသားပျက် အကွက် ({cells}) ကွက်ကို Formula မထိခိုက်ဘဲ Pyidaungsu ယူနီကုဒ်အမှန်သို့ ပြန်လည်တည်ဆောက်ပြီးပါပြီ (↶ ပြန်ဆုတ်နိုင်သည်)။")
+                    : UiLocalizer.Pick(
+                        "✓ No garbled PDF CMap Burmese text cells detected (Formula cells automatically protected).",
+                        "✓ ပြုပြင်ရန် PDF ဖောင့်ပျက် မြန်မာစာသားကွက် မတွေ့ရှိပါ (Formula ကွက်များကို အလိုအလျောက် ကာကွယ်ထားသည်)။"));
+        }
+
+        public ExcelToolkitOutcome PasteAndRepairClipboardIntoActiveCell(string? explicitClipboardText = null)
+        {
+            if (!IsExcelReadyForInterop(_excelApp))
+            {
+                return new ExcelToolkitOutcome
+                {
+                    Success = false,
+                    UserMessage = UiLocalizer.Pick(
+                        "⚠ Cannot paste while editing an Excel cell — press Enter or Esc first.",
+                        "⚠ Excel အကွက်အတွင်း စာရိုက်နေစဉ် ကူးထည့်၍မရပါ — Enter သို့မဟုတ် Esc နှိပ်ပြီးမှ ထပ်မံနှိပ်ပါ။")
+                };
+            }
+
+            string rawClip = explicitClipboardText ?? string.Empty;
+            if (explicitClipboardText == null)
+            {
+                try
+                {
+                    if (Clipboard.ContainsText(TextDataFormat.UnicodeText))
+                        rawClip = Clipboard.GetText(TextDataFormat.UnicodeText);
+                    else if (Clipboard.ContainsText())
+                        rawClip = Clipboard.GetText();
+                }
+                catch { }
+            }
+
+            if (string.IsNullOrWhiteSpace(rawClip))
+            {
+                return new ExcelToolkitOutcome
+                {
+                    Success = false,
+                    UserMessage = UiLocalizer.Pick(
+                        "⚠ Clipboard does not contain any text to paste.",
+                        "⚠ Clipboard ထဲတွင် ကူးထည့်ရန် စာသား မတွေ့ရှိပါ။")
+                };
+            }
+
+            try
+            {
+                Excel.Workbook? wb = _excelApp.ActiveWorkbook;
+                Excel.Range? startCell = _excelApp.ActiveCell;
+                if (wb == null || startCell == null)
+                {
+                    return new ExcelToolkitOutcome
+                    {
+                        Success = false,
+                        UserMessage = UiLocalizer.Pick(
+                            "⚠ No active Excel cell is selected.",
+                            "⚠ လက်ရှိ ရွေးချယ်ထားသော Excel အကွက် မတွေ့ရှိပါ။")
+                    };
+                }
+
+                Excel.Worksheet ws = startCell.Worksheet;
+                string wbName = SafeGetWorkbookName(wb);
+                string sheetName = SafeGetSheetName(ws);
+                int baseRow = startCell.Row;
+                int baseCol = startCell.Column;
+
+                var undoEntries = new List<CellUndoEntry>();
+                int totalRepairedSpans = 0;
+                int skippedFormulaCells = 0;
+
+                if (rawClip.IndexOf('\t') >= 0)
+                {
+                    string normalizedLines = rawClip.Replace("\r\n", "\n").Replace('\r', '\n').TrimEnd('\n');
+                    string[] rows = normalizedLines.Split('\n');
+                    int maxRows = Math.Min(rows.Length, 2000);
+
+                    WithExcelWriteGuard(() =>
+                    {
+                        for (int r = 0; r < maxRows; r++)
+                        {
+                            string[] cols = rows[r].Split('\t');
+                            int maxCols = Math.Min(cols.Length, 128);
+                            for (int c = 0; c < maxCols; c++)
+                            {
+                                Excel.Range target = (Excel.Range)ws.Cells[baseRow + r, baseCol + c];
+                                if (IsSingleCellFormula(target))
+                                {
+                                    skippedFormulaCells++;
+                                    continue;
+                                }
+
+                                string rawCell = cols[c];
+                                string cleanedCell = _engine.RepairClipboardOrPastedText(rawCell, out int cellRepairs);
+                                totalRepairedSpans += cellRepairs;
+
+                                string prevText = Convert.ToString(target.Value2, CultureInfo.InvariantCulture) ?? string.Empty;
+                                string? prevFont = null;
+                                try { prevFont = target.Font.Name as string; } catch { }
+
+                                WriteSafePlainStringToCell(target, cleanedCell);
+                                try { target.Font.Name = "Pyidaungsu"; } catch { }
+
+                                undoEntries.Add(new CellUndoEntry
+                                {
+                                    WorkbookName = wbName,
+                                    SheetName = sheetName,
+                                    Row = baseRow + r,
+                                    Column = baseCol + c,
+                                    PreviousText = prevText,
+                                    NewText = cleanedCell,
+                                    PreviousFontName = prevFont,
+                                    NewFontName = "Pyidaungsu"
+                                });
+                            }
+                        }
+                    });
+                }
+                else
+                {
+                    if (IsSingleCellFormula(startCell))
+                    {
+                        return new ExcelToolkitOutcome
+                        {
+                            Success = false,
+                            UserMessage = UiLocalizer.Pick(
+                                "⚠ Active cell contains a Formula and is protected (please select an empty/text cell).",
+                                "⚠ လက်ရှိအကွက်သည် Formula အကွက်ဖြစ်သဖြင့် မပျက်စီးစေရန် ကာကွယ်ထားပါသည် (အခြားအကွက်လွတ် ရွေးချယ်ပါ)။")
+                        };
+                    }
+
+                    string cleaned = _engine.RepairClipboardOrPastedText(rawClip, out totalRepairedSpans);
+                    string excelLineNormalized = cleaned.Replace("\r\n", "\n").Replace('\r', '\n');
+                    string prevText = Convert.ToString(startCell.Value2, CultureInfo.InvariantCulture) ?? string.Empty;
+                    string? prevFont = null;
+                    try { prevFont = startCell.Font.Name as string; } catch { }
+
+                    WithExcelWriteGuard(() =>
+                    {
+                        WriteSafePlainStringToCell(startCell, excelLineNormalized);
+                        try { startCell.Font.Name = "Pyidaungsu"; } catch { }
+                    });
+
+                    undoEntries.Add(new CellUndoEntry
+                    {
+                        WorkbookName = wbName,
+                        SheetName = sheetName,
+                        Row = baseRow,
+                        Column = baseCol,
+                        PreviousText = prevText,
+                        NewText = excelLineNormalized,
+                        PreviousFontName = prevFont,
+                        NewFontName = "Pyidaungsu"
+                    });
+                }
+
+                if (undoEntries.Count > 0)
+                {
+                    _undoManager.PushBatch(new SpreadsheetUndoBatch
+                    {
+                        Description = UiLocalizer.Pick(
+                            $"Paste Clean into {sheetName}!{SpreadsheetProofingHelper.ColumnIndexToLetters(baseCol)}{baseRow}",
+                            $"{sheetName}!{SpreadsheetProofingHelper.ColumnIndexToLetters(baseCol)}{baseRow} သို့ သန့်စင်ပြီး ကူးထည့်မှု"),
+                        Entries = undoEntries
+                    });
+                    UndoStateChanged?.Invoke();
+                    ScanScopeAsync(CurrentScope);
+                }
+
+                string skipTail = skippedFormulaCells > 0
+                    ? UiLocalizer.Pick($" ({skippedFormulaCells} formula cell(s) protected)", $" (Formula {skippedFormulaCells} ကွက် ချန်လှပ်ထားသည်)")
+                    : string.Empty;
+
+                return new ExcelToolkitOutcome
+                {
+                    Success = undoEntries.Count > 0,
+                    CellsModified = undoEntries.Count,
+                    TotalChanges = Math.Max(undoEntries.Count, totalRepairedSpans),
+                    UserMessage = totalRepairedSpans > 0
+                        ? UiLocalizer.Pick(
+                            $"✓ Repaired ({totalRepairedSpans}) garbled PDF/Zawgyi span(s) and pasted into {undoEntries.Count} cell(s) in Pyidaungsu{skipTail} (↶ Undo available).",
+                            $"✓ Clipboard မှ စာသားပျက်/ဇော်ဂျီ ({totalRepairedSpans}) ခုကို ပြုပြင်၍ အကွက် ({undoEntries.Count}) ကွက်သို့ Pyidaungsu ဖြင့် ကူးထည့်ပြီးပါပြီ{skipTail} (↶ ပြန်ဆုတ်နိုင်သည်)။")
+                        : UiLocalizer.Pick(
+                            $"✓ Pasted clean Myanmar Unicode into {undoEntries.Count} cell(s) in Pyidaungsu{skipTail} (↶ Undo available).",
+                            $"✓ သန့်စင်သော မြန်မာယူနီကုဒ်ကို အကွက် ({undoEntries.Count}) ကွက်သို့ Pyidaungsu ဖြင့် ကူးထည့်ပြီးပါပြီ{skipTail} (↶ ပြန်ဆုတ်နိုင်သည်)။")
+                };
+            }
+            catch (Exception ex)
+            {
+                AddInDiagnostics.LogException("PasteAndRepairClipboardIntoActiveCell", ex);
+                return new ExcelToolkitOutcome
+                {
+                    Success = false,
+                    UserMessage = UiLocalizer.Pick(
+                        "⚠ Could not paste into the active cell (check if the sheet is protected).",
+                        "⚠ အကွက်အတွင်း ကူးထည့်စဉ် အခက်အခဲ ဖြစ်ပေါ်ပါသည် (Protected Sheet ဖြစ်နေခြင်း ရှိမရှိ စစ်ဆေးပါ)။")
+                };
+            }
+        }
+
         public ExcelToolkitOutcome FormatNumeralsInScope(bool toMyanmarDigits, bool selectionOnly)
         {
             string label = toMyanmarDigits

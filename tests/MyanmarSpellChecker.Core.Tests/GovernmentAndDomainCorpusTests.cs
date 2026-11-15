@@ -5028,7 +5028,13 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.Equal(ProofingIssueType.ZawgyiEncodingError, singlePdfDiag.IssueType);
             Assert.True(singlePdfDiag.RequiresReviewBeforeBatchFix);
             Assert.False(singlePdfDiag.IsHighCertaintyPrecheck);
-            Assert.Empty(singlePdfDiag.Suggestions);
+            Assert.NotEmpty(singlePdfDiag.Suggestions);
+            string v44Reconstructed = UnicodeNormalizer.NormalizeCanonicalOrder(singlePdfDiag.Suggestions[0].Replacement);
+            Assert.Contains(UnicodeNormalizer.NormalizeCanonicalOrder("အမျိုးသားပညာရေးဥပဒေ"), v44Reconstructed);
+            Assert.Contains(UnicodeNormalizer.NormalizeCanonicalOrder("ပြည်ထောင်စုလွှတ်တော်"), v44Reconstructed);
+            Assert.Contains(UnicodeNormalizer.NormalizeCanonicalOrder("ခေါ်တွင်စေရမည်"), v44Reconstructed);
+            Assert.Contains(UnicodeNormalizer.NormalizeCanonicalOrder("သစ္စာစောင့်သိရမည်"), v44Reconstructed);
+            Assert.Empty(formalEngine.CheckText(singlePdfDiag.Suggestions[0].Replacement));
             Assert.False(UnicodeNormalizer.IsBrokenPdfFontCMapText(
                 "အမျိုးသားပညာရေးဥပဒေအရ ကျောင်းသား၊ ကျောင်းသူများ ပညာသင်ကြားရေး ဆောင်ရွက်ပေးလျက်ရှိသည်။"));
 
@@ -5119,6 +5125,127 @@ namespace MyanmarSpellChecker.Core.Tests
                     UnicodeNormalizer.NormalizeCanonicalOrder(i.Suggestions[0].Replacement) == UnicodeNormalizer.NormalizeCanonicalOrder(expectedTop) &&
                     i.IsHighCertaintyPrecheck);
             }
+        }
+
+        [Fact]
+        public void V45_BrokenPdfCMapReconstructor_ClipboardRepair_AndSpreadsheetTransform_EndToEndRegression()
+        {
+            var model = EncryptedDictionaryRepository.ParseFromJsonFile(TestPaths.MasterJsonPath);
+            var trie = new MyanmarTrie();
+            foreach (var se in SeedDictionaryProvider.GetOfficialSeedEntries()) trie.InsertEntry(se);
+            foreach (var sr in SeedDictionaryProvider.GetOfficialOrthographyRules()) trie.InsertOrthographyRule(sr);
+            foreach (var e in model.Entries) trie.InsertEntry(e);
+            foreach (var r in model.OrthographyRules) trie.InsertOrthographyRule(r);
+            if (model.ContextRules != null)
+                foreach (var cr in model.ContextRules) trie.InsertContextualRule(cr);
+            if (model.WordBigrams != null)
+                foreach (var bg in model.WordBigrams) trie.InsertWordBigram(bg.LeftWord, bg.RightWord, bg.Count);
+
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // 1. Variant A + Variant B severely corrupted Pyidaungsu PDF ToUnicode CMap paragraphs (dropped ထ/ရ/ျ/ွ/ျှ/ွှ/ဲ/ူ/့ + Pali geminates)
+            (string Garbled, string[] MustContainSubstrings)[] garbledSamples =
+            {
+                (
+                    "ပပည်ရ ာင်စုသမ္မတပမ္န်မ္ာနိုင်ငံရတာ် ဖ ံွဲ့စည်ေးပုံအရပခခံဥပရေ အရ နိုင်ငံသာေးတိုင်ေး ပညာသင်ကကာေးခ င ်ရှိသည် ။",
+                    new[] { "ပြည်ထောင်စုသမ္မတမြန်မာနိုင်ငံတော်", "ဖွဲ့စည်းပုံအခြေခံဥပဒေ", "နိုင်ငံသားတိုင်း", "ပညာသင်ကြားခွင့်ရှိသည်" }
+                ),
+                (
+                    "၂၀၂၄ ခုနှစ်၊ ဇူလိုင်လ ၁၅ က် ရနို့တ င် အခရကကေးရင နှင် ဝန်ရဆာင်မ္ှုလုပ်ငန်ေးမ္ျာေး လျှှောက် ာေးရမ္ည်။",
+                    new[] { "၁၅ ရက်", "အခကြေးငွေ", "ဝန်ဆောင်မှုလုပ်ငန်းများ", "လျှောက်ထားရမည်" }
+                ),
+                (
+                    "မ္မ္ှန်မ္ကန် က ေးလ န်ပါက ရမ္ေးခ န်ေးမ္ျာေး စစ်ရဆေး၍ ပုဂဂလိက ဖ ံွဲ့ပဖိုေးတိုေးတက်ရရေး ရလကျင် ရပေးရမ္ည်။",
+                    new[] { "မမှန်မကန်", "ကျူးလွန်ပါက", "မေးခွန်းများ", "စစ်ဆေး၍", "ပုဂ္ဂလိက", "ဖွံ့ဖြိုးတိုးတက်ရေး", "လေ့ကျင့်" }
+                )
+            };
+
+            foreach (var (garbled, expectedParts) in garbledSamples)
+            {
+                Assert.True(UnicodeNormalizer.IsBrokenPdfFontCMapText(garbled), $"Expected IsBrokenPdfFontCMapText=true for: {garbled}");
+                string repaired = formalEngine.ReconstructBrokenPdfText(garbled, out int repairedLines);
+                Assert.True(repairedLines >= 1);
+                string normRepaired = UnicodeNormalizer.NormalizeCanonicalOrder(repaired);
+                foreach (string part in expectedParts)
+                {
+                    Assert.Contains(UnicodeNormalizer.NormalizeCanonicalOrder(part), normRepaired);
+                }
+
+                // Live proofing check on the garbled text offers the reconstructed paragraph as #1 Quick-Fix,
+                // while keeping RequiresReviewBeforeBatchFix == true ("Sure Only" leaves it unchecked until user review)
+                var liveDiag = Assert.Single(formalEngine.CheckText(garbled));
+                Assert.Equal(ProofingIssueType.ZawgyiEncodingError, liveDiag.IssueType);
+                Assert.True(liveDiag.RequiresReviewBeforeBatchFix);
+                Assert.False(liveDiag.IsHighCertaintyPrecheck);
+                Assert.NotEmpty(liveDiag.Suggestions);
+            }
+
+            // 2. Clean Unicode + English + URLs + numbers must NEVER false-trigger or mutate
+            const string cleanBilingual =
+                "Soundit Star Challenge 2026 (ISO-9001) အစီအစဉ်ကို https://www.moe.gov.mm တွင် ကြေညာထားပါသည်။";
+            Assert.False(UnicodeNormalizer.IsBrokenPdfFontCMapText(cleanBilingual));
+            string untouched = formalEngine.ReconstructBrokenPdfText(cleanBilingual, out int cleanChanges);
+            Assert.Equal(0, cleanChanges);
+            Assert.Equal(cleanBilingual, untouched);
+
+            // 3. Clipboard Clean-Paste repairs mixed Broken-PDF line + Zawgyi line + preserves clean English/Unicode line
+            const string mixedClipboard =
+                "အမ္ျိုေးသာေးပညာရရေးဥပရေ (၂၀၁၄ ခုနှစ်)\r\n" +
+                "ျမန္မာစာ စာလုံးေပါင္းသတ္ပုံက်မ္း\r\n" +
+                "Department of Higher Education (MOE)";
+            string pastedClean = formalEngine.RepairClipboardOrPastedText(mixedClipboard, out int clipChanges);
+            Assert.True(clipChanges >= 2);
+            string normPasted = UnicodeNormalizer.NormalizeCanonicalOrder(pastedClean);
+            Assert.Contains("အမျိုးသားပညာရေးဥပဒေ", normPasted);
+            Assert.Contains("မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း", normPasted);
+            Assert.Contains("Department of Higher Education (MOE)", normPasted);
+
+            // 4. Spreadsheet batch Broken-PDF repair strictly protects Excel formulas & numbers and sets Pyidaungsu on repaired cells
+            object?[,] valBlock = new object?[2, 2]
+            {
+                { "ပပည်ရထာင်စုလွှတ်ရတာ် ဥပရေအမ္ှတ် ၄၁။", "=CONCATENATE(\"ဥပရေ \", A1)" },
+                { 1500000.0, "ပညာရေးဝန်ကြီးဌာန ရုံးအမှတ် (၁၃)" }
+            };
+            object?[,] fmlBlock = new object?[2, 2]
+            {
+                { "ပပည်ရထာင်စုလွှတ်ရတာ် ဥပရေအမ္ှတ် ၄၁။", "=CONCATENATE(\"ဥပရေ \", A1)" },
+                { 1500000.0, "ပညာရေးဝန်ကြီးဌာန ရုံးအမှတ် (၁၃)" }
+            };
+
+            var sheetOps = MyanmarSpellChecker.Core.Spreadsheet.SpreadsheetProofingHelper.TransformBlockBrokenPdfToPyidaungsu(
+                "TestBook.xlsx",
+                "Sheet1",
+                baseRowOneBased: 5,
+                baseColOneBased: 2,
+                rowCount: 2,
+                colCount: 2,
+                rawValue2Block: valBlock,
+                rawFormulaBlock: fmlBlock,
+                blockHasFormula: null,
+                trie: trie,
+                getCellFontName: (r, c) => "Calibri");
+
+            var singleCellOp = Assert.Single(sheetOps);
+            Assert.Equal(5, singleCellOp.Row);
+            Assert.Equal(2, singleCellOp.Column);
+            Assert.Equal("Calibri", singleCellOp.PreviousFontName);
+            Assert.Equal("Pyidaungsu", singleCellOp.TargetFontName);
+            Assert.Contains("ပြည်ထောင်စုလွှတ်တော် ဥပဒေအမှတ် ၄၁", UnicodeNormalizer.NormalizeCanonicalOrder(singleCellOp.UpdatedText));
+
+            // 5. Word COM control-marker safety: Endnote/Footnote '\u0002' and Tab '\t' inside a Broken-PDF paragraph are never swallowed into OriginalText
+            const string wordParaWithNotesAndTab = "\u0002အရကကာင်ေးအရာ\t:\tပပည်ရထာင်စုလွှတ်ရတာ် ဥပရေအမ္ှတ် ၄၁။\u0002\r";
+            var partitionedIssues = formalEngine.CheckText(wordParaWithNotesAndTab);
+            Assert.Equal(2, partitionedIssues.Count);
+            Assert.All(partitionedIssues, iss =>
+            {
+                Assert.DoesNotContain("\u0002", iss.OriginalText);
+                Assert.DoesNotContain("\t", iss.OriginalText);
+                Assert.DoesNotContain("\r", iss.OriginalText);
+                Assert.True(iss.RequiresReviewBeforeBatchFix);
+                Assert.NotEmpty(iss.Suggestions);
+            });
+            Assert.Contains("အကြောင်းအရာ", UnicodeNormalizer.NormalizeCanonicalOrder(partitionedIssues[0].Suggestions[0].Replacement));
+            Assert.Contains("ပြည်ထောင်စုလွှတ်တော် ဥပဒေအမှတ် ၄၁", UnicodeNormalizer.NormalizeCanonicalOrder(partitionedIssues[1].Suggestions[0].Replacement));
         }
     }
 }

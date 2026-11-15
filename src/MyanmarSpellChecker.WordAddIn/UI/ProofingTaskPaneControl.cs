@@ -248,6 +248,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         public event Action? RequestPrewarmDictionary;
         public event Func<string>? RequestGetSelectedDocumentText;
         public event Action<bool>? RequestConvertLegacyFonts;
+        public event Action<bool>? RequestRepairBrokenPdfText;
+        public event Action? RequestPasteCleanClipboard;
         public event Action<bool, bool>? RequestFormatNumerals;
         public event Action<bool>? RequestFormatPunctuation;
         public event Action<OfficialTemplateKind, DateTime>? RequestInsertOfficialTemplate;

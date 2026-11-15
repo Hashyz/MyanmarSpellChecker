@@ -37,21 +37,30 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         private const int UnderlineParagraphsPerChunk = 10;
         private const int MaxSnapshotChunkWallMs = 8;
         private const int MaxUnderlineChunkWallMs = 8;
-        private const int MaxStoryChainHops = 16;
+        private const int MaxStoryChainHops = 256;
+        private const int MaxShapesPerFullScan = 300;
         private const int LargeDocTargetedPasteThresholdChars = 8_000;
         private const int MaxDirtyRangeParagraphs = 80;
 
         private static readonly Word.WdStoryType[] TargetStoryTypes =
         {
             Word.WdStoryType.wdMainTextStory,
+            Word.WdStoryType.wdFootnotesStory,
+            Word.WdStoryType.wdEndnotesStory,
             Word.WdStoryType.wdPrimaryHeaderStory,
             Word.WdStoryType.wdFirstPageHeaderStory,
-            Word.WdStoryType.wdPrimaryFooterStory
+            Word.WdStoryType.wdEvenPagesHeaderStory,
+            Word.WdStoryType.wdPrimaryFooterStory,
+            Word.WdStoryType.wdFirstPageFooterStory,
+            Word.WdStoryType.wdEvenPagesFooterStory,
+            Word.WdStoryType.wdTextFrameStory
         };
 
         private sealed class ParagraphSnapshot
         {
             public Word.WdStoryType StoryType { get; set; } = Word.WdStoryType.wdMainTextStory;
+            public int StorySlotId { get; set; }
+            public Word.Range? StoryContainerRange { get; set; }
             public string StoryName { get; set; } = string.Empty;
             public int ParagraphIndex { get; set; }
             public Word.Range? ParagraphRange { get; set; }
@@ -70,13 +79,21 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             public bool AllowSmartPartialAutoScan { get; set; }
             public bool CheckedSmartPartial { get; set; }
             public List<ParagraphSnapshot> Snapshots { get; } = new List<ParagraphSnapshot>(256);
-            public HashSet<long> VisitedStoryKeys { get; } = new HashSet<long>();
+            public List<Word.Range> VisitedContainerRanges { get; } = new List<Word.Range>(16);
+            public List<(int SlotId, Word.WdStoryType StoryType, Word.Range ContainerRange)> CollectedContainers { get; } =
+                new List<(int SlotId, Word.WdStoryType StoryType, Word.Range ContainerRange)>(16);
+            public int NextDynamicSlotId { get; set; } = 3;
+            public int CurrentStorySlotId { get; set; }
+            public bool CurrentContainerIsShape { get; set; }
             public int StoryTypeIndex { get; set; }
             public int StoryHopCount { get; set; }
             public Word.Range? CurrentStoryRange { get; set; }
             public Word.Paragraphs? CurrentParagraphs { get; set; }
             public int CurrentParagraphCount { get; set; }
             public int NextParagraphOneBased { get; set; } = 1;
+            public bool ShapesEnumerated { get; set; }
+            public List<Word.Range> PendingShapeTextRanges { get; } = new List<Word.Range>();
+            public int PendingShapeIndex { get; set; }
         }
 
         private sealed class PendingFullUnderlineJob
@@ -87,8 +104,10 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             public int[] ProcessingOrder { get; set; } = Array.Empty<int>();
             public List<DocumentProofingItem>?[] BoundByParagraph { get; set; } = Array.Empty<List<DocumentProofingItem>?>();
             public DocumentQualityReport QualityReport { get; set; } = null!;
-            public Dictionary<int, string> DoneMap { get; set; } = null!;
-            public Dictionary<Word.WdStoryType, Word.Range> StoryBaseRanges { get; } = new Dictionary<Word.WdStoryType, Word.Range>();
+            public Dictionary<long, string> DoneMap { get; set; } = null!;
+            public Dictionary<int, Word.Range> StoryBaseRangesBySlot { get; } = new Dictionary<int, Word.Range>();
+            public List<(int SlotId, Word.WdStoryType StoryType, Word.Range ContainerRange)> CollectedContainers { get; set; } =
+                new List<(int SlotId, Word.WdStoryType StoryType, Word.Range ContainerRange)>();
             public bool DocHadZeroUnderlinesAtStart { get; set; }
             public int VisualUnderlineCap { get; set; } = SafeUnderlineManager.MaxLiveWavyUnderlinesPerDocument;
             public WordScanOutcomeMetadata OutcomeMetadata { get; set; } = new WordScanOutcomeMetadata();
@@ -126,8 +145,10 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
         private readonly Dictionary<Word.Document, List<DocumentProofingItem>> _documentIssuesCache =
             new Dictionary<Word.Document, List<DocumentProofingItem>>();
-        private readonly Dictionary<Word.Document, Dictionary<int, string>> _lastParagraphTextByStart =
-            new Dictionary<Word.Document, Dictionary<int, string>>();
+        private readonly Dictionary<Word.Document, Dictionary<long, string>> _lastParagraphTextByStart =
+            new Dictionary<Word.Document, Dictionary<long, string>>();
+        private readonly Dictionary<Word.Document, List<(int SlotId, Word.WdStoryType StoryType, Word.Range ContainerRange)>> _storyContainersByDoc =
+            new Dictionary<Word.Document, List<(int SlotId, Word.WdStoryType StoryType, Word.Range ContainerRange)>>();
         private readonly Dictionary<Word.Document, DocumentQualityReport> _documentQualityCache =
             new Dictionary<Word.Document, DocumentQualityReport>();
         private readonly Dictionary<Word.Document, WordScanOutcomeMetadata> _documentScanMeta =
@@ -281,6 +302,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             {
                 _documentIssuesCache.Remove(doc);
                 _lastParagraphTextByStart.Remove(doc);
+                _storyContainersByDoc.Remove(doc);
                 _documentQualityCache.Remove(doc);
                 _documentScanMeta.Remove(doc);
                 ScanCompleted?.Invoke(doc, Array.Empty<DocumentProofingItem>());
@@ -328,6 +350,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
             _documentIssuesCache.Remove(doc);
             _lastParagraphTextByStart.Remove(doc);
+            _storyContainersByDoc.Remove(doc);
             _documentQualityCache.Remove(doc);
             _documentScanMeta.Remove(doc);
 
@@ -539,9 +562,25 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     }
 
                     int pad = Math.Max(320, lenDelta + 160);
-                    int dirtyLo = Math.Max(0, Math.Min(prevSelStart, selStart) - pad);
-                    int dirtyHi = Math.Min(docLen, Math.Max(prevSelEnd, selEnd) + pad);
-                    RecordDirtySpan(dirtyLo, dirtyHi);
+                    Word.WdStoryType selStory = Word.WdStoryType.wdMainTextStory;
+                    try { selStory = sel.StoryType; } catch { }
+                    if (selStory == Word.WdStoryType.wdMainTextStory)
+                    {
+                        int dirtyLo = Math.Max(0, Math.Min(prevSelStart, selStart) - pad);
+                        int dirtyHi = Math.Min(docLen, Math.Max(prevSelEnd, selEnd) + pad);
+                        RecordDirtySpan(dirtyLo, dirtyHi);
+                    }
+                    else
+                    {
+                        ResetDirtySpan();
+                        _watchedDocLength = docLen;
+                        _lastScannedDocLength = docLen;
+                        _hasPendingTypingChanges = false;
+                        _hasPendingMultiParagraphPaste = false;
+                        UserTypingDetected?.Invoke();
+                        ScheduleActiveParagraphScan();
+                        return;
+                    }
 
                     _watchedDocLength = docLen;
                     _lastScannedDocLength = docLen;
@@ -838,6 +877,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     pendingSnapshots.Add(new ParagraphSnapshot
                     {
                         StoryType = st,
+                        StorySlotId = 0,
+                        StoryContainerRange = null,
                         StoryName = GetFriendlyStoryName(st, inTable),
                         ParagraphIndex = i,
                         ParagraphRange = paraRange,
@@ -883,7 +924,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                                 }
                                 if (!_lastParagraphTextByStart.TryGetValue(doc, out var doneMap))
                                 {
-                                    doneMap = new Dictionary<int, string>();
+                                    doneMap = new Dictionary<long, string>();
                                     _lastParagraphTextByStart[doc] = doneMap;
                                 }
 
@@ -893,6 +934,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                                     {
                                         if (existing.IsResolved)
                                             return true;
+                                        if (existing.StorySlotId != 0)
+                                            return false;
                                         if (existing.CachedEnd < actualWindowStart - 640 || existing.CachedStart > actualWindowEnd + 640)
                                             return false;
 
@@ -926,15 +969,21 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                                             insideSharedBatch: true,
                                             applyVisualUnderline: true,
                                             preloadedCleanText: snap.RawText,
-                                            storyType: snap.StoryType);
+                                            storyType: snap.StoryType,
+                                            storySlotId: snap.StorySlotId,
+                                            storyContainerRange: snap.StoryContainerRange);
 
-                                        doneMap[snap.StartOffset] = snap.RawText;
+                                        doneMap[MakeSlotOffsetKey(snap.StorySlotId, snap.StartOffset)] = snap.RawText;
                                         if (bound.Count > 0)
                                             docList.AddRange(bound);
                                     }
                                 });
 
-                                docList.Sort((a, b) => a.CachedStart.CompareTo(b.CachedStart));
+                                docList.Sort((a, b) =>
+                                {
+                                    int sc = a.StorySlotId.CompareTo(b.StorySlotId);
+                                    return sc != 0 ? sc : a.CachedStart.CompareTo(b.CachedStart);
+                                });
                                 _documentQualityCache.Remove(doc);
                                 ScanCompleted?.Invoke(doc, docList.Where(i => !i.IsResolved).ToList());
                             }
@@ -989,7 +1038,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 var pendingSnapshots = new List<ParagraphSnapshot>(2);
                 if (!_lastParagraphTextByStart.TryGetValue(doc, out var updateMap))
                 {
-                    updateMap = new Dictionary<int, string>();
+                    updateMap = new Dictionary<long, string>();
                     _lastParagraphTextByStart[doc] = updateMap;
                 }
 
@@ -1004,25 +1053,29 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     if (string.IsNullOrWhiteSpace(rawText))
                         continue;
 
-                    if (updateMap.TryGetValue(startOffset, out string? prevText) &&
+                    // O(1) pure C# table cell detection (\a cell marker) — avoids layout-forcing wdWithInTable COM call!
+                    bool inTable = rawBeforeClean.IndexOf('\a') >= 0;
+                    Word.WdStoryType st = Word.WdStoryType.wdMainTextStory;
+                    try { st = paraRange.StoryType; } catch { }
+                    (int slotId, Word.Range? containerRange, bool isShapeContainer) = ResolveLiveParagraphStorySlot(doc, paraRange, st);
+                    long slotKey = MakeSlotOffsetKey(slotId, startOffset);
+
+                    if (updateMap.TryGetValue(slotKey, out string? prevText) &&
                         string.Equals(prevText, rawText, StringComparison.Ordinal))
                     {
                         bool expectsUnderlines = ContainsMyanmarOrZawgyiCandidate(rawText) && _engine.CheckText(rawText).Count > 0;
-                        if (!expectsUnderlines || _underlineManager.HasLiveWavyUnderlineInSpan(doc, startOffset, endOffset))
+                        if (!expectsUnderlines || _underlineManager.HasLiveWavyUnderlineInSpan(doc, startOffset, endOffset, slotId))
                         {
                             continue;
                         }
                     }
 
-                    // O(1) pure C# table cell detection (\a cell marker) — avoids layout-forcing wdWithInTable COM call!
-                    bool inTable = rawBeforeClean.IndexOf('\a') >= 0;
-                    Word.WdStoryType st = Word.WdStoryType.wdMainTextStory;
-                    try { st = paraRange.StoryType; } catch { }
-
                     pendingSnapshots.Add(new ParagraphSnapshot
                     {
                         StoryType = st,
-                        StoryName = GetFriendlyStoryName(st, inTable),
+                        StorySlotId = slotId,
+                        StoryContainerRange = containerRange,
+                        StoryName = GetFriendlyStoryName(st, inTable, isShapeContainer),
                         ParagraphIndex = 1,
                         ParagraphRange = paraRange,
                         StartOffset = startOffset,
@@ -1080,7 +1133,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                             }
                             if (!_lastParagraphTextByStart.TryGetValue(doc, out var doneMap))
                             {
-                                doneMap = new Dictionary<int, string>();
+                                doneMap = new Dictionary<long, string>();
                                 _lastParagraphTextByStart[doc] = doneMap;
                             }
 
@@ -1096,9 +1149,10 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                                 bool hasCachedNear = docList.Any(existing =>
                                     !existing.IsResolved &&
+                                    existing.StorySlotId == snap.StorySlotId &&
                                     existing.CachedEnd >= snap.StartOffset - DriftWindow &&
                                     existing.CachedStart <= snap.EndOffset + DriftWindow);
-                                if (hasCachedNear || _underlineManager.HasLiveWavyUnderlineInSpan(doc, snap.StartOffset, snap.EndOffset))
+                                if (hasCachedNear || _underlineManager.HasLiveWavyUnderlineInSpan(doc, snap.StartOffset, snap.EndOffset, snap.StorySlotId))
                                 {
                                     needsComWrite = true;
                                     break;
@@ -1125,10 +1179,11 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                             {
                                 foreach (var (snap, _, deferredIncomplete) in analyzed)
                                 {
+                                    long slotKey = MakeSlotOffsetKey(snap.StorySlotId, snap.StartOffset);
                                     if (!deferredIncomplete)
-                                        doneMap[snap.StartOffset] = snap.RawText;
+                                        doneMap[slotKey] = snap.RawText;
                                     else
-                                        doneMap.Remove(snap.StartOffset);
+                                        doneMap.Remove(slotKey);
                                 }
                                 _documentQualityCache.Remove(doc);
                                 return;
@@ -1150,17 +1205,22 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                                         insideSharedBatch: true,
                                         applyVisualUnderline: true,
                                         preloadedCleanText: snap.RawText,
-                                        storyType: snap.StoryType);
+                                        storyType: snap.StoryType,
+                                        storySlotId: snap.StorySlotId,
+                                        storyContainerRange: snap.StoryContainerRange);
 
+                                    long slotKey = MakeSlotOffsetKey(snap.StorySlotId, snap.StartOffset);
                                     if (!deferredIncomplete)
-                                        doneMap[snap.StartOffset] = snap.RawText;
+                                        doneMap[slotKey] = snap.RawText;
                                     else
-                                        doneMap.Remove(snap.StartOffset);
+                                        doneMap.Remove(slotKey);
 
                                     docList.RemoveAll(existing =>
                                     {
                                         if (existing.IsResolved)
                                             return true;
+                                        if (existing.StorySlotId != snap.StorySlotId)
+                                            return false;
                                         if (existing.CachedEnd < snap.StartOffset - DriftWindow ||
                                             existing.CachedStart > snap.EndOffset + DriftWindow)
                                         {
@@ -1295,7 +1355,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 catch { }
 
                 var partialSnapshots = new List<ParagraphSnapshot>(Math.Min(pCount, budgets.MaxAutoOpenWordParagraphs));
-                if (!TryCollectPlainStoryFast(windowRange, Word.WdStoryType.wdMainTextStory, partialSnapshots))
+                if (!TryCollectPlainStoryFast(windowRange, Word.WdStoryType.wdMainTextStory, storySlotId: 0, storyContainerRange: null, isShapeOverride: false, partialSnapshots))
                 {
                     int limit = Math.Min(pCount, budgets.MaxAutoOpenWordParagraphs);
                     for (int i = 1; i <= limit; i++)
@@ -1310,6 +1370,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         partialSnapshots.Add(new ParagraphSnapshot
                         {
                             StoryType = Word.WdStoryType.wdMainTextStory,
+                            StorySlotId = 0,
+                            StoryContainerRange = null,
                             StoryName = GetFriendlyStoryName(Word.WdStoryType.wdMainTextStory, inTbl),
                             ParagraphIndex = i,
                             ParagraphRange = pr,
@@ -1325,7 +1387,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     partialSnapshots.RemoveRange(budgets.MaxAutoOpenWordParagraphs, partialSnapshots.Count - budgets.MaxAutoOpenWordParagraphs);
                 }
 
-                LaunchBackgroundNlpAndUnderline(doc, generation, partialSnapshots, caretOffset, wasPartialAutoScan: true, docCharLen);
+                LaunchBackgroundNlpAndUnderline(doc, generation, partialSnapshots, new List<(int, Word.WdStoryType, Word.Range)>(0), caretOffset, wasPartialAutoScan: true, docCharLen);
                 return true;
             }
             catch
@@ -1374,7 +1436,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     {
                         try { docChars = job.Document.Content.End; } catch { }
                     }
-                    LaunchBackgroundNlpAndUnderline(job.Document, job.Generation, job.Snapshots, job.CaretFocusOffset, wasPartialAutoScan: false, docChars);
+                    LaunchBackgroundNlpAndUnderline(job.Document, job.Generation, job.Snapshots, job.CollectedContainers, job.CaretFocusOffset, wasPartialAutoScan: false, docChars);
                 }
                 else if (job.CurrentParagraphCount > 0)
                 {
@@ -1390,12 +1452,50 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             }
         }
 
+        private static bool IsDuplicateContainerRange(List<Word.Range> visited, Word.Range candidate)
+        {
+            for (int i = 0; i < visited.Count; i++)
+            {
+                try
+                {
+                    if (candidate.IsEqual(visited[i]))
+                        return true;
+                }
+                catch { }
+            }
+            return false;
+        }
+
+        private static int RegisterStoryContainerSlot(PendingSnapshotCollectionJob job, Word.WdStoryType storyType, Word.Range containerRange)
+        {
+            if (storyType == Word.WdStoryType.wdMainTextStory && !job.CurrentContainerIsShape)
+                return 0;
+
+            job.VisitedContainerRanges.Add(containerRange);
+            int slotId;
+            if (storyType == Word.WdStoryType.wdFootnotesStory && !job.CurrentContainerIsShape)
+            {
+                slotId = 1;
+            }
+            else if (storyType == Word.WdStoryType.wdEndnotesStory && !job.CurrentContainerIsShape)
+            {
+                slotId = 2;
+            }
+            else
+            {
+                slotId = job.NextDynamicSlotId++;
+            }
+
+            job.CollectedContainers.Add((slotId, storyType, containerRange));
+            return slotId;
+        }
+
         private static void AdvanceNextStoryRangeSafe(PendingSnapshotCollectionJob job, Word.WdStoryType storyType)
         {
             job.CurrentParagraphs = null;
             job.NextParagraphOneBased = 1;
 
-            if (job.CurrentStoryRange == null || job.StoryHopCount >= MaxStoryChainHops)
+            if (job.CurrentContainerIsShape || job.CurrentStoryRange == null || job.StoryHopCount >= MaxStoryChainHops)
             {
                 job.CurrentStoryRange = null;
                 return;
@@ -1411,14 +1511,14 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 }
 
                 job.StoryHopCount++;
-                long key = (((long)(int)storyType) << 48) ^ (((long)(uint)next.Start) << 24) ^ (uint)next.End;
-                if (!job.VisitedStoryKeys.Add(key))
+                if (IsDuplicateContainerRange(job.VisitedContainerRanges, next))
                 {
                     job.CurrentStoryRange = null;
                     return;
                 }
 
                 job.CurrentStoryRange = next;
+                job.CurrentStorySlotId = RegisterStoryContainerSlot(job, storyType, next);
             }
             catch
             {
@@ -1426,13 +1526,142 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             }
         }
 
+        private static void CollectShapeTextRangesRecursive(Word.Shape shape, List<Word.Range> visited, List<Word.Range> output, int depth)
+        {
+            if (shape == null || depth > 5 || output.Count >= MaxShapesPerFullScan)
+                return;
+
+            try
+            {
+                // msoGroup == 6, msoCanvas == 20 in Microsoft.Office.Core.MsoShapeType
+                int sType = (int)shape.Type;
+                if (sType == 6)
+                {
+                    Word.GroupShapes groupItems = shape.GroupItems;
+                    int gCount = groupItems.Count;
+                    for (int g = 1; g <= gCount && output.Count < MaxShapesPerFullScan; g++)
+                    {
+                        try
+                        {
+                            CollectShapeTextRangesRecursive(groupItems[g], visited, output, depth + 1);
+                        }
+                        catch { }
+                    }
+                    return;
+                }
+                if (sType == 20)
+                {
+                    Word.CanvasShapes canvasItems = shape.CanvasItems;
+                    int cCount = canvasItems.Count;
+                    for (int c = 1; c <= cCount && output.Count < MaxShapesPerFullScan; c++)
+                    {
+                        try
+                        {
+                            CollectShapeTextRangesRecursive(canvasItems[c], visited, output, depth + 1);
+                        }
+                        catch { }
+                    }
+                    return;
+                }
+            }
+            catch { }
+
+            try
+            {
+                Word.TextFrame tf = shape.TextFrame;
+                if (tf != null && tf.HasText != 0)
+                {
+                    Word.Range tr = tf.TextRange;
+                    if (tr != null && !IsDuplicateContainerRange(visited, tr) && !IsDuplicateContainerRange(output, tr))
+                    {
+                        output.Add(tr);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static void EnumerateModernDrawingShapesOnce(PendingSnapshotCollectionJob job)
+        {
+            job.ShapesEnumerated = true;
+            // Skip enumerating floating DrawingML shapes during automatic DocumentOpen if Eco Mode is active on a medium-large doc
+            if (job.AllowSmartPartialAutoScan && job.TotalDocumentChars >= 12_000)
+                return;
+
+            try
+            {
+                Word.Shapes bodyShapes = job.Document.Shapes;
+                int sCount = bodyShapes.Count;
+                for (int i = 1; i <= sCount && job.PendingShapeTextRanges.Count < MaxShapesPerFullScan; i++)
+                {
+                    try
+                    {
+                        CollectShapeTextRangesRecursive(bodyShapes[i], job.VisitedContainerRanges, job.PendingShapeTextRanges, 0);
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+
+            try
+            {
+                Word.Sections sections = job.Document.Sections;
+                int secCount = Math.Min(sections.Count, 16);
+                Word.WdHeaderFooterIndex[] hfIndices =
+                {
+                    Word.WdHeaderFooterIndex.wdHeaderFooterPrimary,
+                    Word.WdHeaderFooterIndex.wdHeaderFooterFirstPage,
+                    Word.WdHeaderFooterIndex.wdHeaderFooterEvenPages
+                };
+
+                for (int sec = 1; sec <= secCount && job.PendingShapeTextRanges.Count < MaxShapesPerFullScan; sec++)
+                {
+                    Word.Section section = sections[sec];
+                    for (int h = 0; h < hfIndices.Length && job.PendingShapeTextRanges.Count < MaxShapesPerFullScan; h++)
+                    {
+                        try
+                        {
+                            Word.HeaderFooter hdr = section.Headers[hfIndices[h]];
+                            if (hdr != null && hdr.Exists)
+                            {
+                                Word.Shapes hShapes = hdr.Shapes;
+                                int hc = hShapes.Count;
+                                for (int k = 1; k <= hc && job.PendingShapeTextRanges.Count < MaxShapesPerFullScan; k++)
+                                {
+                                    try { CollectShapeTextRangesRecursive(hShapes[k], job.VisitedContainerRanges, job.PendingShapeTextRanges, 0); } catch { }
+                                }
+                            }
+                        }
+                        catch { }
+
+                        if (job.PendingShapeTextRanges.Count >= MaxShapesPerFullScan)
+                            break;
+
+                        try
+                        {
+                            Word.HeaderFooter ftr = section.Footers[hfIndices[h]];
+                            if (ftr != null && ftr.Exists)
+                            {
+                                Word.Shapes fShapes = ftr.Shapes;
+                                int fc = fShapes.Count;
+                                for (int k = 1; k <= fc && job.PendingShapeTextRanges.Count < MaxShapesPerFullScan; k++)
+                                {
+                                    try { CollectShapeTextRangesRecursive(fShapes[k], job.VisitedContainerRanges, job.PendingShapeTextRanges, 0); } catch { }
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+        }
+
         /// <summary>
-        /// Collects paragraph snapshots within a strict wall-clock millisecond slice (<paramref name="budgetMs"/>).
+        /// Collects paragraph snapshots within a strict wall-clock millisecond slice (<paramref name="budgetMs"/>)
+        /// across Main Body, Tables, Footnotes, Endnotes, All Headers/Footers, Legacy TextFrames, and Modern DrawingML Shapes &amp; Grouped Shapes.
         /// Strictly 100% READ-ONLY (never mutates <c>NoProofing</c>, <c>Font</c>, or <c>Saved</c> during collection!).
-        /// Uses a 1-call whole-story read (<c>storyRange.Text</c>) whenever a story has 1:1 plain-text offsets,
-        /// skips non-Myanmar header/footer/shape stories in 1 COM read without enumerating floating-anchor <c>Paragraphs</c>,
-        /// and falls back to time-sliced chunked paragraph indexing without ever calling layout-blocking <c>wdWithInTable</c>.
-        /// Returns <c>true</c> when all stories are collected.
+        /// Returns <c>true</c> when all stories and shapes are collected.
         /// </summary>
         private bool ProcessSnapshotCollectionSlice(PendingSnapshotCollectionJob job, int budgetMs)
         {
@@ -1440,6 +1669,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
             while (job.StoryTypeIndex < TargetStoryTypes.Length)
             {
+                job.CurrentContainerIsShape = false;
                 Word.WdStoryType storyType = TargetStoryTypes[job.StoryTypeIndex];
 
                 if (job.CurrentStoryRange == null)
@@ -1463,101 +1693,143 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     job.StoryHopCount = 0;
                     job.CurrentParagraphs = null;
                     job.NextParagraphOneBased = 1;
-                    try
-                    {
-                        long firstKey = (((long)(int)storyType) << 48) ^ (((long)(uint)job.CurrentStoryRange.Start) << 24) ^ (uint)job.CurrentStoryRange.End;
-                        job.VisitedStoryKeys.Add(firstKey);
-                    }
-                    catch { }
+                    job.CurrentStorySlotId = RegisterStoryContainerSlot(job, storyType, job.CurrentStoryRange);
                 }
 
-                while (job.CurrentStoryRange != null)
+                if (!DrainCurrentStoryContainerSlice(job, storyType, sw, budgetMs))
+                    return false;
+
+                job.StoryTypeIndex++;
+            }
+
+            // Phase 2: Modern DrawingML Shapes, Callouts, Banners, and Recursively Grouped Shapes (deduplicated against wdTextFrameStory)
+            if (!job.ShapesEnumerated)
+            {
+                EnumerateModernDrawingShapesOnce(job);
+                if (sw.ElapsedMilliseconds >= budgetMs && job.PendingShapeTextRanges.Count > 0)
+                    return false;
+            }
+
+            while (job.PendingShapeIndex < job.PendingShapeTextRanges.Count)
+            {
+                job.CurrentContainerIsShape = true;
+                if (job.CurrentStoryRange == null)
                 {
-                    // Tier 1: Ultra-Fast Whole-Story Single-Read Path (zero per-paragraph COM calls!)
-                    if (job.CurrentParagraphs == null)
+                    Word.Range shapeRange = job.PendingShapeTextRanges[job.PendingShapeIndex];
+                    Word.WdStoryType st = Word.WdStoryType.wdTextFrameStory;
+                    try { st = shapeRange.StoryType; } catch { }
+                    job.CurrentStoryRange = shapeRange;
+                    job.CurrentParagraphs = null;
+                    job.NextParagraphOneBased = 1;
+                    job.CurrentStorySlotId = RegisterStoryContainerSlot(job, st, shapeRange);
+                }
+
+                Word.WdStoryType activeShapeStory = Word.WdStoryType.wdTextFrameStory;
+                try { activeShapeStory = job.CurrentStoryRange.StoryType; } catch { }
+
+                if (!DrainCurrentStoryContainerSlice(job, activeShapeStory, sw, budgetMs))
+                    return false;
+
+                job.PendingShapeIndex++;
+            }
+
+            return true;
+        }
+
+        private bool DrainCurrentStoryContainerSlice(
+            PendingSnapshotCollectionJob job,
+            Word.WdStoryType storyType,
+            Stopwatch sw,
+            int budgetMs)
+        {
+            while (job.CurrentStoryRange != null)
+            {
+                Word.Range? containerRef = job.CurrentStorySlotId == 0 ? null : job.CurrentStoryRange;
+
+                // Tier 1: Ultra-Fast Whole-Story Single-Read Path (zero per-paragraph COM calls!)
+                if (job.CurrentParagraphs == null)
+                {
+                    if (TryCollectPlainStoryFast(job.CurrentStoryRange, storyType, job.CurrentStorySlotId, containerRef, job.CurrentContainerIsShape, job.Snapshots))
                     {
-                        if (TryCollectPlainStoryFast(job.CurrentStoryRange, storyType, job.Snapshots))
+                        AdvanceNextStoryRangeSafe(job, storyType);
+
+                        if (sw.ElapsedMilliseconds >= budgetMs)
+                            return false;
+                        continue;
+                    }
+
+                    // Whole-story non-Myanmar fast skip before Tier 2:
+                    // Avoids enumerating header/footer/shape Paragraphs when containers hold floating graphics or English text!
+                    try
+                    {
+                        string storyProbe = job.CurrentStoryRange.Text ?? string.Empty;
+                        if (string.IsNullOrWhiteSpace(storyProbe) ||
+                            (!ContainsMyanmarOrZawgyiCandidate(storyProbe) &&
+                             !_underlineManager.HasEverAppliedWavyUnderlines(job.Document)))
                         {
                             AdvanceNextStoryRangeSafe(job, storyType);
-
                             if (sw.ElapsedMilliseconds >= budgetMs)
                                 return false;
                             continue;
                         }
-
-                        // Whole-story non-Myanmar fast skip before Tier 2:
-                        // Avoids enumerating header/footer Paragraphs when headers contain floating <wp:anchor> graphics or English hyperlinks!
-                        try
-                        {
-                            string storyProbe = job.CurrentStoryRange.Text ?? string.Empty;
-                            if (string.IsNullOrWhiteSpace(storyProbe) ||
-                                (!ContainsMyanmarOrZawgyiCandidate(storyProbe) &&
-                                 !_underlineManager.HasEverAppliedWavyUnderlines(job.Document)))
-                            {
-                                AdvanceNextStoryRangeSafe(job, storyType);
-                                if (sw.ElapsedMilliseconds >= budgetMs)
-                                    return false;
-                                continue;
-                            }
-                        }
-                        catch { }
-
-                        // Tier 2: Story contains Myanmar text plus Tables, Hyperlinks, Fields, Footnotes, or Shapes — prepare chunked indexing
-                        try
-                        {
-                            job.CurrentParagraphs = job.CurrentStoryRange.Paragraphs;
-                            job.CurrentParagraphCount = job.CurrentParagraphs.Count;
-                            job.NextParagraphOneBased = 1;
-                        }
-                        catch
-                        {
-                            AdvanceNextStoryRangeSafe(job, storyType);
-                            continue;
-                        }
                     }
+                    catch { }
 
-                    Word.Paragraphs paras = job.CurrentParagraphs!;
-                    while (job.NextParagraphOneBased <= job.CurrentParagraphCount)
+                    // Tier 2: Story contains Myanmar text plus Tables, Hyperlinks, Fields, Footnotes, or Shapes — prepare chunked indexing
+                    try
                     {
-                        int pIndex = job.NextParagraphOneBased++;
-                        try
-                        {
-                            Word.Range r = paras[pIndex].Range;
-                            string rawBeforeClean = r.Text ?? string.Empty;
-                            string raw = CleanWordControlChars(rawBeforeClean);
-                            if (!string.IsNullOrWhiteSpace(raw))
-                            {
-                                bool hasMyanmar = ContainsMyanmarOrZawgyiCandidate(raw);
-                                bool inTable = rawBeforeClean.IndexOf('\a') >= 0;
-
-                                job.Snapshots.Add(new ParagraphSnapshot
-                                {
-                                    StoryType = storyType,
-                                    StoryName = GetFriendlyStoryName(storyType, inTable),
-                                    ParagraphIndex = pIndex,
-                                    ParagraphRange = null, // Never pin thousands of live COM Range RCWs across threads!
-                                    StartOffset = r.Start,
-                                    EndOffset = r.End,
-                                    RawText = raw,
-                                    NeedsNlpCheck = hasMyanmar
-                                });
-                            }
-                        }
-                        catch { }
-
-                        if ((pIndex & 7) == 0 && sw.ElapsedMilliseconds >= budgetMs)
-                        {
-                            return false;
-                        }
+                        job.CurrentParagraphs = job.CurrentStoryRange.Paragraphs;
+                        job.CurrentParagraphCount = job.CurrentParagraphs.Count;
+                        job.NextParagraphOneBased = 1;
                     }
-
-                    AdvanceNextStoryRangeSafe(job, storyType);
-
-                    if (sw.ElapsedMilliseconds >= budgetMs)
-                        return false;
+                    catch
+                    {
+                        AdvanceNextStoryRangeSafe(job, storyType);
+                        continue;
+                    }
                 }
 
-                job.StoryTypeIndex++;
+                Word.Paragraphs paras = job.CurrentParagraphs!;
+                while (job.NextParagraphOneBased <= job.CurrentParagraphCount)
+                {
+                    int pIndex = job.NextParagraphOneBased++;
+                    try
+                    {
+                        Word.Range r = paras[pIndex].Range;
+                        string rawBeforeClean = r.Text ?? string.Empty;
+                        string raw = CleanWordControlChars(rawBeforeClean);
+                        if (!string.IsNullOrWhiteSpace(raw))
+                        {
+                            bool hasMyanmar = ContainsMyanmarOrZawgyiCandidate(raw);
+                            bool inTable = rawBeforeClean.IndexOf('\a') >= 0;
+
+                            job.Snapshots.Add(new ParagraphSnapshot
+                            {
+                                StoryType = storyType,
+                                StorySlotId = job.CurrentStorySlotId,
+                                StoryContainerRange = containerRef,
+                                StoryName = GetFriendlyStoryName(storyType, inTable, job.CurrentContainerIsShape),
+                                ParagraphIndex = pIndex,
+                                ParagraphRange = null, // Never pin thousands of live COM Range RCWs across threads!
+                                StartOffset = r.Start,
+                                EndOffset = r.End,
+                                RawText = raw,
+                                NeedsNlpCheck = hasMyanmar
+                            });
+                        }
+                    }
+                    catch { }
+
+                    if ((pIndex & 7) == 0 && sw.ElapsedMilliseconds >= budgetMs)
+                    {
+                        return false;
+                    }
+                }
+
+                AdvanceNextStoryRangeSafe(job, storyType);
+
+                if (sw.ElapsedMilliseconds >= budgetMs)
+                    return false;
             }
 
             return true;
@@ -1566,6 +1838,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         private static bool TryCollectPlainStoryFast(
             Word.Range storyRange,
             Word.WdStoryType storyType,
+            int storySlotId,
+            Word.Range? storyContainerRange,
+            bool isShapeOverride,
             List<ParagraphSnapshot> output)
         {
             try
@@ -1590,7 +1865,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 if ((storyEnd - storyStart) != fullText.Length || fullText.IndexOf('\a') >= 0)
                     return false;
 
-                string storyLabel = GetFriendlyStoryName(storyType, inTable: false);
+                string storyLabel = GetFriendlyStoryName(storyType, inTable: false, isShapeOverride);
                 int pIndex = 1;
                 int segStart = 0;
                 int len = fullText.Length;
@@ -1600,7 +1875,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     if (fullText[i] == '\r')
                     {
                         int segEndExclusive = i + 1; // Include trailing '\r' to match Word Paragraph.Range.End
-                        AppendFastParagraphSlice(fullText, storyStart, segStart, segEndExclusive, storyType, storyLabel, pIndex, output);
+                        AppendFastParagraphSlice(fullText, storyStart, segStart, segEndExclusive, storyType, storySlotId, storyContainerRange, storyLabel, pIndex, output);
                         pIndex++;
                         segStart = segEndExclusive;
                     }
@@ -1608,7 +1883,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                 if (segStart < len)
                 {
-                    AppendFastParagraphSlice(fullText, storyStart, segStart, len, storyType, storyLabel, pIndex, output);
+                    AppendFastParagraphSlice(fullText, storyStart, segStart, len, storyType, storySlotId, storyContainerRange, storyLabel, pIndex, output);
                 }
 
                 return true;
@@ -1625,6 +1900,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             int sliceStart,
             int sliceEndExclusive,
             Word.WdStoryType storyType,
+            int storySlotId,
+            Word.Range? storyContainerRange,
             string storyLabel,
             int paragraphIndex,
             List<ParagraphSnapshot> output)
@@ -1671,6 +1948,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             output.Add(new ParagraphSnapshot
             {
                 StoryType = storyType,
+                StorySlotId = storySlotId,
+                StoryContainerRange = storyContainerRange,
                 StoryName = storyLabel,
                 ParagraphIndex = paragraphIndex,
                 ParagraphRange = null,
@@ -1726,6 +2005,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             Word.Document doc,
             int generation,
             List<ParagraphSnapshot> snapshots,
+            List<(int SlotId, Word.WdStoryType StoryType, Word.Range ContainerRange)> collectedContainers,
             int caretFocusOffset,
             bool wasPartialAutoScan,
             int totalDocChars)
@@ -1963,12 +2243,20 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                             ProcessingOrder = order,
                             BoundByParagraph = new List<DocumentProofingItem>?[count],
                             QualityReport = qualityReport,
-                            DoneMap = new Dictionary<int, string>(count),
+                            DoneMap = new Dictionary<long, string>(count),
+                            CollectedContainers = collectedContainers,
                             DocHadZeroUnderlinesAtStart = docHadZeroUnderlines,
                             VisualUnderlineCap = underlineCap,
                             OutcomeMetadata = outcomeMeta,
                             NextOrderCursor = 0
                         };
+
+                        for (int ci = 0; ci < collectedContainers.Count; ci++)
+                        {
+                            var c = collectedContainers[ci];
+                            if (c.ContainerRange != null)
+                                job.StoryBaseRangesBySlot[c.SlotId] = c.ContainerRange;
+                        }
 
                         if (analyzed.Count <= ImmediateUnderlineParagraphThreshold)
                         {
@@ -2044,7 +2332,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         private bool TrySkipZeroComParagraph(PendingFullUnderlineJob job, int paraIdx, ParagraphSnapshot snap, List<ProofingIssue> issues, int underlineCap)
         {
             bool hasTrackedInPara = !job.DocHadZeroUnderlinesAtStart &&
-                                    _underlineManager.HasTrackedInSpanForDocument(job.Document, snap.StartOffset, snap.EndOffset);
+                                    _underlineManager.HasTrackedInSpanForDocument(job.Document, snap.StartOffset, snap.EndOffset, snap.StorySlotId);
 
             // Fast zero-COM skip for clean paragraphs whenever no prior add-in wavy underline exists in this paragraph!
             if (issues.Count == 0 && !hasTrackedInPara)
@@ -2064,7 +2352,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     snap.StartOffset,
                     snap.EndOffset,
                     snap.RawText,
-                    issues);
+                    issues,
+                    snap.StorySlotId,
+                    snap.StoryContainerRange);
                 return true;
             }
 
@@ -2088,7 +2378,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 var (peekSnap, peekIssues) = job.Analyzed[peekParaIdx];
                 if (TrySkipZeroComParagraph(job, peekParaIdx, peekSnap, peekIssues, underlineCap))
                 {
-                    job.DoneMap[peekSnap.StartOffset] = peekSnap.RawText;
+                    job.DoneMap[MakeSlotOffsetKey(peekSnap.StorySlotId, peekSnap.StartOffset)] = peekSnap.RawText;
                     job.NextOrderCursor++;
                     continue;
                 }
@@ -2110,7 +2400,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                     int paraIdx = job.ProcessingOrder[job.NextOrderCursor];
                     var (snap, issues) = job.Analyzed[paraIdx];
-                    job.DoneMap[snap.StartOffset] = snap.RawText;
+                    job.DoneMap[MakeSlotOffsetKey(snap.StorySlotId, snap.StartOffset)] = snap.RawText;
 
                     if (TrySkipZeroComParagraph(job, paraIdx, snap, issues, underlineCap))
                     {
@@ -2118,7 +2408,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         continue;
                     }
 
-                    Word.Range? paraRange = snap.ParagraphRange ?? TrySliceStoryRange(job, snap.StoryType, snap.StartOffset, snap.EndOffset);
+                    Word.Range? paraRange = snap.ParagraphRange ?? TrySliceStoryRange(job, snap);
                     if (paraRange != null)
                     {
                         bool canUnderline = _underlineManager.GetTrackedCountForDocument(job.Document) < underlineCap;
@@ -2134,7 +2424,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                             storyType: snap.StoryType,
                             knownDocHasNoUnderlines: job.DocHadZeroUnderlinesAtStart ? true : (bool?)null,
                             maxLiveUnderlines: underlineCap,
-                            allowResidualWavyScrub: false);
+                            allowResidualWavyScrub: false,
+                            storySlotId: snap.StorySlotId,
+                            storyContainerRange: snap.StoryContainerRange);
 
                         if (bound.Count > 0)
                         {
@@ -2153,23 +2445,22 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
         private static Word.Range? TrySliceStoryRange(
             PendingFullUnderlineJob job,
-            Word.WdStoryType storyType,
-            int startOffset,
-            int endOffset)
+            ParagraphSnapshot snap)
         {
-            if (endOffset <= startOffset)
+            if (snap.EndOffset <= snap.StartOffset)
                 return null;
 
             try
             {
-                if (!job.StoryBaseRanges.TryGetValue(storyType, out var baseRange))
+                Word.Range? baseRange = snap.StoryContainerRange;
+                if (baseRange == null && !job.StoryBaseRangesBySlot.TryGetValue(snap.StorySlotId, out baseRange))
                 {
-                    baseRange = storyType == Word.WdStoryType.wdMainTextStory
+                    baseRange = snap.StorySlotId == 0 && snap.StoryType == Word.WdStoryType.wdMainTextStory
                         ? job.Document.Content
-                        : job.Document.StoryRanges[storyType];
+                        : job.Document.StoryRanges[snap.StoryType];
                     if (baseRange != null)
                     {
-                        job.StoryBaseRanges[storyType] = baseRange;
+                        job.StoryBaseRangesBySlot[snap.StorySlotId] = baseRange;
                     }
                 }
 
@@ -2177,7 +2468,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     return null;
 
                 Word.Range slice = baseRange.Duplicate;
-                slice.SetRange(startOffset, endOffset);
+                slice.SetRange(snap.StartOffset, snap.EndOffset);
                 return slice;
             }
             catch
@@ -2204,10 +2495,88 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             }
 
             _lastParagraphTextByStart[job.Document] = job.DoneMap;
+            if (job.CollectedContainers.Count > 0)
+                _storyContainersByDoc[job.Document] = job.CollectedContainers;
             _documentIssuesCache[job.Document] = orderedBound;
             _documentQualityCache[job.Document] = job.QualityReport;
             _documentScanMeta[job.Document] = job.OutcomeMetadata;
             ScanCompleted?.Invoke(job.Document, orderedBound);
+        }
+
+        private static long MakeSlotOffsetKey(int storySlotId, int startOffset) =>
+            (((long)storySlotId) << 32) | (uint)startOffset;
+
+        private (int SlotId, Word.Range? ContainerRange, bool IsShapeContainer) ResolveLiveParagraphStorySlot(
+            Word.Document doc,
+            Word.Range paraRange,
+            Word.WdStoryType storyType)
+        {
+            if (storyType == Word.WdStoryType.wdMainTextStory)
+            {
+                // Verify whether paraRange actually lives inside a floating Shape whose StoryType reported wdMainTextStory
+                if (_storyContainersByDoc.TryGetValue(doc, out var knownMainCheck))
+                {
+                    for (int i = 0; i < knownMainCheck.Count; i++)
+                    {
+                        var c = knownMainCheck[i];
+                        if (c.SlotId >= 3)
+                        {
+                            try
+                            {
+                                if (paraRange.InRange(c.ContainerRange))
+                                    return (c.SlotId, c.ContainerRange, c.StoryType == Word.WdStoryType.wdTextFrameStory);
+                            }
+                            catch { }
+                        }
+                    }
+                }
+                return (0, null, false);
+            }
+
+            if (storyType == Word.WdStoryType.wdFootnotesStory)
+            {
+                Word.Range? fnRange = null;
+                try { fnRange = doc.StoryRanges[Word.WdStoryType.wdFootnotesStory]; } catch { }
+                return (1, fnRange, false);
+            }
+
+            if (storyType == Word.WdStoryType.wdEndnotesStory)
+            {
+                Word.Range? enRange = null;
+                try { enRange = doc.StoryRanges[Word.WdStoryType.wdEndnotesStory]; } catch { }
+                return (2, enRange, false);
+            }
+
+            if (_storyContainersByDoc.TryGetValue(doc, out var list))
+            {
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var entry = list[i];
+                    try
+                    {
+                        if (paraRange.InRange(entry.ContainerRange))
+                            return (entry.SlotId, entry.ContainerRange, storyType == Word.WdStoryType.wdTextFrameStory);
+                    }
+                    catch { }
+                }
+            }
+            else
+            {
+                list = new List<(int SlotId, Word.WdStoryType StoryType, Word.Range ContainerRange)>(8);
+                _storyContainersByDoc[doc] = list;
+            }
+
+            int nextId = 3;
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (list[i].SlotId >= nextId)
+                    nextId = list[i].SlotId + 1;
+            }
+
+            Word.Range container = paraRange.Duplicate;
+            try { container.WholeStory(); } catch { }
+            list.Add((nextId, storyType, container));
+            return (nextId, container, storyType == Word.WdStoryType.wdTextFrameStory);
         }
 
         private static bool ContainsMyanmarOrZawgyiCandidate(string text)
@@ -2215,19 +2584,29 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             for (int i = 0; i < text.Length; i++)
             {
                 char c = text[i];
-                if ((c >= '\u1000' && c <= '\u109F') || (c >= '\uAA60' && c <= '\uAA7F'))
+                if ((c >= '\u1000' && c <= '\u109F') || (chIsExtendedMyanmar(c)))
                     return true;
             }
             return false;
         }
 
-        private static string GetFriendlyStoryName(Word.WdStoryType storyType, bool inTable)
+        private static bool chIsExtendedMyanmar(char c) => c >= '\uAA60' && c <= '\uAA7F';
+
+        private static string GetFriendlyStoryName(Word.WdStoryType storyType, bool inTable, bool isShapeOverride = false)
         {
             if (inTable)
                 return UiLocalizer.Pick("Table", "ဇယားကွက် (Table)");
+            if (isShapeOverride)
+                return UiLocalizer.Pick("Text Box", "စာသားဘောင် (Text Box)");
 
             switch (storyType)
             {
+                case Word.WdStoryType.wdFootnotesStory:
+                    return UiLocalizer.Pick("Footnote", "အောက်ခြေမှတ်စု (Footnote)");
+                case Word.WdStoryType.wdEndnotesStory:
+                    return UiLocalizer.Pick("Endnote", "စာဆုံးမှတ်စု (Endnote)");
+                case Word.WdStoryType.wdTextFrameStory:
+                    return UiLocalizer.Pick("Text Box", "စာသားဘောင် (Text Box)");
                 case Word.WdStoryType.wdPrimaryHeaderStory:
                 case Word.WdStoryType.wdFirstPageHeaderStory:
                 case Word.WdStoryType.wdEvenPagesHeaderStory:

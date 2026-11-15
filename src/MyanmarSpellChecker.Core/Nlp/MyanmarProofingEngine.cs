@@ -456,6 +456,27 @@ namespace MyanmarSpellChecker.Core.Nlp
             finally { _lexiconRwLock.ExitReadLock(); }
         }
 
+        public string ReconstructBrokenPdfText(string text, out int repairedLineCount)
+        {
+            _lexiconRwLock.EnterReadLock();
+            try { return BrokenPdfCMapReconstructor.Reconstruct(text, _trie, out repairedLineCount); }
+            finally { _lexiconRwLock.ExitReadLock(); }
+        }
+
+        public string ReconstructBrokenPdfConfirmedSpan(string spanText, out bool changed)
+        {
+            _lexiconRwLock.EnterReadLock();
+            try { return BrokenPdfCMapReconstructor.ReconstructConfirmedSpan(spanText, _trie, out changed); }
+            finally { _lexiconRwLock.ExitReadLock(); }
+        }
+
+        public string RepairClipboardOrPastedText(string rawText, out int changedCount)
+        {
+            _lexiconRwLock.EnterReadLock();
+            try { return BrokenPdfCMapReconstructor.RepairClipboardOrPastedText(rawText, _trie, out changedCount); }
+            finally { _lexiconRwLock.ExitReadLock(); }
+        }
+
         public List<DictionaryEntry> LookupBookmarkedEntries(IEnumerable<string> words)
         {
             _lexiconRwLock.EnterReadLock();
@@ -853,23 +874,65 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (string.IsNullOrWhiteSpace(text))
                 return issues;
 
-            // 0. Broken Pyidaungsu / OpenType PDF Font CMap Mojibake Guard (e.g. legacy-exported PDFs with 'ကကီေး', 'ပပည်', 'မ္ှာ', 'သိုို့', 'ဥပရေ')
-            //    Emits a single actionable paragraph-level encoding diagnostic in ~0.01ms instead of 30+ shattered syllable/lookalike false alarms!
+            // 0. Broken Pyidaungsu / OpenType PDF Font CMap Mojibake Guard + Trie/Bigram Reconstructor
+            //    (e.g. legacy-exported PDFs with 'ကကီေး', 'ပပည်ရ ာင်စု', 'မ္ှာ', 'သိုို့', 'ဥပရေ')
+            //    Emits a single paragraph-level diagnostic with a 1-click reconstructed Unicode suggestion (unchecked under Sure Only in Review & Fix).
             if (UnicodeNormalizer.IsBrokenPdfFontCMapText(text))
             {
-                issues.Add(new ProofingIssue
+                int pos = 0;
+                while (pos < text.Length)
                 {
-                    StartIndex = 0,
-                    Length = text.Length,
-                    OriginalText = text,
-                    IssueType = ProofingIssueType.ZawgyiEncodingError,
-                    RequiresReviewBeforeBatchFix = true,
-                    Message = "PDF ဖိုင်မှ ကူးယူရာတွင် စာလုံးပုံစံဇယား (PDF Font ToUnicode CMap) ပျက်စီးနေပါသည် — စာလုံးများ ကျိုးပဲ့ပျောက်ဆုံးနေသဖြင့် မူရင်းယူနီကုဒ်ဖိုင် သို့မဟုတ် OCR စနစ်ဖြင့် ပြန်လည်ထည့်သွင်းပါ။",
-                    GrammaticalReasoning = "မူရင်း PDF ဖိုင်ထုတ်လုပ်စဉ်က စာလုံးပုံစံဇယား (Font ToUnicode CMap) ပျက်စီးနေသောကြောင့် ဝစ္စပေါက် ('း' -> 'ေး')၊ မဗျည်း ('မ' -> 'မ္')၊ သရနှင့် ဗျည်းတွဲများ ('ကြီး' -> 'ကကီေး'၊ 'ပြည်' -> 'ပပည်'၊ 'ဥပဒေ' -> 'ဥပရေ') အက္ခရာကျိုးပဲ့ပျောက်ဆုံးနေပါသည်။ အလိုအလျောက် စာလုံးချင်း အစားထိုးပြင်ဆင်ပါက မူရင်းအနက် လွဲမှားနိုင်သဖြင့် မူရင်းစာမူ သို့မဟုတ် OCR စနစ်ဖြင့် ပြန်လည်ရယူရန် စာပိုဒ်အလိုက် သတိပေးထားခြင်း ဖြစ်ပါသည်။",
-                    AuthoritativeSource = "ပြည်ထောင်စုဖောင့် နှင့် ယူနီကုဒ် စံချိန်စံနှုန်း (PDF ToUnicode CMap Integrity)",
-                    Suggestions = new List<SuggestionCandidate>(0)
-                });
-                return issues;
+                    while (pos < text.Length && (text[pos] <= '\u001F' || char.IsWhiteSpace(text[pos])))
+                        pos++;
+                    if (pos >= text.Length)
+                        break;
+
+                    int segStart = pos;
+                    while (pos < text.Length && text[pos] > '\u001F')
+                        pos++;
+
+                    int segEnd = pos;
+                    while (segEnd > segStart && char.IsWhiteSpace(text[segEnd - 1]))
+                        segEnd--;
+
+                    if (segEnd <= segStart)
+                        continue;
+
+                    string spanText = text.Substring(segStart, segEnd - segStart);
+                    if (!HasAnyMyanmarCodePoint(spanText))
+                        continue;
+
+                    string rebuilt = BrokenPdfCMapReconstructor.ReconstructConfirmedSpan(spanText, _trie, out bool changed);
+                    if (!changed && !UnicodeNormalizer.IsBrokenPdfFontCMapText(spanText))
+                        continue;
+
+                    var pdfSuggestions = new List<SuggestionCandidate>(1);
+                    if (changed && !string.IsNullOrWhiteSpace(rebuilt))
+                    {
+                        pdfSuggestions.Add(new SuggestionCandidate
+                        {
+                            Replacement = rebuilt,
+                            MeaningCue = "ပျက်စီးနေသော PDF စာသားကို ပြည်ထောင်စုယူနီကုဒ် (Pyidaungsu Unicode) သို့ ပြန်လည်တည်ဆောက်မည်",
+                            Score = 98.0
+                        });
+                    }
+
+                    issues.Add(new ProofingIssue
+                    {
+                        StartIndex = segStart,
+                        Length = spanText.Length,
+                        OriginalText = spanText,
+                        IssueType = ProofingIssueType.ZawgyiEncodingError,
+                        RequiresReviewBeforeBatchFix = true,
+                        Message = "PDF ဖိုင်မှ ကူးယူရာတွင် စာလုံးပုံစံဇယား (PDF Font ToUnicode CMap) ပျက်စီးနေပါသည် — ပြန်လည်တည်ဆောက်ထားသော ယူနီကုဒ်စာသားကို စစ်ဆေးအတည်ပြု၍ အစားထိုးနိုင်ပါသည်။",
+                        GrammaticalReasoning = "မူရင်း PDF ဖိုင်ထုတ်လုပ်စဉ်က စာလုံးပုံစံဇယား (Font ToUnicode CMap) ပျက်စီးနေသောကြောင့် ဝစ္စပေါက် ('း' -> 'ေး')၊ မဗျည်း ('မ' -> 'မ္')၊ ပျောက်ဆုံးအက္ခရာများ ('ပြည်ထောင်စု' -> 'ပပည်ရ ာင်စု'၊ 'ကြီး' -> 'ကကီေး'၊ 'ဥပဒေ' -> 'ဥပရေ') အက္ခရာကျိုးပဲ့နေပါသည်။ အဘိဓာန် (၉၆,၀၀၀+) နှင့် စကားလုံးတွဲ (၁၁၀,၀၀၀) တို့ဖြင့် ပြန်လည်တည်ဆောက်ထားပြီး လူပုဂ္ဂိုလ်အမည်များ မလွဲမှားစေရန် စိစစ်အတည်ပြုချက်ဖြင့် ပြင်ဆင်နိုင်ပါသည်။",
+                        AuthoritativeSource = "ပြည်ထောင်စုဖောင့် နှင့် ယူနီကုဒ် စံချိန်စံနှုန်း (PDF ToUnicode CMap Reconstructor)",
+                        Suggestions = pdfSuggestions
+                    });
+                }
+
+                if (issues.Count > 0)
+                    return issues;
             }
 
             // 1. Chunk-Safe Zawgyi-One & Hybrid Residual Glyph Guard (never corrupts surrounding Unicode words!)

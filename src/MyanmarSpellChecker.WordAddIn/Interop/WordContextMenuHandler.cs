@@ -77,7 +77,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 }
 
                 int clickDocPos = sel.Range.Start;
-                DocumentProofingItem? targetItem = FindCachedItemAtCursorPosition(doc, clickDocPos);
+                DocumentProofingItem? targetItem = FindCachedItemAtCursorPosition(doc, sel.Range, clickDocPos);
                 if (targetItem == null)
                 {
                     CloseActivePopup();
@@ -114,7 +114,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     return;
 
                 int caretPos = sel.Range.Start;
-                DocumentProofingItem? targetItem = FindCachedItemAtCursorPosition(doc, caretPos);
+                DocumentProofingItem? targetItem = FindCachedItemAtCursorPosition(doc, sel.Range, caretPos);
                 if (targetItem != null)
                 {
                     _onCursorIssueChanged?.Invoke(targetItem);
@@ -142,7 +142,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     return;
 
                 int clickDocPos = sel.Range.Start;
-                DocumentProofingItem? targetItem = FindCachedItemAtPosition(doc, clickDocPos);
+                DocumentProofingItem? targetItem = FindCachedItemAtPosition(doc, sel.Range, clickDocPos);
 
                 if (targetItem == null)
                 {
@@ -287,16 +287,32 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             }
         }
 
-        private DocumentProofingItem? FindCachedItemAtCursorPosition(Word.Document doc, int caretDocPos)
+        private static bool IsSameStoryContainer(Word.Range selectionRange, Word.WdStoryType selectionStoryType, DocumentProofingItem item)
+        {
+            if (item.StoryType != selectionStoryType)
+                return false;
+            if (item.StorySlotId == 0 && selectionStoryType == Word.WdStoryType.wdMainTextStory)
+                return true;
+            if (item.StoryContainerRange != null)
+            {
+                try { return selectionRange.InRange(item.StoryContainerRange); } catch { return false; }
+            }
+            return true;
+        }
+
+        private DocumentProofingItem? FindCachedItemAtCursorPosition(Word.Document doc, Word.Range selRange, int caretDocPos)
         {
             const int DriftTolerance = 640;
+            Word.WdStoryType selStory = Word.WdStoryType.wdMainTextStory;
+            try { selStory = selRange.StoryType; } catch { }
+
             IReadOnlyList<DocumentProofingItem> cached = _scanner.GetCachedIssuesRaw(doc);
             DocumentProofingItem? rightEdgeFallback = null;
 
             for (int i = 0; i < cached.Count; i++)
             {
                 var item = cached[i];
-                if (item.IsResolved || item.TargetRange == null)
+                if (item.IsResolved || item.TargetRange == null || item.StoryType != selStory)
                     continue;
 
                 // Fast managed integer pre-filter: skip far-away issues without touching COM Range.Start/End on every arrow keystroke!
@@ -315,13 +331,14 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                     // Priority 1: Start boundary ('စား|ပီးပီ', 'မဟုတ်|ပုလေ', 'ဘယ်လို|ကျီးလဲ') or interior syllable boundary ('စားပီး|ပီ')
                     // Essential for Myanmar script where Uniscribe places the caret at syllable-cluster boundaries!
-                    if (caretDocPos >= start && caretDocPos < end)
+                    if (caretDocPos >= start && caretDocPos < end && IsSameStoryContainer(selRange, selStory, item))
                     {
                         return item;
                     }
 
                     // Priority 2: Right edge ('စားပီးပီ|') when not actively typing new text
-                    if (!_scanner.HasPendingTypingChanges && caretDocPos == end && rightEdgeFallback == null)
+                    if (!_scanner.HasPendingTypingChanges && caretDocPos == end && rightEdgeFallback == null &&
+                        IsSameStoryContainer(selRange, selStory, item))
                     {
                         rightEdgeFallback = item;
                     }
@@ -335,14 +352,17 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             return rightEdgeFallback;
         }
 
-        private DocumentProofingItem? FindCachedItemAtPosition(Word.Document doc, int clickDocPos)
+        private DocumentProofingItem? FindCachedItemAtPosition(Word.Document doc, Word.Range selRange, int clickDocPos)
         {
             const int DriftTolerance = 640;
+            Word.WdStoryType selStory = Word.WdStoryType.wdMainTextStory;
+            try { selStory = selRange.StoryType; } catch { }
+
             IReadOnlyList<DocumentProofingItem> cached = _scanner.GetCachedIssuesRaw(doc);
             for (int i = 0; i < cached.Count; i++)
             {
                 var item = cached[i];
-                if (item.IsResolved || item.TargetRange == null)
+                if (item.IsResolved || item.TargetRange == null || item.StoryType != selStory)
                     continue;
 
                 if (item.CachedEnd > 0 &&
@@ -357,7 +377,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     int end = item.TargetRange.End;
                     item.CachedStart = start;
                     item.CachedEnd = end;
-                    if (clickDocPos >= start && clickDocPos <= end)
+                    if (clickDocPos >= start && clickDocPos <= end && IsSameStoryContainer(selRange, selStory, item))
                     {
                         return item;
                     }

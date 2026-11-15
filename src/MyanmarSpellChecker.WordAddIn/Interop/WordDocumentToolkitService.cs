@@ -130,6 +130,308 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             }
         }
 
+        public ToolkitActionSummary RepairBrokenPdfTextInDocument(
+            Word.Application app,
+            Word.Document? doc,
+            MyanmarProofingEngine? engine,
+            bool selectionOnly = false,
+            Action<int, string>? onProgress = null,
+            Func<bool>? isCancelled = null)
+        {
+            if (app == null || doc == null)
+            {
+                return new ToolkitActionSummary
+                {
+                    Success = false,
+                    UserMessage = UiLocalizer.Pick("No active Word document found.", "လက်ရှိဖွင့်ထားသော Word စာတမ်း မတွေ့ရှိပါ။")
+                };
+            }
+
+            Word.UndoRecord? undo = null;
+            bool startedUndo = false;
+            bool prevScreenUpdating = true;
+            int repairedSpans = 0;
+
+            try
+            {
+                try { prevScreenUpdating = app.ScreenUpdating; app.ScreenUpdating = false; } catch { }
+                try
+                {
+                    undo = app.UndoRecord;
+                    if (undo != null && !undo.IsRecordingCustomRecord)
+                    {
+                        undo.StartCustomRecord(UiLocalizer.Pick(
+                            "Repair Garbled PDF Burmese Text",
+                            "PDF စာသားပျက် ပြန်လည်တည်ဆောက်ခြင်း"));
+                        startedUndo = true;
+                    }
+                }
+                catch { }
+
+                if (selectionOnly && app.Selection != null && app.Selection.Range != null &&
+                    app.Selection.Range.Start != app.Selection.Range.End)
+                {
+                    Word.Range selRange = app.Selection.Range;
+                    int selParaCount = 0;
+                    try { selParaCount = selRange.Paragraphs?.Count ?? 0; } catch { }
+
+                    if (selParaCount <= 1)
+                    {
+                        string selRawWithMarkers = selRange.Text ?? string.Empty;
+                        string selRaw = TrimTrailingMarkersString(selRawWithMarkers);
+                        if (!string.IsNullOrWhiteSpace(selRaw) && UnicodeNormalizer.IsBrokenPdfFontCMapText(selRaw))
+                        {
+                            bool applied = TryTransformParagraphSegmentsSafely(
+                                selRange,
+                                selRawWithMarkers,
+                                seg =>
+                                {
+                                    bool chg;
+                                    string reb = engine != null
+                                        ? engine.ReconstructBrokenPdfConfirmedSpan(seg, out chg)
+                                        : BrokenPdfCMapReconstructor.ReconstructConfirmedSpan(seg, null, out chg);
+                                    return (chg, reb);
+                                },
+                                TargetUnicodeFontName);
+                            if (applied)
+                                repairedSpans++;
+                        }
+                    }
+                    else
+                    {
+                        repairedSpans += RepairBrokenPdfInParagraphs(selRange.Paragraphs, engine, onProgress, isCancelled);
+                    }
+                }
+                else
+                {
+                    foreach (Word.Range story in EnumerateDocumentStories(doc))
+                    {
+                        if (isCancelled != null && isCancelled())
+                            break;
+
+                        try
+                        {
+                            string storyTxt = story.Text ?? string.Empty;
+                            if (!UnicodeNormalizer.IsBrokenPdfFontCMapText(storyTxt))
+                                continue;
+                        }
+                        catch { }
+
+                        repairedSpans += RepairBrokenPdfInParagraphs(story.Paragraphs, engine, onProgress, isCancelled);
+                    }
+                }
+
+                return new ToolkitActionSummary
+                {
+                    Success = true,
+                    ChangedCount = repairedSpans,
+                    UserMessage = repairedSpans > 0
+                        ? UiLocalizer.Pick(
+                            $"✓ Reconstructed {repairedSpans} garbled PDF Burmese paragraph(s) into clean Pyidaungsu Unicode (Ctrl+Z to undo).",
+                            $"✓ PDF စာသားပျက် အပိုဒ် ({repairedSpans}) ခုကို Pyidaungsu ယူနီကုဒ်အမှန်သို့ ပြန်လည်တည်ဆောက်ပြီးပါပြီ (Ctrl+Z ဖြင့် ပြန်ပြင်နိုင်သည်)။")
+                        : UiLocalizer.Pick(
+                            "✓ No garbled PDF CMap Burmese text detected in the target scope.",
+                            "✓ စစ်ဆေးသည့်အပိုင်းအတွင်း PDF ဖောင့်ပျက် မြန်မာစာသား မတွေ့ရှိပါ။")
+                };
+            }
+            catch (Exception ex)
+            {
+                return new ToolkitActionSummary
+                {
+                    Success = false,
+                    ChangedCount = repairedSpans,
+                    UserMessage = UiLocalizer.Pick(
+                        $"⚠ Broken-PDF repair error: {ex.Message}",
+                        $"⚠ PDF စာသားပျက် ပြင်ဆင်ရာတွင် အခက်အခဲရှိပါသည်: {ex.Message}")
+                };
+            }
+            finally
+            {
+                if (startedUndo && undo != null)
+                {
+                    try { undo.EndCustomRecord(); } catch { }
+                }
+                try { app.ScreenUpdating = prevScreenUpdating; } catch { }
+            }
+        }
+
+        private static int RepairBrokenPdfInParagraphs(
+            Word.Paragraphs? paragraphs,
+            MyanmarProofingEngine? engine,
+            Action<int, string>? onProgress = null,
+            Func<bool>? isCancelled = null)
+        {
+            if (paragraphs == null)
+                return 0;
+
+            int changed = 0;
+            int count = 0;
+            try { count = paragraphs.Count; } catch { return 0; }
+            if (count <= 0)
+                return 0;
+
+            var pumpWatch = Stopwatch.StartNew();
+            int done = 0;
+            for (int i = count; i >= 1; i--)
+            {
+                if (isCancelled != null && isCancelled())
+                    break;
+
+                done++;
+                if (pumpWatch.ElapsedMilliseconds >= 110)
+                {
+                    pumpWatch.Restart();
+                    onProgress?.Invoke(
+                        (done * 95) / Math.Max(1, count),
+                        UiLocalizer.Pick(
+                            $"⏳ Reconstructing garbled PDF text... {done:N0}/{count:N0}",
+                            $"⏳ PDF စာသားပျက် ပြန်လည်တည်ဆောက်နေသည်... {done:N0}/{count:N0}"));
+                    Application.DoEvents();
+                }
+
+                Word.Range? paraRange = null;
+                try { paraRange = paragraphs[i].Range; } catch { continue; }
+                if (paraRange == null)
+                    continue;
+
+                string rawWithMarkers;
+                try { rawWithMarkers = paraRange.Text ?? string.Empty; } catch { continue; }
+                string rawText = TrimTrailingMarkersString(rawWithMarkers);
+                if (string.IsNullOrWhiteSpace(rawText) || !UnicodeNormalizer.IsBrokenPdfFontCMapText(rawText))
+                    continue;
+
+                try
+                {
+                    bool applied = TryTransformParagraphSegmentsSafely(
+                        paraRange,
+                        rawWithMarkers,
+                        seg =>
+                        {
+                            bool chg;
+                            string reb = engine != null
+                                ? engine.ReconstructBrokenPdfConfirmedSpan(seg, out chg)
+                                : BrokenPdfCMapReconstructor.ReconstructConfirmedSpan(seg, null, out chg);
+                            return (chg, reb);
+                        },
+                        TargetUnicodeFontName);
+                    if (applied)
+                        changed++;
+                }
+                catch
+                {
+                    // Skip protected/table-boundary ranges safely
+                }
+            }
+
+            return changed;
+        }
+
+        public ToolkitActionSummary PasteAndRepairFromClipboard(
+            Word.Application app,
+            Word.Document? doc,
+            MyanmarProofingEngine? engine,
+            string? explicitClipboardText = null)
+        {
+            if (app == null || doc == null || app.Selection?.Range == null)
+            {
+                return new ToolkitActionSummary
+                {
+                    Success = false,
+                    UserMessage = UiLocalizer.Pick("No active Word cursor position found.", "စာထည့်သွင်းရန် Word Cursor နေရာ မတွေ့ရှိပါ။")
+                };
+            }
+
+            string rawClip = explicitClipboardText ?? string.Empty;
+            if (explicitClipboardText == null)
+            {
+                try
+                {
+                    if (Clipboard.ContainsText(TextDataFormat.UnicodeText))
+                        rawClip = Clipboard.GetText(TextDataFormat.UnicodeText);
+                    else if (Clipboard.ContainsText())
+                        rawClip = Clipboard.GetText();
+                }
+                catch { }
+            }
+
+            if (string.IsNullOrWhiteSpace(rawClip))
+            {
+                return new ToolkitActionSummary
+                {
+                    Success = false,
+                    UserMessage = UiLocalizer.Pick(
+                        "⚠ Clipboard does not contain any text to paste.",
+                        "⚠ Clipboard ထဲတွင် ကူးထည့်ရန် စာသား မတွေ့ရှိပါ။")
+                };
+            }
+
+            int changedSpans;
+            string cleaned = engine != null
+                ? engine.RepairClipboardOrPastedText(rawClip, out changedSpans)
+                : BrokenPdfCMapReconstructor.RepairClipboardOrPastedText(rawClip, null, out changedSpans);
+
+            string wordReadyText = cleaned.Replace("\r\n", "\r").Replace('\n', '\r');
+
+            Word.UndoRecord? undo = null;
+            bool startedUndo = false;
+            try
+            {
+                try
+                {
+                    undo = app.UndoRecord;
+                    if (undo != null && !undo.IsRecordingCustomRecord)
+                    {
+                        undo.StartCustomRecord(UiLocalizer.Pick(
+                            "Paste Clean Pyidaungsu Unicode",
+                            "သန့်စင်ပြီး Pyidaungsu ယူနီကုဒ် ကူးထည့်ခြင်း"));
+                        startedUndo = true;
+                    }
+                }
+                catch { }
+
+                Word.Range insertRange = app.Selection.Range.Duplicate;
+                insertRange.Text = wordReadyText;
+                try
+                {
+                    insertRange.Font.Name = TargetUnicodeFontName;
+                    insertRange.Font.NameBi = TargetUnicodeFontName;
+                }
+                catch { }
+                insertRange.Collapse(Word.WdCollapseDirection.wdCollapseEnd);
+                insertRange.Select();
+
+                return new ToolkitActionSummary
+                {
+                    Success = true,
+                    ChangedCount = Math.Max(1, changedSpans),
+                    UserMessage = changedSpans > 0
+                        ? UiLocalizer.Pick(
+                            $"✓ Repaired {changedSpans} garbled PDF / Zawgyi line(s) from Clipboard and pasted in Pyidaungsu (Ctrl+Z to undo).",
+                            $"✓ Clipboard မှ စာသားပျက်/ဇော်ဂျီ ({changedSpans}) ကြောင်းကို သန့်စင်ပြုပြင်၍ Pyidaungsu ဖောင့်ဖြင့် ကူးထည့်ပြီးပါပြီ (Ctrl+Z ပြန်ဆုတ်နိုင်သည်)။")
+                        : UiLocalizer.Pick(
+                            "✓ Pasted clean Myanmar Unicode text in Pyidaungsu font (Ctrl+Z to undo).",
+                            "✓ သန့်စင်သော မြန်မာယူနီကုဒ်စာသားကို Pyidaungsu ဖောင့်ဖြင့် ကူးထည့်ပြီးပါပြီ (Ctrl+Z ပြန်ဆုတ်နိုင်သည်)။")
+                };
+            }
+            catch (Exception ex)
+            {
+                return new ToolkitActionSummary
+                {
+                    Success = false,
+                    UserMessage = UiLocalizer.Pick(
+                        $"⚠ Clean paste error: {ex.Message}",
+                        $"⚠ စာသား ကူးထည့်ရာတွင် အခက်အခဲရှိပါသည်: {ex.Message}")
+                };
+            }
+            finally
+            {
+                if (startedUndo && undo != null)
+                {
+                    try { undo.EndCustomRecord(); } catch { }
+                }
+            }
+        }
+
         private static int ConvertLegacyFontsInParagraphs(
             Word.Paragraphs? paragraphs,
             Action<int, string>? onProgress = null,
@@ -174,25 +476,21 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     if (!isWinLegacy && !isZawgyi)
                         continue;
 
-                    Word.Range? bodyRange = TrimTrailingParagraphAndCellMarkers(paraRange);
-                    if (bodyRange == null || bodyRange.Start >= bodyRange.End)
-                        continue;
-
-                    string bodyRaw = bodyRange.Text ?? string.Empty;
-                    string converted = isWinLegacy
-                        ? LegacyMyanmarFontConverter.ConvertWinInnwaToUnicode(bodyRaw)
-                        : LegacyMyanmarFontConverter.ConvertSegmentToPyidaungsu(bodyRaw, paraFont, out _);
-
-                    if (!string.Equals(converted, bodyRaw, StringComparison.Ordinal) || isWinLegacy || LegacyMyanmarFontConverter.IsZawgyiFont(paraFont))
-                    {
-                        if (!string.Equals(converted, bodyRaw, StringComparison.Ordinal))
+                    bool forceFont = isWinLegacy || LegacyMyanmarFontConverter.IsZawgyiFont(paraFont);
+                    bool applied = TryTransformParagraphSegmentsSafely(
+                        paraRange,
+                        rawWithMarkers,
+                        seg =>
                         {
-                            bodyRange.Text = converted;
-                        }
-                        try { bodyRange.Font.Name = TargetUnicodeFontName; } catch { }
-                        try { bodyRange.Font.NameBi = TargetUnicodeFontName; } catch { }
+                            string conv = isWinLegacy
+                                ? LegacyMyanmarFontConverter.ConvertWinInnwaToUnicode(seg)
+                                : LegacyMyanmarFontConverter.ConvertSegmentToPyidaungsu(seg, paraFont, out _);
+                            return (!string.Equals(conv, seg, StringComparison.Ordinal), conv);
+                        },
+                        TargetUnicodeFontName,
+                        forceApplyFontEvenIfUnchanged: forceFont);
+                    if (applied)
                         changed++;
-                    }
                 }
                 else
                 {
@@ -340,6 +638,14 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 if (string.IsNullOrWhiteSpace(subText))
                     continue;
 
+                if (span.End - span.Start > subText.Length)
+                {
+                    Word.Range narrowed = bodyRange.Duplicate;
+                    narrowed.SetRange(span.End - subText.Length, span.End);
+                    if (string.Equals(narrowed.Text ?? string.Empty, subText, StringComparison.Ordinal))
+                        sub = narrowed;
+                }
+
                 bool isWinLegacy = LegacyMyanmarFontConverter.IsLegacyAsciiMyanmarFont(span.FontName);
                 bool isZawgyi = !isWinLegacy && (LegacyMyanmarFontConverter.IsZawgyiFont(span.FontName) || UnicodeNormalizer.IsZawgyiText(subText));
                 if (!isWinLegacy && !isZawgyi)
@@ -435,11 +741,19 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         string formatted = MyanmarTypographyFormatter.ConvertNumeralsSmart(raw, toMyanmarDigits, out int digitsConverted);
                         if (digitsConverted > 0 && !string.Equals(formatted, raw, StringComparison.Ordinal))
                         {
-                            Word.Range? body = TrimTrailingParagraphAndCellMarkers(pRange);
-                            if (body != null && body.Start < body.End)
+                            int segDigits = 0;
+                            bool applied = TryTransformParagraphSegmentsSafely(
+                                pRange,
+                                rawWithMarkers,
+                                seg =>
+                                {
+                                    string fmt = MyanmarTypographyFormatter.ConvertNumeralsSmart(seg, toMyanmarDigits, out int d);
+                                    segDigits += d;
+                                    return (d > 0 && !string.Equals(fmt, seg, StringComparison.Ordinal), fmt);
+                                });
+                            if (applied)
                             {
-                                body.Text = formatted;
-                                totalDigitsChanged += digitsConverted;
+                                totalDigitsChanged += Math.Max(1, segDigits);
                             }
                         }
                     }
@@ -545,12 +859,22 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         string cleaned = MyanmarTypographyFormatter.FormatPunctuationAndCleanInvisible(raw, out int pFixes, out int zwFixes);
                         if ((pFixes > 0 || zwFixes > 0) && !string.Equals(cleaned, raw, StringComparison.Ordinal))
                         {
-                            Word.Range? body = TrimTrailingParagraphAndCellMarkers(pRange);
-                            if (body != null && body.Start < body.End)
+                            int segP = 0;
+                            int segZw = 0;
+                            bool applied = TryTransformParagraphSegmentsSafely(
+                                pRange,
+                                rawWithMarkers,
+                                seg =>
+                                {
+                                    string cln = MyanmarTypographyFormatter.FormatPunctuationAndCleanInvisible(seg, out int pf, out int zf);
+                                    segP += pf;
+                                    segZw += zf;
+                                    return ((pf > 0 || zf > 0) && !string.Equals(cln, seg, StringComparison.Ordinal), cln);
+                                });
+                            if (applied)
                             {
-                                body.Text = cleaned;
-                                totalPunctFixes += pFixes;
-                                totalZwRemoved += zwFixes;
+                                totalPunctFixes += segP;
+                                totalZwRemoved += segZw;
                             }
                         }
                     }
@@ -743,17 +1067,22 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     Word.Selection? sel = app.Selection;
                     if (sel?.Range != null && sel.Range.Start != sel.Range.End)
                     {
-                        Word.Range? cleanSel = TrimTrailingParagraphAndCellMarkers(sel.Range);
-                        if (cleanSel != null)
-                        {
-                            string raw = cleanSel.Text ?? string.Empty;
-                            var rw = MyanmarOfficialRewriter.ConvertToOfficialProse(raw);
-                            if (rw.ReplacementCount > 0 && rw.RewrittenText != raw)
+                        string selRawWithMarkers = sel.Range.Text ?? string.Empty;
+                        int selCount = 0;
+                        TryTransformParagraphSegmentsSafely(
+                            sel.Range,
+                            selRawWithMarkers,
+                            seg =>
                             {
-                                cleanSel.Text = rw.RewrittenText;
-                                totalReplacements += rw.ReplacementCount;
-                            }
-                        }
+                                var rw = MyanmarOfficialRewriter.ConvertToOfficialProse(seg);
+                                if (rw.ReplacementCount > 0 && !string.Equals(rw.RewrittenText, seg, StringComparison.Ordinal))
+                                {
+                                    selCount += rw.ReplacementCount;
+                                    return (true, rw.RewrittenText);
+                                }
+                                return (false, seg);
+                            });
+                        totalReplacements += selCount;
                         return totalReplacements;
                     }
                 }
@@ -781,19 +1110,30 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                             if (pRange == null)
                                 continue;
 
-                            string raw = TrimTrailingMarkersString(pRange.Text ?? string.Empty);
+                            string rawWithMarkers = pRange.Text ?? string.Empty;
+                            string raw = TrimTrailingMarkersString(rawWithMarkers);
                             if (string.IsNullOrWhiteSpace(raw))
                                 continue;
 
-                            var rw = MyanmarOfficialRewriter.ConvertToOfficialProse(raw);
-                            if (rw.ReplacementCount > 0 && rw.RewrittenText != raw)
+                            var rwPreview = MyanmarOfficialRewriter.ConvertToOfficialProse(raw);
+                            if (rwPreview.ReplacementCount > 0 && !string.Equals(rwPreview.RewrittenText, raw, StringComparison.Ordinal))
                             {
-                                Word.Range? cleanPara = TrimTrailingParagraphAndCellMarkers(pRange);
-                                if (cleanPara != null && cleanPara.Start < cleanPara.End)
-                                {
-                                    cleanPara.Text = rw.RewrittenText;
-                                    totalReplacements += rw.ReplacementCount;
-                                }
+                                int segCount = 0;
+                                bool applied = TryTransformParagraphSegmentsSafely(
+                                    pRange,
+                                    rawWithMarkers,
+                                    seg =>
+                                    {
+                                        var rw = MyanmarOfficialRewriter.ConvertToOfficialProse(seg);
+                                        if (rw.ReplacementCount > 0 && !string.Equals(rw.RewrittenText, seg, StringComparison.Ordinal))
+                                        {
+                                            segCount += rw.ReplacementCount;
+                                            return (true, rw.RewrittenText);
+                                        }
+                                        return (false, seg);
+                                    });
+                                if (applied)
+                                    totalReplacements += Math.Max(1, segCount);
                             }
                         }
                         catch
@@ -851,19 +1191,33 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             {
                 Word.Range clean = range.Duplicate;
                 string txt = clean.Text ?? string.Empty;
-                int trimChars = 0;
-                for (int idx = txt.Length - 1; idx >= 0; idx--)
+                int trimComUnits = 0;
+                int idx = txt.Length - 1;
+                while (idx >= 0)
                 {
+                    // In Word COM, a table cell's trailing "\r\a" (2 .NET chars) occupies a single 1-char COM position!
+                    if (idx >= 1 && txt[idx] == '\a' && txt[idx - 1] == '\r')
+                    {
+                        trimComUnits++;
+                        idx -= 2;
+                        continue;
+                    }
+
                     char ch = txt[idx];
                     if (ch == '\r' || ch == '\a' || ch == '\n' || ch == '\f' || ch == '\v')
-                        trimChars++;
+                    {
+                        trimComUnits++;
+                        idx--;
+                    }
                     else
+                    {
                         break;
+                    }
                 }
 
-                if (trimChars > 0 && clean.End - trimChars >= clean.Start)
+                if (trimComUnits > 0 && clean.End - trimComUnits >= clean.Start)
                 {
-                    clean.End -= trimChars;
+                    clean.End -= trimComUnits;
                 }
                 return clean;
             }
@@ -871,6 +1225,249 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Replaces plain-text segments (<c>c &gt; '\u001F'</c>) inside <paramref name="range"/> from END to START while strictly
+        /// preserving: (1) leading invisible floating <see cref="Word.Shape"/> anchors at <c>range.Start..textBaseStart</c>,
+        /// (2) inline Footnote/Endnote (<c>\u0002</c>), InlineShape (<c>\u0001</c>), Comment (<c>\u0005</c>), Tab (<c>\t</c>),
+        /// and soft line-break (<c>\v</c>) markers, and (3) table-cell <c>\r\a</c> boundaries.
+        /// </summary>
+        private static bool TryTransformParagraphSegmentsSafely(
+            Word.Range? range,
+            string rawWithMarkers,
+            Func<string, (bool ShouldChangeText, string NewText)> transformSegment,
+            string? applyFontName = null,
+            bool forceApplyFontEvenIfUnchanged = false)
+        {
+            if (range == null || string.IsNullOrEmpty(rawWithMarkers))
+                return false;
+
+            int trimmedLen = rawWithMarkers.Length;
+            while (trimmedLen > 0)
+            {
+                char ch = rawWithMarkers[trimmedLen - 1];
+                if (ch == '\r' || ch == '\a' || ch == '\n' || ch == '\f' || ch == '\v')
+                    trimmedLen--;
+                else
+                    break;
+            }
+            if (trimmedLen <= 0)
+                return false;
+
+            var pending = new List<(int SegStart, int SegEnd, string OldText, bool ShouldChangeText, string NewText)>(2);
+            int pos = 0;
+            while (pos < trimmedLen)
+            {
+                while (pos < trimmedLen && rawWithMarkers[pos] <= '\u001F')
+                    pos++;
+                if (pos >= trimmedLen)
+                    break;
+
+                int segStart = pos;
+                while (pos < trimmedLen && rawWithMarkers[pos] > '\u001F')
+                    pos++;
+                int segEnd = pos;
+
+                if (segEnd <= segStart)
+                    continue;
+
+                string oldSeg = rawWithMarkers.Substring(segStart, segEnd - segStart);
+                var (shouldChange, newSeg) = transformSegment(oldSeg);
+                bool willChangeText = shouldChange && !string.Equals(newSeg, oldSeg, StringComparison.Ordinal);
+                bool willChangeFont = forceApplyFontEvenIfUnchanged && !string.IsNullOrEmpty(applyFontName);
+
+                if (willChangeText || willChangeFont)
+                {
+                    pending.Add((segStart, segEnd, oldSeg, willChangeText, newSeg));
+                }
+            }
+
+            if (pending.Count == 0)
+                return false;
+
+            int initialStart;
+            int initialEnd;
+            try
+            {
+                initialStart = range.Start;
+                initialEnd = range.End;
+            }
+            catch
+            {
+                return false;
+            }
+
+            if (initialEnd <= initialStart)
+                return false;
+
+            // Compute exact COM text base BEFORE mutating any segment:
+            // - trailing "\r\a" in table cells is 2 .NET chars for 1 COM unit
+            // - K floating shapes anchored to the paragraph occupy initialStart .. initialStart + K
+            int effectiveUnits = rawWithMarkers.EndsWith("\r\a", StringComparison.Ordinal)
+                ? rawWithMarkers.Length - 1
+                : rawWithMarkers.Length;
+            int initialTextBase = initialEnd - effectiveUnits;
+
+            bool anyApplied = false;
+            for (int s = pending.Count - 1; s >= 0; s--)
+            {
+                var item = pending[s];
+                Word.Range? segRange = ResolvePlainSegmentRange(
+                    range,
+                    initialStart,
+                    initialEnd,
+                    initialTextBase,
+                    rawWithMarkers,
+                    item.SegStart,
+                    item.OldText);
+
+                if (segRange == null)
+                    continue;
+
+                try
+                {
+                    if (item.ShouldChangeText)
+                    {
+                        segRange.Text = item.NewText;
+                    }
+                    if (!string.IsNullOrEmpty(applyFontName))
+                    {
+                        try { segRange.Font.Name = applyFontName; } catch { }
+                        try { segRange.Font.NameBi = applyFontName; } catch { }
+                    }
+                    anyApplied = true;
+                }
+                catch
+                {
+                    // Skip protected/locked sub-ranges safely
+                }
+            }
+
+            return anyApplied;
+        }
+
+        private static Word.Range? ResolvePlainSegmentRange(
+            Word.Range container,
+            int initialStart,
+            int initialEnd,
+            int initialTextBase,
+            string fullRaw,
+            int segStart,
+            string expectedText)
+        {
+            int len = expectedText.Length;
+            if (len <= 0)
+                return null;
+
+            // 1. Exact O(1) TextBase probe (solves normal paragraphs, table cells, footnotes, and K floating shape anchors in 1 probe!)
+            int candStart = initialTextBase + segStart;
+            int candEnd = candStart + len;
+            if (candStart >= initialStart && candEnd <= initialEnd)
+            {
+                try
+                {
+                    Word.Range probe = container.Duplicate;
+                    probe.SetRange(candStart, candEnd);
+                    if (string.Equals(probe.Text ?? string.Empty, expectedText, StringComparison.Ordinal))
+                        return probe;
+                }
+                catch { }
+            }
+
+            // 2. Secondary O(1) probe around initialStart + segStart (handles partial mid-paragraph user selections)
+            int directBase = initialStart + segStart;
+            for (int delta = 0; delta <= 6; delta++)
+            {
+                for (int sign = 1; sign >= (delta == 0 ? 1 : -1); sign -= 2)
+                {
+                    int pStart = directBase + (delta * sign);
+                    int pEnd = pStart + len;
+                    if (pStart == candStart || pStart < initialStart || pEnd > initialEnd)
+                        continue;
+
+                    try
+                    {
+                        Word.Range probe = container.Duplicate;
+                        probe.SetRange(pStart, pEnd);
+                        if (string.Equals(probe.Text ?? string.Empty, expectedText, StringComparison.Ordinal))
+                            return probe;
+                    }
+                    catch { }
+                }
+            }
+
+            // 3. Field/Hyperlink-safe Word.Find fallback (when an earlier field code inside the same paragraph shifted COM offsets)
+            if (len <= 250 && expectedText.IndexOf('^') < 0)
+            {
+                int targetOccurrence = 0;
+                int searchIdx = 0;
+                while (searchIdx <= segStart && searchIdx < fullRaw.Length)
+                {
+                    int hit = fullRaw.IndexOf(expectedText, searchIdx, StringComparison.Ordinal);
+                    if (hit < 0 || hit > segStart)
+                        break;
+                    targetOccurrence++;
+                    searchIdx = hit + 1;
+                }
+                if (targetOccurrence < 1)
+                    targetOccurrence = 1;
+
+                try
+                {
+                    Word.Range findScope = container.Duplicate;
+                    findScope.SetRange(initialStart, initialEnd);
+                    Word.Find find = findScope.Find;
+                    find.ClearFormatting();
+                    find.Format = false;
+                    find.MatchCase = true;
+                    find.MatchWholeWord = false;
+                    find.MatchWildcards = false;
+                    find.MatchSoundsLike = false;
+                    find.MatchAllWordForms = false;
+                    try { find.MatchDiacritics = true; } catch { }
+                    try { find.MatchControl = true; } catch { }
+
+                    int seen = 0;
+                    int guard = 0;
+                    int prevNext = -1;
+                    while (guard++ < 32)
+                    {
+                        find.Text = expectedText;
+                        find.Forward = true;
+                        find.Wrap = Word.WdFindWrap.wdFindStop;
+                        if (!find.Execute())
+                            break;
+
+                        int hStart = findScope.Start;
+                        int hEnd = findScope.End;
+                        if (hStart < initialStart || hEnd > initialEnd)
+                            break;
+
+                        // Require (hEnd - hStart) == len so we never overwrite a hidden HYPERLINK field inside expectedText!
+                        if ((hEnd - hStart) == len &&
+                            string.Equals(findScope.Text ?? string.Empty, expectedText, StringComparison.Ordinal))
+                        {
+                            seen++;
+                            if (seen >= targetOccurrence)
+                            {
+                                Word.Range exact = container.Duplicate;
+                                exact.SetRange(hStart, hEnd);
+                                return exact;
+                            }
+                        }
+
+                        int nextPos = hStart + 1;
+                        if (nextPos <= prevNext || nextPos >= initialEnd)
+                            break;
+                        prevNext = nextPos;
+                        findScope.SetRange(nextPos, initialEnd);
+                    }
+                }
+                catch { }
+            }
+
+            return null;
         }
 
         private static IEnumerable<Word.Paragraphs> EnumerateStoryParagraphCollections(Word.Document doc)
@@ -886,37 +1483,213 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
         private static IEnumerable<Word.Range> EnumerateDocumentStories(Word.Document doc)
         {
-            Word.StoryRanges? stories = null;
-            try { stories = doc.StoryRanges; } catch { yield break; }
-            if (stories == null)
-                yield break;
+            var collected = new List<Word.Range>();
 
-            foreach (Word.Range firstStory in stories)
+            try
             {
-                Word.Range? current = firstStory;
-                while (current != null)
+                Word.StoryRanges? stories = doc.StoryRanges;
+                if (stories != null)
                 {
-                    Word.WdStoryType st = Word.WdStoryType.wdMainTextStory;
-                    try { st = current.StoryType; } catch { }
-
-                    if (st == Word.WdStoryType.wdMainTextStory ||
-                        st == Word.WdStoryType.wdPrimaryHeaderStory ||
-                        st == Word.WdStoryType.wdFirstPageHeaderStory ||
-                        st == Word.WdStoryType.wdEvenPagesHeaderStory ||
-                        st == Word.WdStoryType.wdPrimaryFooterStory ||
-                        st == Word.WdStoryType.wdFirstPageFooterStory ||
-                        st == Word.WdStoryType.wdEvenPagesFooterStory ||
-                        st == Word.WdStoryType.wdTextFrameStory ||
-                        st == Word.WdStoryType.wdFootnotesStory ||
-                        st == Word.WdStoryType.wdEndnotesStory)
+                    foreach (Word.Range firstStory in stories)
                     {
-                        yield return current;
-                    }
+                        Word.Range? current = firstStory;
+                        int hops = 0;
+                        while (current != null && hops < 256)
+                        {
+                            hops++;
+                            Word.WdStoryType st = Word.WdStoryType.wdMainTextStory;
+                            try { st = current.StoryType; } catch { }
 
-                    try { current = current.NextStoryRange; }
-                    catch { current = null; }
+                            if (st == Word.WdStoryType.wdMainTextStory ||
+                                st == Word.WdStoryType.wdPrimaryHeaderStory ||
+                                st == Word.WdStoryType.wdFirstPageHeaderStory ||
+                                st == Word.WdStoryType.wdEvenPagesHeaderStory ||
+                                st == Word.WdStoryType.wdPrimaryFooterStory ||
+                                st == Word.WdStoryType.wdFirstPageFooterStory ||
+                                st == Word.WdStoryType.wdEvenPagesFooterStory ||
+                                st == Word.WdStoryType.wdTextFrameStory ||
+                                st == Word.WdStoryType.wdFootnotesStory ||
+                                st == Word.WdStoryType.wdEndnotesStory)
+                            {
+                                if (!IsDuplicateStoryOrShapeRange(collected, current))
+                                {
+                                    collected.Add(current);
+                                }
+                            }
+
+                            try { current = current.NextStoryRange; }
+                            catch { current = null; }
+                        }
+                    }
                 }
             }
+            catch { }
+
+            // Phase 2: Modern DrawingML TextBoxes, Callouts, and Grouped Shapes in Body + Headers/Footers
+            int shapeBudget = 300;
+            try
+            {
+                CollectDrawingShapeTextRanges(doc.Shapes, collected, ref shapeBudget, depth: 0);
+            }
+            catch { }
+
+            try
+            {
+                Word.Sections? sections = doc.Sections;
+                if (sections != null && shapeBudget > 0)
+                {
+                    int secCount = sections.Count;
+                    var hfIndices = new[]
+                    {
+                        Word.WdHeaderFooterIndex.wdHeaderFooterPrimary,
+                        Word.WdHeaderFooterIndex.wdHeaderFooterFirstPage,
+                        Word.WdHeaderFooterIndex.wdHeaderFooterEvenPages
+                    };
+
+                    for (int s = 1; s <= secCount && shapeBudget > 0; s++)
+                    {
+                        Word.Section? sec = null;
+                        try { sec = sections[s]; } catch { continue; }
+                        if (sec == null) continue;
+
+                        foreach (var hfIdx in hfIndices)
+                        {
+                            if (shapeBudget <= 0) break;
+                            try
+                            {
+                                Word.HeaderFooter? hdr = sec.Headers[hfIdx];
+                                if (hdr != null && hdr.Exists)
+                                {
+                                    CollectDrawingShapeTextRanges(hdr.Shapes, collected, ref shapeBudget, depth: 0);
+                                }
+                            }
+                            catch { }
+
+                            if (shapeBudget <= 0) break;
+                            try
+                            {
+                                Word.HeaderFooter? ftr = sec.Footers[hfIdx];
+                                if (ftr != null && ftr.Exists)
+                                {
+                                    CollectDrawingShapeTextRanges(ftr.Shapes, collected, ref shapeBudget, depth: 0);
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            return collected;
+        }
+
+        private static void CollectDrawingShapeTextRanges(
+            Word.Shapes? shapes,
+            List<Word.Range> collected,
+            ref int remainingBudget,
+            int depth)
+        {
+            if (shapes == null || remainingBudget <= 0 || depth > 5)
+                return;
+
+            int count = 0;
+            try { count = shapes.Count; } catch { return; }
+            for (int i = 1; i <= count && remainingBudget > 0; i++)
+            {
+                Word.Shape? shape = null;
+                try { shape = shapes[i]; } catch { continue; }
+                if (shape == null) continue;
+
+                CollectSingleShapeOrGroupRanges(shape, collected, ref remainingBudget, depth);
+            }
+        }
+
+        private static void CollectSingleShapeOrGroupRanges(
+            Word.Shape shape,
+            List<Word.Range> collected,
+            ref int remainingBudget,
+            int depth)
+        {
+            if (remainingBudget <= 0 || depth > 5)
+                return;
+
+            remainingBudget--;
+
+            int shapeType = 0;
+            try { shapeType = (int)shape.Type; } catch { }
+            if (shapeType == 6) // msoGroup
+            {
+                try
+                {
+                    Word.GroupShapes? groupItems = shape.GroupItems;
+                    if (groupItems != null)
+                    {
+                        int gCount = groupItems.Count;
+                        for (int g = 1; g <= gCount && remainingBudget > 0; g++)
+                        {
+                            Word.Shape? child = null;
+                            try { child = groupItems[g]; } catch { continue; }
+                            if (child != null)
+                            {
+                                CollectSingleShapeOrGroupRanges(child, collected, ref remainingBudget, depth + 1);
+                            }
+                        }
+                    }
+                }
+                catch { }
+                return;
+            }
+            if (shapeType == 20) // msoCanvas
+            {
+                try
+                {
+                    Word.CanvasShapes? canvasItems = shape.CanvasItems;
+                    if (canvasItems != null)
+                    {
+                        int cCount = canvasItems.Count;
+                        for (int c = 1; c <= cCount && remainingBudget > 0; c++)
+                        {
+                            Word.Shape? child = null;
+                            try { child = canvasItems[c]; } catch { continue; }
+                            if (child != null)
+                            {
+                                CollectSingleShapeOrGroupRanges(child, collected, ref remainingBudget, depth + 1);
+                            }
+                        }
+                    }
+                }
+                catch { }
+                return;
+            }
+
+            try
+            {
+                Word.TextFrame? tf = shape.TextFrame;
+                if (tf != null && tf.HasText != 0)
+                {
+                    Word.Range? tr = tf.TextRange;
+                    if (tr != null && !IsDuplicateStoryOrShapeRange(collected, tr))
+                    {
+                        collected.Add(tr);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static bool IsDuplicateStoryOrShapeRange(List<Word.Range> existingRanges, Word.Range candidate)
+        {
+            for (int i = 0; i < existingRanges.Count; i++)
+            {
+                try
+                {
+                    if (existingRanges[i].IsEqual(candidate))
+                        return true;
+                }
+                catch { }
+            }
+            return false;
         }
     }
 }
