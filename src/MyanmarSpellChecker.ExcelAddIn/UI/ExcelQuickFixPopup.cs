@@ -78,12 +78,15 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             ProofingIssue issue = item.Issue;
             bool isGrammar = issue.IsGrammarOrStyle;
             bool isContextWarning = issue.IsContextualWarning;
+            bool isReviewNeeded = issue.IsReviewNeeded;
             bool isEncoding = issue.IssueType == ProofingIssueType.ZawgyiEncodingError ||
                               issue.IssueType == ProofingIssueType.LookalikeCharacterError;
 
-            _accentColor = (isEncoding || isContextWarning)
-                ? Color.FromArgb(217, 138, 18)
-                : (isGrammar ? Color.FromArgb(26, 115, 232) : Color.FromArgb(217, 48, 37));
+            _accentColor = isReviewNeeded
+                ? Color.FromArgb(218, 162, 0)
+                : (isEncoding
+                    ? Color.FromArgb(217, 138, 18)
+                    : (isGrammar ? Color.FromArgb(26, 115, 232) : Color.FromArgb(217, 48, 37)));
 
             int dpi = UiFontCache.GetEffectiveDpi(this);
             int minW = UiFontCache.ScaleLogicalPxForDpi(dpi, 380);
@@ -146,19 +149,21 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             }
             headerRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            string categoryTitle = isEncoding
-                ? UiLocalizer.Pick("● Unicode Encoding / Character Fix", "● ယူနီကုဒ် အက္ခရာ စံနှုန်း ပြင်ဆင်ရန်")
-                : (isContextWarning
-                    ? UiLocalizer.Pick("● Contextual Meaning Check", "● အနက်သံသယ စိစစ်ရန် (Context Check)")
-                    : (isGrammar
-                        ? UiLocalizer.Pick("● Grammar & Style Suggestion", "● သဒ္ဒါနှင့် အရေးအသား ရွေးချယ်ပြင်ဆင်ရန်")
-                        : UiLocalizer.Pick("● Spelling Suggestion", "● စာလုံးပေါင်းအမှန် ရွေးချယ်ပြင်ဆင်ရန်")));
+            string categoryTitle = isContextWarning
+                ? UiLocalizer.Pick("⚠ Contextual Meaning Check", "⚠ အနက်သံသယ စိစစ်ရန် (Context Check)")
+                : (isReviewNeeded
+                    ? UiLocalizer.Pick("⚠ Review Needed (Name / Guess)", "⚠ စိစစ်ရန် (အမည် / ခန့်မှန်းချက်)")
+                    : (isEncoding
+                        ? UiLocalizer.Pick("● Unicode Encoding / Character Fix", "● ယူနီကုဒ် အက္ခရာ စံနှုန်း ပြင်ဆင်ရန်")
+                        : (isGrammar
+                            ? UiLocalizer.Pick("● Grammar & Style Suggestion", "● သဒ္ဒါနှင့် အရေးအသား ရွေးချယ်ပြင်ဆင်ရန်")
+                            : UiLocalizer.Pick("● Spelling Suggestion", "● စာလုံးပေါင်းအမှန် ရွေးချယ်ပြင်ဆင်ရန်"))));
 
             var lblCategory = new Label
             {
                 Text = categoryTitle,
                 Font = UiFontCache.GetMyanmar(9F, FontStyle.Bold),
-                ForeColor = _accentColor,
+                ForeColor = isReviewNeeded ? Color.FromArgb(138, 94, 0) : _accentColor,
                 AutoSize = true,
                 Dock = DockStyle.Fill,
                 Margin = new Padding(0),
@@ -220,17 +225,21 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 ? $"\"{issue.OriginalText}\"   ➔   \"{topCand.Replacement}\""
                 : UiLocalizer.Pick($"Original: \"{issue.OriginalText}\"", $"မူရင်းစာသား: \"{issue.OriginalText}\"");
 
-            Color diffBg = (isEncoding || isContextWarning)
-                ? Color.FromArgb(255, 248, 235)
-                : (isGrammar ? Color.FromArgb(240, 246, 255) : Color.FromArgb(254, 243, 242));
+            Color diffBg = isReviewNeeded
+                ? Color.FromArgb(254, 249, 195)
+                : (isEncoding
+                    ? Color.FromArgb(255, 248, 235)
+                    : (isGrammar ? Color.FromArgb(240, 246, 255) : Color.FromArgb(254, 243, 242)));
 
             var lblOriginal = new Label
             {
                 Text = diffHeader,
                 Font = UiFontCache.GetMyanmar(10.8F, FontStyle.Bold),
-                ForeColor = (isEncoding || isContextWarning)
-                    ? Color.FromArgb(165, 80, 0)
-                    : (isGrammar ? Color.FromArgb(20, 70, 160) : Color.FromArgb(175, 25, 25)),
+                ForeColor = isReviewNeeded
+                    ? Color.FromArgb(133, 90, 0)
+                    : (isEncoding
+                        ? Color.FromArgb(165, 80, 0)
+                        : (isGrammar ? Color.FromArgb(20, 70, 160) : Color.FromArgb(175, 25, 25))),
                 BackColor = diffBg,
                 AutoSize = true,
                 MaximumSize = new Size(innerWrapWidth, 0),

@@ -522,7 +522,7 @@ namespace MyanmarSpellChecker.Core.Official
             sb.AppendLine(@"
   :root {
     --navy: #102a48; --blue: #125cb2; --green: #106c38; --green-bg: #e4f7eb;
-    --red: #be1e2d; --red-bg: #fdecec; --amber: #9a5706; --amber-bg: #fff5db;
+    --red: #be1e2d; --red-bg: #fdecec; --amber: #855a00; --amber-bg: #fef9c3;
     --slate: #475569; --border: #d5e0ec; --bg: #f4f7fb;
   }
   * { box-sizing: border-box; }
@@ -546,7 +546,7 @@ namespace MyanmarSpellChecker.Core.Official
   .kpi { border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; background: #fafcff; border-left: 5px solid var(--blue); }
   .kpi.clean { border-left-color: var(--green); }
   .kpi.wrong { border-left-color: var(--red); background: #fffafa; }
-  .kpi.susp { border-left-color: #d9820b; background: #fffdf7; }
+  .kpi.susp { border-left-color: #eab308; background: #fefce8; }
   .kpi.fixed { border-left-color: #0e7490; }
   .kpi-label { font-size: 12.5px; font-weight: 700; color: var(--slate); text-transform: uppercase; letter-spacing: 0.02em; }
   .kpi-val { font-size: 26px; font-weight: 800; margin: 4px 0; color: var(--navy); }
@@ -559,7 +559,7 @@ namespace MyanmarSpellChecker.Core.Official
   .stacked-bar { display: flex; height: 18px; border-radius: 9px; overflow: hidden; background: #e2e8f0; margin: 8px 0 10px 0; }
   .seg-clean { background: #16a34a; }
   .seg-wrong { background: #dc2626; }
-  .seg-susp { background: #f59e0b; }
+  .seg-susp { background: #eab308; }
   .legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: var(--slate); }
   .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; }
   .filter-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin: 18px 0 14px 0; }

@@ -170,6 +170,13 @@ namespace MyanmarSpellChecker.Core.Models
         }
 
         /// <summary>
+        /// True whenever this issue requires human review (Context Meaning check, unrecognized name/OOV guess,
+        /// no suggestion, or close multi-option tie) — displayed in Yellow across document/sheet underlines,
+        /// Task Pane cards, Quick-Fix popups, Review &amp; Fix, and Audit Reports instead of Spelling Red.
+        /// </summary>
+        public bool IsReviewNeeded => !IsHighCertaintyPrecheck;
+
+        /// <summary>
         /// Human-readable certainty label displayed in the Fix-All Preview Checklist Dialog.
         /// </summary>
         public string CertaintyBadgeText

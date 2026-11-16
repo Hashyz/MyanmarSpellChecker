@@ -52,12 +52,12 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
     public sealed class SafeUnderlineManager : IDisposable
     {
         public const int MaxLiveWavyUnderlinesPerDocument = 450;
-        private const Word.WdColor WdColorAmberContextWarning = (Word.WdColor)0x00128AD9; // Warm Amber-Gold (#D98A12 in BGR)
+        public const Word.WdColor WdColorYellowReviewNeeded = (Word.WdColor)0x0000B4F0; // Crisp Golden Yellow (#F0B400 in BGR)
 
-        private static Word.WdColor GetUnderlineColorForIssue(ProofingIssue issue)
+        public static Word.WdColor GetUnderlineColorForIssue(ProofingIssue issue)
         {
-            if (issue.IsContextualWarning)
-                return WdColorAmberContextWarning;
+            if (issue == null || issue.IsReviewNeeded)
+                return WdColorYellowReviewNeeded;
             if (issue.IsGrammarOrStyle)
                 return Word.WdColor.wdColorBlue;
             return Word.WdColor.wdColorRed;

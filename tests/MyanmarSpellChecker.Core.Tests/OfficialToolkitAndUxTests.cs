@@ -1385,5 +1385,71 @@ namespace MyanmarSpellChecker.Core.Tests
                 try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); } catch { }
             }
         }
+
+        [Fact]
+        public void V49_ReviewNeededYellowColorIdentityAcrossWordExcelAndPopupsGate()
+        {
+            // 1. Model-level IsReviewNeeded contract
+            var reviewNeededGuess = new ProofingIssue
+            {
+                OriginalText = "ပါတ်သတ်",
+                IssueType = ProofingIssueType.SpellingError,
+                RequiresReviewBeforeBatchFix = true,
+                Suggestions = new List<SuggestionCandidate>
+                {
+                    new SuggestionCandidate { Replacement = "ပတ်သက်", Score = 95.0 },
+                    new SuggestionCandidate { Replacement = "ပွတ်သပ်", Score = 88.0 }
+                }
+            };
+            Assert.True(reviewNeededGuess.IsReviewNeeded);
+            Assert.False(reviewNeededGuess.IsHighCertaintyPrecheck);
+
+            var contextWarning = new ProofingIssue
+            {
+                OriginalText = "ကျရာ",
+                IssueType = ProofingIssueType.ContextualMeaningWarning,
+                Suggestions = new List<SuggestionCandidate>
+                {
+                    new SuggestionCandidate { Replacement = "ကြရာ", Score = 99.0 }
+                }
+            };
+            Assert.True(contextWarning.IsReviewNeeded);
+
+            var confirmedSpelling = new ProofingIssue
+            {
+                OriginalText = "အကောင်အထည်ဖေါ်",
+                IssueType = ProofingIssueType.LookalikeCharacterError,
+                RequiresReviewBeforeBatchFix = false,
+                Suggestions = new List<SuggestionCandidate>
+                {
+                    new SuggestionCandidate { Replacement = "အကောင်အထည်ဖော်", Score = 100.0 }
+                }
+            };
+            Assert.False(confirmedSpelling.IsReviewNeeded);
+            Assert.True(confirmedSpelling.IsHighCertaintyPrecheck);
+
+            // 2. Static wiring across Word/Excel underlines, Task Panes, Quick-Fix Popups, and Review & Fix
+            string underlineSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "Interop", "SafeUnderlineManager.cs"));
+            string excelWaveSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "ExcelWavyUnderlineOverlay.cs"));
+            string wordPaneSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "ProofingTaskPaneControl.ProofingTab.cs"));
+            string excelPaneSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "ExcelProofingTaskPaneControl.ProofingTab.cs"));
+            string wordReviewSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "FixAllPreviewDialog.cs"));
+            string excelReviewSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "FixAllPreviewDialog.cs"));
+            string wordPopupSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "MyanmarQuickFixPopup.cs"));
+            string excelPopupSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "ExcelQuickFixPopup.cs"));
+
+            Assert.Contains("WdColorYellowReviewNeeded", underlineSrc);
+            Assert.Contains("issue.IsReviewNeeded", underlineSrc);
+            Assert.Contains("penYellow", excelWaveSrc);
+            Assert.Contains("item.Issue.IsReviewNeeded", excelWaveSrc);
+
+            // Canary yellow (#FEF9C3 = 254, 249, 195) across cards, popups, and Review & Fix
+            Assert.Contains("Color.FromArgb(254, 249, 195)", wordPaneSrc);
+            Assert.Contains("Color.FromArgb(254, 249, 195)", excelPaneSrc);
+            Assert.Contains("Color.FromArgb(254, 249, 195)", wordReviewSrc);
+            Assert.Contains("Color.FromArgb(254, 249, 195)", excelReviewSrc);
+            Assert.Contains("Color.FromArgb(254, 249, 195)", wordPopupSrc);
+            Assert.Contains("Color.FromArgb(254, 249, 195)", excelPopupSrc);
+        }
     }
 }

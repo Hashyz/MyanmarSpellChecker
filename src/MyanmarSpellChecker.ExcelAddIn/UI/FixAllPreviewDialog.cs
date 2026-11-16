@@ -1468,6 +1468,24 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     ? Color.FromArgb(16, 118, 64)
                     : Color.FromArgb(132, 144, 138);
             }
+            else if (e.ColumnIndex == 2)
+            {
+                if (!entry.IsHighCertaintyDefault || entry.Issue.IsReviewNeeded)
+                {
+                    e.CellStyle.ForeColor = Color.FromArgb(146, 98, 0);
+                    e.CellStyle.SelectionForeColor = Color.FromArgb(124, 82, 0);
+                }
+                else if (entry.Issue.IsGrammarOrStyle)
+                {
+                    e.CellStyle.ForeColor = Color.FromArgb(20, 78, 168);
+                    e.CellStyle.SelectionForeColor = Color.FromArgb(16, 64, 144);
+                }
+                else
+                {
+                    e.CellStyle.ForeColor = Color.FromArgb(172, 28, 28);
+                    e.CellStyle.SelectionForeColor = Color.FromArgb(146, 20, 20);
+                }
+            }
             else if (e.ColumnIndex == 3)
             {
                 e.CellStyle.ForeColor = row.IsChecked
@@ -1476,14 +1494,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             }
             else if (e.ColumnIndex == 4)
             {
-                if (entry.Issue.IsContextualWarning)
-                {
-                    e.CellStyle.BackColor = Color.FromArgb(255, 246, 216);
-                    e.CellStyle.ForeColor = Color.FromArgb(142, 84, 6);
-                    e.CellStyle.SelectionBackColor = Color.FromArgb(248, 232, 184);
-                    e.CellStyle.SelectionForeColor = Color.FromArgb(122, 68, 4);
-                }
-                else if (entry.IsHighCertaintyDefault)
+                if (entry.IsHighCertaintyDefault && !entry.Issue.IsReviewNeeded)
                 {
                     e.CellStyle.BackColor = Color.FromArgb(228, 247, 235);
                     e.CellStyle.ForeColor = Color.FromArgb(16, 104, 52);
@@ -1492,10 +1503,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 }
                 else
                 {
-                    e.CellStyle.BackColor = Color.FromArgb(255, 242, 224);
-                    e.CellStyle.ForeColor = Color.FromArgb(148, 78, 12);
-                    e.CellStyle.SelectionBackColor = Color.FromArgb(248, 226, 196);
-                    e.CellStyle.SelectionForeColor = Color.FromArgb(126, 62, 8);
+                    // Crisp Canary Yellow for Review Needed & Context Check (never red/orange)
+                    e.CellStyle.BackColor = Color.FromArgb(254, 249, 195);
+                    e.CellStyle.ForeColor = Color.FromArgb(133, 90, 0);
+                    e.CellStyle.SelectionBackColor = Color.FromArgb(254, 240, 138);
+                    e.CellStyle.SelectionForeColor = Color.FromArgb(108, 72, 0);
                 }
             }
         }

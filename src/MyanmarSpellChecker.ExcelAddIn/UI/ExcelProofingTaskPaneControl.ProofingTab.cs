@@ -419,9 +419,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 _lblSummary.Text = UiLocalizer.Pick(
                     $"{activeCount:N0} issue(s) found — click any card to jump directly to its cell",
                     $"တွေ့ရှိချက် ({activeCount:N0}) ခု — ကတ်ကိုနှိပ်၍ သက်ဆိုင်ရာ အကွက် (Cell) သို့ တိုက်ရိုက်သွားနိုင်သည်");
-                _lblSummary.ForeColor = filtered.Any(x => !x.Issue.IsGrammarOrStyle && !x.Issue.IsContextualWarning)
+                _lblSummary.ForeColor = filtered.Any(x => !x.Issue.IsReviewNeeded && !x.Issue.IsGrammarOrStyle)
                     ? Color.FromArgb(182, 32, 32)
-                    : Color.FromArgb(158, 92, 12);
+                    : Color.FromArgb(146, 100, 0);
             }
         }
 
@@ -720,24 +720,32 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             int duplicateWordCount)
         {
             ProofingIssue issue = item.Issue;
-            Color accentColor = issue.IsContextualWarning
-                ? Color.FromArgb(217, 138, 18)
+            bool isReviewNeeded = issue.IsReviewNeeded;
+            Color accentColor = isReviewNeeded
+                ? Color.FromArgb(218, 162, 0)
                 : (issue.IsGrammarOrStyle ? Color.FromArgb(24, 90, 188) : Color.FromArgb(204, 38, 38));
 
-            Color diffBannerBg = issue.IsContextualWarning
-                ? Color.FromArgb(255, 248, 230)
+            Color badgeTextColor = isReviewNeeded
+                ? Color.FromArgb(138, 94, 0)
+                : accentColor;
+
+            Color diffBannerBg = isReviewNeeded
+                ? Color.FromArgb(254, 249, 195)
                 : (issue.IsGrammarOrStyle ? Color.FromArgb(238, 245, 255) : Color.FromArgb(254, 239, 239));
 
-            string categoryText = issue.IssueType switch
-            {
-                ProofingIssueType.ContextualMeaningWarning => UiLocalizer.Pick("● Meaning / Context Check", "● အနက်သံသယ (Context Check)"),
-                ProofingIssueType.NumeralClassifierError => UiLocalizer.Pick("● Numeral & Classifier", "● ဂဏန်းနှင့် မျိုးပြပစ္စည်း"),
-                ProofingIssueType.OfficialStyleGrammarError => UiLocalizer.Pick("● Formal / Literary Grammar", "● ရုံးသုံး/စာပေ သဒ္ဒါ"),
-                ProofingIssueType.PunctuationError => UiLocalizer.Pick("● Punctuation (၊ ။)", "● ပုဒ်ဖြတ်ပုဒ်ရပ် (၊ ။)"),
-                ProofingIssueType.ZawgyiEncodingError => UiLocalizer.Pick("● Zawgyi Encoding Error", "● ဇော်ဂျီ ဖောင့်ကုဒ်အမှား"),
-                ProofingIssueType.LookalikeCharacterError => UiLocalizer.Pick("● Lookalike Character (၀/ဝ, စဉ်/စဥ်)", "● ဆင်တူအက္ခရာ (၀/ဝ ၊ စဉ်/စဥ်)"),
-                _ => UiLocalizer.Pick("● Spelling Issue", "● စာလုံးပေါင်းသတ်ပုံ")
-            };
+            string categoryText = issue.IsContextualWarning
+                ? UiLocalizer.Pick("⚠ Meaning / Context Check", "⚠ အနက်သံသယ (Context Check)")
+                : (isReviewNeeded
+                    ? UiLocalizer.Pick("⚠ Review Needed (Name/Guess)", "⚠ စိစစ်ရန် (အမည်/ခန့်မှန်းချက်)")
+                    : (issue.IssueType switch
+                    {
+                        ProofingIssueType.NumeralClassifierError => UiLocalizer.Pick("● Numeral & Classifier", "● ဂဏန်းနှင့် မျိုးပြပစ္စည်း"),
+                        ProofingIssueType.OfficialStyleGrammarError => UiLocalizer.Pick("● Formal / Literary Grammar", "● ရုံးသုံး/စာပေ သဒ္ဒါ"),
+                        ProofingIssueType.PunctuationError => UiLocalizer.Pick("● Punctuation (၊ ။)", "● ပုဒ်ဖြတ်ပုဒ်ရပ် (၊ ။)"),
+                        ProofingIssueType.ZawgyiEncodingError => UiLocalizer.Pick("● Zawgyi Encoding Error", "● ဇော်ဂျီ ဖောင့်ကုဒ်အမှား"),
+                        ProofingIssueType.LookalikeCharacterError => UiLocalizer.Pick("● Lookalike Character (၀/ဝ, စဉ်/စဥ်)", "● ဆင်တူအက္ခရာ (၀/ဝ ၊ စဉ်/စဥ်)"),
+                        _ => UiLocalizer.Pick("● Spelling Issue", "● စာလုံးပေါင်းသတ်ပုံ")
+                    }));
 
             var card = CreateStyledCardContainer(cardWidth, accentColor, item);
             int row = 0;
@@ -763,7 +771,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 Text = categoryText,
                 Font = _fontSmallBold,
-                ForeColor = accentColor,
+                ForeColor = badgeTextColor,
                 AutoSize = true,
                 Dock = DockStyle.Fill,
                 Padding = new Padding(0, 2, 0, 0),
@@ -1216,7 +1224,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private Control BuildExcelDockedChecklistRowCard(SpreadsheetCellIssue item, int cardWidth, int innerWrap)
         {
             var st = GetOrInitExcelDockedState(item);
-            Color accent = st.Checked ? Color.FromArgb(16, 108, 56) : Color.FromArgb(164, 178, 170);
+            Color accent = st.Checked
+                ? Color.FromArgb(16, 108, 56)
+                : (item.Issue.IsReviewNeeded ? Color.FromArgb(218, 162, 0) : Color.FromArgb(164, 178, 170));
             var card = CreateStyledCardContainer(cardWidth, accent, item);
             card.Margin = new Padding(0, 0, 0, 5);
             card.Padding = new Padding(10, 6, 8, 6);

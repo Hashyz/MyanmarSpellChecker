@@ -440,7 +440,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     float penWidth = Math.Max(1.25f, (float)(1.35 * dpiScale));
                     using (var penRed = CreateWavePen(Color.FromArgb(236, 217, 48, 37), penWidth))
                     using (var penBlue = CreateWavePen(Color.FromArgb(236, 26, 115, 232), penWidth))
-                    using (var penAmber = CreateWavePen(Color.FromArgb(238, 217, 138, 18), penWidth))
+                    using (var penYellow = CreateWavePen(Color.FromArgb(244, 234, 176, 0), penWidth))
                     {
                         for (int cIdx = 0; cIdx < visibleCellGroups.Count; cIdx++)
                         {
@@ -537,8 +537,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                                     if (clippedX2 - clippedX1 < 4.0f || waveY < cellDrawClip.Top + 2 || waveY > cellDrawClip.Bottom - 1)
                                         continue;
 
-                                    Pen activePen = item.Issue.IsContextualWarning
-                                        ? penAmber
+                                    Pen activePen = item.Issue.IsReviewNeeded
+                                        ? penYellow
                                         : (item.Issue.IsGrammarOrStyle ? penBlue : penRed);
 
                                     DrawCrispWavyLine(g, activePen, clippedX1, clippedX2, waveY, dpiScale);

@@ -335,10 +335,13 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             }
             else
             {
+                bool hasConfirmedRed = _allItems.Any(i => !i.IsResolved && !i.Issue.IsReviewNeeded && !i.Issue.IsGrammarOrStyle);
                 _lblSummary.Text = UiLocalizer.Pick(
                     $"Found {activeCount} issue(s) — click any card to jump directly in document",
                     $"တွေ့ရှိချက် ({activeCount}) ခု — ကတ်ကိုနှိပ်၍ စာတမ်း၌ တိုက်ရိုက်ကြည့်ရှုပြင်ဆင်နိုင်သည်");
-                _lblSummary.ForeColor = Color.FromArgb(186, 34, 34);
+                _lblSummary.ForeColor = hasConfirmedRed
+                    ? Color.FromArgb(186, 34, 34)
+                    : Color.FromArgb(146, 100, 0);
             }
         }
 
@@ -736,13 +739,20 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             ProofingIssue issue = item.Issue;
             bool isGrammar = issue.IsGrammarOrStyle;
             bool isContextWarning = issue.IsContextualWarning;
+            bool isReviewNeeded = issue.IsReviewNeeded;
             bool isEncoding = issue.IssueType == ProofingIssueType.ZawgyiEncodingError ||
                               issue.IssueType == ProofingIssueType.LookalikeCharacterError;
             int innerWrap = Math.Max(180, cardWidth - 32);
 
-            Color accentColor = (isEncoding || isContextWarning)
-                ? Color.FromArgb(217, 138, 18)
-                : (isGrammar ? Color.FromArgb(26, 115, 232) : Color.FromArgb(217, 48, 37));
+            Color accentColor = isReviewNeeded
+                ? Color.FromArgb(218, 162, 0)
+                : (isEncoding
+                    ? Color.FromArgb(217, 138, 18)
+                    : (isGrammar ? Color.FromArgb(26, 115, 232) : Color.FromArgb(217, 48, 37)));
+
+            Color badgeTextColor = isReviewNeeded
+                ? Color.FromArgb(138, 94, 0)
+                : accentColor;
 
             var card = CreateStyledCardContainer(cardWidth, accentColor, isSelectableItem: item);
             int row = 0;
@@ -759,18 +769,20 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Margin = new Padding(0, 0, 0, 4)
             };
 
-            string categoryText = isEncoding
-                ? UiLocalizer.Pick($"● Unicode Standard  •  {item.StoryName}", $"● ယူနီကုဒ် စံနှုန်း  •  {item.StoryName}")
-                : (isContextWarning
-                    ? UiLocalizer.Pick($"● Context Check  •  {item.StoryName}", $"● အနက်သံသယ (Context Check)  •  {item.StoryName}")
-                    : (isGrammar
-                        ? UiLocalizer.Pick($"● Grammar & Style  •  {item.StoryName}", $"● သဒ္ဒါ / အရေးအသား  •  {item.StoryName}")
-                        : UiLocalizer.Pick($"● Spelling  •  {item.StoryName}", $"● စာလုံးပေါင်းသတ်ပုံ  •  {item.StoryName}")));
+            string categoryText = isContextWarning
+                ? UiLocalizer.Pick($"⚠ Context Check  •  {item.StoryName}", $"⚠ အနက်သံသယ (Context Check)  •  {item.StoryName}")
+                : (isReviewNeeded
+                    ? UiLocalizer.Pick($"⚠ Review Needed  •  {item.StoryName}", $"⚠ စိစစ်ရန် (အမည်/ခန့်မှန်း)  •  {item.StoryName}")
+                    : (isEncoding
+                        ? UiLocalizer.Pick($"● Unicode Standard  •  {item.StoryName}", $"● ယူနီကုဒ် စံနှုန်း  •  {item.StoryName}")
+                        : (isGrammar
+                            ? UiLocalizer.Pick($"● Grammar & Style  •  {item.StoryName}", $"● သဒ္ဒါ / အရေးအသား  •  {item.StoryName}")
+                            : UiLocalizer.Pick($"● Spelling  •  {item.StoryName}", $"● စာလုံးပေါင်းသတ်ပုံ  •  {item.StoryName}"))));
 
             var lblBadge = new Label
             {
                 Text = categoryText,
-                ForeColor = accentColor,
+                ForeColor = badgeTextColor,
                 Font = _fontSmallBold,
                 AutoSize = true,
                 Dock = DockStyle.Fill,
@@ -806,9 +818,11 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 ? $"\"{visOrig}\"   ➔   \"{topCand.Replacement}\""
                 : UiLocalizer.Pick($"Original: \"{visOrig}\"", $"မူရင်းစာသား: \"{visOrig}\"");
 
-            Color diffBg = (isEncoding || isContextWarning)
-                ? Color.FromArgb(255, 248, 228)
-                : (isGrammar ? Color.FromArgb(240, 246, 255) : Color.FromArgb(254, 243, 242));
+            Color diffBg = isReviewNeeded
+                ? Color.FromArgb(254, 249, 195)
+                : (isEncoding
+                    ? Color.FromArgb(255, 248, 228)
+                    : (isGrammar ? Color.FromArgb(240, 246, 255) : Color.FromArgb(254, 243, 242)));
 
             var lblOriginal = new Label
             {
@@ -1291,7 +1305,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         {
             int innerWrap = Math.Max(180, cardWidth - 28);
             var st = GetOrInitDockedState(item);
-            Color accent = st.Checked ? Color.FromArgb(22, 132, 68) : Color.FromArgb(164, 176, 192);
+            Color accent = st.Checked
+                ? Color.FromArgb(22, 132, 68)
+                : (item.Issue.IsReviewNeeded ? Color.FromArgb(218, 162, 0) : Color.FromArgb(164, 176, 192));
             var card = CreateStyledCardContainer(cardWidth, accent, isSelectableItem: item);
             card.Margin = new Padding(0, 0, 0, 5);
             card.Padding = new Padding(10, 6, 8, 6);
