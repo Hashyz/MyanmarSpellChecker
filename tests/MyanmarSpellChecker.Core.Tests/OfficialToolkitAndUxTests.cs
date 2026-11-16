@@ -1199,5 +1199,191 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.True(prefsOut.IsGroupedByWord);
             Assert.True(prefsOut.PreferDockedInTaskPane);
         }
+
+        [Fact]
+        public void V48_ProofingAuditReportBuilder_WrongVsSuspiciousVsSessionFixed_HtmlAndSummaryGate()
+        {
+            // 1. Static UI Wiring Gate across Word & Excel Add-Ins
+            string wordTaskPaneSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "ProofingTaskPaneControl.cs"));
+            string excelTaskPaneSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "ExcelProofingTaskPaneControl.cs"));
+            string wordReviewSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "FixAllPreviewDialog.cs"));
+            string excelReviewSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "FixAllPreviewDialog.cs"));
+
+            Assert.Contains("RequestExportProofingReport", wordTaskPaneSrc);
+            Assert.Contains("RequestExportProofingReport", excelTaskPaneSrc);
+            Assert.Contains("OnExportReport", wordReviewSrc);
+            Assert.Contains("OnExportReport", excelReviewSrc);
+
+            // 2. Build realistic multi-bucket document input (Confirmed Wrong vs. Suspicious vs. Already Fixed in Session)
+            var confirmedLookalike1 = new ProofingIssue
+            {
+                OriginalText = "အကောင်အထည်ဖေါ်",
+                IssueType = ProofingIssueType.LookalikeCharacterError,
+                RequiresReviewBeforeBatchFix = false,
+                Message = "ဤဗျည်းနောက်တွင် မောက်ချ 'ါ' မသုံးရဘဲ ရေးချ 'ာ' ဖြင့်သာ ရေးသားရမည်။",
+                Suggestions = new List<SuggestionCandidate>
+                {
+                    new SuggestionCandidate { Replacement = "အကောင်အထည်ဖော်", Score = 100.0, MeaningCue = "အကောင်အထည်ပေါ်အောင် ဆောင်ရွက်သည်" }
+                }
+            };
+            var confirmedLookalike2 = new ProofingIssue
+            {
+                OriginalText = "အကောင်အထည်ဖေါ်",
+                IssueType = ProofingIssueType.LookalikeCharacterError,
+                RequiresReviewBeforeBatchFix = false,
+                Message = "ဤဗျည်းနောက်တွင် မောက်ချ 'ါ' မသုံးရဘဲ ရေးချ 'ာ' ဖြင့်သာ ရေးသားရမည်။",
+                Suggestions = new List<SuggestionCandidate>
+                {
+                    new SuggestionCandidate { Replacement = "အကောင်အထည်ဖော်", Score = 100.0 }
+                }
+            };
+            var confirmedZwsp = new ProofingIssue
+            {
+                OriginalText = "မှတ်ပုံတင်ထားခြင်း\u200Bအတွက်",
+                IssueType = ProofingIssueType.SpellingError,
+                RequiresReviewBeforeBatchFix = false,
+                Message = "စာလုံးအတွင်း မမြင်ရသော ZWSP (U+200B) ပါဝင်နေပါသည်။",
+                Suggestions = new List<SuggestionCandidate>
+                {
+                    new SuggestionCandidate { Replacement = "မှတ်ပုံတင်ထားခြင်းအတွက်", Score = 100.0 }
+                }
+            };
+            var confirmedGrammar = new ProofingIssue
+            {
+                OriginalText = "ရဲ့",
+                IssueType = ProofingIssueType.OfficialStyleGrammarError,
+                RequiresReviewBeforeBatchFix = false,
+                Message = "ရုံးသုံး/စာပေဟန်တွင် 'ရဲ့' အစား '၏' ကို သုံးသင့်ပါသည်။",
+                Suggestions = new List<SuggestionCandidate>
+                {
+                    new SuggestionCandidate { Replacement = "၏", Score = 98.0 }
+                }
+            };
+            var suspiciousNameGuess = new ProofingIssue
+            {
+                OriginalText = "သမိုင်းဘူတာအနီး",
+                IssueType = ProofingIssueType.SpellingError,
+                RequiresReviewBeforeBatchFix = true,
+                Message = "လူအမည်/နေရာအမည် သို့မဟုတ် အဘိဓာန်ပြင်ပ စကားလုံး ဖြစ်နိုင်သဖြင့် လူကိုယ်တိုင် စိစစ်ပါ။",
+                Suggestions = new List<SuggestionCandidate>
+                {
+                    new SuggestionCandidate { Replacement = "သမိုင်းဘူတာ", Score = 78.0 },
+                    new SuggestionCandidate { Replacement = "သမိုင်းအနီး", Score = 72.0 }
+                }
+            };
+            var suspiciousContext = new ProofingIssue
+            {
+                OriginalText = "ကျရာ",
+                IssueType = ProofingIssueType.ContextualMeaningWarning,
+                RequiresReviewBeforeBatchFix = true,
+                Message = "ရှေ့နောက်စကားအရ အသံတူ အနက်ကွဲ စကားလုံးကို စိစစ်ပါ။",
+                Suggestions = new List<SuggestionCandidate>
+                {
+                    new SuggestionCandidate { Replacement = "ကျရာ", Score = 85.0, MeaningCue = "တာဝန်ကျရာ" },
+                    new SuggestionCandidate { Replacement = "ကြရာ", Score = 80.0, MeaningCue = "သွားကြရာ" }
+                }
+            };
+
+            var confirmedSpelling = new ProofingIssue
+            {
+                OriginalText = "ရောင်းချလျှက်",
+                IssueType = ProofingIssueType.SpellingError,
+                RequiresReviewBeforeBatchFix = false,
+                Message = "စံသတ်ပုံအရ 'လျှက်' (ဟထိုးပါ) အစား 'လျက်' ဟု ရေးသားရမည်။",
+                Suggestions = new List<SuggestionCandidate>
+                {
+                    new SuggestionCandidate { Replacement = "ရောင်းချလျက်", Score = 100.0 }
+                }
+            };
+
+            var inputs = new List<ProofingAuditItemInput>
+            {
+                new ProofingAuditItemInput("Table • Para #39", "E Trade Licencing စနစ်အား အကောင်အထည်ဖေါ် ဆောင်ရွက်လျက်ရှိပြီး...", confirmedLookalike1),
+                new ProofingAuditItemInput("Table • Para #42", "လုပ်ငန်းစဉ်များ အကောင်အထည်ဖေါ် ဆောင်ရွက်ရေး...", confirmedLookalike2),
+                new ProofingAuditItemInput("Body • Para #67", "လုပ်ငန်းရှင်မှတ်ပုံတင်ထားခြင်း\u200Bအတွက် ကိစ္စရပ်များ...", confirmedZwsp),
+                new ProofingAuditItemInput("Body • Para #71", "ဈေးကွက်အတွင်း ရောင်းချလျှက် ရှိသည့် ဆိုင်ကြီးများ...", confirmedSpelling),
+                new ProofingAuditItemInput("Body • Para #9", "မြန်မာနိုင်ငံရဲ့ အကြီးဆုံး အွန်လိုင်းဝန်ဆောင်မှု...", confirmedGrammar),
+                new ProofingAuditItemInput("Body • Para #3", "သမိုင်းဘူတာအနီး ရုံးချုပ်တည်ရှိပြီး...", suspiciousNameGuess),
+                new ProofingAuditItemInput("Body • Para #14", "မိမိတို့ ကျရာ တာဝန်ကို ထမ်းဆောင်ရမည်။", suspiciousContext)
+            };
+
+            var sessionFixed = new List<ProofingSessionFixedRecord>
+            {
+                new ProofingSessionFixedRecord("Body • Para #65", "ပို့\u102F\u102Dကုန်သွင်းကုန်", "ပို့ကုန်သွင်းကုန်", new DateTime(2026, 11, 16, 21, 10, 0)),
+                new ProofingSessionFixedRecord("Body • Para #67", "အနာဂါတ်", "အနာဂတ်", new DateTime(2026, 11, 16, 21, 11, 0))
+            };
+
+            var rawIssues = inputs.Select(x => x.Issue).ToList();
+            string sampleDocText = string.Join("\n", Enumerable.Repeat(
+                "ပြည်ထောင်စုသမ္မတမြန်မာနိုင်ငံတော် စီးပွားရေးနှင့်ကူးသန်းရောင်းဝယ်ရေးဝန်ကြီးဌာန လုပ်ငန်းစီမံချက် အစီရင်ခံစာ ဖြစ်ပါသည်။",
+                12));
+            var qReport = DocumentQualityAnalyzer.Analyze(sampleDocText, rawIssues);
+
+            var auditModel = ProofingAuditReportBuilder.Build(
+                "ActionPlan_Newform.docx",
+                "Microsoft Word",
+                ProofingStyleMode.FormalOfficial,
+                qReport,
+                inputs,
+                sessionFixed,
+                new DateTime(2026, 11, 16, 21, 15, 0));
+
+            // Verify 4-part bucket counts (1 pure spelling + 3 Unicode/ZWSP/Lookalike + 1 official grammar = 5 confirmed wrong)
+            Assert.Equal(5, auditModel.ConfirmedWrongCount);
+            Assert.Equal(1, auditModel.ConfirmedSpellingCount);
+            Assert.Equal(3, auditModel.ConfirmedEncodingAndLookalikeCount);
+            Assert.Equal(1, auditModel.ConfirmedGrammarAndStyleCount);
+
+            Assert.Equal(2, auditModel.SuspiciousReviewCount);
+            Assert.Equal(1, auditModel.SuspiciousNameOrOovCount);
+            Assert.Equal(1, auditModel.SuspiciousContextMeaningCount);
+
+            Assert.Equal(2, auditModel.SessionFixedCount);
+            Assert.True(auditModel.CleanAccuracyPercent > 0 && auditModel.CleanAccuracyPercent < 100.0);
+
+            // Verify Top Repeated Group aggregates duplicate 'အကောင်အထည်ဖေါ်' (×2)
+            var repeatedAkaung = Assert.Single(auditModel.TopRepeatedGroups, g => g.RecommendedFix == "အကောင်အထည်ဖော်");
+            Assert.Equal(2, repeatedAkaung.Count);
+            Assert.True(repeatedAkaung.IsConfirmedWrong);
+            Assert.Contains("[ါ➔ာ]", repeatedAkaung.VisualOriginal);
+
+            // Verify ZWSP visual badge in ConfirmedWrongItems
+            Assert.Contains(auditModel.ConfirmedWrongItems, r => r.VisualOriginal.Contains("[ZWSP]") && r.RecommendedFix == "မှတ်ပုံတင်ထားခြင်းအတွက်");
+
+            // Verify Suspicious alternatives ("How It Should Be" + alternatives)
+            var suspRow = Assert.Single(auditModel.SuspiciousReviewItems, r => r.RawOriginal == "သမိုင်းဘူတာအနီး");
+            Assert.Contains("သမိုင်းဘူတာ", suspRow.HowItShouldBeDisplay);
+            Assert.Contains("သမိုင်းအနီး", suspRow.HowItShouldBeDisplay);
+
+            // Verify Clipboard summary text
+            string clipText = ProofingAuditReportBuilder.BuildClipboardSummaryText(auditModel);
+            Assert.Contains("ActionPlan_Newform.docx", clipText);
+            Assert.Contains("အကောင်အထည်ဖော်", clipText);
+            Assert.Contains("[×2]", clipText);
+            Assert.Contains("အနာဂတ်", clipText);
+
+            // Verify Standalone Interactive HTML + Print-to-PDF Report & Disk Save
+            string html = ProofingAuditReportBuilder.BuildStandaloneInteractiveHtml(auditModel);
+            Assert.Contains("<!DOCTYPE html>", html);
+            Assert.Contains("<svg", html);
+            Assert.Contains("window.print()", html);
+            Assert.Contains("sec-wrong", html);
+            Assert.Contains("sec-susp", html);
+            Assert.Contains("sec-fixed", html);
+            Assert.Contains("[ZWSP]", html);
+            Assert.Contains("အကောင်အထည်ဖော်", html);
+
+            string tempDir = Path.Combine(Path.GetTempPath(), "mm_spell_v48_report_test_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                string savedPath = ProofingAuditReportBuilder.SaveStandaloneInteractiveHtmlToDisk(auditModel, tempDir);
+                Assert.True(File.Exists(savedPath));
+                Assert.True(new FileInfo(savedPath).Length > 4096);
+            }
+            finally
+            {
+                try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); } catch { }
+            }
+        }
     }
 }

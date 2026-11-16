@@ -82,6 +82,8 @@ namespace MyanmarSpellChecker.ExcelAddIn
         private FixAllPreviewDialog<SpreadsheetCellIssue>? _activeReviewDialog;
         private string _activeReviewWorkbookName = string.Empty;
         private IssueFilterMode _activeReviewFilterMode = IssueFilterMode.All;
+        private readonly Dictionary<string, List<ProofingSessionFixedRecord>> _sessionFixedByWorkbook =
+            new Dictionary<string, List<ProofingSessionFixedRecord>>(StringComparer.OrdinalIgnoreCase);
 
         static ExcelThisAddIn()
         {
@@ -624,6 +626,10 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 {
                     CloseActiveExcelReviewDialog();
                 }
+                if (willClose && !string.IsNullOrEmpty(wbName))
+                {
+                    _sessionFixedByWorkbook.Remove(wbName!);
+                }
                 _scannerToolkit?.PurgeClosedWorkbook(wbName);
                 PruneClosedWindowTaskPanes();
                 try
@@ -1148,20 +1154,142 @@ namespace MyanmarSpellChecker.ExcelAddIn
             ctrl.RequestRefreshQualityReport += () =>
                 _scannerToolkit?.BuildActiveWorkbookQualityReport(forceRefresh: true) ?? new DocumentQualityReport();
             ctrl.RequestExportAuditWorkbook += () =>
+                ExecuteExportExcelProofingReport(ProofingReportExportFormat.NativeOfficeDocument);
+            ctrl.RequestExportProofingReport += ExecuteExportExcelProofingReport;
+        }
+
+        private string GetActiveExcelWorkbookTitle()
+        {
+            try
             {
-                if (_scannerToolkit == null) return;
-                var rep = _scannerToolkit.BuildActiveWorkbookQualityReport(forceRefresh: true);
-                bool ok = _scannerToolkit.GenerateAuditReportWorkbook(rep);
-                ctrl.ShowToastBanner(
-                    ok
-                        ? UiLocalizer.Pick(
-                            "✓ Exported Myanmar Quality Audit Report to a new Excel workbook.",
-                            "✓ မြန်မာစာ အရည်အသွေး စစ်ဆေးချက် အစီရင်ခံစာ (Excel Workbook အသစ်) ထုတ်ပေးပြီးပါပြီ။")
-                        : UiLocalizer.Pick(
-                            "⚠ Could not generate the Excel audit report.",
-                            "⚠ အစီရင်ခံစာ ထုတ်ယူစဉ် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"),
-                    ok);
-            };
+                string? name = _excelApp?.ActiveWorkbook?.Name;
+                if (!string.IsNullOrWhiteSpace(name))
+                    return name!;
+            }
+            catch { }
+            return UiLocalizer.Pick("Untitled Excel Workbook", "အမည်မပေးရသေးသော Excel Workbook");
+        }
+
+        private void RecordExcelSessionFix(SpreadsheetCellIssue item, string appliedReplacement)
+        {
+            if (item == null || string.IsNullOrEmpty(appliedReplacement))
+                return;
+
+            string wbKey = !string.IsNullOrWhiteSpace(item.WorkbookName)
+                ? item.WorkbookName
+                : GetActiveExcelWorkbookTitle();
+            if (!_sessionFixedByWorkbook.TryGetValue(wbKey, out var list))
+            {
+                list = new List<ProofingSessionFixedRecord>();
+                _sessionFixedByWorkbook[wbKey] = list;
+            }
+
+            if (list.Count >= 2000)
+                list.RemoveAt(0);
+
+            list.Add(new ProofingSessionFixedRecord(
+                item.DisplayLocation,
+                item.Issue.OriginalText ?? string.Empty,
+                appliedReplacement,
+                DateTime.Now));
+        }
+
+        private ProofingAuditReportModel BuildActiveExcelProofingAuditReportModel()
+        {
+            string wbTitle = GetActiveExcelWorkbookTitle();
+            var qReport = _scannerToolkit?.BuildActiveWorkbookQualityReport(forceRefresh: true) ?? new DocumentQualityReport();
+            var unresolved = _scannerToolkit != null
+                ? _scannerToolkit.GetCachedIssuesForActiveWorkbook().Where(i => !i.IsResolved).ToList()
+                : new List<SpreadsheetCellIssue>();
+
+            var auditInputs = unresolved
+                .Select(item => new ProofingAuditItemInput(
+                    item.DisplayLocation,
+                    item.CellSnapshotText,
+                    item.Issue,
+                    (item.Issue.Suggestions != null && item.Issue.Suggestions.Count > 0)
+                        ? item.Issue.Suggestions[0].Replacement
+                        : string.Empty))
+                .ToList();
+
+            IReadOnlyList<ProofingSessionFixedRecord> sessionFixed =
+                _sessionFixedByWorkbook.TryGetValue(wbTitle, out var list)
+                    ? list.ToList()
+                    : Array.Empty<ProofingSessionFixedRecord>();
+
+            return ProofingAuditReportBuilder.Build(
+                wbTitle,
+                "Microsoft Excel",
+                _proofingEngine?.StyleMode ?? _pendingStyleMode,
+                qReport,
+                auditInputs,
+                sessionFixed);
+        }
+
+        private void ExecuteExportExcelProofingReport(ProofingReportExportFormat format)
+        {
+            if (_scannerToolkit == null)
+                return;
+
+            ProofingAuditReportModel model = BuildActiveExcelProofingAuditReportModel();
+            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+
+            switch (format)
+            {
+                case ProofingReportExportFormat.NativeOfficeDocument:
+                {
+                    bool ok = _scannerToolkit.GenerateRichAuditReportWorkbook(model);
+                    ctrl?.ShowToastBanner(
+                        ok
+                            ? UiLocalizer.Pick(
+                                $"✓ Exported 4-sheet Excel Proofing Audit Workbook ({model.ConfirmedWrongCount} wrong • {model.SuspiciousReviewCount} suspicious • {model.SessionFixedCount} fixed).",
+                                $"✓ Sheet ၄ ခုပါ Excel စစ်ဆေးချက် အစီရင်ခံစာ ထုတ်ပေးပြီးပါပြီ (သေချာမှား {model.ConfirmedWrongCount} • ပြန်စစ်ရန် {model.SuspiciousReviewCount} • ပြင်ပြီး {model.SessionFixedCount})။")
+                            : UiLocalizer.Pick(
+                                "⚠ Could not generate the Excel audit report workbook.",
+                                "⚠ Excel အစီရင်ခံစာ ထုတ်ယူစဉ် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"),
+                        ok);
+                    break;
+                }
+                case ProofingReportExportFormat.InteractiveHtmlAndPdf:
+                {
+                    try
+                    {
+                        string htmlPath = ProofingAuditReportBuilder.SaveStandaloneInteractiveHtmlToDisk(model);
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(htmlPath)
+                        {
+                            UseShellExecute = true
+                        });
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            "✓ Opened interactive HTML Audit Report in browser (click ⎙ Print / Save as PDF inside).",
+                            "✓ အပြန်အလှန် စစ်ဆေးနိုင်သော HTML အစီရင်ခံစာကို Browser ဖြင့် ဖွင့်ပေးပြီးပါပြီ (⎙ Print / Save as PDF နှိပ်၍ သိမ်းနိုင်သည်)။"));
+                    }
+                    catch
+                    {
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            "⚠ Could not open HTML Audit Report.",
+                            "⚠ HTML အစီရင်ခံစာ ဖွင့်ရာတွင် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"), isSuccess: false);
+                    }
+                    break;
+                }
+                case ProofingReportExportFormat.CopySummaryToClipboard:
+                {
+                    try
+                    {
+                        string text = ProofingAuditReportBuilder.BuildClipboardSummaryText(model);
+                        Clipboard.SetText(text, TextDataFormat.UnicodeText);
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            "✓ Copied Proofing Audit Summary to Clipboard (ready to paste into Email, Teams, or Telegram).",
+                            "✓ စစ်ဆေးချက် အကျဉ်းချုပ်ကို Clipboard သို့ ကူးယူပြီးပါပြီ (Email / Telegram တွင် Paste လုပ်နိုင်သည်)။"));
+                    }
+                    catch
+                    {
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            "⚠ Could not copy summary to Clipboard.",
+                            "⚠ Clipboard သို့ ကူးယူရာတွင် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"), isSuccess: false);
+                    }
+                    break;
+                }
+            }
         }
 
         private void CloseActiveExcelReviewDialog()
@@ -1245,6 +1373,11 @@ namespace MyanmarSpellChecker.ExcelAddIn
 
             if (fixedCount > 0)
             {
+                foreach (var kvp in approvedReplacements)
+                {
+                    if (kvp.Key.IsResolved)
+                        RecordExcelSessionFix(kvp.Key, kvp.Value);
+                }
                 ctrl?.ShowToastBanner(UiLocalizer.Pick(
                     $"✓ Applied {fixedCount} approved fix(es) safely without touching formulas (↶ Undo available).",
                     $"✓ စိစစ်အတည်ပြုထားသော ({fixedCount}) ခုကို Formula မပျက်စေဘဲ ပြင်ဆင်ပြီးပါပြီ (↶ ပြန်ဆုတ်နိုင်သည်)။"));
@@ -1343,7 +1476,8 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 {
                     var paneCtrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
                     paneCtrl?.EnterDockedChecklistMode(snapshot);
-                }
+                },
+                OnExportReport = ExecuteExportExcelProofingReport
             };
 
             if (forceFloating)
@@ -1496,6 +1630,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
             var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
             if (_scannerToolkit.ApplySingleFix(item, replacement, out string err))
             {
+                RecordExcelSessionFix(item, replacement);
                 ctrl?.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
                 ctrl?.ShowToastBanner(UiLocalizer.Pick(
                     $"✓ Applied \"{replacement}\" in {item.DisplayLocation} (↶ Undo available).",
@@ -1513,7 +1648,20 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 return;
 
             var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
-            int count = _scannerToolkit.ApplySameWordBatchFix(orig, rep, out string warn);
+            string targetNorm = UnicodeNormalizer.NormalizeCanonicalOrder((orig ?? string.Empty).Trim());
+            var preMatching = _scannerToolkit.GetCachedIssuesForActiveWorkbook()
+                .Where(i => !i.IsResolved &&
+                            string.Equals(UnicodeNormalizer.NormalizeCanonicalOrder((i.Issue.OriginalText ?? string.Empty).Trim()), targetNorm, StringComparison.Ordinal))
+                .ToList();
+            int count = _scannerToolkit.ApplySameWordBatchFix(orig ?? string.Empty, rep ?? string.Empty, out string warn);
+            if (count > 0)
+            {
+                foreach (var matched in preMatching)
+                {
+                    if (matched.IsResolved)
+                        RecordExcelSessionFix(matched, rep ?? string.Empty);
+                }
+            }
             ctrl?.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
             if (count > 0)
             {
@@ -2195,19 +2343,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
         {
             AddInDiagnostics.SafeExecute("OnRibbonExportAuditReport", () =>
             {
-                if (_scannerToolkit == null) return;
-                var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
-                var rep = _scannerToolkit.BuildActiveWorkbookQualityReport(forceRefresh: true);
-                bool ok = _scannerToolkit.GenerateAuditReportWorkbook(rep);
-                ctrl?.ShowToastBanner(
-                    ok
-                        ? UiLocalizer.Pick(
-                            "✓ Exported Myanmar Quality Audit Report to a new Excel workbook.",
-                            "✓ မြန်မာစာ အရည်အသွေး စစ်ဆေးချက် အစီရင်ခံစာ (Excel Workbook အသစ်) ထုတ်ပေးပြီးပါပြီ။")
-                        : UiLocalizer.Pick(
-                            "⚠ Could not generate the Excel audit report.",
-                            "⚠ အစီရင်ခံစာ ထုတ်ယူစဉ် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"),
-                    ok);
+                ExecuteExportExcelProofingReport(ProofingReportExportFormat.NativeOfficeDocument);
             });
         }
 

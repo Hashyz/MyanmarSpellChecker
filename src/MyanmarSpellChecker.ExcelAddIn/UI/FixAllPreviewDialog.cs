@@ -8,6 +8,7 @@ using System.Windows.Forms;
 using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
+using MyanmarSpellChecker.Core.Official;
 using MyanmarSpellChecker.Core.Performance;
 
 namespace MyanmarSpellChecker.ExcelAddIn.UI
@@ -50,6 +51,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         public Func<IReadOnlyList<FixPreviewEntry<TPayload>>>? OnRefreshEntries { get; set; }
         public Action? OnUndoLastFix { get; set; }
         public Action<IReadOnlyList<FixPreviewEntry<TPayload>>>? OnDockInTaskPane { get; set; }
+        public Action<ProofingReportExportFormat>? OnExportReport { get; set; }
     }
 
     internal static class FixPreviewNativeMethods
@@ -112,6 +114,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private Button _btnPinTop = null!;
         private Button _btnCompact = null!;
         private Button _btnDockPane = null!;
+        private Button _btnReportMenu = null!;
+        private ContextMenuStrip _reportMenu = null!;
         private Button _btnRefresh = null!;
         private Button _btnUndo = null!;
 
@@ -248,6 +252,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 SaveCurrentWindowPreferences(preferDockedOverride: null);
                 DisposeAndClearChoicesPanel();
+                _reportMenu?.Dispose();
                 _searchDebounceTimer.Stop();
                 _searchDebounceTimer.Dispose();
                 _fontTitle.Dispose();
@@ -420,6 +425,26 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 }
             };
 
+            _reportMenu = new ContextMenuStrip { Font = _fontBody };
+            _reportMenu.Items.Add(
+                UiLocalizer.Pick("▤ Excel Audit Workbook (4 Sheets)", "▤ Excel အစီရင်ခံစာ ဇယား (.xlsx)"),
+                null,
+                (s, e) => _callbacks.OnExportReport?.Invoke(ProofingReportExportFormat.NativeOfficeDocument));
+            _reportMenu.Items.Add(
+                UiLocalizer.Pick("◈ Print-Ready HTML / Save PDF", "◈ HTML / PDF ပုံနှိပ်အစီရင်ခံစာ"),
+                null,
+                (s, e) => _callbacks.OnExportReport?.Invoke(ProofingReportExportFormat.InteractiveHtmlAndPdf));
+            _reportMenu.Items.Add(
+                UiLocalizer.Pick("⎘ Copy Summary to Clipboard", "⎘ အနှစ်ချုပ် Clipboard ကူးယူမည်"),
+                null,
+                (s, e) => _callbacks.OnExportReport?.Invoke(ProofingReportExportFormat.CopySummaryToClipboard));
+
+            _btnReportMenu = CreateToolbarButton(
+                UiLocalizer.Pick("≡ Report ▾", "≡ အစီရင်ခံစာ ▾"),
+                Color.FromArgb(228, 246, 235), Color.FromArgb(14, 88, 46), Color.FromArgb(156, 210, 178));
+            _btnReportMenu.Visible = _callbacks.OnExportReport != null;
+            _btnReportMenu.Click += (s, e) => _reportMenu.Show(_btnReportMenu, new Point(0, _btnReportMenu.Height));
+
             _btnRefresh = CreateHeaderMiniButton(UiLocalizer.Pick("↻ Refresh", "↻ ပြန်စစ်"));
             _btnRefresh.Visible = _callbacks.OnRefreshEntries != null;
             _btnRefresh.Click += (s, e) => TriggerLiveRefresh();
@@ -437,6 +462,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 _btnPinTop,
                 _btnCompact,
                 _btnDockPane,
+                _btnReportMenu,
                 _btnRefresh,
                 _btnUndo
             });

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Text;
 using System.Windows.Forms;
 using MyanmarSpellChecker.Core.Localization;
@@ -1024,6 +1025,276 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             }
             catch
             {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Generates a rich formatted Word Audit Report document (.docx) with bordered tables for:
+        /// (1) 4-Part Word Health Scorecard, (2) Top Repeated Findings (×Count),
+        /// (3) Confirmed Wrong — How It Should Be, (4) Suspicious / Human Review Needed, and (5) Already Fixed in Session.
+        /// Uses fast bulk tab-delimited ConvertToTable with ScreenUpdating=false so 400+ rows render in &lt; 250 ms.
+        /// </summary>
+        public bool GenerateRichAuditReportDocument(
+            Word.Application app,
+            ProofingAuditReportModel model)
+        {
+            if (app == null || model == null)
+                return false;
+
+            bool prevScreenUpdating = true;
+            try
+            {
+                object missing = Type.Missing;
+                Word.Document doc = app.Documents.Add(ref missing, ref missing, ref missing, ref missing);
+                try { prevScreenUpdating = app.ScreenUpdating; app.ScreenUpdating = false; } catch { }
+
+                doc.Content.Font.Name = TargetUnicodeFontName;
+                doc.Content.Font.NameBi = TargetUnicodeFontName;
+                doc.Content.Font.Size = 10.5F;
+
+                static string CleanCell(string? s)
+                {
+                    if (string.IsNullOrEmpty(s)) return "—";
+                    return s!.Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ').Trim();
+                }
+
+                void AppendHeading(string text, float ptSize, System.Drawing.Color color, bool centered = false)
+                {
+                    Word.Paragraph p = doc.Content.Paragraphs.Add(ref missing);
+                    p.Range.Text = text + "\r";
+                    Word.Range r = doc.Paragraphs[doc.Paragraphs.Count - 1].Range;
+                    r.Font.Name = TargetUnicodeFontName;
+                    r.Font.NameBi = TargetUnicodeFontName;
+                    r.Font.Size = ptSize;
+                    r.Font.Bold = 1;
+                    r.Font.Color = (Word.WdColor)System.Drawing.ColorTranslator.ToOle(color);
+                    r.ParagraphFormat.Alignment = centered
+                        ? Word.WdParagraphAlignment.wdAlignParagraphCenter
+                        : Word.WdParagraphAlignment.wdAlignParagraphLeft;
+                    r.ParagraphFormat.SpaceBefore = 6F;
+                    r.ParagraphFormat.SpaceAfter = 4F;
+                }
+
+                void AppendNoteLine(string text, bool bold = false)
+                {
+                    Word.Paragraph p = doc.Content.Paragraphs.Add(ref missing);
+                    p.Range.Text = text + "\r";
+                    Word.Range r = doc.Paragraphs[doc.Paragraphs.Count - 1].Range;
+                    r.Font.Name = TargetUnicodeFontName;
+                    r.Font.NameBi = TargetUnicodeFontName;
+                    r.Font.Size = 10F;
+                    r.Font.Bold = bold ? 1 : 0;
+                    r.ParagraphFormat.Alignment = Word.WdParagraphAlignment.wdAlignParagraphLeft;
+                    r.ParagraphFormat.SpaceBefore = 2F;
+                    r.ParagraphFormat.SpaceAfter = 4F;
+                }
+
+                void AppendTabTable(string[] headers, IReadOnlyList<string[]> rows, System.Drawing.Color headerBg, System.Drawing.Color headerFg)
+                {
+                    var sb = new System.Text.StringBuilder((rows.Count + 1) * 96);
+                    sb.AppendLine(string.Join("\t", headers.Select(CleanCell)));
+                    for (int i = 0; i < rows.Count; i++)
+                    {
+                        sb.AppendLine(string.Join("\t", rows[i].Select(CleanCell)));
+                    }
+
+                    Word.Paragraph p = doc.Content.Paragraphs.Add(ref missing);
+                    int insertStart = p.Range.Start;
+                    p.Range.Text = sb.ToString();
+                    int insertEnd = p.Range.End - 1;
+                    Word.Range tblRange = doc.Range(insertStart, insertEnd);
+
+                    object sep = Word.WdTableFieldSeparator.wdSeparateByTabs;
+                    object numCols = headers.Length;
+                    object numRows = rows.Count + 1;
+                    object autoFit = Word.WdAutoFitBehavior.wdAutoFitWindow;
+                    Word.Table tbl = tblRange.ConvertToTable(
+                        ref sep, ref numRows, ref numCols, ref missing, ref missing,
+                        ref missing, ref missing, ref missing, ref missing, ref missing,
+                        ref missing, ref missing, ref missing, ref autoFit, ref missing, ref missing);
+
+                    tbl.Borders.Enable = 1;
+                    tbl.Borders.InsideLineStyle = Word.WdLineStyle.wdLineStyleSingle;
+                    tbl.Borders.OutsideLineStyle = Word.WdLineStyle.wdLineStyleSingle;
+                    tbl.Borders.InsideColor = (Word.WdColor)System.Drawing.ColorTranslator.ToOle(System.Drawing.Color.FromArgb(204, 214, 228));
+                    tbl.Borders.OutsideColor = (Word.WdColor)System.Drawing.ColorTranslator.ToOle(System.Drawing.Color.FromArgb(164, 182, 206));
+
+                    tbl.Range.Font.Name = TargetUnicodeFontName;
+                    tbl.Range.Font.NameBi = TargetUnicodeFontName;
+                    tbl.Range.Font.Size = 9.5F;
+
+                    Word.Row hdrRow = tbl.Rows[1];
+                    hdrRow.HeadingFormat = -1;
+                    hdrRow.Shading.BackgroundPatternColor = (Word.WdColor)System.Drawing.ColorTranslator.ToOle(headerBg);
+                    hdrRow.Range.Font.Bold = 1;
+                    hdrRow.Range.Font.Color = (Word.WdColor)System.Drawing.ColorTranslator.ToOle(headerFg);
+
+                    Word.Paragraph spacer = doc.Content.Paragraphs.Add(ref missing);
+                    spacer.Range.Text = "\r";
+                }
+
+                // Title Header
+                AppendHeading(
+                    UiLocalizer.Pick(
+                        "Myanmar Proofing & Orthography Audit Report\vမြန်မာစာ စာလုံးပေါင်းသတ်ပုံနှင့် သဒ္ဒါ စစ်ဆေးချက် အစီရင်ခံစာ",
+                        "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံနှင့် သဒ္ဒါ စစ်ဆေးချက် အစီရင်ခံစာ\vMyanmar Proofing & Orthography Audit Report"),
+                    13.5F,
+                    System.Drawing.Color.FromArgb(16, 42, 72),
+                    centered: true);
+
+                AppendNoteLine(
+                    $"{UiLocalizer.Pick("Document", "စာတမ်းအမည်")}: {model.DocumentTitle}   |   {UiLocalizer.Pick("Mode", "စစ်ဆေးမှုစနစ်")}: {model.StyleModeLabel}\v{UiLocalizer.Pick("Checked At", "စစ်ဆေးချိန်")}: {model.OfficialDateHeader}");
+
+                // 1. 4-Part Scorecard Table
+                AppendHeading(
+                    UiLocalizer.Pick("1. 4-Part Word Health Scorecard (စကားလုံး အရည်အသွေး အနှစ်ချုပ်)", "၁။ စကားလုံး အရည်အသွေး ၄-ပိုင်းခွဲ အနှစ်ချုပ် (4-Part Scorecard)"),
+                    11.5F,
+                    System.Drawing.Color.FromArgb(18, 72, 148));
+
+                var kpiRows = new List<string[]>
+                {
+                    new[] { UiLocalizer.Pick("Total Words / Syllables", "စုစုပေါင်း စကားလုံး / ဝဏ္ဏ"), $"{model.TotalWords:N0} words ({model.MyanmarSyllables:N0} syllables)", UiLocalizer.Pick("Quality Grade", "အရည်အသွေးအဆင့်"), $"{model.OverallScore}% — {model.LocalizedGradeLabel}" },
+                    new[] { UiLocalizer.Pick("Clean / Valid Words", "အမှားကင်းစင်မှုနှုန်း"), $"{model.CleanAccuracyPercent:0.##}% (~{model.EstimatedCleanWords:N0} words)", UiLocalizer.Pick("Unicode / Formal Style", "ယူနီကုဒ် / ရုံးသုံးဟန်"), $"Unicode {model.UnicodePurityPercent:0.#}% • Formal {model.FormalRegisterPercent:0.#}%" },
+                    new[] { UiLocalizer.Pick("Confirmed Wrong (Sure)", "သေချာသော အမှားစစ်စစ်"), $"{model.ConfirmedWrongCount:N0} ({model.ConfirmedWrongRatePercent:0.##}%)", UiLocalizer.Pick("Wrong Breakdown", "အမှားအမျိုးအစားခွဲ"), $"Spelling: {model.ConfirmedSpellingCount} | Unicode/Lookalike: {model.ConfirmedEncodingAndLookalikeCount} | Grammar: {model.ConfirmedGrammarAndStyleCount}" },
+                    new[] { UiLocalizer.Pick("Suspicious / Review Needed", "သံသယ / လူစိစစ်ရန်"), $"{model.SuspiciousReviewCount:N0} ({model.SuspiciousRatePercent:0.##}%)", UiLocalizer.Pick("Suspicious Breakdown", "သံသယအမျိုးအစားခွဲ"), $"Names/Guesses: {model.SuspiciousNameOrOovCount} | Meaning: {model.SuspiciousContextMeaningCount} | Consistency: {model.ConsistencyWarningCount}" },
+                    new[] { UiLocalizer.Pick("Already Fixed in Session", "ယခုအကြိမ် ပြင်ဆင်ပြီးစီးမှု"), $"{model.SessionFixedCount:N0}", UiLocalizer.Pick("Consistency Notes", "ရှေ့နောက်ညီညွတ်မှု"), model.ConsistencySummaries.Count > 0 ? string.Join(" ; ", model.ConsistencySummaries) : "✓ Consistent" }
+                };
+                AppendTabTable(
+                    new[] { "Metric • တိုင်းတာချက်", "Value • ရလဒ်", "Detail • အသေးစိတ်", "Notes • မှတ်ချက်" },
+                    kpiRows,
+                    System.Drawing.Color.FromArgb(232, 240, 252),
+                    System.Drawing.Color.FromArgb(16, 42, 72));
+
+                // 2. Section A: Top Repeated Findings
+                AppendHeading(
+                    UiLocalizer.Pick($"2. Top Repeated Findings ({model.TopRepeatedGroups.Count}) • ထပ်ခါတလဲလဲ အများဆုံးတွေ့ရှိချက်များ", $"၂။ ထပ်ခါတလဲလဲ အများဆုံးတွေ့ရှိရသော စာလုံးများ ({model.TopRepeatedGroups.Count})"),
+                    11.5F,
+                    System.Drawing.Color.FromArgb(18, 72, 148));
+
+                if (model.TopRepeatedGroups.Count == 0)
+                {
+                    AppendNoteLine(UiLocalizer.Pick("✓ Zero unresolved issues found!", "✓ ပြင်ဆင်ရန် အမှားအယွင်း မကျန်ရှိပါ။"), bold: true);
+                }
+                else
+                {
+                    var repRows = model.TopRepeatedGroups
+                        .Select((g, i) => new[]
+                        {
+                            (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                            g.StatusBadge,
+                            g.VisualOriginal,
+                            $"×{g.Count}",
+                            g.RecommendedFix,
+                            g.SampleLocations
+                        })
+                        .ToList();
+                    AppendTabTable(
+                        new[] { "#", "Status", "Found • တွေ့ရှိစာသား", "Count", "How It Should Be • အမှန်ရေးရန်", "Locations • နေရာ" },
+                        repRows,
+                        System.Drawing.Color.FromArgb(236, 242, 250),
+                        System.Drawing.Color.FromArgb(16, 42, 72));
+                }
+
+                const int MaxWordTableRows = 400;
+
+                // 3. Section B1: Confirmed Wrong — How It Should Be
+                AppendHeading(
+                    UiLocalizer.Pick($"3. Confirmed Wrong — How It Should Be ({model.ConfirmedWrongCount}) • သေချာသော အမှားများနှင့် အမှန်ပြင်ရန်", $"၃။ သေချာသော အမှားစစ်စစ်များနှင့် မည်သို့ရေးရမည် ({model.ConfirmedWrongCount})"),
+                    11.5F,
+                    System.Drawing.Color.FromArgb(178, 28, 36));
+
+                if (model.ConfirmedWrongItems.Count == 0)
+                {
+                    AppendNoteLine(UiLocalizer.Pick("✓ 0 confirmed errors remaining.", "✓ သေချာသော စာလုံးပေါင်း/သဒ္ဒါအမှား မရှိပါ။"));
+                }
+                else
+                {
+                    var wrongRows = model.ConfirmedWrongItems
+                        .Take(MaxWordTableRows)
+                        .Select(r => new[]
+                        {
+                            r.Index.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                            r.LocationLabel,
+                            r.CategoryLabel,
+                            r.VisualOriginal,
+                            r.HowItShouldBeDisplay,
+                            $"{r.Explanation} [{r.ContextSnippet}]"
+                        })
+                        .ToList();
+                    AppendTabTable(
+                        new[] { "#", "Location • နေရာ", "Category", "Wrong Text • အမှား", "How It Should Be • အမှန်", "MLC Rule & Context • စည်းကမ်းနှင့် ဝါကျ" },
+                        wrongRows,
+                        System.Drawing.Color.FromArgb(253, 236, 236),
+                        System.Drawing.Color.FromArgb(148, 20, 28));
+                }
+
+                // 4. Section B2: Suspicious / Human Review Needed
+                AppendHeading(
+                    UiLocalizer.Pick($"4. Suspicious / Human Review Needed ({model.SuspiciousReviewCount}) • သံသယရှိ / စိစစ်ရန် စာလုံးများ", $"၄။ သံသယရှိ / လူကိုယ်တိုင် စိစစ်အတည်ပြုရန် စာလုံးများ ({model.SuspiciousReviewCount})"),
+                    11.5F,
+                    System.Drawing.Color.FromArgb(156, 86, 8));
+
+                if (model.SuspiciousReviewItems.Count == 0)
+                {
+                    AppendNoteLine(UiLocalizer.Pick("✓ 0 suspicious items requiring human review.", "✓ သံသယရှိ စိစစ်ရန်စာလုံး မရှိပါ။"));
+                }
+                else
+                {
+                    var suspRows = model.SuspiciousReviewItems
+                        .Take(MaxWordTableRows)
+                        .Select(r => new[]
+                        {
+                            r.Index.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                            r.LocationLabel,
+                            r.CategoryLabel,
+                            r.VisualOriginal,
+                            r.HowItShouldBeDisplay,
+                            $"{r.Explanation} [{r.ContextSnippet}]"
+                        })
+                        .ToList();
+                    AppendTabTable(
+                        new[] { "#", "Location • နေရာ", "Why Suspicious", "Suspicious Text • သံသယစာသား", "Suggested (If Typo) • အကြံပြုချက်", "Note & Context • မှတ်ချက်နှင့် ဝါကျ" },
+                        suspRows,
+                        System.Drawing.Color.FromArgb(255, 245, 219),
+                        System.Drawing.Color.FromArgb(132, 72, 6));
+                }
+
+                // 5. Section C: Already Fixed in Session
+                if (model.SessionFixedRecords.Count > 0)
+                {
+                    AppendHeading(
+                        UiLocalizer.Pick($"5. Already Fixed in This Session ({model.SessionFixedCount}) • ယခုပြင်ဆင်ပြီးစီးခဲ့သော စာလုံးများ", $"၅။ ယခုအကြိမ် ပြင်ဆင်ပြီးစီးခဲ့သော စာလုံးများ ({model.SessionFixedCount})"),
+                        11.5F,
+                        System.Drawing.Color.FromArgb(16, 108, 56));
+
+                    var fixRows = model.SessionFixedRecords
+                        .Take(MaxWordTableRows)
+                        .Select((f, idx) => new[]
+                        {
+                            (idx + 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                            f.LocationLabel,
+                            f.VisualOriginalText,
+                            $"✓ {f.AppliedReplacement}",
+                            f.AppliedAtLocal.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture)
+                        })
+                        .ToList();
+                    AppendTabTable(
+                        new[] { "#", "Location • နေရာ", "Original • မူလအမှား", "Applied Fix • ပြင်ပြီးစာသား", "Time" },
+                        fixRows,
+                        System.Drawing.Color.FromArgb(228, 247, 235),
+                        System.Drawing.Color.FromArgb(14, 92, 46));
+                }
+
+                AppendNoteLine("Reference: Myanmar Language Commission (မြန်မာစာအဖွဲ့) 'မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း' & 'မြန်မာအဘိဓာန်' (100% Offline) • Creator: Htet Yar Zar (ထက်ရာဇာ), Department of Geology, Kyaukse University.");
+
+                try { app.ScreenUpdating = prevScreenUpdating; } catch { }
+                doc.Activate();
+                return true;
+            }
+            catch
+            {
+                try { app.ScreenUpdating = prevScreenUpdating; } catch { }
                 return false;
             }
         }

@@ -2346,6 +2346,161 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             }
         }
 
+        /// <summary>
+        /// Generates a rich multi-worksheet Excel Audit Report Workbook (.xlsx) using fast O(1) 2D block array writes:
+        /// Sheet 1: Summary &amp; Top Repeated Findings | Sheet 2: Confirmed Wrong (How It Should Be) |
+        /// Sheet 3: Suspicious / Review Needed | Sheet 4: Fixed in Session.
+        /// </summary>
+        public bool GenerateRichAuditReportWorkbook(ProofingAuditReportModel model)
+        {
+            if (model == null || !IsExcelReadyForInterop(_excelApp))
+                return false;
+
+            bool prevScreenUpdating = true;
+            try
+            {
+                try { prevScreenUpdating = _excelApp.ScreenUpdating; _excelApp.ScreenUpdating = false; } catch { }
+
+                Excel.Workbook reportWb = _excelApp.Workbooks.Add();
+
+                static void WriteGridToSheet(Excel.Worksheet sheet, List<object?[]> rows, int colCount, int headerRowOneBased, double[] colWidths)
+                {
+                    if (rows.Count == 0)
+                        return;
+
+                    var grid = new object?[rows.Count, colCount];
+                    for (int r = 0; r < rows.Count; r++)
+                    {
+                        var src = rows[r];
+                        for (int c = 0; c < colCount && c < src.Length; c++)
+                        {
+                            grid[r, c] = src[c];
+                        }
+                    }
+
+                    Excel.Range fullRange = sheet.Range[sheet.Cells[1, 1], sheet.Cells[rows.Count, colCount]];
+                    fullRange.Value2 = grid;
+                    fullRange.Font.Name = "Pyidaungsu";
+                    fullRange.Font.Size = 10.5;
+                    fullRange.WrapText = true;
+                    fullRange.VerticalAlignment = Excel.XlVAlign.xlVAlignTop;
+
+                    if (headerRowOneBased >= 1 && headerRowOneBased <= rows.Count)
+                    {
+                        Excel.Range hdr = sheet.Range[sheet.Cells[headerRowOneBased, 1], sheet.Cells[headerRowOneBased, colCount]];
+                        hdr.Font.Bold = true;
+                        hdr.Interior.Color = System.Drawing.ColorTranslator.ToOle(System.Drawing.Color.FromArgb(228, 240, 250));
+                    }
+
+                    for (int c = 0; c < colWidths.Length && c < colCount; c++)
+                    {
+                        ((Excel.Range)sheet.Columns[c + 1]).ColumnWidth = colWidths[c];
+                    }
+                }
+
+                // Sheet 1: 4-Part Scorecard + Top Repeated Findings
+                Excel.Worksheet wsSummary = (Excel.Worksheet)reportWb.ActiveSheet;
+                try { wsSummary.Name = "1_Summary_Scorecard"; } catch { }
+
+                var sumRows = new List<object?[]>
+                {
+                    new object?[] { UiLocalizer.Pick("Myanmar Proofing & Orthography Audit Report (Excel Edition)", "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံနှင့် သဒ္ဒါ စစ်ဆေးချက် အစီရင်ခံစာ (Excel)"), "", "", "", "", "" },
+                    new object?[] { "Workbook / File", model.DocumentTitle, "Checked At", model.OfficialDateHeader, "Mode", model.StyleModeLabel },
+                    new object?[] { "Clean Accuracy & Grade", $"{model.CleanAccuracyPercent:0.##}% ({model.OverallScore}% — {model.LocalizedGradeLabel})", "Total Words / Syllables", $"{model.TotalWords:N0} words ({model.MyanmarSyllables:N0} syllables)", "Already Fixed (Session)", model.SessionFixedCount },
+                    new object?[] { "Confirmed Wrong (Sure)", $"{model.ConfirmedWrongCount:N0} ({model.ConfirmedWrongRatePercent:0.##}%)", "Spelling / Unicode / Grammar", $"{model.ConfirmedSpellingCount} / {model.ConfirmedEncodingAndLookalikeCount} / {model.ConfirmedGrammarAndStyleCount}", "Unicode Purity", $"{model.UnicodePurityPercent:0.#}%" },
+                    new object?[] { "Suspicious / Review", $"{model.SuspiciousReviewCount:N0} ({model.SuspiciousRatePercent:0.##}%)", "Names-Guesses / Meaning / Consistency", $"{model.SuspiciousNameOrOovCount} / {model.SuspiciousContextMeaningCount} / {model.ConsistencyWarningCount}", "Formal Style", $"{model.FormalRegisterPercent:0.#}%" },
+                    new object?[] { "", "", "", "", "", "" },
+                    new object?[] { "#", "Status • အမျိုးအစား", "Found in Sheet • တွေ့ရှိစာသား", "Count • အကြိမ်ရေ", "How It Should Be • အမှန်ရေးရန်", "Sample Cells • အကွက်နေရာများ" }
+                };
+
+                if (model.TopRepeatedGroups.Count == 0)
+                {
+                    sumRows.Add(new object?[] { 1, "✓ Clean", "—", 0, "No unresolved issues found", "—" });
+                }
+                else
+                {
+                    for (int i = 0; i < model.TopRepeatedGroups.Count; i++)
+                    {
+                        var g = model.TopRepeatedGroups[i];
+                        sumRows.Add(new object?[] { i + 1, g.StatusBadge, g.VisualOriginal, g.Count, g.RecommendedFix, g.SampleLocations });
+                    }
+                }
+
+                WriteGridToSheet(wsSummary, sumRows, 6, headerRowOneBased: 7, new[] { 8.0, 24.0, 28.0, 14.0, 28.0, 38.0 });
+                Excel.Range titleBanner = wsSummary.Range[wsSummary.Cells[1, 1], wsSummary.Cells[1, 6]];
+                titleBanner.Merge();
+                titleBanner.Font.Bold = true;
+                titleBanner.Font.Size = 13;
+
+                // Sheet 2: Confirmed Wrong — How It Should Be
+                Excel.Worksheet wsWrong = (Excel.Worksheet)reportWb.Worksheets.Add(After: wsSummary);
+                try { wsWrong.Name = "2_Confirmed_Wrong"; } catch { }
+                var wrongRows = new List<object?[]>(model.ConfirmedWrongItems.Count + 2)
+                {
+                    new object?[] { "#", "Sheet!Cell • အကွက်", "Category", "Wrong Text • မှားနေသောစာသား", "How It Should Be • အမှန်", "MLC Rule Explanation • စည်းကမ်းချက်", "Cell Context • အကွက်စာသား" }
+                };
+                if (model.ConfirmedWrongItems.Count == 0)
+                {
+                    wrongRows.Add(new object?[] { 0, "—", "✓ Clean", "—", "0 confirmed errors remaining", "—", "—" });
+                }
+                else
+                {
+                    foreach (var r in model.ConfirmedWrongItems)
+                    {
+                        wrongRows.Add(new object?[] { r.Index, r.LocationLabel, r.CategoryLabel, r.VisualOriginal, r.HowItShouldBeDisplay, r.Explanation, r.ContextSnippet });
+                    }
+                }
+                WriteGridToSheet(wsWrong, wrongRows, 7, headerRowOneBased: 1, new[] { 7.0, 18.0, 20.0, 26.0, 28.0, 44.0, 38.0 });
+
+                // Sheet 3: Suspicious / Review Needed
+                Excel.Worksheet wsSusp = (Excel.Worksheet)reportWb.Worksheets.Add(After: wsWrong);
+                try { wsSusp.Name = "3_Suspicious_Review"; } catch { }
+                var suspRows = new List<object?[]>(model.SuspiciousReviewItems.Count + 2)
+                {
+                    new object?[] { "#", "Sheet!Cell • အကွက်", "Why Suspicious • သံသယအမျိုးအစား", "Suspicious Text • သံသယစာသား", "Suggested (If Typo) • အမှားဖြစ်ပါက ပြင်ရန်", "Explanation • မှတ်ချက်", "Cell Context • အကွက်စာသား" }
+                };
+                if (model.SuspiciousReviewItems.Count == 0)
+                {
+                    suspRows.Add(new object?[] { 0, "—", "✓ Clean", "—", "0 suspicious items", "—", "—" });
+                }
+                else
+                {
+                    foreach (var r in model.SuspiciousReviewItems)
+                    {
+                        suspRows.Add(new object?[] { r.Index, r.LocationLabel, r.CategoryLabel, r.VisualOriginal, r.HowItShouldBeDisplay, r.Explanation, r.ContextSnippet });
+                    }
+                }
+                WriteGridToSheet(wsSusp, suspRows, 7, headerRowOneBased: 1, new[] { 7.0, 18.0, 22.0, 26.0, 28.0, 42.0, 38.0 });
+
+                // Sheet 4: Fixed in Session (when present)
+                if (model.SessionFixedRecords.Count > 0)
+                {
+                    Excel.Worksheet wsFixed = (Excel.Worksheet)reportWb.Worksheets.Add(After: wsSusp);
+                    try { wsFixed.Name = "4_Fixed_In_Session"; } catch { }
+                    var fixedRows = new List<object?[]>(model.SessionFixedRecords.Count + 1)
+                    {
+                        new object?[] { "#", "Sheet!Cell • အကွက်", "Original • မူလအမှား", "Applied Fix • ပြင်ဆင်ပြီးစာသား", "Time" }
+                    };
+                    for (int i = 0; i < model.SessionFixedRecords.Count; i++)
+                    {
+                        var f = model.SessionFixedRecords[i];
+                        fixedRows.Add(new object?[] { i + 1, f.LocationLabel, f.VisualOriginalText, f.AppliedReplacement, f.AppliedAtLocal.ToString("HH:mm:ss", CultureInfo.InvariantCulture) });
+                    }
+                    WriteGridToSheet(wsFixed, fixedRows, 5, headerRowOneBased: 1, new[] { 7.0, 20.0, 28.0, 28.0, 14.0 });
+                }
+
+                wsSummary.Activate();
+                try { _excelApp.ScreenUpdating = prevScreenUpdating; } catch { }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                try { _excelApp.ScreenUpdating = prevScreenUpdating; } catch { }
+                AddInDiagnostics.LogException("GenerateRichAuditReportWorkbook", ex);
+                return false;
+            }
+        }
+
         public string TryGetSelectedCellText(int maxChars = 80)
         {
             if (!IsExcelReadyForInterop(_excelApp))

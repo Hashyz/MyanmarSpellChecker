@@ -83,6 +83,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         }
 
         private readonly Word.Application _app;
+
+        public event Action<Word.Document, DocumentProofingItem, string>? IssueReplacedInDocument;
         private readonly List<TrackedRangeState> _trackedRanges = new List<TrackedRangeState>();
         private readonly HashSet<Word.Document> _documentsWithAppliedWavy =
             new HashSet<Word.Document>(DocumentIdentityComparer.Instance);
@@ -776,6 +778,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     r.Font.UnderlineColor = item.OriginalUnderlineColor;
                     item.IsResolved = true;
                     applied = true;
+                    try { IssueReplacedInDocument?.Invoke(doc, item, replacementText); } catch { }
 
                     for (int i = _trackedRanges.Count - 1; i >= 0; i--)
                     {
@@ -850,6 +853,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         item.IsResolved = true;
                         resolvedRanges.Add(r);
                         replacedCount++;
+                        try { IssueReplacedInDocument?.Invoke(doc, item, replacementText); } catch { }
                     }
                     catch
                     {
@@ -936,6 +940,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         item.IsResolved = true;
                         resolvedRanges.Add(r);
                         replacedCount++;
+                        try { IssueReplacedInDocument?.Invoke(doc, item, topReplacement); } catch { }
 
                         if (item.StorySlotId == 0 && item.StoryType == Word.WdStoryType.wdMainTextStory)
                         {
@@ -1052,6 +1057,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         item.IsResolved = true;
                         resolvedRanges.Add(r);
                         replacedCount++;
+                        try { IssueReplacedInDocument?.Invoke(doc, item, chosenReplacement); } catch { }
 
                         if (item.StorySlotId == 0 && item.StoryType == Word.WdStoryType.wdMainTextStory)
                         {

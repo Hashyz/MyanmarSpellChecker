@@ -79,6 +79,8 @@ namespace MyanmarSpellChecker.WordAddIn
         private FixAllPreviewDialog<DocumentProofingItem>? _activeReviewDialog;
         private Word.Document? _activeReviewDocument;
         private IssueFilterMode _activeReviewFilterMode = IssueFilterMode.All;
+        private readonly List<(Word.Document Document, List<ProofingSessionFixedRecord> Records)> _sessionFixedByDoc =
+            new List<(Word.Document Document, List<ProofingSessionFixedRecord> Records)>();
 
         static ThisAddIn()
         {
@@ -249,6 +251,7 @@ namespace MyanmarSpellChecker.WordAddIn
 
             _pendingStyleMode = LoadSavedStyleMode();
             _underlineManager = new SafeUnderlineManager(_wordApp!);
+            _underlineManager.IssueReplacedInDocument += RecordWordSessionFix;
 
             string dbPathSnapshot = _databaseFilePath;
             string localAppDbSnapshot = localAppDb;
@@ -625,6 +628,10 @@ namespace MyanmarSpellChecker.WordAddIn
                 _contextMenuHandler?.CloseActivePopup();
                 _documentScanner?.PurgeDocument(doc);
                 _underlineManager?.PurgeClosedDocument(doc);
+                if (willClose)
+                {
+                    PurgeWordSessionFixedRecords(doc);
+                }
                 PruneClosedWindowTaskPanes();
                 try
                 {
@@ -1229,6 +1236,7 @@ namespace MyanmarSpellChecker.WordAddIn
             ctrl.RequestInsertOfficialTemplate += (kind, dt) => ExecuteInsertOfficialTemplate(kind, dt);
             ctrl.RequestRefreshQualityReport += () => BuildActiveDocumentQualityReport();
             ctrl.RequestExportAuditCertificate += ExecuteExportAuditCertificate;
+            ctrl.RequestExportProofingReport += ExecuteExportWordProofingReport;
             ctrl.RequestValidateOfficialLetter += () =>
             {
                 string plain = _toolkitService.ExtractFullDocumentPlainText(_wordApp?.ActiveDocument);
@@ -1463,22 +1471,205 @@ namespace MyanmarSpellChecker.WordAddIn
                 "✓ ရုံးသုံး စံပုံစံကြမ်းကို Pyidaungsu ဖောင့်ဖြင့် ထည့်သွင်းပြီးပါပြီ။"));
         }
 
+        private void RecordWordSessionFix(Word.Document doc, DocumentProofingItem item, string appliedReplacement)
+        {
+            if (doc == null || item == null || string.IsNullOrEmpty(appliedReplacement))
+                return;
+
+            List<ProofingSessionFixedRecord>? list = null;
+            for (int i = 0; i < _sessionFixedByDoc.Count; i++)
+            {
+                if (ReferenceEquals(_sessionFixedByDoc[i].Document, doc))
+                {
+                    list = _sessionFixedByDoc[i].Records;
+                    break;
+                }
+            }
+
+            if (list == null)
+            {
+                list = new List<ProofingSessionFixedRecord>();
+                _sessionFixedByDoc.Add((doc, list));
+            }
+
+            if (list.Count >= 2000)
+                list.RemoveAt(0);
+
+            string loc = UiLocalizer.Pick(
+                $"{item.StoryName} • Para #{item.ParagraphIndex}",
+                $"{item.StoryName} • ပိုဒ် #{item.ParagraphIndex}");
+            list.Add(new ProofingSessionFixedRecord(
+                loc,
+                item.Issue.OriginalText ?? string.Empty,
+                appliedReplacement,
+                DateTime.Now));
+        }
+
+        private void PurgeWordSessionFixedRecords(Word.Document doc)
+        {
+            for (int i = _sessionFixedByDoc.Count - 1; i >= 0; i--)
+            {
+                if (ReferenceEquals(_sessionFixedByDoc[i].Document, doc))
+                    _sessionFixedByDoc.RemoveAt(i);
+            }
+        }
+
+        private IReadOnlyList<ProofingSessionFixedRecord> GetWordSessionFixedRecords(Word.Document? doc)
+        {
+            if (doc == null)
+                return Array.Empty<ProofingSessionFixedRecord>();
+            for (int i = 0; i < _sessionFixedByDoc.Count; i++)
+            {
+                if (ReferenceEquals(_sessionFixedByDoc[i].Document, doc))
+                    return _sessionFixedByDoc[i].Records.ToList();
+            }
+            return Array.Empty<ProofingSessionFixedRecord>();
+        }
+
+        private ProofingAuditReportModel BuildActiveWordProofingAuditReportModel(Word.Document? sourceDoc)
+        {
+            string docTitle = UiLocalizer.Pick("Untitled Word Document", "အမည်မပေးရသေးသော Word စာတမ်း");
+            if (sourceDoc != null)
+            {
+                try { if (!string.IsNullOrWhiteSpace(sourceDoc.Name)) docTitle = sourceDoc.Name; } catch { }
+            }
+
+            var sessionFixed = GetWordSessionFixedRecords(sourceDoc);
+            var cachedItems = (sourceDoc != null && _documentScanner != null)
+                ? _documentScanner.GetCachedIssues(sourceDoc)
+                : Array.Empty<DocumentProofingItem>();
+            var unresolvedCached = cachedItems.Where(i => !i.IsResolved).ToList();
+
+            string plain = _toolkitService.ExtractFullDocumentPlainText(sourceDoc);
+            var auditInputs = new List<ProofingAuditItemInput>();
+            var rawUnresolvedIssues = new List<ProofingIssue>();
+
+            if (unresolvedCached.Count > 0 || sessionFixed.Count > 0 || _proofingEngine == null || string.IsNullOrWhiteSpace(plain))
+            {
+                foreach (var item in unresolvedCached)
+                {
+                    string loc = UiLocalizer.Pick(
+                        $"{item.StoryName} • Para #{item.ParagraphIndex}",
+                        $"{item.StoryName} • ပိုဒ် #{item.ParagraphIndex}");
+                    string chosen = (item.Issue.Suggestions != null && item.Issue.Suggestions.Count > 0)
+                        ? item.Issue.Suggestions[0].Replacement
+                        : string.Empty;
+                    auditInputs.Add(new ProofingAuditItemInput(
+                        loc,
+                        TryExtractWordParagraphSnippet(item),
+                        item.Issue,
+                        chosen));
+                    rawUnresolvedIssues.Add(item.Issue);
+                }
+            }
+            else
+            {
+                // Cold-report fallback when user clicks Report before running Scan Document (e.g., in Eco Mode)
+                string[] lines = plain.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                int paraNo = 0;
+                foreach (string line in lines)
+                {
+                    string trimmed = line.Trim();
+                    if (trimmed.Length == 0) continue;
+                    paraNo++;
+                    var lineIssues = _proofingEngine.CheckText(trimmed);
+                    string loc = UiLocalizer.Pick($"Document • Para #{paraNo}", $"စာတမ်း • ပိုဒ် #{paraNo}");
+                    foreach (var iss in lineIssues)
+                    {
+                        string chosen = (iss.Suggestions != null && iss.Suggestions.Count > 0)
+                            ? iss.Suggestions[0].Replacement
+                            : string.Empty;
+                        auditInputs.Add(new ProofingAuditItemInput(loc, trimmed, iss, chosen));
+                        rawUnresolvedIssues.Add(iss);
+                    }
+                }
+            }
+
+            DocumentQualityReport qReport = DocumentQualityAnalyzer.Analyze(plain, rawUnresolvedIssues, _proofingEngine);
+            return ProofingAuditReportBuilder.Build(
+                docTitle,
+                "Microsoft Word",
+                _proofingEngine?.StyleMode ?? _pendingStyleMode,
+                qReport,
+                auditInputs,
+                sessionFixed);
+        }
+
         private void ExecuteExportAuditCertificate()
         {
+            ExecuteExportWordProofingReport(ProofingReportExportFormat.NativeOfficeDocument);
+        }
+
+        private void ExecuteExportWordProofingReport(ProofingReportExportFormat format)
+        {
             if (_wordApp == null) return;
-            Word.Document? sourceDoc = _wordApp.ActiveDocument;
-            DocumentQualityReport report = BuildActiveDocumentQualityReport();
-            bool ok = _toolkitService.GeneratePrintableAuditCertificateDocument(_wordApp, sourceDoc, report);
+            Word.Document? sourceDoc = _activeReviewDocument ?? _wordApp.ActiveDocument;
+            try
+            {
+                if (_wordApp.ActiveDocument != null)
+                    sourceDoc = _wordApp.ActiveDocument;
+            }
+            catch { }
+
+            ProofingAuditReportModel model = BuildActiveWordProofingAuditReportModel(sourceDoc);
             var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
-            ctrl?.ShowToastBanner(
-                ok
-                    ? UiLocalizer.Pick(
-                        "✓ Generated Myanmar Document Quality Audit Report in a new Word document.",
-                        "✓ မြန်မာစာ အရည်အသွေး စစ်ဆေးချက် အစီရင်ခံစာ (Word စာတမ်းအသစ်) ထုတ်ပေးပြီးပါပြီ။")
-                    : UiLocalizer.Pick(
-                        "⚠ Could not generate the audit report document.",
-                        "⚠ အစီရင်ခံစာ ထုတ်ယူစဉ် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"),
-                ok);
+
+            switch (format)
+            {
+                case ProofingReportExportFormat.NativeOfficeDocument:
+                {
+                    bool ok = _toolkitService.GenerateRichAuditReportDocument(_wordApp, model);
+                    ctrl?.ShowToastBanner(
+                        ok
+                            ? UiLocalizer.Pick(
+                                $"✓ Generated Word Proofing Audit Report ({model.ConfirmedWrongCount} wrong • {model.SuspiciousReviewCount} suspicious • {model.SessionFixedCount} fixed).",
+                                $"✓ Word စစ်ဆေးချက် အစီရင်ခံစာ ထုတ်ပေးပြီးပါပြီ (သေချာမှား {model.ConfirmedWrongCount} • ပြန်စစ်ရန် {model.SuspiciousReviewCount} • ပြင်ပြီး {model.SessionFixedCount})။")
+                            : UiLocalizer.Pick(
+                                "⚠ Could not generate the Word audit report document.",
+                                "⚠ Word အစီရင်ခံစာ ထုတ်ယူစဉ် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"),
+                        ok);
+                    break;
+                }
+                case ProofingReportExportFormat.InteractiveHtmlAndPdf:
+                {
+                    try
+                    {
+                        string htmlPath = ProofingAuditReportBuilder.SaveStandaloneInteractiveHtmlToDisk(model);
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(htmlPath)
+                        {
+                            UseShellExecute = true
+                        });
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            "✓ Opened interactive HTML Audit Report in browser (click ⎙ Print / Save as PDF inside).",
+                            "✓ အပြန်အလှန် စစ်ဆေးနိုင်သော HTML အစီရင်ခံစာကို Browser ဖြင့် ဖွင့်ပေးပြီးပါပြီ (⎙ Print / Save as PDF နှိပ်၍ သိမ်းနိုင်သည်)။"));
+                    }
+                    catch
+                    {
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            "⚠ Could not open HTML Audit Report.",
+                            "⚠ HTML အစီရင်ခံစာ ဖွင့်ရာတွင် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"), isSuccess: false);
+                    }
+                    break;
+                }
+                case ProofingReportExportFormat.CopySummaryToClipboard:
+                {
+                    try
+                    {
+                        string text = ProofingAuditReportBuilder.BuildClipboardSummaryText(model);
+                        Clipboard.SetText(text, TextDataFormat.UnicodeText);
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            "✓ Copied Proofing Audit Summary to Clipboard (ready to paste into Email, Teams, or Telegram).",
+                            "✓ စစ်ဆေးချက် အကျဉ်းချုပ်ကို Clipboard သို့ ကူးယူပြီးပါပြီ (Email / Telegram တွင် Paste လုပ်နိုင်သည်)။"));
+                    }
+                    catch
+                    {
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            "⚠ Could not copy summary to Clipboard.",
+                            "⚠ Clipboard သို့ ကူးယူရာတွင် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"), isSuccess: false);
+                    }
+                    break;
+                }
+            }
         }
 
         private void CloseActiveReviewDialog()
@@ -1727,7 +1918,8 @@ namespace MyanmarSpellChecker.WordAddIn
                 {
                     var paneCtrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
                     paneCtrl?.EnterDockedChecklistMode(snapshot);
-                }
+                },
+                OnExportReport = ExecuteExportWordProofingReport
             };
 
             if (forceFloating)

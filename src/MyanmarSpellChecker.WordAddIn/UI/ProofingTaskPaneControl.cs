@@ -147,6 +147,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         private readonly Label _lblScanProgress;
         private readonly Button _btnStopScan;
         private readonly Label _lblSummary;
+        private readonly Button _btnExportReport;
+        private readonly ContextMenuStrip _proofingReportMenu;
         private readonly Panel _pnlToast;
         private readonly Label _lblToast;
 
@@ -223,6 +225,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         public event Action? RequestUndoLastAction;
         public event Func<IReadOnlyDictionary<DocumentProofingItem, string>, int>? RequestApplyDockedBatch;
         public event Action<IReadOnlyList<FixPreviewEntry<DocumentProofingItem>>>? RequestPopOutDockedChecklist;
+        public event Action<ProofingReportExportFormat>? RequestExportProofingReport;
         public event Action? RequestClearUnderlines;
         public event Action? RequestLicenseDialog;
         public event Action<ProofingStyleMode>? RequestChangeStyleMode;
@@ -690,20 +693,62 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 AutoSize = false,
                 AutoEllipsis = true,
                 UseMnemonic = false,
-                Dock = DockStyle.Top,
-                Width = 360,
+                Dock = DockStyle.Fill,
+                Width = 260,
                 Height = MeasureSingleLineLabelHeight(_fontSmallBold, 6),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
                 Padding = new Padding(2, 0, 2, 0)
             };
 
+            _proofingReportMenu = new ContextMenuStrip { Font = _fontBody };
+            _btnExportReport = CreateToolbarSlotButton(
+                UiLocalizer.Pick("≡ Report ▾", "≡ အစီရင်ခံစာ ▾"),
+                Color.FromArgb(236, 245, 255),
+                Color.FromArgb(18, 68, 152),
+                Color.FromArgb(182, 208, 244),
+                _fontSmallBold,
+                initFilterBtnH);
+            _btnExportReport.Margin = new Padding(4, 0, 0, 0);
+            _btnExportReport.Click += (s, e) =>
+            {
+                _proofingReportMenu.Items.Clear();
+                _proofingReportMenu.Items.Add(
+                    UiLocalizer.Pick("▤ Word Audit Report (.docx Tables)", "▤ Word ဇယား အစီရင်ခံစာ (.docx)"),
+                    null,
+                    (_, __) => RequestExportProofingReport?.Invoke(ProofingReportExportFormat.NativeOfficeDocument));
+                _proofingReportMenu.Items.Add(
+                    UiLocalizer.Pick("◈ Print-Ready HTML / Save PDF", "◈ HTML / PDF ပုံနှိပ်အစီရင်ခံစာ"),
+                    null,
+                    (_, __) => RequestExportProofingReport?.Invoke(ProofingReportExportFormat.InteractiveHtmlAndPdf));
+                _proofingReportMenu.Items.Add(
+                    UiLocalizer.Pick("⎘ Copy Summary to Clipboard", "⎘ အနှစ်ချုပ် Clipboard ကူးယူမည်"),
+                    null,
+                    (_, __) => RequestExportProofingReport?.Invoke(ProofingReportExportFormat.CopySummaryToClipboard));
+                _proofingReportMenu.Show(_btnExportReport, new Point(0, _btnExportReport.Height));
+            };
+
+            var summaryAndReportRow = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 2,
+                RowCount = 1,
+                Margin = new Padding(0)
+            };
+            summaryAndReportRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 73F));
+            summaryAndReportRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 27F));
+            summaryAndReportRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            summaryAndReportRow.Controls.Add(_lblSummary, 0, 0);
+            summaryAndReportRow.Controls.Add(_btnExportReport, 1, 0);
+
             _proofingToolbar.Controls.Add(styleGrid, 0, 0);
             _proofingToolbar.Controls.Add(_lblStyleHint, 0, 1);
             _proofingToolbar.Controls.Add(actionStrip, 0, 2);
             _proofingToolbar.Controls.Add(filterAndStepRow, 0, 3);
             _proofingToolbar.Controls.Add(_pnlScanProgress, 0, 4);
-            _proofingToolbar.Controls.Add(_lblSummary, 0, 5);
+            _proofingToolbar.Controls.Add(summaryAndReportRow, 0, 5);
 
             // ================= SUB-TOOLBAR B: DICTIONARY & PROVERBS EXPLORER =================
             _dictionaryToolbar = new TableLayoutPanel
@@ -1087,6 +1132,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 _searchDebounceTimer.Dispose();
                 _toastTimer.Dispose();
                 _toolTip.Dispose();
+                _proofingReportMenu.Dispose();
 
                 _fontBrandTitle.Dispose();
                 _fontBrandStats.Dispose();
@@ -1578,6 +1624,12 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                     "စာတမ်းမပိတ်ဆို့ဘဲ တိုက်ရိုက် စိစစ်ပြင်ဆင်ရန် (ဘေးကွက်အတွင်းလည်း ထည့်သုံးနိုင်သည်)"));
 
             _btnClearLines.Text = UiLocalizer.Pick("Clear", "ရှင်း");
+            _btnExportReport.Text = UiLocalizer.Pick("≡ Report ▾", "≡ အစီရင်ခံစာ ▾");
+            _toolTip.SetToolTip(
+                _btnExportReport,
+                UiLocalizer.Pick(
+                    "Export Confirmed Wrong vs. Suspicious report (.docx tables, HTML/PDF, or Copy Summary)",
+                    "သေချာအမှား နှင့် သံသယစာလုံး အစီရင်ခံစာ ထုတ်ယူရန် (Word ဇယား၊ HTML/PDF သို့မဟုတ် အနှစ်ချုပ်ကူးယူရန်)"));
             _toolTip.SetToolTip(
                 _btnClearLines,
                 UiLocalizer.Pick(
@@ -1799,6 +1851,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 _lblScanProgress.MinimumSize = new Size(0, scanBannerH);
                 _btnStopScan.Height = scanBannerH;
                 _lblSummary.Height = MeasureSingleLineLabelHeight(_fontSmallBold, 6);
+                _btnExportReport.Height = filterBtnH;
 
                 int auxBtnH = MeasureSingleLineButtonHeight(_fontSmall, 11);
                 _btnLookupSelection.Height = auxBtnH;

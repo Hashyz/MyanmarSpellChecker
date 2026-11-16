@@ -153,6 +153,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private readonly Label _lblScanProgress;
         private readonly Button _btnStopScan;
         private readonly Label _lblSummary;
+        private readonly Button _btnExportReport;
+        private readonly ContextMenuStrip _proofingReportMenu;
         private readonly Panel _pnlToast;
         private readonly Label _lblToast;
 
@@ -228,6 +230,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         public event Action? RequestUndoLastAction;
         public event Func<IReadOnlyDictionary<SpreadsheetCellIssue, string>, int>? RequestApplyDockedBatch;
         public event Action<IReadOnlyList<FixPreviewEntry<SpreadsheetCellIssue>>>? RequestPopOutDockedChecklist;
+        public event Action<ProofingReportExportFormat>? RequestExportProofingReport;
         public event Action? RequestClearUnderlines;
         public event Action? RequestLicenseDialog;
         public event Action<ProofingStyleMode>? RequestChangeStyleMode;
@@ -677,12 +680,62 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 AutoSize = false,
                 AutoEllipsis = true,
                 UseMnemonic = false,
-                Dock = DockStyle.Top,
-                Width = 360,
+                Dock = DockStyle.Fill,
+                Width = 260,
                 Height = MeasureSingleLineLabelHeight(_fontSmallBold, 6),
                 TextAlign = ContentAlignment.MiddleLeft,
-                Margin = new Padding(1, 0, 1, 0)
+                Margin = new Padding(1, 0, 2, 0)
             };
+
+            _proofingReportMenu = new ContextMenuStrip { Font = _fontBody };
+            _btnExportReport = CreateActionButton(
+                UiLocalizer.Pick("≡ Report ▾", "≡ အစီရင်ခံစာ ▾"),
+                Color.FromArgb(234, 246, 239),
+                Color.FromArgb(14, 92, 48),
+                Color.FromArgb(172, 214, 188),
+                _fontSmallBold);
+            _btnExportReport.Height = MeasureSingleLineButtonHeight(_fontBrandStats, 10);
+            _btnExportReport.Padding = new Padding(4, 1, 4, 1);
+            _btnExportReport.Margin = new Padding(2, 0, 0, 0);
+            _btnExportReport.Click += (s, e) =>
+            {
+                _proofingReportMenu.Items.Clear();
+                var miExcel = new ToolStripMenuItem(UiLocalizer.Pick(
+                    "▤ Excel Audit Workbook (4 Sheets)",
+                    "▤ Excel စစ်ဆေးချက် Workbook (Sheet ၄ ခု)")) { Font = _fontSmallBold };
+                miExcel.Click += (_, __) => RequestExportProofingReport?.Invoke(ProofingReportExportFormat.NativeOfficeDocument);
+
+                var miHtml = new ToolStripMenuItem(UiLocalizer.Pick(
+                    "◈ Print-Ready HTML / Save PDF",
+                    "◈ HTML / PDF အစီရင်ခံစာ ထုတ်မည်")) { Font = _fontSmall };
+                miHtml.Click += (_, __) => RequestExportProofingReport?.Invoke(ProofingReportExportFormat.InteractiveHtmlAndPdf);
+
+                var miClip = new ToolStripMenuItem(UiLocalizer.Pick(
+                    "⎘ Copy Summary to Clipboard",
+                    "⎘ အကျဉ်းချုပ်ကို Clipboard သို့ ကူးမည်")) { Font = _fontSmall };
+                miClip.Click += (_, __) => RequestExportProofingReport?.Invoke(ProofingReportExportFormat.CopySummaryToClipboard);
+
+                _proofingReportMenu.Items.Add(miExcel);
+                _proofingReportMenu.Items.Add(miHtml);
+                _proofingReportMenu.Items.Add(new ToolStripSeparator());
+                _proofingReportMenu.Items.Add(miClip);
+                _proofingReportMenu.Show(_btnExportReport, new Point(0, _btnExportReport.Height));
+            };
+
+            var summaryAndReportRow = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 2,
+                RowCount = 1,
+                Margin = new Padding(0)
+            };
+            summaryAndReportRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 73F));
+            summaryAndReportRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 27F));
+            summaryAndReportRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            summaryAndReportRow.Controls.Add(_lblSummary, 0, 0);
+            summaryAndReportRow.Controls.Add(_btnExportReport, 1, 0);
 
             _proofingToolbar.Controls.Add(styleRow, 0, 0);
             _proofingToolbar.Controls.Add(_lblStyleHint, 0, 1);
@@ -690,7 +743,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _proofingToolbar.Controls.Add(actionRow, 0, 3);
             _proofingToolbar.Controls.Add(filterRow, 0, 4);
             _proofingToolbar.Controls.Add(_pnlScanProgress, 0, 5);
-            _proofingToolbar.Controls.Add(_lblSummary, 0, 6);
+            _proofingToolbar.Controls.Add(summaryAndReportRow, 0, 6);
 
             // ================= TAB 2 TOOLBAR: DICTIONARY & ENCYCLOPEDIA =================
             _dictionaryToolbar = new TableLayoutPanel
@@ -1140,6 +1193,13 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 UiLocalizer.Pick(
                     "Stop the current sheet/workbook scan immediately",
                     "လက်ရှိ Sheet/Workbook စစ်ဆေးနေမှုကို ချက်ချင်းရပ်တန့်ရန် (စက်မလေးစေရန်)"));
+
+            _btnExportReport.Text = UiLocalizer.Pick("≡ Report ▾", "≡ အစီရင်ခံစာ ▾");
+            _toolTip.SetToolTip(
+                _btnExportReport,
+                UiLocalizer.Pick(
+                    "Export Proofing Audit Report (Confirmed Wrong vs. Suspicious vs. How It Should Be) as Excel Workbook, HTML/PDF, or Clipboard Summary",
+                    "အသေးစိတ် စာလုံးပေါင်းစစ်ဆေးချက် အစီရင်ခံစာ (သေချာမှား၊ ပြန်စစ်ရန် နှင့် စံအမှန်ဇယား) ကို Excel Workbook၊ HTML/PDF သို့မဟုတ် Clipboard အဖြစ် ထုတ်ယူရန်"));
 
             _btnClearDictSearch.Text = UiLocalizer.Pick("Clear", "ရှင်း");
             UpdateDictionaryNavButtons();
@@ -1682,6 +1742,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
                 _lblScanProgress.MinimumSize = new Size(0, MeasureSingleLineLabelHeight(_fontSmallBold, 6));
                 _lblSummary.Height = MeasureSingleLineLabelHeight(_fontSmallBold, 6);
+                _btnExportReport.Height = filterBtnH;
 
                 int auxBtnH = MeasureSingleLineButtonHeight(_fontSmall, 11);
                 _btnClearDictSearch.Height = auxBtnH;
@@ -1820,6 +1881,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 _searchDebounceTimer.Dispose();
                 _toastTimer.Dispose();
                 _toolTip.Dispose();
+                _proofingReportMenu.Dispose();
 
                 _fontBrandTitle.Dispose();
                 _fontBrandStats.Dispose();
