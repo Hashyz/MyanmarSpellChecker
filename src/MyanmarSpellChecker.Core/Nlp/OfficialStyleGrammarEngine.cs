@@ -85,11 +85,27 @@ namespace MyanmarSpellChecker.Core.Nlp
         private static readonly Regex CasualTalMalPattern = new Regex(
             @"(?<=[\u1000-\u103F])(?<Target>တရ်|မရ်)(?=\s|$|[\u104A\u104B]|နော်|ဗျာ|ရှင်)");
 
+        private const string CompoundNegationHeads =
+            @"နေ|အဆင်|စိတ်|သဘော|နား|အချိန်|အသုံး|အရသာ|အဓိပ္ပာယ်|သတိ|အလုပ်|မျက်နှာ|တန်ဖိုး|အကျိုး";
+
+        private const string NegativePhuAllowedPrecedingSyllables =
+            @"ပါ|သေး|တော့|နေ|ကြ|နိုင်|ချင်|တတ်|သင့်|လောက်|ရဲ|ဝံ့|ရ|ခဲ့|ဖူး|လိုက်|မိ|သွား|လာ|" +
+            @"ဟုတ်|ရှိ|သိ|အား|လပ်|ကောင်း|ဆိုး|လုပ်|ပြော|ဆို|မေး|ဖြေ|ပေး|ယူ|ဝယ်|ရောင်း|စား|သောက်|အိပ်|ထိုင်|ထ|" +
+            @"ကြည့်|ထောင်|ဖတ်|ရေး|မှတ်မိ|မေ့|လည်|တူ|ကျ|ပြေ|မှန်|မှား|လွယ်|ခက်|လို|အပ်|ဆိုင်|ကြိုက်|ချစ်|မုန်း|ကြောက်|" +
+            @"ပူ|အေး|နာ|ဖျား|မော|ပန်း|ပျင်း|ဝ|လှ|တော်|မြန်|နှေး|ကြာ|ဝေး|နီး|များ|နည်း|ကြီး|ငယ်|မြင့်|နိမ့်|" +
+            @"သေချာ|ရေရာ|ပြည့်စုံ|လုံလောက်|ဖြစ်|ဝင်|ထွက်|တက်|ဆင်း|ပြန်|ကူညီ|စောင့်|မှီ|မီ|ထင်|ပြီး";
+
+        private const string ClauseFinalNegationFollowLookahead =
+            @"(?=\s*(?:[\u104A\u104B?""”'’]|$|နော်|ပေါ့|လား|ဗျာ|ဗျ|ရှင်|ရှင့်|ကွာ|ကွ|လေ|ဟဲ့|ဟု|လို့|ဆိုပြီး|တဲ့))";
+
         private static readonly Regex MissingVisargaBuPattern = new Regex(
-            @"(?<![\u1000-\u103F])မ(?![\u102B-\u103E]|[\u1000-\u1021]\u103B?[\u1039\u103A])[\u1000-\u103F]{1,12}?(?<Target>ဘူ)(?=\s|$|[\u104A\u104B]|နော်|လား|ပေါ့)");
+            @"(?:(?<![\u1000-\u103F])|(?<=(?:" + CompoundNegationHeads + @")))မ(?![\u102B-\u103E]|[\u1000-\u1021]\u103B?[\u1039\u103A]|နက်|နေ့|ဟာ|ကွေး|လေးရှား|ရမ်း)[\u1000-\u103F]{1,18}?(?<Target>ဘူ)" + ClauseFinalNegationFollowLookahead);
+
+        private static readonly Regex RedundantMaAhNayPhuPattern = new Regex(
+            @"(?<![\u1000-\u103F])(?<Target>မအားနေဖူး)" + ClauseFinalNegationFollowLookahead);
 
         private static readonly Regex MisspelledNegativePhuPattern = new Regex(
-            @"(?<![\u1000-\u103F])မ(?![\u102B-\u103E]|[\u1000-\u1021]\u103B?[\u1039\u103A])[\u1000-\u103F]{0,12}?(?<=ပါ|သေး|တော့|နိုင်|ချင်|ဟုတ်|ရှိ|သိ|သွား|လာ)(?<Target>ဖူး)(?=\s|$|[\u104A\u104B]|နော်|ပေါ့|လား)");
+            @"(?:(?<![\u1000-\u103F])|(?<=(?:" + CompoundNegationHeads + @")))မ(?![\u102B-\u103E]|[\u1000-\u1021]\u103B?[\u1039\u103A]|နက်|နေ့|ဟာ|ကွေး|လေးရှား|ရမ်း)[\u1000-\u103F]{1,18}?(?<=" + NegativePhuAllowedPrecedingSyllables + @")(?<Target>ဖူး)" + ClauseFinalNegationFollowLookahead);
 
         // 'ပြီးပြီးမလား' / 'ပြီးပြီမလား' / 'ပီးပီးမလား' / 'ပီးပီမလား' / 'ပြီးပီမလား' -> 'ပြီးပြီလား' (or 'ပြီးပြီ မဟုတ်လား')
         private static readonly Regex CompletiveMaLarPattern = new Regex(
@@ -119,7 +135,10 @@ namespace MyanmarSpellChecker.Core.Nlp
             @"(?:(?<=[\u1000-\u103F])(?<!ရူ|ကလို|စ)(?<Target>ပီး)(?=\s|$|[\u104A\u104B]|တော့|ပြီ|ရင်|မှ|ပါ|လား|နောက်|သား)|(?<![\u1000-\u103F])(?<Target2>ပီး)(?=တော့|ရင်|နောက်|မှ|ပြီ))");
 
         private static readonly Regex CasualPhitPattern = new Regex(
-            @"(?<![\u1000-\u103F]|အ|မ)(?<Target>ဖစ်)(?=ပါ|သည်|တယ်|မည်|မယ်|နေ|ခဲ့|သွား|လာ|နိုင်|ကြောင်း|၍)");
+            @"(?:(?<![\u1000-\u103F]|အ|မ)(?<Target>ဖစ်)(?=ပါ|သည်|တယ်|မည်|မယ်|နေ|ခဲ့|သွား|လာ|နိုင်|ကြောင်း|၍)|(?<=မ)(?<Target2>ဖစ်)(?=ဘူး|ဖူး|ဘူ|ပါ|သေး|တော့|နိုင်|ဘဲ))");
+
+        private static readonly Regex UnspacedPlaceLocativeMarPattern = new Regex(
+            @"(?<![\u1000-\u103F])(?<Target>(?<Place>ရန်ကုန်|မန္တလေး|နေပြည်တော်|ပဲခူး|မော်လမြိုင်|တောင်ကြီး|မြစ်ကြီးနား|ပုသိမ်|မုံရွာ|စစ်တွေ|ကျောက်ဆည်|ပြင်ဦးလွင်|ဆေးရုံ|ဈေး|နိုင်ငံ|မြန်မာပြည်)မာ)(?=\s+(?:နေ|ရှိ|လုပ်|တက်|အိပ်|ထိုင်|စောင့်|တွေ့|ဆုံ|ကျင်းပ|ဖွင့်))");
 
         // Non-existent 'လျှက်' (with illegal ha-hto) -> always 'လျက်' in မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း
         private static readonly Regex MisspelledLyetPattern = new Regex(
@@ -387,9 +406,13 @@ namespace MyanmarSpellChecker.Core.Nlp
         private static readonly Regex UnpairedNegativeBuWithoutMaPattern = new Regex(
             @"(?:^|[\u104A\u104B]\s*)(?<Clause>[^\u104A\u104B\r\n]{2,56}?)(?<Target>(?<Verb>အရသာရှိ|ကောင်းမွန်|သေချာ|ဖြစ်နိုင်|ရောက်လာ|ပြည့်စုံ)ဘူး)(?=\s*[\u104B]|$)");
 
-        // Colloquial dropped pre-verbal 'မ-' before 'ဟုတ်ဘူး/ဟုတ်ဖူး' or 'သိဘူး/သိဖူး' ('ဟုတ်ဘူး -> မဟုတ်ဘူး', 'သိဘူး -> မသိဘူး')
+        // Bipartite compound verbs with dropped infixed 'မ-' before 'ဘူး/ဖူး/ဘူ' (e.g. 'နေကောင်းဘူး -> နေမကောင်းဘူး / နေမကောင်းပါ', 'အဆင်ပြေဘူး -> အဆင်မပြေဘူး / အဆင်မပြေပါ')
+        private static readonly Regex DroppedInfixMaCompoundNegationPattern = new Regex(
+            @"(?:^|[\u104A\u104B]\s*)(?<Clause>[^\u104A\u104B\r\n]{0,56}?)(?<![\u1039]|မ)(?<Target>(?:(?<Head>နေ)(?<Root>ကောင်း)|(?<Head>အဆင်)(?<Root>ပြေ)|(?<Head>စိတ်)(?<Root>ကောင်း|ဆိုး|ပူ|ချ|ရှည်|ဝင်စား)|(?<Head>သဘော)(?<Root>တူ|ကျ|ပေါက်)|(?<Head>နား)(?<Root>လည်|ထောင်)|(?<Head>အချိန်)(?<Root>ရ|ရှိ)|(?<Head>အဓိပ္ပာယ်)(?<Root>ရှိ)|(?<Head>အသုံး)(?<Root>ဝင်|တည့်)|(?<Head>သတိ)(?<Root>ရ|ထားမိ)|(?<Head>အလုပ်)(?<Root>အား|ဖြစ်))(?<Aux>နေ|သေး|တော့|နိုင်|ချင်|တတ်|ကြ|ပါ|သေးပါ|တော့ပါ|နိုင်ပါ)?(?<End>ဘူး|ဖူး|ဘူ))" + ClauseFinalNegationFollowLookahead);
+
+        // Colloquial dropped pre-verbal 'မ-' before 'ဘူး/ဖူး/ဘူ' ('ဟုတ်ဘူး -> မဟုတ်ဘူး', 'သိဘူး -> မသိဘူး', 'အားနေဖူး -> မအားနေဘူး / မအားလပ်ပါ', 'ရှိဘူး -> မရှိဘူး')
         private static readonly Regex DroppedMaColloquialNegationPattern = new Regex(
-            @"(?:^|[\u104A\u104B]\s*)(?<Clause>[^\u104A\u104B\r\n]{0,56}?)(?<![\u1000-\u103F])(?<Target>(?<Verb>ဟုတ်|သိ)(?:ဘူး|ဖူး))(?=\s*(?:[\u104A\u104B?""”'’]|$|နော်|ပေါ့|ကွာ|ဗျာ|ဗျ|ရှင်|ရှင့်|လေ|ဟု|လို့|ဆိုပြီး|တဲ့))");
+            @"(?:^|[\u104A\u104B]\s*)(?<Clause>[^\u104A\u104B\r\n]{0,56}?)(?<![\u1000-\u103F])(?<Target>(?<Verb>ဟုတ်|သိ|ရှိ|အား|အားလပ်|ရ|ကောင်း|ဆိုး|လာ|သွား|လုပ်|ပြော|မေး|ဖြေ|ပေး|ယူ|ဝယ်|စား|သောက်|အိပ်|ကြည့်|ဖတ်|ရေး|မှတ်မိ|မေ့|တူ|မှန်|မှား|လွယ်|ခက်|လို|လိုအပ်|ဆိုင်|ကြိုက်|ချစ်|ကြောက်|ပျင်း|မော|နာ|ဝေး|ကြာ|ထင်|ပြီး|ရောက်|တွေ့)(?<Aux>နေ|သေး|တော့|နိုင်|ချင်|တတ်|ရ|ခဲ့|ကြ|ပါ|သေးပါ|တော့ပါ|နိုင်ပါ)?(?<End>ဘူး|ဖူး|ဘူ))" + ClauseFinalNegationFollowLookahead);
 
         // Incomplete colloquial negation missing 'ဘူး' ('ညနေပိုင်းမှာ ကျွန်တော်တို့ ဘောလုံးမကစား။' -> 'မကစားဘူး')
         private static readonly Regex IncompleteColloquialNegationPattern = new Regex(
@@ -625,8 +648,100 @@ namespace MyanmarSpellChecker.Core.Nlp
                 "မှ",
                 "ထွက်ခွာရာပြဝိဘတ် (ရုံးသုံး/စာပေ)",
                 "ရုံးသုံးနှင့် စာပေအရေးအသားတွင် အပြောစကား ထွက်ခွာရာပြ 'ကနေ' အစား 'မှ' ကို သုံးနှုန်းရမည်။"
+            ),
+            (
+                "ပါသလား",
+                new Regex(@"ပါသလား(?=\s*(?:[""”'’]\s*)?(?:[\u104B?]|$))"),
+                "ပါသလော",
+                "အမေးဝိဘတ် (ရုံးသုံး/စာပေ)",
+                "ရုံးသုံးနှင့် စာပေအရေးအသားတွင် အပြောစကား 'ပါသလား' အစား 'ပါသလော' ကို သုံးနှုန်းရမည်။"
+            ),
+            (
+                "သလား",
+                new Regex(@"(?<=[\u1000-\u103F])(?<!ပါ)သလား(?=\s*(?:[""”'’]\s*)?(?:[\u104B?]|$))"),
+                "သလော",
+                "အမေးဝိဘတ် (ရုံးသုံး/စာပေ)",
+                "ရုံးသုံးနှင့် စာပေအရေးအသားတွင် အပြောစကား 'သလား' အစား 'သလော' ကို သုံးနှုန်းရမည်။"
+            ),
+            (
+                "ရမလား",
+                new Regex(@"ရမလား(?=\s*(?:[""”'’]\s*)?(?:[\u104B?]|$))"),
+                "ရမည်လော",
+                "အနာဂတ် အမေးဝိဘတ် (ရုံးသုံး/စာပေ)",
+                "ရုံးသုံးနှင့် စာပေအရေးအသားတွင် အပြောစကား 'ရမလား' အစား 'ရမည်လော' ကို သုံးနှုန်းရမည်။"
+            ),
+            (
+                "ပါမလား",
+                new Regex(@"ပါမလား(?=\s*(?:[""”'’]\s*)?(?:[\u104B?]|$))"),
+                "ပါမည်လော",
+                "အနာဂတ် အမေးဝိဘတ် (ရုံးသုံး/စာပေ)",
+                "ရုံးသုံးနှင့် စာပေအရေးအသားတွင် အပြောစကား 'ပါမလား' အစား 'ပါမည်လော' ကို သုံးနှုန်းရမည်။"
+            ),
+            (
+                "မလား",
+                new Regex(@"(?<=[\u1000-\u103F])(?<!က|မ|ရ|ပါ)မလား(?=\s*(?:[""”'’]\s*)?(?:[\u104B?]|$))"),
+                "မည်လော",
+                "အနာဂတ် အမေးဝိဘတ် (ရုံးသုံး/စာပေ)",
+                "ရုံးသုံးနှင့် စာပေအရေးအသားတွင် အပြောစကား 'မလား' အစား 'မည်လော' ကို သုံးနှုန်းရမည်။"
+            ),
+            (
+                "ပါသလဲ",
+                new Regex(@"ပါသလဲ(?=\s*(?:[""”'’]\s*)?(?:[\u104B?]|$))"),
+                "ပါသနည်း",
+                "အကြောင်းအရာ အမေးဝိဘတ် (ရုံးသုံး/စာပေ)",
+                "ရုံးသုံးနှင့် စာပေအရေးအသားတွင် အပြောစကား 'ပါသလဲ' အစား 'ပါသနည်း' ကို သုံးနှုန်းရမည်။"
+            ),
+            (
+                "သလဲ",
+                new Regex(@"(?<=[\u1000-\u103F])(?<!ပါ)သလဲ(?=\s*(?:[""”'’]\s*)?(?:[\u104B?]|$))"),
+                "သနည်း",
+                "အကြောင်းအရာ အမေးဝိဘတ် (ရုံးသုံး/စာပေ)",
+                "ရုံးသုံးနှင့် စာပေအရေးအသားတွင် အပြောစကား 'သလဲ' အစား 'သနည်း' ကို သုံးနှုန်းရမည်။"
+            ),
+            (
+                "ရမလဲ",
+                new Regex(@"ရမလဲ(?=\s*(?:[""”'’]\s*)?(?:[\u104B?]|$))"),
+                "ရမည်နည်း",
+                "အနာဂတ် အမေးဝိဘတ် (ရုံးသုံး/စာပေ)",
+                "ရုံးသုံးနှင့် စာပေအရေးအသားတွင် အပြောစကား 'ရမလဲ' အစား 'ရမည်နည်း' ကို သုံးနှုန်းရမည်။"
+            ),
+            (
+                "ပါမလဲ",
+                new Regex(@"ပါမလဲ(?=\s*(?:[""”'’]\s*)?(?:[\u104B?]|$))"),
+                "ပါမည်နည်း",
+                "အနာဂတ် အမေးဝိဘတ် (ရုံးသုံး/စာပေ)",
+                "ရုံးသုံးနှင့် စာပေအရေးအသားတွင် အပြောစကား 'ပါမလဲ' အစား 'ပါမည်နည်း' ကို သုံးနှုန်းရမည်။"
+            ),
+            (
+                "မလဲ",
+                new Regex(@"(?<=[\u1000-\u103F])(?<!ရ|ပါ)မလဲ(?=\s*(?:[""”'’]\s*)?(?:[\u104B?]|$))"),
+                "မည်နည်း",
+                "အနာဂတ် အမေးဝိဘတ် (ရုံးသုံး/စာပေ)",
+                "ရုံးသုံးနှင့် စာပေအရေးအသားတွင် အပြောစကား 'မလဲ' အစား 'မည်နည်း' ကို သုံးနှုန်းရမည်။"
+            ),
+            (
+                "ဘယ်လို",
+                new Regex(@"(?<![\u1000-\u103F])ဘယ်လို(?=\s|[\u1000-\u102A])"),
+                "မည်သို့",
+                "အမေးနာမ်စား (ရုံးသုံး/စာပေ)",
+                "ရုံးသုံးနှင့် စာပေအရေးအသားတွင် အပြောစကား 'ဘယ်လို' အစား 'မည်သို့' ကို သုံးနှုန်းရမည်။"
+            ),
+            (
+                "ဘာကြောင့်",
+                new Regex(@"(?<![\u1000-\u103F])ဘာကြောင့်(?=\s|[\u1000-\u102A])"),
+                "အဘယ်ကြောင့်",
+                "အကြောင်းရင်းမေးပုဒ် (ရုံးသုံး/စာပေ)",
+                "ရုံးသုံးနှင့် စာပေအရေးအသားတွင် အပြောစကား 'ဘာကြောင့်' အစား 'အဘယ်ကြောင့်' ကို သုံးနှုန်းရမည်။"
             )
         };
+
+        private static readonly Regex ColloquialNegativeBuInOfficialPattern = new Regex(
+            @"(?<Target>(?:(?<![\u1000-\u103F])|(?:" + CompoundNegationHeads + @"))မ(?![\u102B-\u103E]|[\u1000-\u1021]\u103B?[\u1039\u103A]|နက်|နေ့|ဟာ|ကွေး|လေးရှား|ရမ်း)(?<Stem>[\u1000-\u103F]{1,18}?)(?<End>ပါဘူး|ဘူး))(?=\s*(?:[""”'’]\s*)?(?:[\u104A\u104B]|$|ဟု|လို့|ဆိုတာ|ဆိုသည်))",
+            RegexOptions.Compiled);
+
+        private static readonly Regex ColloquialBareVerbLarInOfficialPattern = new Regex(
+            @"(?<![\u1000-\u103F])(?<Target>(?<Verb>နေကောင်း|အဆင်ပြေ|ဟုတ်|သိ|ရှိ|အား|အားလပ်|ရ|သေချာ|မှန်|စားပြီးပြီ|ပြီးပြီ)လား)(?=\s*(?:[""”'’]\s*)?(?:[\u104B?]|$))",
+            RegexOptions.Compiled);
 
         // 6. 'အား' vs 'ကို' particle misuse before direct transitive verbs (Formal / Literary style — guards '-အား' compound nouns like ဓာတ်အား/စွမ်းအား/အင်အား/လုပ်အား & exempts double-ကို/အဖြစ်/စေ & state protocol 'အား လက်ခံတွေ့ဆုံ / ကြိုဆို')
         private static readonly Regex AhInsteadOfKoPattern = new Regex(
@@ -1595,9 +1710,60 @@ namespace MyanmarSpellChecker.Core.Nlp
             bool hasPhu = ContainsMm(text, mmMask, "ဖူး");
             if (hasMa && hasPhu)
             {
+                if (styleMode == ProofingStyleMode.FormalOfficial && ContainsMm(text, mmMask, "အားနေ"))
+                {
+                    foreach (Match m in RedundantMaAhNayPhuPattern.Matches(text))
+                    {
+                        Group g = m.Groups["Target"];
+                        if (OverlapsExistingIssue(issues, g.Index, g.Length))
+                            continue;
+                        issues.Add(new ProofingIssue
+                        {
+                            StartIndex = g.Index,
+                            Length = g.Length,
+                            OriginalText = g.Value,
+                            IssueType = ProofingIssueType.SpellingError,
+                            Message = "'မအားနေဖူး' တွင် အငြင်းပိတ်ပစ္စည်း 'ဖူး' စာလုံးပေါင်းမှားနေပြီး ရုံးသုံး/စာပေစနစ်၌ 'မအားလပ်ပါ' သို့မဟုတ် 'မအားပါ' (အပြောစကား၌ 'မအားနေဘူး / မအားဘူး') ဟု ရေးသားရမည်။",
+                            GrammaticalReasoning = "အငြင်းပြ 'မ-' နောက်တွင် အတွေ့အကြုံပြ 'ဖူး' မသုံးရဘဲ ဘကုန်းဖြင့် 'ဘူး' (သို့မဟုတ် ရုံးသုံး/စာပေဟန် 'မအားလပ်ပါ / မအားပါ') သုံးနှုန်းရမည်။",
+                            AuthoritativeSource = "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ နှင့် မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း",
+                            Suggestions = new List<SuggestionCandidate>
+                            {
+                                new SuggestionCandidate
+                                {
+                                    Replacement = "မအားလပ်ပါ",
+                                    MeaningCue = "ရုံးသုံး/စာပေ အငြင်းအရေးအသား",
+                                    PosTag = "V",
+                                    IsOfficialThatpon = true,
+                                    SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown("မအားလပ်ပါ"),
+                                    DiagnosticDetail = "ရုံးသုံး/စာပေ စံအရေးအသား ('မအားလပ်ပါ')",
+                                    Score = 100.0
+                                },
+                                new SuggestionCandidate
+                                {
+                                    Replacement = "မအားပါ",
+                                    MeaningCue = "စာပေသုံး အငြင်းကြိယာ ('မ...ပါ')",
+                                    PosTag = "V",
+                                    IsOfficialThatpon = true,
+                                    Score = 97.0
+                                },
+                                new SuggestionCandidate
+                                {
+                                    Replacement = "မအားနေဘူး",
+                                    MeaningCue = "အပြောစကား စာလုံးပေါင်းအမှန် ('ဖူး' ➔ 'ဘူး')",
+                                    PosTag = "V",
+                                    IsOfficialThatpon = false,
+                                    Score = 93.0
+                                }
+                            }
+                        });
+                    }
+                }
+
                 foreach (Match m in MisspelledNegativePhuPattern.Matches(text))
                 {
                     Group g = m.Groups["Target"];
+                    if (OverlapsExistingIssue(issues, g.Index, g.Length))
+                        continue;
                     string correct = styleMode == ProofingStyleMode.FormalOfficial ? "ပါ" : "ဘူး";
                     AddGrammarOrSpellingIssue(
                         issues, g.Index, g.Length, g.Value, correct,
@@ -1655,12 +1821,31 @@ namespace MyanmarSpellChecker.Core.Nlp
             {
                 foreach (Match m in CasualPhitPattern.Matches(text))
                 {
-                    Group g = m.Groups["Target"];
+                    Group g = m.Groups["Target"].Success ? m.Groups["Target"] : m.Groups["Target2"];
                     AddGrammarOrSpellingIssue(
                         issues, g.Index, g.Length, g.Value, "ဖြစ်",
                         ProofingIssueType.SpellingError,
                         "ရရစ် ('ြ') ကျန်ခဲ့ပါသည် — စာလုံးပေါင်းသတ်ပုံကျမ်းအရ 'ဖြစ်' ဟု ရေးသားရမည်။",
                         "ဖြစ်ပေါ်သည် (သတ်ပုံကျမ်း)", "V", true);
+                }
+            }
+
+            if (hasMa && ContainsMm(text, mmMask, "မာ"))
+            {
+                foreach (Match m in UnspacedPlaceLocativeMarPattern.Matches(text))
+                {
+                    Group g = m.Groups["Target"];
+                    if (OverlapsExistingIssue(issues, g.Index, g.Length))
+                        continue;
+                    string place = m.Groups["Place"].Value;
+                    string correct = styleMode == ProofingStyleMode.FormalOfficial
+                        ? (place + "တွင်")
+                        : (place + "မှာ");
+                    AddGrammarOrSpellingIssue(
+                        issues, g.Index, g.Length, g.Value, correct,
+                        ProofingIssueType.SpellingError,
+                        $"တည်နေရာပြဝိဘတ်တွင် ဟထိုး ('ှ') ကျန်ခဲ့ပါသည် — '{g.Value}' အစား '{correct}' ဟု ရေးသားရမည်။",
+                        "တည်နေရာပြဝိဘတ် ('~မှာ / ~တွင်')", "N", styleMode == ProofingStyleMode.FormalOfficial);
                 }
             }
 
@@ -2014,18 +2199,108 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (hasBu || hasPhu)
+            bool hasBareBuShort = ContainsMm(text, mmMask, "ဘူ");
+            if (hasBu || hasPhu || hasBareBuShort)
             {
-                foreach (Match m in DroppedMaColloquialNegationPattern.Matches(text))
+                foreach (Match m in DroppedInfixMaCompoundNegationPattern.Matches(text))
                 {
-                    if (BareNegationPrefixCheckRegex.IsMatch(m.Groups["Clause"].Value))
+                    string clausePrefix = TrimClauseAfterConjunction(m.Groups["Clause"].Value);
+                    if (BareNegationPrefixCheckRegex.IsMatch(clausePrefix))
                         continue;
 
                     Group g = m.Groups["Target"];
+                    if (OverlapsExistingIssue(issues, g.Index, g.Length))
+                        continue;
+
+                    string head = m.Groups["Head"].Value;
+                    string root = m.Groups["Root"].Value;
+                    string aux = m.Groups["Aux"].Value;
+                    string endToken = m.Groups["End"].Value;
+                    bool hasSpellingCorruption = endToken == "ဖူး" || endToken == "ဘူ";
+
+                    string formalAux = (aux == "နေ" || aux == "ပါ")
+                        ? string.Empty
+                        : (aux.EndsWith("ပါ", StringComparison.Ordinal) ? aux.Substring(0, aux.Length - 2) : aux);
+                    string colloqClose = aux.EndsWith("ပါ", StringComparison.Ordinal) ? (aux + "ဘူး") : (aux + "ဘူး");
+                    string formalNeg = head + "မ" + root + formalAux + "ပါ";
+                    string colloqNeg = head + "မ" + root + colloqClose;
+                    string primaryNeg = styleMode == ProofingStyleMode.FormalOfficial ? formalNeg : colloqNeg;
+                    string secondaryNeg = styleMode == ProofingStyleMode.FormalOfficial ? colloqNeg : formalNeg;
+                    string posFix = styleMode == ProofingStyleMode.FormalOfficial
+                        ? (head + root + "ပါသည်")
+                        : (head + root + "တယ်");
+
+                    issues.Add(new ProofingIssue
+                    {
+                        StartIndex = g.Index,
+                        Length = g.Length,
+                        OriginalText = g.Value,
+                        IssueType = hasSpellingCorruption ? ProofingIssueType.SpellingError : ProofingIssueType.OfficialStyleGrammarError,
+                        Message = $"ပေါင်းစပ်ကြိယာ '{head}{root}' ကို ငြင်းပယ်ရာတွင် အလယ်၌ အငြင်းပြ 'မ' ထည့်သွင်းရမည် — '{primaryNeg}' ဟု ရေးသားရမည်။",
+                        GrammaticalReasoning = $"မြန်မာသဒ္ဒါ ပေါင်းစပ်ကြိယာဖွဲ့ထုံးအရ '{head} + {root}' အငြင်းပုံစံတွင် 'မ-' ကို ကြားညှပ်၍ '{primaryNeg}' ('{head} + မ + {root} + ဘူး/ပါ') ဟု ရေးသားရမည် ('{g.Value}' ဟု 'မ' ချန်လှပ်မရေးရပါ)။",
+                        AuthoritativeSource = "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (ပေါင်းစပ်ကြိယာ အငြင်းဖွဲ့ထုံး)",
+                        Suggestions = new List<SuggestionCandidate>
+                        {
+                            new SuggestionCandidate
+                            {
+                                Replacement = primaryNeg,
+                                MeaningCue = styleMode == ProofingStyleMode.FormalOfficial
+                                    ? "ရုံးသုံး/စာပေ အငြင်းအရေးအသား"
+                                    : "အငြင်းဝါကျ စံအရေးအသား ('~မ...ဘူး')",
+                                PosTag = "V",
+                                IsOfficialThatpon = styleMode == ProofingStyleMode.FormalOfficial,
+                                SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(primaryNeg),
+                                DiagnosticDetail = "အငြင်းပြ 'မ-' ဖြည့်စွက်ချက်",
+                                Score = 100.0
+                            },
+                            new SuggestionCandidate
+                            {
+                                Replacement = secondaryNeg,
+                                MeaningCue = styleMode == ProofingStyleMode.FormalOfficial
+                                    ? "အပြောစကား အငြင်းအမှန်"
+                                    : "ရုံးသုံး/စာပေ အငြင်းအရေးအသား",
+                                PosTag = "V",
+                                IsOfficialThatpon = styleMode != ProofingStyleMode.FormalOfficial,
+                                Score = 95.0
+                            },
+                            new SuggestionCandidate
+                            {
+                                Replacement = posFix,
+                                MeaningCue = "ဟုတ်မှန်ကြောင်းပြ ဝါကျအဆုံးသတ်",
+                                PosTag = "V",
+                                IsOfficialThatpon = styleMode == ProofingStyleMode.FormalOfficial,
+                                Score = 90.0
+                            }
+                        }
+                    });
+                }
+
+                foreach (Match m in DroppedMaColloquialNegationPattern.Matches(text))
+                {
+                    string clausePrefix = TrimClauseAfterConjunction(m.Groups["Clause"].Value);
+                    if (BareNegationPrefixCheckRegex.IsMatch(clausePrefix))
+                        continue;
+
+                    Group g = m.Groups["Target"];
+                    if (OverlapsExistingIssue(issues, g.Index, g.Length))
+                        continue;
+                    if (trie != null && trie.ContainsExactWord(g.Value))
+                        continue;
+
                     string verb = m.Groups["Verb"].Value;
-                    string negFix = styleMode == ProofingStyleMode.FormalOfficial
-                        ? ("မ" + verb + "ပါ")
-                        : ("မ" + verb + "ဘူး");
+                    string aux = m.Groups["Aux"].Value;
+                    string endToken = m.Groups["End"].Value;
+                    bool hasSpellingCorruption = endToken == "ဖူး" || endToken == "ဘူ";
+
+                    string formalAux = (aux == "နေ" || aux == "ပါ")
+                        ? string.Empty
+                        : (aux.EndsWith("ပါ", StringComparison.Ordinal) ? aux.Substring(0, aux.Length - 2) : aux);
+                    string formalStem = (verb == "အား" && aux == "နေ") ? "အားလပ်" : verb;
+                    string formalNeg = "မ" + formalStem + formalAux + "ပါ";
+                    string colloqNeg = "မ" + verb + aux + "ဘူး";
+
+                    string negFix = styleMode == ProofingStyleMode.FormalOfficial ? formalNeg : colloqNeg;
+                    string altNegFix = styleMode == ProofingStyleMode.FormalOfficial ? colloqNeg : formalNeg;
                     string posFix = styleMode == ProofingStyleMode.FormalOfficial
                         ? (verb + "ပါသည်")
                         : (verb + "တယ်");
@@ -2035,7 +2310,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                         StartIndex = g.Index,
                         Length = g.Length,
                         OriginalText = g.Value,
-                        IssueType = ProofingIssueType.OfficialStyleGrammarError,
+                        IssueType = hasSpellingCorruption ? ProofingIssueType.SpellingError : ProofingIssueType.OfficialStyleGrammarError,
                         Message = $"အငြင်းပြရှေ့ဆက် 'မ' ကျန်ခဲ့ပါသည် — စံမြန်မာစာဖြင့် '{negFix}' ဟု ရေးသားရမည်။",
                         GrammaticalReasoning = $"အပြောစကား၌ ရှေ့ဆက် 'မ-' ကို ချန်လှပ်၍ '{g.Value}' ဟု ပြောလေ့ရှိသော်လည်း စာအရေးအသားတွင် 'မ + ကြိယာ + ဘူး/ပါ' ဖွဲ့ထုံးအရ '{negFix}' ဟု အပြည့်အစုံ ရေးသားရမည်။",
                         AuthoritativeSource = "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (အငြင်းပြပစ္စည်း 'မ...ဘူး / မ...ပါ')",
@@ -2044,7 +2319,9 @@ namespace MyanmarSpellChecker.Core.Nlp
                             new SuggestionCandidate
                             {
                                 Replacement = negFix,
-                                MeaningCue = "အငြင်းဝါကျ စံအရေးအသား ('မ...ဘူး')",
+                                MeaningCue = styleMode == ProofingStyleMode.FormalOfficial
+                                    ? "ရုံးသုံး/စာပေ အငြင်းအရေးအသား ('မ...ပါ')"
+                                    : "အငြင်းဝါကျ စံအရေးအသား ('မ...ဘူး')",
                                 PosTag = "V",
                                 IsOfficialThatpon = styleMode == ProofingStyleMode.FormalOfficial,
                                 SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(negFix),
@@ -2053,11 +2330,21 @@ namespace MyanmarSpellChecker.Core.Nlp
                             },
                             new SuggestionCandidate
                             {
+                                Replacement = altNegFix,
+                                MeaningCue = styleMode == ProofingStyleMode.FormalOfficial
+                                    ? "အပြောစကား အငြင်းအမှန် ('မ...ဘူး')"
+                                    : "ရုံးသုံး/စာပေ အငြင်းအရေးအသား ('မ...ပါ')",
+                                PosTag = "V",
+                                IsOfficialThatpon = styleMode != ProofingStyleMode.FormalOfficial,
+                                Score = 95.0
+                            },
+                            new SuggestionCandidate
+                            {
                                 Replacement = posFix,
                                 MeaningCue = "ဟုတ်မှန်ကြောင်းပြ ဝါကျအဆုံးသတ်",
                                 PosTag = "V",
                                 IsOfficialThatpon = styleMode == ProofingStyleMode.FormalOfficial,
-                                Score = 92.0
+                                Score = 90.0
                             }
                         }
                     });
@@ -3199,6 +3486,119 @@ namespace MyanmarSpellChecker.Core.Nlp
                                     IsOfficialThatpon = true,
                                     SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(rule.Replacement),
                                     DiagnosticDetail = "အပြောစကားအသုံး ('" + m.Value + "') မှ စာပေ/ရုံးသုံး အရေးစကား ('" + rule.Replacement + "') သို့ ပြောင်းလဲရန်",
+                                    Score = 98.0
+                                }
+                            }
+                        });
+                    }
+                }
+
+                // 5b. General Colloquial Negative ('မ...ဘူး / မ...ပါဘူး / နေမကောင်းဘူး -> ~ပါ') & Bare Polar Questions ('နေကောင်းလား -> နေကောင်းပါသလော') in Formal/Official Mode
+                if (hasMa && hasBu)
+                {
+                    foreach (Match m in ColloquialNegativeBuInOfficialPattern.Matches(text))
+                    {
+                        Group g = m.Groups["Target"];
+                        if (IsInsideAnyRange(balancedQuoteRanges, g.Index, g.Length) ||
+                            OverlapsExistingIssue(issues, g.Index, g.Length))
+                        {
+                            continue;
+                        }
+
+                        string raw = g.Value;
+                        string endTok = m.Groups["End"].Value;
+                        string prefixBeforeEnd = raw.Substring(0, raw.Length - endTok.Length);
+                        string primaryOfficial;
+                        string? altOfficial = null;
+
+                        if (raw == "မအားနေဘူး" || raw == "မအားနေပါဘူး")
+                        {
+                            primaryOfficial = "မအားလပ်ပါ";
+                            altOfficial = "မအားပါ";
+                        }
+                        else if (raw == "မအားဘူး" || raw == "မအားပါဘူး")
+                        {
+                            primaryOfficial = "မအားပါ";
+                            altOfficial = "မအားလပ်ပါ";
+                        }
+                        else
+                        {
+                            primaryOfficial = prefixBeforeEnd + "ပါ";
+                        }
+
+                        var cands = new List<SuggestionCandidate>
+                        {
+                            new SuggestionCandidate
+                            {
+                                Replacement = primaryOfficial,
+                                MeaningCue = "ရုံးသုံး/စာပေ အငြင်းအရေးအသား ('မ...ပါ')",
+                                PosTag = "V",
+                                IsOfficialThatpon = true,
+                                SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(primaryOfficial),
+                                DiagnosticDetail = $"အပြောစကား '{raw}' မှ ရုံးသုံး/စာပေ '{primaryOfficial}' သို့ ပြောင်းလဲရန်",
+                                Score = 98.5
+                            }
+                        };
+                        if (!string.IsNullOrEmpty(altOfficial))
+                        {
+                            cands.Add(new SuggestionCandidate
+                            {
+                                Replacement = altOfficial!,
+                                MeaningCue = "ရုံးသုံး/စာပေ အခြားရွေးချယ်ရန်ပုဒ်",
+                                PosTag = "V",
+                                IsOfficialThatpon = true,
+                                Score = 96.0
+                            });
+                        }
+
+                        issues.Add(new ProofingIssue
+                        {
+                            StartIndex = g.Index,
+                            Length = g.Length,
+                            OriginalText = raw,
+                            IssueType = ProofingIssueType.OfficialStyleGrammarError,
+                            Message = $"ရုံးသုံးနှင့် စာပေအရေးအသားတွင် အပြောစကား အငြင်းပုံစံ '{raw}' အစား '{primaryOfficial}' ကို သုံးနှုန်းရမည်။",
+                            GrammaticalReasoning = $"ရုံးသုံး/စာပေ အရေးစကားတွင် အငြင်းကြိယာကို အပြောစကားပိတ်ပစ္စည်း 'ဘူး/ပါဘူး' အစား 'ပါ' ('{primaryOfficial}') ဖြင့် ယဉ်ကျေးသပ်ရပ်စွာ အဆုံးသတ်ရမည်။",
+                            AuthoritativeSource = "ရုံးသုံးမြန်မာစာ လမ်းညွှန် နှင့် မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ",
+                            Suggestions = cands
+                        });
+                    }
+                }
+
+                if (hasVisarga && ContainsMm(text, mmMask, "လား"))
+                {
+                    foreach (Match m in ColloquialBareVerbLarInOfficialPattern.Matches(text))
+                    {
+                        Group g = m.Groups["Target"];
+                        if (IsInsideAnyRange(balancedQuoteRanges, g.Index, g.Length) ||
+                            OverlapsExistingIssue(issues, g.Index, g.Length))
+                        {
+                            continue;
+                        }
+
+                        string verb = m.Groups["Verb"].Value;
+                        string primaryQ = verb.EndsWith("ပြီ", StringComparison.Ordinal)
+                            ? (verb + "လော")
+                            : (verb + "ပါသလော");
+
+                        issues.Add(new ProofingIssue
+                        {
+                            StartIndex = g.Index,
+                            Length = g.Length,
+                            OriginalText = g.Value,
+                            IssueType = ProofingIssueType.OfficialStyleGrammarError,
+                            Message = $"ရုံးသုံးနှင့် စာပေအရေးအသားတွင် အပြောစကား အမေးပုံစံ '{g.Value}' အစား '{primaryQ}' ကို သုံးနှုန်းရမည်။",
+                            GrammaticalReasoning = $"ရုံးသုံး/စာပေ အရေးစကားတွင် ဟုတ်/မဟုတ် အမေးဝိဘတ် 'လား' အစား စာပေသုံး 'ပါသလော / သလော' ('{primaryQ}') ကို သုံးနှုန်းရမည်။",
+                            AuthoritativeSource = "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (အမေးဝိဘတ် 'သလော / လော')",
+                            Suggestions = new List<SuggestionCandidate>
+                            {
+                                new SuggestionCandidate
+                                {
+                                    Replacement = primaryQ,
+                                    MeaningCue = "ရုံးသုံး/စာပေ အမေးအရေးအသား ('~သလော')",
+                                    PosTag = "V",
+                                    IsOfficialThatpon = true,
+                                    SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(primaryQ),
                                     Score = 98.0
                                 }
                             }
@@ -5017,6 +5417,34 @@ namespace MyanmarSpellChecker.Core.Nlp
                     return true;
             }
             return false;
+        }
+
+        private static readonly string[] ClauseChainLinkers =
+        {
+            "သောကြောင့်", "သဖြင့်", "သော်လည်း", "ပေမဲ့", "ပေမယ့်", "ပြီးနောက်", "ပြီးမှ", "ပြီးလျှင်", "ပြီးတော့", "ပြီး", "လို့", "၍", "ရင်", "လျှင်"
+        };
+
+        private static string TrimClauseAfterConjunction(string clause)
+        {
+            if (string.IsNullOrEmpty(clause))
+                return string.Empty;
+
+            int cut = -1;
+            for (int i = 0; i < ClauseChainLinkers.Length; i++)
+            {
+                string lk = ClauseChainLinkers[i];
+                int hit = clause.LastIndexOf(lk, StringComparison.Ordinal);
+                if (hit >= 0)
+                {
+                    int after = hit + lk.Length;
+                    if (after >= clause.Length || char.IsWhiteSpace(clause[after]))
+                    {
+                        if (after > cut)
+                            cut = after;
+                    }
+                }
+            }
+            return cut > 0 ? clause.Substring(cut) : clause;
         }
     }
 }

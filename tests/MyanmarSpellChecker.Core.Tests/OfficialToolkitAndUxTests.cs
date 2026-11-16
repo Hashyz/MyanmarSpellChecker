@@ -1945,5 +1945,75 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.Contains("BuildExcelHiddenZwspBannerCard", excelProofTab);
             Assert.Contains("BuildExcelZwspStudioCard", excelToolkitTab);
         }
+
+        [Fact]
+        public void V56_VerbalNegation_DroppedMa_NegativePhu_AndOfficialColloquialRegister_Gate()
+        {
+            var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
+            var trie = repo.LoadIntoTrie("MM-GOV-THATPON-SQLCIPHER-2026!");
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+
+            // 1. Exact user screenshot lines ("နေကောင်းဘူး" & "မအားနေဖူး") in FormalOfficial mode:
+            var line1Formal = formalEngine.CheckText("နေကောင်းဘူး");
+            var l1f = Assert.Single(line1Formal);
+            Assert.Equal("နေကောင်းဘူး", l1f.OriginalText);
+            Assert.False(l1f.RequiresReviewBeforeBatchFix);
+            Assert.Equal("နေမကောင်းပါ", l1f.Suggestions[0].Replacement);
+            Assert.Contains(l1f.Suggestions, s => s.Replacement == "နေမကောင်းဘူး");
+
+            var line2Formal = formalEngine.CheckText("မအားနေဖူး");
+            var l2f = Assert.Single(line2Formal);
+            Assert.Equal("မအားနေဖူး", l2f.OriginalText);
+            Assert.Equal(ProofingIssueType.SpellingError, l2f.IssueType);
+            Assert.False(l2f.RequiresReviewBeforeBatchFix);
+            Assert.Equal("မအားလပ်ပါ", l2f.Suggestions[0].Replacement);
+            Assert.Contains(l2f.Suggestions, s => s.Replacement == "မအားပါ");
+            Assert.Contains(l2f.Suggestions, s => s.Replacement == "မအားနေဘူး");
+
+            // 2. Exact user screenshot lines in GeneralStandard mode:
+            var line1Gen = generalEngine.CheckText("နေကောင်းဘူး");
+            var l1g = Assert.Single(line1Gen);
+            Assert.Equal("နေကောင်းဘူး", l1g.OriginalText);
+            Assert.Equal("နေမကောင်းဘူး", l1g.Suggestions[0].Replacement);
+
+            var line2Gen = generalEngine.CheckText("မအားနေဖူး");
+            var l2g = Assert.Single(line2Gen);
+            Assert.Equal("ဖူး", l2g.OriginalText);
+            Assert.Equal(ProofingIssueType.SpellingError, l2g.IssueType);
+            Assert.Equal("ဘူး", l2g.Suggestions[0].Replacement);
+
+            // 3. Broadened bipartite compound & simple dropped-'မ' + misspelled 'ဖူး/ဘူ' across Myanmar verbs:
+            Assert.Equal("အဆင်မပြေပါ", formalEngine.CheckText("အဆင်ပြေဘူး")[0].Suggestions[0].Replacement);
+            Assert.Equal("အဆင်မပြေဘူး", generalEngine.CheckText("အဆင်ပြေဘူး")[0].Suggestions[0].Replacement);
+            Assert.Equal("နားမလည်ဘူး", generalEngine.CheckText("နားလည်ဖူး")[0].Suggestions[0].Replacement);
+            Assert.Equal("မအားဘူး", generalEngine.CheckText("အားဘူး")[0].Suggestions[0].Replacement);
+            Assert.Equal("မပြီးသေးဘူး", generalEngine.CheckText("ပြီးသေးဘူး")[0].Suggestions[0].Replacement);
+            Assert.Contains(generalEngine.CheckText("နေမကောင်းဖူး"), x => x.OriginalText == "ဖူး" && x.Suggestions[0].Replacement == "ဘူး");
+            Assert.Contains(generalEngine.CheckText("မအားဖူး"), x => x.OriginalText == "ဖူး" && x.Suggestions[0].Replacement == "ဘူး");
+            Assert.Contains(generalEngine.CheckText("မဖစ်ဘူး"), x => x.OriginalText == "ဖစ်" && x.Suggestions[0].Replacement == "ဖြစ်");
+
+            // 4. FormalOfficial mode flags general colloquial negatives & questions while GeneralStandard allows them cleanly:
+            Assert.Contains(formalEngine.CheckText("နေမကောင်းဘူး။"), x => x.Suggestions[0].Replacement == "နေမကောင်းပါ");
+            Assert.Contains(formalEngine.CheckText("မအားဘူး။"), x => x.Suggestions[0].Replacement == "မအားပါ");
+            Assert.Contains(formalEngine.CheckText("နေကောင်းလား"), x => x.Suggestions[0].Replacement == "နေကောင်းပါသလော");
+            Assert.Contains(formalEngine.CheckText("အဆင်ပြေပါသလား။"), x => x.Suggestions[0].Replacement == "ပါသလော");
+            Assert.Contains(formalEngine.CheckText("ဘယ်လို ဆောင်ရွက်ရမလဲ။"), x => x.OriginalText == "ဘယ်လို" && x.Suggestions[0].Replacement == "မည်သို့");
+            Assert.Contains(formalEngine.CheckText("ဘယ်လို ဆောင်ရွက်ရမလဲ။"), x => x.OriginalText == "ရမလဲ" && x.Suggestions[0].Replacement == "ရမည်နည်း");
+
+            // 5. Over-split hidden compound typos, aspect vowel confusion & unspaced locative suffix typos (benchmark parity):
+            Assert.Contains(generalEngine.CheckText("စီမံကိန်း ခုန်ကျစရိတ် တွက်ချက်သည်။"), x => x.OriginalText == "ခုန်ကျ" && x.Suggestions[0].Replacement == "ကုန်ကျ");
+            Assert.Contains(generalEngine.CheckText("ကျွန်တော် မနက်ဖြန် ဆာမေးပွဲ ဖြေရမယ်။"), x => x.OriginalText == "ဆာမေးပွဲ" && x.Suggestions[0].Replacement == "စာမေးပွဲ");
+            Assert.Contains(generalEngine.CheckText("မင်းဘာလုပ်နီလဲ"), x => x.OriginalText == "နီ" && x.Suggestions[0].Replacement == "နေ");
+            Assert.Contains(generalEngine.CheckText("ရန်ကုန်မာ နေပါတယ်။"), x => x.OriginalText == "ရန်ကုန်မာ" && x.Suggestions[0].Replacement == "ရန်ကုန်မှာ");
+
+            Assert.Empty(generalEngine.CheckText("နေမကောင်းဘူး။"));
+            Assert.Empty(generalEngine.CheckText("မအားဘူး။"));
+            Assert.Empty(generalEngine.CheckText("နေကောင်းလား"));
+            Assert.Empty(generalEngine.CheckText("ရေဘူးနှင့် ထမင်းဘူး ယူလာပါသည်။"));
+            Assert.Empty(formalEngine.CheckText("ရေဘူးနှင့် ထမင်းဘူး ယူလာပါသည်။"));
+            Assert.Empty(formalEngine.CheckText("မဖူးသည် ဘုရားဖူး သွားရောက်ပါသည်။"));
+            Assert.Empty(formalEngine.CheckText("တစ်ကြိမ်မျှ မကြုံဖူးပါ။"));
+        }
     }
 }

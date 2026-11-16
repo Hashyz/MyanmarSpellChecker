@@ -1104,7 +1104,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                     bool isFormalColloquialSuffixRule =
                         StyleMode == ProofingStyleMode.FormalOfficial &&
                         gi.IssueType == ProofingIssueType.OfficialStyleGrammarError &&
-                        (gi.OriginalText == "တယ်" || gi.OriginalText == "မယ်" || gi.OriginalText == "နဲ့" || gi.OriginalText == "တွေ");
+                        (gi.OriginalText == "တယ်" || gi.OriginalText == "မယ်" || gi.OriginalText == "နဲ့" || gi.OriginalText == "တွေ" ||
+                         gi.OriginalText == "သလား" || gi.OriginalText == "မလား" || gi.OriginalText == "သလဲ" || gi.OriginalText == "မလဲ");
 
                     if (isFormalColloquialSuffixRule &&
                         (ViolatesOfficialHeadwordProperSubspan(gi, exactLexiconMultiWordSpans) ||
