@@ -42,6 +42,54 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         public Word.WdColor OriginalUnderlineColor { get; set; } = Word.WdColor.wdColorAutomatic;
         public ProofingIssue Issue { get; set; } = new ProofingIssue();
         public bool IsResolved { get; set; }
+
+        // Lazily resolved friendly layout coordinates (Page #, Line # inside paragraph, Table Row/Col)
+        public bool HasResolvedFriendlyLocation { get; set; }
+        public int PageNumber { get; set; }
+        public int LineInParagraph { get; set; }
+        public int TableRowIndex { get; set; }
+        public int TableColumnIndex { get; set; }
+
+        public string FormatPageLabel()
+        {
+            int p = PageNumber > 0 ? PageNumber : 1;
+            return UiLocalizer.Pick($"Page {p}", $"စာမျက်နှာ {p}");
+        }
+
+        public string FormatSectionAndParagraphLabel()
+        {
+            int para = ParagraphIndex > 0 ? ParagraphIndex : 1;
+            if (TableRowIndex > 0 && TableColumnIndex > 0)
+            {
+                return UiLocalizer.Pick(
+                    $"Table (R{TableRowIndex}, C{TableColumnIndex}) • Para {para}",
+                    $"ဇယား (တန်း {TableRowIndex}၊ ကော်လံ {TableColumnIndex}) • ပိုဒ် {para}");
+            }
+
+            string story = (StoryName ?? string.Empty).Trim();
+            bool isMainBody = string.IsNullOrEmpty(story) ||
+                              story.Equals("Body", StringComparison.OrdinalIgnoreCase) ||
+                              story.IndexOf("စာကိုယ်", StringComparison.Ordinal) >= 0;
+            if (isMainBody)
+            {
+                return UiLocalizer.Pick($"Paragraph {para}", $"စာပိုဒ် {para}");
+            }
+
+            return UiLocalizer.Pick($"{story} • Para {para}", $"{story} • ပိုဒ် {para}");
+        }
+
+        public string FormatLineLabel()
+        {
+            int ln = LineInParagraph > 0
+                ? LineInParagraph
+                : Math.Max(1, ((Issue?.StartIndex ?? 0) / 62) + 1);
+            return UiLocalizer.Pick($"Line {ln}", $"လိုင်း {ln}");
+        }
+
+        public string FormatFriendlyLocation()
+        {
+            return $"{FormatPageLabel()} • {FormatSectionAndParagraphLabel()}, {FormatLineLabel()}";
+        }
     }
 
     /// <summary>
@@ -61,6 +109,137 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             if (issue.IsGrammarOrStyle)
                 return Word.WdColor.wdColorBlue;
             return Word.WdColor.wdColorRed;
+        }
+
+        /// <summary>
+        /// Lazily populates exact Page #, Table (Row, Col), and visual Line # inside the paragraph
+        /// on demand when opening Review &amp; Fix or exporting an Audit Report — caching paragraph start
+        /// lookups so background live scanning stays 100% zero-overhead.
+        /// </summary>
+        public void EnsureFriendlyLocationsResolved(
+            Word.Document? doc,
+            IEnumerable<DocumentProofingItem>? items,
+            int maxComQueries = 260)
+        {
+            if (items == null)
+                return;
+
+            var paraStartInfoCache = new Dictionary<(int Slot, int ParaStart), (int Page, int FirstLine)>();
+            int comQueriesUsed = 0;
+
+            foreach (var item in items)
+            {
+                if (item == null || item.HasResolvedFriendlyLocation)
+                    continue;
+
+                int fallbackLine = Math.Max(1, ((item.Issue?.StartIndex ?? 0) / 62) + 1);
+                item.LineInParagraph = fallbackLine;
+                item.PageNumber = Math.Max(1, item.PageNumber);
+
+                if (doc == null || comQueriesUsed >= maxComQueries)
+                {
+                    item.HasResolvedFriendlyLocation = true;
+                    continue;
+                }
+
+                try
+                {
+                    Word.Range? r = item.TargetRange;
+                    if (r == null && item.StorySlotId == 0 && item.FallbackStartOffset >= 0)
+                    {
+                        r = doc.Range(item.FallbackStartOffset, item.FallbackStartOffset + Math.Max(1, item.Issue?.Length ?? 1));
+                    }
+
+                    if (r != null)
+                    {
+                        comQueriesUsed++;
+                        int issuePage = 1;
+                        int issuePageLine = -1;
+                        try
+                        {
+                            object pObj = r.get_Information(Word.WdInformation.wdActiveEndAdjustedPageNumber);
+                            if (pObj is int pi && pi > 0) issuePage = pi;
+                        }
+                        catch { }
+
+                        try
+                        {
+                            object lObj = r.get_Information(Word.WdInformation.wdFirstCharacterLineNumber);
+                            if (lObj is int li && li > 0) issuePageLine = li;
+                        }
+                        catch { }
+
+                        try
+                        {
+                            object inTblObj = r.get_Information(Word.WdInformation.wdWithInTable);
+                            if (inTblObj is bool inTbl && inTbl && r.Cells != null && r.Cells.Count > 0)
+                            {
+                                Word.Cell c1 = r.Cells[1];
+                                item.TableRowIndex = c1.RowIndex;
+                                item.TableColumnIndex = c1.ColumnIndex;
+                            }
+                        }
+                        catch { }
+
+                        item.PageNumber = issuePage;
+
+                        if (issuePageLine > 0)
+                        {
+                            int paraPage = issuePage;
+                            int paraFirstLine = -1;
+                            var pKey = (item.StorySlotId, item.FallbackParagraphStart);
+
+                            if (item.FallbackParagraphStart >= 0 && paraStartInfoCache.TryGetValue(pKey, out var cachedPara))
+                            {
+                                paraPage = cachedPara.Page;
+                                paraFirstLine = cachedPara.FirstLine;
+                            }
+                            else
+                            {
+                                try
+                                {
+                                    Word.Range? pStartRange = null;
+                                    if (item.StorySlotId == 0 && item.FallbackParagraphStart >= 0)
+                                    {
+                                        pStartRange = doc.Range(item.FallbackParagraphStart, item.FallbackParagraphStart);
+                                    }
+                                    else if (r.Paragraphs != null && r.Paragraphs.Count > 0)
+                                    {
+                                        Word.Range pr = r.Paragraphs[1].Range;
+                                        pStartRange = pr.Duplicate;
+                                        pStartRange.Collapse(Word.WdCollapseDirection.wdCollapseStart);
+                                    }
+
+                                    if (pStartRange != null)
+                                    {
+                                        comQueriesUsed++;
+                                        object ppObj = pStartRange.get_Information(Word.WdInformation.wdActiveEndAdjustedPageNumber);
+                                        object plObj = pStartRange.get_Information(Word.WdInformation.wdFirstCharacterLineNumber);
+                                        if (ppObj is int ppi && ppi > 0) paraPage = ppi;
+                                        if (plObj is int pli && pli > 0) paraFirstLine = pli;
+                                        if (item.FallbackParagraphStart >= 0)
+                                            paraStartInfoCache[pKey] = (paraPage, paraFirstLine);
+                                    }
+                                }
+                                catch { }
+                            }
+
+                            if (paraFirstLine > 0 && issuePage == paraPage && issuePageLine >= paraFirstLine)
+                            {
+                                item.LineInParagraph = (issuePageLine - paraFirstLine) + 1;
+                            }
+                            else if (issuePage > paraPage)
+                            {
+                                // Paragraph spans a page break: combine estimated prior-page lines with current page line
+                                item.LineInParagraph = Math.Max(issuePageLine, fallbackLine);
+                            }
+                        }
+                    }
+                }
+                catch { }
+
+                item.HasResolvedFriendlyLocation = true;
+            }
         }
 
         private sealed class TrackedRangeState

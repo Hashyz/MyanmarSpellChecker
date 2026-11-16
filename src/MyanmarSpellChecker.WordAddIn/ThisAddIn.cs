@@ -1495,9 +1495,8 @@ namespace MyanmarSpellChecker.WordAddIn
             if (list.Count >= 2000)
                 list.RemoveAt(0);
 
-            string loc = UiLocalizer.Pick(
-                $"{item.StoryName} • Para #{item.ParagraphIndex}",
-                $"{item.StoryName} • ပိုဒ် #{item.ParagraphIndex}");
+            _underlineManager?.EnsureFriendlyLocationsResolved(doc, new[] { item }, maxComQueries: 4);
+            string loc = item.FormatFriendlyLocation();
             list.Add(new ProofingSessionFixedRecord(
                 loc,
                 item.Issue.OriginalText ?? string.Empty,
@@ -1546,11 +1545,10 @@ namespace MyanmarSpellChecker.WordAddIn
 
             if (unresolvedCached.Count > 0 || sessionFixed.Count > 0 || _proofingEngine == null || string.IsNullOrWhiteSpace(plain))
             {
+                _underlineManager?.EnsureFriendlyLocationsResolved(sourceDoc, unresolvedCached);
                 foreach (var item in unresolvedCached)
                 {
-                    string loc = UiLocalizer.Pick(
-                        $"{item.StoryName} • Para #{item.ParagraphIndex}",
-                        $"{item.StoryName} • ပိုဒ် #{item.ParagraphIndex}");
+                    string loc = item.FormatFriendlyLocation();
                     string chosen = (item.Issue.Suggestions != null && item.Issue.Suggestions.Count > 0)
                         ? item.Issue.Suggestions[0].Replacement
                         : string.Empty;
@@ -1558,7 +1556,10 @@ namespace MyanmarSpellChecker.WordAddIn
                         loc,
                         TryExtractWordParagraphSnippet(item),
                         item.Issue,
-                        chosen));
+                        chosen,
+                        item.FormatPageLabel(),
+                        item.FormatSectionAndParagraphLabel(),
+                        item.FormatLineLabel()));
                     rawUnresolvedIssues.Add(item.Issue);
                 }
             }
@@ -1572,14 +1573,19 @@ namespace MyanmarSpellChecker.WordAddIn
                     string trimmed = line.Trim();
                     if (trimmed.Length == 0) continue;
                     paraNo++;
+                    int estPage = ((paraNo - 1) / 14) + 1;
+                    string pageLbl = UiLocalizer.Pick($"Page {estPage}", $"စာမျက်နှာ {estPage}");
+                    string paraLbl = UiLocalizer.Pick($"Paragraph {paraNo}", $"စာပိုဒ် {paraNo}");
                     var lineIssues = _proofingEngine.CheckText(trimmed);
-                    string loc = UiLocalizer.Pick($"Document • Para #{paraNo}", $"စာတမ်း • ပိုဒ် #{paraNo}");
                     foreach (var iss in lineIssues)
                     {
+                        int estLine = Math.Max(1, (iss.StartIndex / 62) + 1);
+                        string lineLbl = UiLocalizer.Pick($"Line {estLine}", $"လိုင်း {estLine}");
+                        string loc = $"{pageLbl} • {paraLbl}, {lineLbl}";
                         string chosen = (iss.Suggestions != null && iss.Suggestions.Count > 0)
                             ? iss.Suggestions[0].Replacement
                             : string.Empty;
-                        auditInputs.Add(new ProofingAuditItemInput(loc, trimmed, iss, chosen));
+                        auditInputs.Add(new ProofingAuditItemInput(loc, trimmed, iss, chosen, pageLbl, paraLbl, lineLbl));
                         rawUnresolvedIssues.Add(iss);
                     }
                 }
@@ -1597,7 +1603,7 @@ namespace MyanmarSpellChecker.WordAddIn
 
         private void ExecuteExportAuditCertificate()
         {
-            ExecuteExportWordProofingReport(ProofingReportExportFormat.NativeOfficeDocument);
+            ExecuteExportWordProofingReport(ProofingReportExportFormat.FriendlyExcelWorkbook);
         }
 
         private void ExecuteExportWordProofingReport(ProofingReportExportFormat format)
@@ -1616,6 +1622,48 @@ namespace MyanmarSpellChecker.WordAddIn
 
             switch (format)
             {
+                case ProofingReportExportFormat.FriendlyExcelWorkbook:
+                {
+                    try
+                    {
+                        string xlsxPath = ProofingAuditSpreadsheetExporter.SaveFriendlyXlsxToDisk(model);
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(xlsxPath)
+                        {
+                            UseShellExecute = true
+                        });
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            $"✓ Opened Friendly Excel Audit Report (.xlsx — {model.ConfirmedWrongCount} wrong • {model.SuspiciousReviewCount} review needed).",
+                            $"✓ ဖတ်ရလွယ်ကူသော Excel အစီရင်ခံစာ (.xlsx) ကို ဖွင့်ပေးပြီးပါပြီ (သေချာမှား {model.ConfirmedWrongCount} • စိစစ်ရန် {model.SuspiciousReviewCount})။"));
+                    }
+                    catch
+                    {
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            "⚠ Could not open the Excel (.xlsx) Audit Report.",
+                            "⚠ Excel (.xlsx) အစီရင်ခံစာ ဖွင့်ရာတွင် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"), isSuccess: false);
+                    }
+                    break;
+                }
+                case ProofingReportExportFormat.FriendlyCsvSpreadsheet:
+                {
+                    try
+                    {
+                        string csvPath = ProofingAuditReportBuilder.SaveFriendlyCsvToDisk(model);
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(csvPath)
+                        {
+                            UseShellExecute = true
+                        });
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            $"✓ Saved & opened UTF-8 CSV Audit Report ({Path.GetFileName(csvPath)}).",
+                            $"✓ UTF-8 CSV ဇယားဖိုင် အစီရင်ခံစာကို သိမ်းဆည်းဖွင့်ပေးပြီးပါပြီ ({Path.GetFileName(csvPath)})။"));
+                    }
+                    catch
+                    {
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            "⚠ Could not save or open the CSV Audit Report.",
+                            "⚠ CSV အစီရင်ခံစာ သိမ်းဆည်းရာတွင် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"), isSuccess: false);
+                    }
+                    break;
+                }
                 case ProofingReportExportFormat.NativeOfficeDocument:
                 {
                     bool ok = _toolkitService.GenerateRichAuditReportDocument(_wordApp, model);
@@ -1744,16 +1792,19 @@ namespace MyanmarSpellChecker.WordAddIn
                 return new List<FixPreviewEntry<DocumentProofingItem>>();
 
             var predicate = GetWordFilterPredicate(filterMode);
-            return _documentScanner.GetCachedIssues(doc)
+            var matching = _documentScanner.GetCachedIssues(doc)
                 .Where(i => !i.IsResolved &&
                             i.Issue.Suggestions != null &&
                             i.Issue.Suggestions.Count > 0 &&
                             predicate(i))
+                .ToList();
+
+            _underlineManager?.EnsureFriendlyLocationsResolved(doc, matching);
+
+            return matching
                 .Select(item => new FixPreviewEntry<DocumentProofingItem>(
                     item,
-                    UiLocalizer.Pick(
-                        $"{item.StoryName} • Para #{item.ParagraphIndex}",
-                        $"{item.StoryName} • ပိုဒ် #{item.ParagraphIndex}"),
+                    item.FormatFriendlyLocation(),
                     TryExtractWordParagraphSnippet(item),
                     item.Issue))
                 .ToList();

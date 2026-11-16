@@ -17,14 +17,19 @@ namespace MyanmarSpellChecker.Core.Official
 {
     public enum ProofingReportExportFormat
     {
-        NativeOfficeDocument = 0,
-        InteractiveHtmlAndPdf = 1,
-        CopySummaryToClipboard = 2
+        FriendlyExcelWorkbook = 0,
+        FriendlyCsvSpreadsheet = 1,
+        NativeOfficeDocument = 2,
+        InteractiveHtmlAndPdf = 3,
+        CopySummaryToClipboard = 4
     }
 
     public sealed class ProofingAuditItemInput
     {
         public string LocationLabel { get; set; } = string.Empty;
+        public string PageOrSheetLabel { get; set; } = string.Empty;
+        public string ParagraphOrCellLabel { get; set; } = string.Empty;
+        public string LineLabel { get; set; } = string.Empty;
         public string ContextSnippet { get; set; } = string.Empty;
         public ProofingIssue Issue { get; set; } = new ProofingIssue();
         public string? ChosenReplacementOverride { get; set; }
@@ -37,9 +42,15 @@ namespace MyanmarSpellChecker.Core.Official
             string locationLabel,
             string contextSnippet,
             ProofingIssue issue,
-            string? chosenReplacementOverride = null)
+            string? chosenReplacementOverride = null,
+            string? pageOrSheetLabel = null,
+            string? paragraphOrCellLabel = null,
+            string? lineLabel = null)
         {
             LocationLabel = locationLabel ?? string.Empty;
+            PageOrSheetLabel = pageOrSheetLabel ?? string.Empty;
+            ParagraphOrCellLabel = paragraphOrCellLabel ?? string.Empty;
+            LineLabel = lineLabel ?? string.Empty;
             ContextSnippet = contextSnippet ?? string.Empty;
             Issue = issue ?? new ProofingIssue();
             ChosenReplacementOverride = chosenReplacementOverride;
@@ -95,10 +106,14 @@ namespace MyanmarSpellChecker.Core.Official
     public sealed class ProofingAuditItemRow
     {
         public int Index { get; set; }
+        public int DocumentOrderIndex { get; set; }
         public bool IsConfirmedWrong { get; set; }
         public string StatusBadge { get; set; } = string.Empty;
         public string CategoryLabel { get; set; } = string.Empty;
         public string LocationLabel { get; set; } = string.Empty;
+        public string PageOrSheetLabel { get; set; } = string.Empty;
+        public string ParagraphOrCellLabel { get; set; } = string.Empty;
+        public string LineLabel { get; set; } = string.Empty;
         public string RawOriginal { get; set; } = string.Empty;
         public string VisualOriginal { get; set; } = string.Empty;
         public string RecommendedFix { get; set; } = string.Empty;
@@ -106,6 +121,7 @@ namespace MyanmarSpellChecker.Core.Official
         public string HowItShouldBeDisplay { get; set; } = string.Empty;
         public string Explanation { get; set; } = string.Empty;
         public string ContextSnippet { get; set; } = string.Empty;
+        public string MarkedContextSnippet { get; set; } = string.Empty;
     }
 
     public sealed class ProofingAuditReportModel
@@ -150,6 +166,7 @@ namespace MyanmarSpellChecker.Core.Official
 
         // Section A & Section B Tables
         public List<ProofingRepeatedWordGroup> TopRepeatedGroups { get; set; } = new List<ProofingRepeatedWordGroup>();
+        public List<ProofingAuditItemRow> AllItemsInDocumentOrder { get; set; } = new List<ProofingAuditItemRow>();
         public List<ProofingAuditItemRow> ConfirmedWrongItems { get; set; } = new List<ProofingAuditItemRow>();
         public List<ProofingAuditItemRow> SuspiciousReviewItems { get; set; } = new List<ProofingAuditItemRow>();
     }
@@ -256,34 +273,46 @@ namespace MyanmarSpellChecker.Core.Official
                 }
 
                 string visOrig = iss.FormatVisualOriginalText(primaryFix);
-                string cleanCtx = (item.ContextSnippet ?? string.Empty).Replace("\r", " ").Replace("\n", " ").Trim();
-                if (cleanCtx.Length > 140)
-                {
-                    cleanCtx = MyanmarSyllableBreaker.TruncateAtSyllableBoundary(cleanCtx, 140, "…");
-                }
+                string rawCtxClean = (item.ContextSnippet ?? string.Empty).Replace("\r", " ").Replace("\n", " ").Trim();
+                string cleanCtx = rawCtxClean.Length > 140
+                    ? MyanmarSyllableBreaker.TruncateAtSyllableBoundary(rawCtxClean, 140, "…")
+                    : rawCtxClean;
+                string markedCtx = BuildMarkedContextSnippet(rawCtxClean, iss);
+
+                ResolveStructuredLocationFields(
+                    item,
+                    out string pageOrSheet,
+                    out string paraOrCell,
+                    out string lineLbl);
 
                 string categoryLabel = GetCategoryLabel(iss, isConfirmedWrong);
                 string statusBadge = isConfirmedWrong
                     ? UiLocalizer.Pick("Confirmed Wrong (သေချာအမှား)", "သေချာအမှား (Confirmed Wrong)")
                     : (iss.IsContextualWarning
-                        ? UiLocalizer.Pick("Suspicious Meaning (အနက်သံသယ)", "အနက်သံသယ (Context Check)")
-                        : UiLocalizer.Pick("Suspicious / Name-Guess (စိစစ်ရန်)", "သံသယ / အမည်-ခန့်မှန်း (Review)"));
+                        ? UiLocalizer.Pick("Review Needed • Meaning (အနက်သံသယ)", "စိစစ်ရန် • အနက်သံသယ (Review)")
+                        : UiLocalizer.Pick("Review Needed (စိစစ်ရန်)", "စိစစ်ရန် • အမည်/ခန့်မှန်း (Review)"));
 
                 var row = new ProofingAuditItemRow
                 {
                     Index = isConfirmedWrong ? wrongIdx++ : suspIdx++,
+                    DocumentOrderIndex = model.AllItemsInDocumentOrder.Count + 1,
                     IsConfirmedWrong = isConfirmedWrong,
                     StatusBadge = statusBadge,
                     CategoryLabel = categoryLabel,
                     LocationLabel = item.LocationLabel ?? string.Empty,
+                    PageOrSheetLabel = pageOrSheet,
+                    ParagraphOrCellLabel = paraOrCell,
+                    LineLabel = lineLbl,
                     RawOriginal = iss.OriginalText ?? string.Empty,
                     VisualOriginal = visOrig,
                     RecommendedFix = primaryFix,
                     AlternativeFixes = altDisplay,
                     HowItShouldBeDisplay = howShouldBe,
                     Explanation = iss.Message ?? string.Empty,
-                    ContextSnippet = cleanCtx
+                    ContextSnippet = cleanCtx,
+                    MarkedContextSnippet = markedCtx
                 };
+                model.AllItemsInDocumentOrder.Add(row);
 
                 if (isConfirmedWrong)
                 {
@@ -378,6 +407,247 @@ namespace MyanmarSpellChecker.Core.Official
                 .ToList();
 
             return model;
+        }
+
+        private static void ResolveStructuredLocationFields(
+            ProofingAuditItemInput item,
+            out string pageOrSheet,
+            out string paraOrCell,
+            out string lineLbl)
+        {
+            pageOrSheet = (item.PageOrSheetLabel ?? string.Empty).Trim();
+            paraOrCell = (item.ParagraphOrCellLabel ?? string.Empty).Trim();
+            lineLbl = (item.LineLabel ?? string.Empty).Trim();
+
+            if (pageOrSheet.Length > 0 || paraOrCell.Length > 0 || lineLbl.Length > 0)
+                return;
+
+            string loc = (item.LocationLabel ?? string.Empty).Trim();
+            if (loc.Length == 0)
+                return;
+
+            // Excel pattern: "Sheet1!C14"
+            int bangIdx = loc.IndexOf('!');
+            if (bangIdx > 0 && bangIdx < loc.Length - 1)
+            {
+                pageOrSheet = loc.Substring(0, bangIdx).Trim();
+                paraOrCell = UiLocalizer.Pick($"Cell {loc.Substring(bangIdx + 1).Trim()}", $"အကွက် {loc.Substring(bangIdx + 1).Trim()}");
+                int lineCount = 1;
+                string snap = item.ContextSnippet ?? string.Empty;
+                int limit = Math.Min(snap.Length, Math.Max(0, item.Issue?.StartIndex ?? 0));
+                for (int i = 0; i < limit; i++)
+                {
+                    if (snap[i] == '\n')
+                        lineCount++;
+                }
+                lineLbl = UiLocalizer.Pick($"Line {lineCount}", $"လိုင်း {lineCount}");
+                return;
+            }
+
+            // Word / Bullet pattern: "Page 1 • Paragraph 3, Line 3" or "Table • Para #39"
+            string[] parts = loc.Split(new[] { '•' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2)
+            {
+                pageOrSheet = parts[0].Trim();
+                string tail = string.Join(" • ", parts.Skip(1).Select(p => p.Trim()));
+                int commaLine = tail.LastIndexOf(',');
+                if (commaLine > 0 && commaLine < tail.Length - 1)
+                {
+                    string maybeLine = tail.Substring(commaLine + 1).Trim();
+                    if (maybeLine.StartsWith("Line", StringComparison.OrdinalIgnoreCase) ||
+                        maybeLine.StartsWith("လိုင်း", StringComparison.Ordinal))
+                    {
+                        paraOrCell = tail.Substring(0, commaLine).Trim();
+                        lineLbl = maybeLine;
+                        return;
+                    }
+                }
+                paraOrCell = tail;
+                int estLine = Math.Max(1, ((item.Issue?.StartIndex ?? 0) / 62) + 1);
+                lineLbl = UiLocalizer.Pick($"Line {estLine}", $"လိုင်း {estLine}");
+            }
+            else
+            {
+                paraOrCell = loc;
+                int estLine = Math.Max(1, ((item.Issue?.StartIndex ?? 0) / 62) + 1);
+                lineLbl = UiLocalizer.Pick($"Line {estLine}", $"လိုင်း {estLine}");
+            }
+        }
+
+        private static string BuildMarkedContextSnippet(string cleanParagraph, ProofingIssue iss)
+        {
+            if (string.IsNullOrWhiteSpace(cleanParagraph))
+                return string.Empty;
+
+            string orig = iss.OriginalText ?? string.Empty;
+            if (string.IsNullOrEmpty(orig))
+            {
+                return cleanParagraph.Length > 140
+                    ? MyanmarSyllableBreaker.TruncateAtSyllableBoundary(cleanParagraph, 140, "…")
+                    : cleanParagraph;
+            }
+
+            int hitPos = -1;
+            if (iss.StartIndex >= 0 &&
+                iss.StartIndex + orig.Length <= cleanParagraph.Length &&
+                string.Equals(cleanParagraph.Substring(iss.StartIndex, orig.Length), orig, StringComparison.Ordinal))
+            {
+                hitPos = iss.StartIndex;
+            }
+            else
+            {
+                int searchFrom = Math.Max(0, Math.Min(cleanParagraph.Length - 1, iss.StartIndex - 16));
+                hitPos = cleanParagraph.IndexOf(orig, searchFrom, StringComparison.Ordinal);
+                if (hitPos < 0)
+                    hitPos = cleanParagraph.IndexOf(orig, StringComparison.Ordinal);
+            }
+
+            if (hitPos < 0)
+            {
+                return cleanParagraph.Length > 140
+                    ? MyanmarSyllableBreaker.TruncateAtSyllableBoundary(cleanParagraph, 140, "…")
+                    : cleanParagraph;
+            }
+
+            int winStart = Math.Max(0, hitPos - 52);
+            int winEnd = Math.Min(cleanParagraph.Length, hitPos + orig.Length + 62);
+
+            // Snap window start/end to nearest space so words aren't cut mid-syllable
+            if (winStart > 0)
+            {
+                int sp = cleanParagraph.IndexOf(' ', winStart);
+                if (sp >= 0 && sp < hitPos - 10)
+                    winStart = sp + 1;
+            }
+            if (winEnd < cleanParagraph.Length)
+            {
+                int spEnd = cleanParagraph.LastIndexOf(' ', winEnd - 1);
+                if (spEnd > hitPos + orig.Length + 10)
+                    winEnd = spEnd;
+            }
+
+            string prefix = (winStart > 0 ? "…" : string.Empty) + cleanParagraph.Substring(winStart, hitPos - winStart);
+            string suffix = cleanParagraph.Substring(hitPos + orig.Length, winEnd - (hitPos + orig.Length)) +
+                            (winEnd < cleanParagraph.Length ? "…" : string.Empty);
+            return $"{prefix}〖{orig}〗{suffix}";
+        }
+
+        internal static string BuildSafeReportFileStem(string documentTitle)
+        {
+            var invalid = Path.GetInvalidFileNameChars();
+            var safeTitle = new StringBuilder((documentTitle ?? string.Empty).Length);
+            foreach (char ch in documentTitle ?? string.Empty)
+            {
+                if (Array.IndexOf(invalid, ch) < 0 && ch != ' ')
+                    safeTitle.Append(ch);
+                else if (ch == ' ')
+                    safeTitle.Append('_');
+            }
+            string stem = safeTitle.Length > 0 ? safeTitle.ToString() : "Document";
+            return stem.Length > 40 ? stem.Substring(0, 40) : stem;
+        }
+
+        public static string BuildFriendlyCsvText(ProofingAuditReportModel model)
+        {
+            if (model == null)
+                throw new ArgumentNullException(nameof(model));
+
+            static string Csv(string? val)
+            {
+                string s = (val ?? string.Empty).Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ');
+                if (s.IndexOf('"') >= 0)
+                    s = s.Replace("\"", "\"\"");
+                return $"\"{s}\"";
+            }
+
+            var sb = new StringBuilder(16384);
+            // Friendly Summary Header Rows
+            sb.AppendLine(string.Join(",",
+                Csv(UiLocalizer.Pick("Myanmar Proofing Audit Report", "မြန်မာစာ စာလုံးပေါင်းနှင့် သဒ္ဒါ စစ်ဆေးချက် အစီရင်ခံစာ")),
+                Csv($"{model.DocumentTitle} ({model.HostAppLabel})"),
+                Csv(model.OfficialDateHeader),
+                Csv($"Score: {model.OverallScore}% ({model.GradeCode}) • Clean: {model.CleanAccuracyPercent:0.##}%"),
+                Csv($"Confirmed Wrong: {model.ConfirmedWrongCount}"),
+                Csv($"Review Needed: {model.SuspiciousReviewCount}"),
+                Csv($"Fixed in Session: {model.SessionFixedCount}")));
+            sb.AppendLine();
+
+            // Main Unified Document-Order Table
+            sb.AppendLine(string.Join(",",
+                Csv("#"),
+                Csv(UiLocalizer.Pick("Page / Sheet", "စာမျက်နှာ / Sheet")),
+                Csv(UiLocalizer.Pick("Paragraph / Section", "စာပိုဒ် / ဇယား / အကွက်")),
+                Csv(UiLocalizer.Pick("Line", "လိုင်းနံပါတ်")),
+                Csv(UiLocalizer.Pick("Status", "အခြေအနေ")),
+                Csv(UiLocalizer.Pick("Category", "အမျိုးအစား")),
+                Csv(UiLocalizer.Pick("Found Word", "တွေ့ရှိသောစာသား")),
+                Csv(UiLocalizer.Pick("How It Should Be", "အမှန်ရေးရမည့်စာသား")),
+                Csv(UiLocalizer.Pick("Other Options", "အခြားရွေးချယ်စရာ")),
+                Csv(UiLocalizer.Pick("Sentence Context (〖Word〗)", "ဝါကျအတွင်း တည်နေရာ (〖စာလုံး〗)")),
+                Csv(UiLocalizer.Pick("Simple Explanation", "ရှင်းလင်းချက်"))));
+
+            foreach (var r in model.AllItemsInDocumentOrder)
+            {
+                sb.AppendLine(string.Join(",",
+                    r.DocumentOrderIndex.ToString(CultureInfo.InvariantCulture),
+                    Csv(r.PageOrSheetLabel),
+                    Csv(r.ParagraphOrCellLabel),
+                    Csv(r.LineLabel),
+                    Csv(r.StatusBadge),
+                    Csv(r.CategoryLabel),
+                    Csv(r.VisualOriginal),
+                    Csv(r.RecommendedFix),
+                    Csv(r.AlternativeFixes),
+                    Csv(!string.IsNullOrEmpty(r.MarkedContextSnippet) ? r.MarkedContextSnippet : r.ContextSnippet),
+                    Csv(r.Explanation)));
+            }
+
+            if (model.SessionFixedRecords.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine(string.Join(",",
+                    Csv(UiLocalizer.Pick("Already Fixed in This Session", "ယခုအကြိမ် ပြင်ဆင်ပြီးစီးခဲ့သော မှတ်တမ်း")),
+                    Csv(UiLocalizer.Pick("Location", "နေရာ")),
+                    Csv(UiLocalizer.Pick("Original", "မူလစာသား")),
+                    Csv(UiLocalizer.Pick("Applied Fix", "ပြင်ဆင်ပြီးစာသား")),
+                    Csv(UiLocalizer.Pick("Time", "အချိန်"))));
+                for (int i = 0; i < model.SessionFixedRecords.Count; i++)
+                {
+                    var f = model.SessionFixedRecords[i];
+                    sb.AppendLine(string.Join(",",
+                        (i + 1).ToString(CultureInfo.InvariantCulture),
+                        Csv(f.LocationLabel),
+                        Csv(f.VisualOriginalText),
+                        Csv(f.AppliedReplacement),
+                        Csv(f.AppliedAtLocal.ToString("HH:mm:ss", CultureInfo.InvariantCulture))));
+                }
+            }
+
+            return sb.ToString();
+        }
+
+        public static string SaveFriendlyCsvToDisk(
+            ProofingAuditReportModel model,
+            string? outputDirectoryOverride = null)
+        {
+            if (model == null)
+                throw new ArgumentNullException(nameof(model));
+
+            string baseDir = !string.IsNullOrWhiteSpace(outputDirectoryOverride)
+                ? outputDirectoryOverride!
+                : Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "MyanmarSpellChecker",
+                    "Reports");
+            Directory.CreateDirectory(baseDir);
+
+            string stem = BuildSafeReportFileStem(model.DocumentTitle);
+            string fileName = $"ProofingReport_{stem}_{model.GeneratedAtLocal:yyyyMMdd_HHmmss}.csv";
+            string fullPath = Path.Combine(baseDir, fileName);
+            string csv = BuildFriendlyCsvText(model);
+            // UTF-8 BOM (EF BB BF) is mandatory so Microsoft Excel on Windows opens Myanmar Unicode .csv without garbling
+            File.WriteAllText(fullPath, csv, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            return fullPath;
         }
 
         private static string GetCategoryLabel(ProofingIssue iss, bool isConfirmedWrong)
@@ -643,13 +913,52 @@ namespace MyanmarSpellChecker.Core.Official
             sb.AppendLine("<div class=\"filter-bar no-print\">");
             sb.AppendLine("<div class=\"actions\">");
             sb.AppendLine($"<button class=\"btn btn-outline active\" onclick=\"showSec('all', this)\">All Sections</button>");
-            sb.AppendLine($"<button class=\"btn btn-outline\" onclick=\"showSec('sec-repeated', this)\">Repeated ({model.TopRepeatedGroups.Count})</button>");
+            sb.AppendLine($"<button class=\"btn btn-outline\" onclick=\"showSec('sec-friendly-all', this)\">Friendly Checklist ({model.AllItemsInDocumentOrder.Count})</button>");
             sb.AppendLine($"<button class=\"btn btn-outline\" onclick=\"showSec('sec-wrong', this)\">Confirmed Wrong ({model.ConfirmedWrongCount})</button>");
-            sb.AppendLine($"<button class=\"btn btn-outline\" onclick=\"showSec('sec-susp', this)\">Suspicious ({model.SuspiciousReviewCount})</button>");
+            sb.AppendLine($"<button class=\"btn btn-outline\" onclick=\"showSec('sec-susp', this)\">Review Needed ({model.SuspiciousReviewCount})</button>");
+            sb.AppendLine($"<button class=\"btn btn-outline\" onclick=\"showSec('sec-repeated', this)\">Repeated ({model.TopRepeatedGroups.Count})</button>");
             sb.AppendLine($"<button class=\"btn btn-outline\" onclick=\"showSec('sec-fixed', this)\">Fixed ({model.SessionFixedCount})</button>");
             sb.AppendLine("</div>");
-            sb.AppendLine($"<input id=\"qBox\" class=\"search-input\" type=\"search\" placeholder=\"{H(UiLocalizer.Pick("Search word, location, or correction...", "စာလုံး၊ နေရာ သို့မဟုတ် အမှန်ပြင်ချက် ရှာရန်..."))}\" oninput=\"filterRows(this.value)\" />");
+            sb.AppendLine($"<input id=\"qBox\" class=\"search-input\" type=\"search\" placeholder=\"{H(UiLocalizer.Pick("Search page, paragraph, line, or word...", "စာမျက်နှာ၊ စာပိုဒ်၊ လိုင်း သို့မဟုတ် စာလုံး ရှာရန်..."))}\" oninput=\"filterRows(this.value)\" />");
             sb.AppendLine("</div>");
+
+            static string RenderMarkedHtml(string? marked, bool isWrong)
+            {
+                string raw = marked ?? string.Empty;
+                int open = raw.IndexOf('〖');
+                int close = open >= 0 ? raw.IndexOf('〗', open + 1) : -1;
+                if (open < 0 || close <= open)
+                    return WebUtility.HtmlEncode(raw);
+
+                string bg = isWrong ? "#fee2e2" : "#fef08a";
+                string fg = isWrong ? "#991b1b" : "#854d0e";
+                return WebUtility.HtmlEncode(raw.Substring(0, open)) +
+                       $"<mark style=\"background:{bg};color:{fg};font-weight:700;padding:1px 5px;border-radius:4px;\">" +
+                       WebUtility.HtmlEncode(raw.Substring(open + 1, close - open - 1)) +
+                       "</mark>" +
+                       WebUtility.HtmlEncode(raw.Substring(close + 1));
+            }
+
+            // Friendly Section 0: Unified Document-Order Checklist (Page | Paragraph | Line | Status | Found -> How It Should Be | Sentence)
+            sb.AppendLine("<section id=\"sec-friendly-all\">");
+            sb.AppendLine($"<h2>1. {H(UiLocalizer.Pick($"Friendly Reading-Order Checklist ({model.AllItemsInDocumentOrder.Count}) • စာမျက်နှာ၊ စာပိုဒ်နှင့် လိုင်းအလိုက် စစ်ဆေးချက်ဇယား", $"စာမျက်နှာ၊ စာပိုဒ်နှင့် လိုင်းအလိုက် အစဉ်လိုက် ဖတ်ရှုစစ်ဆေးရန် ဇယား ({model.AllItemsInDocumentOrder.Count})"))}</h2>");
+            if (model.AllItemsInDocumentOrder.Count == 0)
+            {
+                sb.AppendLine($"<p class=\"badge badge-clean\">✓ {H(UiLocalizer.Pick("100% clean — zero unresolved issues!", "ပြင်ဆင်ရန် အမှားအယွင်း လုံးဝမကျန်ရှိပါ။"))}</p>");
+            }
+            else
+            {
+                sb.AppendLine("<table class=\"data-tbl\"><thead><tr><th>#</th><th>Page / Sheet</th><th>Paragraph / Section</th><th>Line</th><th>Status</th><th>Found • တွေ့ရှိစာသား</th><th>How It Should Be • အမှန်ရေးရန်</th><th>Sentence &amp; Explanation • ဝါကျနှင့် ရှင်းလင်းချက်</th></tr></thead><tbody>");
+                foreach (var r in model.AllItemsInDocumentOrder)
+                {
+                    string bCls = r.IsConfirmedWrong ? "badge-wrong" : "badge-susp";
+                    string wStyle = r.IsConfirmedWrong ? "class=\"orig-word\"" : "style=\"font-weight:700;color:#855a00;\"";
+                    string ctxHtml = RenderMarkedHtml(!string.IsNullOrEmpty(r.MarkedContextSnippet) ? r.MarkedContextSnippet : r.ContextSnippet, r.IsConfirmedWrong);
+                    sb.AppendLine($"<tr><td>{r.DocumentOrderIndex}</td><td><strong>{H(r.PageOrSheetLabel)}</strong></td><td><strong>{H(r.ParagraphOrCellLabel)}</strong></td><td><strong>{H(r.LineLabel)}</strong></td><td><span class=\"badge {bCls}\">{H(r.StatusBadge)}</span></td><td {wStyle}>{H(r.VisualOriginal)}</td><td class=\"fix-word\">{H(r.HowItShouldBeDisplay)}</td><td><div style=\"margin-bottom:3px;\">{ctxHtml}</div><div class=\"ctx-text\">{H(r.Explanation)}</div></td></tr>");
+                }
+                sb.AppendLine("</tbody></table>");
+            }
+            sb.AppendLine("</section>");
 
             // Section A: Top Repeated Mistakes
             sb.AppendLine("<section id=\"sec-repeated\">");

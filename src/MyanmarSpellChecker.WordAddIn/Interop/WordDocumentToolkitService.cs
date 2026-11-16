@@ -1049,6 +1049,16 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 Word.Document doc = app.Documents.Add(ref missing, ref missing, ref missing, ref missing);
                 try { prevScreenUpdating = app.ScreenUpdating; app.ScreenUpdating = false; } catch { }
 
+                try
+                {
+                    doc.PageSetup.Orientation = Word.WdOrientation.wdOrientLandscape;
+                    doc.PageSetup.TopMargin = 36F;
+                    doc.PageSetup.BottomMargin = 36F;
+                    doc.PageSetup.LeftMargin = 36F;
+                    doc.PageSetup.RightMargin = 36F;
+                }
+                catch { }
+
                 doc.Content.Font.Name = TargetUnicodeFontName;
                 doc.Content.Font.NameBi = TargetUnicodeFontName;
                 doc.Content.Font.Size = 10.5F;
@@ -1122,7 +1132,15 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                     tbl.Range.Font.Name = TargetUnicodeFontName;
                     tbl.Range.Font.NameBi = TargetUnicodeFontName;
-                    tbl.Range.Font.Size = 9.5F;
+                    tbl.Range.Font.Size = 10F;
+                    try
+                    {
+                        tbl.TopPadding = 4.5F;
+                        tbl.BottomPadding = 4.5F;
+                        tbl.LeftPadding = 6F;
+                        tbl.RightPadding = 6F;
+                    }
+                    catch { }
 
                     Word.Row hdrRow = tbl.Rows[1];
                     hdrRow.HeadingFormat = -1;
@@ -1156,8 +1174,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 {
                     new[] { UiLocalizer.Pick("Total Words / Syllables", "စုစုပေါင်း စကားလုံး / ဝဏ္ဏ"), $"{model.TotalWords:N0} words ({model.MyanmarSyllables:N0} syllables)", UiLocalizer.Pick("Quality Grade", "အရည်အသွေးအဆင့်"), $"{model.OverallScore}% — {model.LocalizedGradeLabel}" },
                     new[] { UiLocalizer.Pick("Clean / Valid Words", "အမှားကင်းစင်မှုနှုန်း"), $"{model.CleanAccuracyPercent:0.##}% (~{model.EstimatedCleanWords:N0} words)", UiLocalizer.Pick("Unicode / Formal Style", "ယူနီကုဒ် / ရုံးသုံးဟန်"), $"Unicode {model.UnicodePurityPercent:0.#}% • Formal {model.FormalRegisterPercent:0.#}%" },
-                    new[] { UiLocalizer.Pick("Confirmed Wrong (Sure)", "သေချာသော အမှားစစ်စစ်"), $"{model.ConfirmedWrongCount:N0} ({model.ConfirmedWrongRatePercent:0.##}%)", UiLocalizer.Pick("Wrong Breakdown", "အမှားအမျိုးအစားခွဲ"), $"Spelling: {model.ConfirmedSpellingCount} | Unicode/Lookalike: {model.ConfirmedEncodingAndLookalikeCount} | Grammar: {model.ConfirmedGrammarAndStyleCount}" },
-                    new[] { UiLocalizer.Pick("Suspicious / Review Needed", "သံသယ / လူစိစစ်ရန်"), $"{model.SuspiciousReviewCount:N0} ({model.SuspiciousRatePercent:0.##}%)", UiLocalizer.Pick("Suspicious Breakdown", "သံသယအမျိုးအစားခွဲ"), $"Names/Guesses: {model.SuspiciousNameOrOovCount} | Meaning: {model.SuspiciousContextMeaningCount} | Consistency: {model.ConsistencyWarningCount}" },
+                    new[] { UiLocalizer.Pick("Confirmed Wrong (Red)", "သေချာသော အမှားစစ်စစ် (အနီ)"), $"{model.ConfirmedWrongCount:N0} ({model.ConfirmedWrongRatePercent:0.##}%)", UiLocalizer.Pick("Wrong Breakdown", "အမှားအမျိုးအစားခွဲ"), $"Spelling: {model.ConfirmedSpellingCount} | Unicode/Lookalike: {model.ConfirmedEncodingAndLookalikeCount} | Grammar: {model.ConfirmedGrammarAndStyleCount}" },
+                    new[] { UiLocalizer.Pick("Review Needed (Yellow)", "စိစစ်ရန် သံသယရှိ (အဝါ)"), $"{model.SuspiciousReviewCount:N0} ({model.SuspiciousRatePercent:0.##}%)", UiLocalizer.Pick("Review Breakdown", "စိစစ်ရန် အမျိုးအစားခွဲ"), $"Names/Guesses: {model.SuspiciousNameOrOovCount} | Meaning: {model.SuspiciousContextMeaningCount} | Consistency: {model.ConsistencyWarningCount}" },
                     new[] { UiLocalizer.Pick("Already Fixed in Session", "ယခုအကြိမ် ပြင်ဆင်ပြီးစီးမှု"), $"{model.SessionFixedCount:N0}", UiLocalizer.Pick("Consistency Notes", "ရှေ့နောက်ညီညွတ်မှု"), model.ConsistencySummaries.Count > 0 ? string.Join(" ; ", model.ConsistencySummaries) : "✓ Consistent" }
                 };
                 AppendTabTable(
@@ -1166,105 +1184,79 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     System.Drawing.Color.FromArgb(232, 240, 252),
                     System.Drawing.Color.FromArgb(16, 42, 72));
 
-                // 2. Section A: Top Repeated Findings
-                AppendHeading(
-                    UiLocalizer.Pick($"2. Top Repeated Findings ({model.TopRepeatedGroups.Count}) • ထပ်ခါတလဲလဲ အများဆုံးတွေ့ရှိချက်များ", $"၂။ ထပ်ခါတလဲလဲ အများဆုံးတွေ့ရှိရသော စာလုံးများ ({model.TopRepeatedGroups.Count})"),
-                    11.5F,
-                    System.Drawing.Color.FromArgb(18, 72, 148));
+                const int MaxWordTableRows = 400;
 
-                if (model.TopRepeatedGroups.Count == 0)
+                // 2. Friendly Unified Reading-Order Checklist (Wide 4-Column Landscape Layout)
+                AppendHeading(
+                    UiLocalizer.Pick(
+                        $"2. Friendly Reading-Order Checklist ({model.AllItemsInDocumentOrder.Count}) • စာမျက်နှာ၊ စာပိုဒ်နှင့် လိုင်းအလိုက် စစ်ဆေးချက်ဇယား",
+                        $"၂။ စာမျက်နှာ၊ စာပိုဒ်နှင့် လိုင်းအလိုက် ဖတ်ရှုစစ်ဆေးရန် ဇယား ({model.AllItemsInDocumentOrder.Count})"),
+                    11.5F,
+                    System.Drawing.Color.FromArgb(16, 42, 72));
+
+                if (model.AllItemsInDocumentOrder.Count == 0)
                 {
                     AppendNoteLine(UiLocalizer.Pick("✓ Zero unresolved issues found!", "✓ ပြင်ဆင်ရန် အမှားအယွင်း မကျန်ရှိပါ။"), bold: true);
                 }
                 else
                 {
+                    var allFriendlyRows = model.AllItemsInDocumentOrder
+                        .Take(MaxWordTableRows)
+                        .Select(r =>
+                        {
+                            string locCol = $"#{r.DocumentOrderIndex}  •  {r.PageOrSheetLabel}\v{r.ParagraphOrCellLabel}  •  {r.LineLabel}";
+                            string statusCol = $"{r.StatusBadge}\v[{r.CategoryLabel}]";
+                            string fixCol = $"\"{r.VisualOriginal}\"  ➔  \"{r.HowItShouldBeDisplay}\"";
+                            string ctx = !string.IsNullOrEmpty(r.MarkedContextSnippet) ? r.MarkedContextSnippet : r.ContextSnippet;
+                            string noteCol = string.IsNullOrWhiteSpace(r.Explanation)
+                                ? ctx
+                                : $"{ctx}\v• {r.Explanation}";
+                            return new[] { locCol, statusCol, fixCol, noteCol };
+                        })
+                        .ToList();
+
+                    AppendTabTable(
+                        new[]
+                        {
+                            "Page • Paragraph & Line\vစာမျက်နှာ • စာပိုဒ်နှင့် လိုင်း",
+                            "Status & Category\vအခြေအနေနှင့် အမျိုးအစား",
+                            "Found  ➔  How It Should Be\vတွေ့ရှိစာသား ➔ အမှန်ရေးရန်",
+                            "Sentence Context (〖Word〗) & Simple Rule\vဝါကျအတွင်း တည်နေရာနှင့် ရှင်းလင်းချက်"
+                        },
+                        allFriendlyRows,
+                        System.Drawing.Color.FromArgb(27, 59, 100),
+                        System.Drawing.Color.White);
+                }
+
+                // 3. Top Repeated Words Summary (Wide 4-Column Layout)
+                if (model.TopRepeatedGroups.Count > 0)
+                {
+                    AppendHeading(
+                        UiLocalizer.Pick($"3. Top Repeated Words ({model.TopRepeatedGroups.Count}) • ထပ်ခါတလဲလဲ အများဆုံးတွေ့ရှိချက်များ", $"၃။ ထပ်ခါတလဲလဲ အများဆုံးတွေ့ရှိရသော စာလုံးများ ({model.TopRepeatedGroups.Count})"),
+                        11.5F,
+                        System.Drawing.Color.FromArgb(18, 72, 148));
+
                     var repRows = model.TopRepeatedGroups
                         .Select((g, i) => new[]
                         {
-                            (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                            $"#{i + 1}  (×{g.Count})",
                             g.StatusBadge,
-                            g.VisualOriginal,
-                            $"×{g.Count}",
-                            g.RecommendedFix,
+                            $"\"{g.VisualOriginal}\"  ➔  \"{g.RecommendedFix}\"",
                             g.SampleLocations
                         })
                         .ToList();
                     AppendTabTable(
-                        new[] { "#", "Status", "Found • တွေ့ရှိစာသား", "Count", "How It Should Be • အမှန်ရေးရန်", "Locations • နေရာ" },
+                        new[] { "# & Count", "Status • အခြေအနေ", "Found  ➔  How It Should Be", "Sample Locations (Page • Para, Line)" },
                         repRows,
                         System.Drawing.Color.FromArgb(236, 242, 250),
                         System.Drawing.Color.FromArgb(16, 42, 72));
                 }
 
-                const int MaxWordTableRows = 400;
-
-                // 3. Section B1: Confirmed Wrong — How It Should Be
-                AppendHeading(
-                    UiLocalizer.Pick($"3. Confirmed Wrong — How It Should Be ({model.ConfirmedWrongCount}) • သေချာသော အမှားများနှင့် အမှန်ပြင်ရန်", $"၃။ သေချာသော အမှားစစ်စစ်များနှင့် မည်သို့ရေးရမည် ({model.ConfirmedWrongCount})"),
-                    11.5F,
-                    System.Drawing.Color.FromArgb(178, 28, 36));
-
-                if (model.ConfirmedWrongItems.Count == 0)
-                {
-                    AppendNoteLine(UiLocalizer.Pick("✓ 0 confirmed errors remaining.", "✓ သေချာသော စာလုံးပေါင်း/သဒ္ဒါအမှား မရှိပါ။"));
-                }
-                else
-                {
-                    var wrongRows = model.ConfirmedWrongItems
-                        .Take(MaxWordTableRows)
-                        .Select(r => new[]
-                        {
-                            r.Index.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                            r.LocationLabel,
-                            r.CategoryLabel,
-                            r.VisualOriginal,
-                            r.HowItShouldBeDisplay,
-                            $"{r.Explanation} [{r.ContextSnippet}]"
-                        })
-                        .ToList();
-                    AppendTabTable(
-                        new[] { "#", "Location • နေရာ", "Category", "Wrong Text • အမှား", "How It Should Be • အမှန်", "MLC Rule & Context • စည်းကမ်းနှင့် ဝါကျ" },
-                        wrongRows,
-                        System.Drawing.Color.FromArgb(253, 236, 236),
-                        System.Drawing.Color.FromArgb(148, 20, 28));
-                }
-
-                // 4. Section B2: Suspicious / Human Review Needed
-                AppendHeading(
-                    UiLocalizer.Pick($"4. Suspicious / Human Review Needed ({model.SuspiciousReviewCount}) • သံသယရှိ / စိစစ်ရန် စာလုံးများ", $"၄။ သံသယရှိ / လူကိုယ်တိုင် စိစစ်အတည်ပြုရန် စာလုံးများ ({model.SuspiciousReviewCount})"),
-                    11.5F,
-                    System.Drawing.Color.FromArgb(156, 86, 8));
-
-                if (model.SuspiciousReviewItems.Count == 0)
-                {
-                    AppendNoteLine(UiLocalizer.Pick("✓ 0 suspicious items requiring human review.", "✓ သံသယရှိ စိစစ်ရန်စာလုံး မရှိပါ။"));
-                }
-                else
-                {
-                    var suspRows = model.SuspiciousReviewItems
-                        .Take(MaxWordTableRows)
-                        .Select(r => new[]
-                        {
-                            r.Index.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                            r.LocationLabel,
-                            r.CategoryLabel,
-                            r.VisualOriginal,
-                            r.HowItShouldBeDisplay,
-                            $"{r.Explanation} [{r.ContextSnippet}]"
-                        })
-                        .ToList();
-                    AppendTabTable(
-                        new[] { "#", "Location • နေရာ", "Why Suspicious", "Suspicious Text • သံသယစာသား", "Suggested (If Typo) • အကြံပြုချက်", "Note & Context • မှတ်ချက်နှင့် ဝါကျ" },
-                        suspRows,
-                        System.Drawing.Color.FromArgb(255, 245, 219),
-                        System.Drawing.Color.FromArgb(132, 72, 6));
-                }
-
-                // 5. Section C: Already Fixed in Session
+                // 4. Already Fixed in Session (Wide 4-Column Layout)
                 if (model.SessionFixedRecords.Count > 0)
                 {
                     AppendHeading(
-                        UiLocalizer.Pick($"5. Already Fixed in This Session ({model.SessionFixedCount}) • ယခုပြင်ဆင်ပြီးစီးခဲ့သော စာလုံးများ", $"၅။ ယခုအကြိမ် ပြင်ဆင်ပြီးစီးခဲ့သော စာလုံးများ ({model.SessionFixedCount})"),
+                        UiLocalizer.Pick($"4. Already Fixed in This Session ({model.SessionFixedCount}) • ယခုပြင်ဆင်ပြီးစီးခဲ့သော စာလုံးများ", $"၄။ ယခုအကြိမ် ပြင်ဆင်ပြီးစီးခဲ့သော စာလုံးများ ({model.SessionFixedCount})"),
                         11.5F,
                         System.Drawing.Color.FromArgb(16, 108, 56));
 
@@ -1274,13 +1266,12 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         {
                             (idx + 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
                             f.LocationLabel,
-                            f.VisualOriginalText,
-                            $"✓ {f.AppliedReplacement}",
+                            $"\"{f.VisualOriginalText}\"  ➔  \"✓ {f.AppliedReplacement}\"",
                             f.AppliedAtLocal.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture)
                         })
                         .ToList();
                     AppendTabTable(
-                        new[] { "#", "Location • နေရာ", "Original • မူလအမှား", "Applied Fix • ပြင်ပြီးစာသား", "Time" },
+                        new[] { "#", "Location (Page • Para, Line)", "Original  ➔  Applied Fix", "Time" },
                         fixRows,
                         System.Drawing.Color.FromArgb(228, 247, 235),
                         System.Drawing.Color.FromArgb(14, 92, 46));

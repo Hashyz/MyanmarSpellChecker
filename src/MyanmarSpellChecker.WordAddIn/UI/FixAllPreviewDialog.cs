@@ -427,24 +427,39 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             };
 
             _reportMenu = new ContextMenuStrip { Font = _fontBody };
-            _reportMenu.Items.Add(
-                UiLocalizer.Pick("▤ Word Audit Report (.docx Tables)", "▤ Word ဇယား အစီရင်ခံစာ (.docx)"),
-                null,
-                (s, e) => _callbacks.OnExportReport?.Invoke(ProofingReportExportFormat.NativeOfficeDocument));
-            _reportMenu.Items.Add(
-                UiLocalizer.Pick("◈ Print-Ready HTML / Save PDF", "◈ HTML / PDF ပုံနှိပ်အစီရင်ခံစာ"),
-                null,
-                (s, e) => _callbacks.OnExportReport?.Invoke(ProofingReportExportFormat.InteractiveHtmlAndPdf));
-            _reportMenu.Items.Add(
-                UiLocalizer.Pick("⎘ Copy Summary to Clipboard", "⎘ အနှစ်ချုပ် Clipboard ကူးယူမည်"),
-                null,
-                (s, e) => _callbacks.OnExportReport?.Invoke(ProofingReportExportFormat.CopySummaryToClipboard));
-
             _btnReportMenu = CreateToolbarButton(
                 UiLocalizer.Pick("≡ Report ▾", "≡ အစီရင်ခံစာ ▾"),
                 Color.FromArgb(236, 245, 255), Color.FromArgb(16, 72, 152), Color.FromArgb(168, 198, 240));
             _btnReportMenu.Visible = _callbacks.OnExportReport != null;
-            _btnReportMenu.Click += (s, e) => _reportMenu.Show(_btnReportMenu, new Point(0, _btnReportMenu.Height));
+            _btnReportMenu.Click += (s, e) =>
+            {
+                _reportMenu.Items.Clear();
+                var miXlsx = new ToolStripMenuItem(UiLocalizer.Pick(
+                    "▤ Friendly Excel Report (.xlsx — Recommended)",
+                    "▤ ဖတ်ရလွယ်ကူသော Excel အစီရင်ခံစာ (.xlsx — အကြံပြု)")) { Font = _fontBodyBold };
+                miXlsx.Click += (_, __) => _callbacks.OnExportReport?.Invoke(ProofingReportExportFormat.FriendlyExcelWorkbook);
+                _reportMenu.Items.Add(miXlsx);
+
+                _reportMenu.Items.Add(
+                    UiLocalizer.Pick("▤ Friendly CSV Report (.csv UTF-8)", "▤ CSV ဇယားဖိုင် အစီရင်ခံစာ (.csv)"),
+                    null,
+                    (_, __) => _callbacks.OnExportReport?.Invoke(ProofingReportExportFormat.FriendlyCsvSpreadsheet));
+                _reportMenu.Items.Add(new ToolStripSeparator());
+                _reportMenu.Items.Add(
+                    UiLocalizer.Pick("▤ Word Audit Report (Landscape .docx)", "▤ Word အလျားလိုက် အစီရင်ခံစာ (.docx)"),
+                    null,
+                    (_, __) => _callbacks.OnExportReport?.Invoke(ProofingReportExportFormat.NativeOfficeDocument));
+                _reportMenu.Items.Add(
+                    UiLocalizer.Pick("◈ Print-Ready HTML / Save PDF", "◈ HTML / PDF ပုံနှိပ်အစီရင်ခံစာ"),
+                    null,
+                    (_, __) => _callbacks.OnExportReport?.Invoke(ProofingReportExportFormat.InteractiveHtmlAndPdf));
+                _reportMenu.Items.Add(new ToolStripSeparator());
+                _reportMenu.Items.Add(
+                    UiLocalizer.Pick("⎘ Copy Summary to Clipboard", "⎘ အနှစ်ချုပ် Clipboard ကူးယူမည်"),
+                    null,
+                    (_, __) => _callbacks.OnExportReport?.Invoke(ProofingReportExportFormat.CopySummaryToClipboard));
+                _reportMenu.Show(_btnReportMenu, new Point(0, _btnReportMenu.Height));
+            };
 
             _btnRefresh = CreateHeaderMiniButton(UiLocalizer.Pick("↻ Refresh", "↻ ပြန်စစ်"));
             _btnRefresh.Visible = _callbacks.OnRefreshEntries != null;

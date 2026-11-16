@@ -700,10 +700,20 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _btnExportReport.Click += (s, e) =>
             {
                 _proofingReportMenu.Items.Clear();
-                var miExcel = new ToolStripMenuItem(UiLocalizer.Pick(
-                    "▤ Excel Audit Workbook (4 Sheets)",
-                    "▤ Excel စစ်ဆေးချက် Workbook (Sheet ၄ ခု)")) { Font = _fontSmallBold };
-                miExcel.Click += (_, __) => RequestExportProofingReport?.Invoke(ProofingReportExportFormat.NativeOfficeDocument);
+                var miXlsx = new ToolStripMenuItem(UiLocalizer.Pick(
+                    "▤ Friendly Excel Report (.xlsx — Recommended)",
+                    "▤ ဖတ်ရလွယ်ကူသော Excel အစီရင်ခံစာ (.xlsx — အကြံပြု)")) { Font = _fontSmallBold };
+                miXlsx.Click += (_, __) => RequestExportProofingReport?.Invoke(ProofingReportExportFormat.FriendlyExcelWorkbook);
+
+                var miCsv = new ToolStripMenuItem(UiLocalizer.Pick(
+                    "▤ Friendly CSV Report (.csv UTF-8)",
+                    "▤ CSV ဇယားဖိုင် အစီရင်ခံစာ (.csv)")) { Font = _fontSmall };
+                miCsv.Click += (_, __) => RequestExportProofingReport?.Invoke(ProofingReportExportFormat.FriendlyCsvSpreadsheet);
+
+                var miLiveWb = new ToolStripMenuItem(UiLocalizer.Pick(
+                    "▤ Open 4-Sheet Audit Workbook in Excel",
+                    "▤ Excel အတွင်း Sheet ၄ ခုပါ Workbook ဖွင့်မည်")) { Font = _fontSmall };
+                miLiveWb.Click += (_, __) => RequestExportProofingReport?.Invoke(ProofingReportExportFormat.NativeOfficeDocument);
 
                 var miHtml = new ToolStripMenuItem(UiLocalizer.Pick(
                     "◈ Print-Ready HTML / Save PDF",
@@ -715,7 +725,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     "⎘ အကျဉ်းချုပ်ကို Clipboard သို့ ကူးမည်")) { Font = _fontSmall };
                 miClip.Click += (_, __) => RequestExportProofingReport?.Invoke(ProofingReportExportFormat.CopySummaryToClipboard);
 
-                _proofingReportMenu.Items.Add(miExcel);
+                _proofingReportMenu.Items.Add(miXlsx);
+                _proofingReportMenu.Items.Add(miCsv);
+                _proofingReportMenu.Items.Add(new ToolStripSeparator());
+                _proofingReportMenu.Items.Add(miLiveWb);
                 _proofingReportMenu.Items.Add(miHtml);
                 _proofingReportMenu.Items.Add(new ToolStripSeparator());
                 _proofingReportMenu.Items.Add(miClip);

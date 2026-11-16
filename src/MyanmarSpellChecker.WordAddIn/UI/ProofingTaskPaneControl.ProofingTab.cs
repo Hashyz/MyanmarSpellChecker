@@ -769,15 +769,19 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Margin = new Padding(0, 0, 0, 4)
             };
 
+            string cardLoc = item.HasResolvedFriendlyLocation
+                ? item.FormatFriendlyLocation()
+                : $"{item.FormatSectionAndParagraphLabel()}, {item.FormatLineLabel()}";
+
             string categoryText = isContextWarning
-                ? UiLocalizer.Pick($"⚠ Context Check  •  {item.StoryName}", $"⚠ အနက်သံသယ (Context Check)  •  {item.StoryName}")
+                ? UiLocalizer.Pick($"⚠ Context Check  •  {cardLoc}", $"⚠ အနက်သံသယ  •  {cardLoc}")
                 : (isReviewNeeded
-                    ? UiLocalizer.Pick($"⚠ Review Needed  •  {item.StoryName}", $"⚠ စိစစ်ရန် (အမည်/ခန့်မှန်း)  •  {item.StoryName}")
+                    ? UiLocalizer.Pick($"⚠ Review Needed  •  {cardLoc}", $"⚠ စိစစ်ရန်  •  {cardLoc}")
                     : (isEncoding
-                        ? UiLocalizer.Pick($"● Unicode Standard  •  {item.StoryName}", $"● ယူနီကုဒ် စံနှုန်း  •  {item.StoryName}")
+                        ? UiLocalizer.Pick($"● Unicode Standard  •  {cardLoc}", $"● ယူနီကုဒ် စံနှုန်း  •  {cardLoc}")
                         : (isGrammar
-                            ? UiLocalizer.Pick($"● Grammar & Style  •  {item.StoryName}", $"● သဒ္ဒါ / အရေးအသား  •  {item.StoryName}")
-                            : UiLocalizer.Pick($"● Spelling  •  {item.StoryName}", $"● စာလုံးပေါင်းသတ်ပုံ  •  {item.StoryName}"))));
+                            ? UiLocalizer.Pick($"● Grammar & Style  •  {cardLoc}", $"● သဒ္ဒါ / အရေးအသား  •  {cardLoc}")
+                            : UiLocalizer.Pick($"● Spelling  •  {cardLoc}", $"● စာလုံးပေါင်းသတ်ပုံ  •  {cardLoc}"))));
 
             var lblBadge = new Label
             {
@@ -1325,9 +1329,12 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             int r = 0;
 
             string visOrig = item.Issue.FormatVisualOriginalText(st.Chosen);
+            string dockLoc = item.HasResolvedFriendlyLocation
+                ? item.FormatFriendlyLocation()
+                : $"{item.FormatSectionAndParagraphLabel()}, {item.FormatLineLabel()}";
             var lblLine = new Label
             {
-                Text = $"{(st.Checked ? "☑" : "☐")}  [{item.StoryName} #{item.ParagraphIndex}]  {visOrig}  ➔  {st.Chosen}",
+                Text = $"{(st.Checked ? "☑" : "☐")}  [{dockLoc}]  {visOrig}  ➔  {st.Chosen}",
                 Font = st.Checked ? _fontSmallBold : _fontSmall,
                 ForeColor = st.Checked ? Color.FromArgb(16, 48, 32) : Color.FromArgb(72, 82, 96),
                 AutoSize = true,

@@ -1154,7 +1154,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
             ctrl.RequestRefreshQualityReport += () =>
                 _scannerToolkit?.BuildActiveWorkbookQualityReport(forceRefresh: true) ?? new DocumentQualityReport();
             ctrl.RequestExportAuditWorkbook += () =>
-                ExecuteExportExcelProofingReport(ProofingReportExportFormat.NativeOfficeDocument);
+                ExecuteExportExcelProofingReport(ProofingReportExportFormat.FriendlyExcelWorkbook);
             ctrl.RequestExportProofingReport += ExecuteExportExcelProofingReport;
         }
 
@@ -1236,6 +1236,48 @@ namespace MyanmarSpellChecker.ExcelAddIn
 
             switch (format)
             {
+                case ProofingReportExportFormat.FriendlyExcelWorkbook:
+                {
+                    try
+                    {
+                        string xlsxPath = ProofingAuditSpreadsheetExporter.SaveFriendlyXlsxToDisk(model);
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(xlsxPath)
+                        {
+                            UseShellExecute = true
+                        });
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            $"✓ Opened Friendly Excel Audit Report (.xlsx — {model.ConfirmedWrongCount} wrong • {model.SuspiciousReviewCount} review needed).",
+                            $"✓ ဖတ်ရလွယ်ကူသော Excel အစီရင်ခံစာ (.xlsx) ကို ဖွင့်ပေးပြီးပါပြီ (သေချာမှား {model.ConfirmedWrongCount} • စိစစ်ရန် {model.SuspiciousReviewCount})။"));
+                    }
+                    catch
+                    {
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            "⚠ Could not open the Friendly Excel (.xlsx) Audit Report.",
+                            "⚠ Excel (.xlsx) အစီရင်ခံစာ ဖွင့်ရာတွင် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"), isSuccess: false);
+                    }
+                    break;
+                }
+                case ProofingReportExportFormat.FriendlyCsvSpreadsheet:
+                {
+                    try
+                    {
+                        string csvPath = ProofingAuditReportBuilder.SaveFriendlyCsvToDisk(model);
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(csvPath)
+                        {
+                            UseShellExecute = true
+                        });
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            $"✓ Saved & opened UTF-8 CSV Audit Report ({Path.GetFileName(csvPath)}).",
+                            $"✓ UTF-8 CSV ဇယားဖိုင် အစီရင်ခံစာကို သိမ်းဆည်းဖွင့်ပေးပြီးပါပြီ ({Path.GetFileName(csvPath)})။"));
+                    }
+                    catch
+                    {
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            "⚠ Could not save or open the CSV Audit Report.",
+                            "⚠ CSV အစီရင်ခံစာ သိမ်းဆည်းရာတွင် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"), isSuccess: false);
+                    }
+                    break;
+                }
                 case ProofingReportExportFormat.NativeOfficeDocument:
                 {
                     bool ok = _scannerToolkit.GenerateRichAuditReportWorkbook(model);
@@ -2361,7 +2403,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
         {
             AddInDiagnostics.SafeExecute("OnRibbonExportAuditReport", () =>
             {
-                ExecuteExportExcelProofingReport(ProofingReportExportFormat.NativeOfficeDocument);
+                ExecuteExportExcelProofingReport(ProofingReportExportFormat.FriendlyExcelWorkbook);
             });
         }
 

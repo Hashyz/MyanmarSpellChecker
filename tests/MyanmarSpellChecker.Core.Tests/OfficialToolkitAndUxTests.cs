@@ -1518,5 +1518,150 @@ namespace MyanmarSpellChecker.Core.Tests
                 Assert.Contains("MessageBoxDefaultButton.Button2", src);
             }
         }
+
+        [Fact]
+        public void V51B_FriendlyExcelXlsxCsvAndParagraphLineLocationGate()
+        {
+            // 1. Static verification of Word Paragraph + Line resolution & Landscape Word Report
+            string underlineSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "Interop", "SafeUnderlineManager.cs"));
+            string wordToolkitSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "Interop", "WordDocumentToolkitService.cs"));
+            string wordAddInSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "ThisAddIn.cs"));
+
+            Assert.Contains("wdActiveEndAdjustedPageNumber", underlineSrc);
+            Assert.Contains("wdFirstCharacterLineNumber", underlineSrc);
+            Assert.Contains("EnsureFriendlyLocationsResolved", underlineSrc);
+            Assert.Contains("FormatFriendlyLocation", underlineSrc);
+            Assert.Contains("wdOrientLandscape", wordToolkitSrc);
+            Assert.Contains("FriendlyExcelWorkbook", wordAddInSrc);
+            Assert.Contains("FriendlyCsvSpreadsheet", wordAddInSrc);
+
+            // 2. Build report with "Page 1 • Paragraph 3, Line 3", Table R4:C1, and multi-line Excel cell
+            string para3Text = "အကြောင်းအရာ : Soundit Brand အား စဉ်ဆက်မပျက် အားပေးလျက်ရှိသည့် မိတ်ဆွေများအား ကျေးဇူးတုန့်ပြန်သည့် အနေဖြင့် ကျင်းပသွားမည်။";
+            int hitIdx = para3Text.IndexOf("တုန့်ပြန်", StringComparison.Ordinal);
+            var confirmedTypo = new ProofingIssue
+            {
+                OriginalText = "တုန့်ပြန်",
+                StartIndex = hitIdx,
+                Length = "တုန့်ပြန်".Length,
+                IssueType = ProofingIssueType.SpellingError,
+                RequiresReviewBeforeBatchFix = false,
+                Message = "သေးသေးတင် အောက်မြစ်ဖြင့် 'တုံ့ပြန်' ဟု ရေးသားရမည်။",
+                Suggestions = new List<SuggestionCandidate>
+                {
+                    new SuggestionCandidate { Replacement = "တုံ့ပြန်", Score = 100.0 }
+                }
+            };
+
+            string para9Text = "အထက်ပါအကြောင်းအရာကိစ္စနှင့်ပါတ်သတ်၍ City Mall Online သည် အကြီးဆုံး ဝန်ဆောင်မှုဖြစ်ပါသည်။";
+            int suspIdx = para9Text.IndexOf("ပါတ်သတ်", StringComparison.Ordinal);
+            var reviewItem = new ProofingIssue
+            {
+                OriginalText = "ပါတ်သတ်",
+                StartIndex = suspIdx,
+                Length = "ပါတ်သတ်".Length,
+                IssueType = ProofingIssueType.SpellingError,
+                RequiresReviewBeforeBatchFix = true,
+                Message = "'ပါတ်သတ်' အစား 'ပတ်သက်' ဟု ရေးသားရမည်။",
+                Suggestions = new List<SuggestionCandidate>
+                {
+                    new SuggestionCandidate { Replacement = "ပတ်သက်", Score = 94.0 },
+                    new SuggestionCandidate { Replacement = "ပွတ်သပ်", Score = 80.0 }
+                }
+            };
+
+            var inputs = new List<ProofingAuditItemInput>
+            {
+                new ProofingAuditItemInput(
+                    "Page 1 • Paragraph 3, Line 3",
+                    para3Text,
+                    confirmedTypo,
+                    "တုံ့ပြန်",
+                    "Page 1",
+                    "Paragraph 3",
+                    "Line 3"),
+                new ProofingAuditItemInput(
+                    "Page 2 • Table (R4, C1) • Para 9, Line 2",
+                    para9Text,
+                    reviewItem,
+                    "ပတ်သက်")
+            };
+
+            var qReport = DocumentQualityAnalyzer.Analyze(para3Text + "\n" + para9Text, inputs.Select(x => x.Issue).ToList());
+            var model = ProofingAuditReportBuilder.Build(
+                "Campaign_Approval.docx",
+                "Microsoft Word",
+                ProofingStyleMode.FormalOfficial,
+                qReport,
+                inputs,
+                new List<ProofingSessionFixedRecord>
+                {
+                    new ProofingSessionFixedRecord("Page 1 • Paragraph 2, Line 1", "အနာဂါတ်", "အနာဂတ်", new DateTime(2026, 11, 16, 22, 0, 0))
+                },
+                new DateTime(2026, 11, 16, 22, 30, 0));
+
+            Assert.Equal(2, model.AllItemsInDocumentOrder.Count);
+            Assert.Equal("Page 1", model.AllItemsInDocumentOrder[0].PageOrSheetLabel);
+            Assert.Equal("Paragraph 3", model.AllItemsInDocumentOrder[0].ParagraphOrCellLabel);
+            Assert.Equal("Line 3", model.AllItemsInDocumentOrder[0].LineLabel);
+            Assert.Contains("〖တုန့်ပြန်〗", model.AllItemsInDocumentOrder[0].MarkedContextSnippet);
+
+            Assert.Equal("Page 2", model.AllItemsInDocumentOrder[1].PageOrSheetLabel);
+            Assert.Equal("Table (R4, C1) • Para 9", model.AllItemsInDocumentOrder[1].ParagraphOrCellLabel);
+            Assert.Equal("Line 2", model.AllItemsInDocumentOrder[1].LineLabel);
+            Assert.Contains("〖ပါတ်သတ်〗", model.AllItemsInDocumentOrder[1].MarkedContextSnippet);
+
+            // 3. Verify OpenXML .xlsx generation, schema order (<autoFilter> before <mergeCells>), and UTF-8 BOM .csv
+            string tempDir = Path.Combine(Path.GetTempPath(), "mm_spell_v51_xlsx_csv_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                string xlsxPath = ProofingAuditSpreadsheetExporter.SaveFriendlyXlsxToDisk(model, tempDir);
+                Assert.True(File.Exists(xlsxPath));
+                Assert.True(new FileInfo(xlsxPath).Length > 2048);
+
+                using (var fs = File.OpenRead(xlsxPath))
+                using (var zip = new System.IO.Compression.ZipArchive(fs, System.IO.Compression.ZipArchiveMode.Read))
+                {
+                    Assert.NotNull(zip.GetEntry("[Content_Types].xml"));
+                    Assert.NotNull(zip.GetEntry("xl/workbook.xml"));
+                    Assert.NotNull(zip.GetEntry("xl/styles.xml"));
+                    var sheet1Entry = zip.GetEntry("xl/worksheets/sheet1.xml");
+                    Assert.NotNull(sheet1Entry);
+                    using (var sr = new StreamReader(sheet1Entry!.Open(), System.Text.Encoding.UTF8))
+                    {
+                        string sheet1Xml = sr.ReadToEnd();
+                        Assert.Contains("Paragraph 3", sheet1Xml);
+                        Assert.Contains("Line 3", sheet1Xml);
+                        Assert.Contains("〖တုန့်ပြန်〗", sheet1Xml);
+                        Assert.Contains("〖ပါတ်သတ်〗", sheet1Xml);
+                        int afIdx = sheet1Xml.IndexOf("<autoFilter", StringComparison.Ordinal);
+                        int mcIdx = sheet1Xml.IndexOf("<mergeCells", StringComparison.Ordinal);
+                        Assert.True(afIdx > 0 && mcIdx > afIdx, "OpenXML CT_Worksheet requires <autoFilter> before <mergeCells>.");
+                    }
+                }
+
+                string csvPath = ProofingAuditReportBuilder.SaveFriendlyCsvToDisk(model, tempDir);
+                Assert.True(File.Exists(csvPath));
+                byte[] csvBytes = File.ReadAllBytes(csvPath);
+                Assert.True(csvBytes.Length > 200);
+                // Verify UTF-8 BOM (EF BB BF) for Excel Burmese Unicode compatibility
+                Assert.Equal(0xEF, csvBytes[0]);
+                Assert.Equal(0xBB, csvBytes[1]);
+                Assert.Equal(0xBF, csvBytes[2]);
+                string csvText = File.ReadAllText(csvPath, System.Text.Encoding.UTF8);
+                Assert.Contains("Paragraph 3", csvText);
+                Assert.Contains("Line 3", csvText);
+                Assert.Contains("〖တုန့်ပြန်〗", csvText);
+
+                string html = ProofingAuditReportBuilder.BuildStandaloneInteractiveHtml(model);
+                Assert.Contains("sec-friendly-all", html);
+                Assert.Contains("Paragraph 3", html);
+                Assert.Contains("Line 3", html);
+                Assert.Contains("<mark", html);
+            }
+            finally
+            {
+                try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); } catch { }
+            }
+        }
     }
 }
