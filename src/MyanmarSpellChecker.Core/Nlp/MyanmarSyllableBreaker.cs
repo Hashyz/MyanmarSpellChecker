@@ -40,12 +40,12 @@ namespace MyanmarSpellChecker.Core.Nlp
     public static class MyanmarSyllableBreaker
     {
         // Matches non-Kinzi virama consonant stacks (upper + \u1039 + lower) for Pali/Myanmar pat-sint validation
-        private static readonly Regex PatSintStackPattern = new Regex(
+        internal static readonly Regex PatSintStackPattern = new Regex(
             @"(?<!\u1004\u103A)([\u1000-\u102A\u103F])\u1039([\u1000-\u102A\u103F])",
             RegexOptions.Compiled);
 
         // Authoritative Pali & Myanmar pat-sint pairs verified against the 462-page မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း & ကစ္စည်းသဒ္ဒါ
-        private static readonly HashSet<string> ValidPatSintPairs = new HashSet<string>(StringComparer.Ordinal)
+        internal static readonly HashSet<string> ValidPatSintPairs = new HashSet<string>(StringComparer.Ordinal)
         {
             // 1. Homorganic gemination
             "\u1000\u1000", "\u1002\u1002", "\u1005\u1005", "\u1007\u1007",
@@ -377,44 +377,11 @@ namespace MyanmarSpellChecker.Core.Nlp
         }
 
         /// <summary>
-        /// Validates whether a single Myanmar syllable obeys Unicode 5.1+ orthographic rules.
+        /// Validates whether a single Myanmar syllable obeys Unicode 5.1+ (UTN #11) and Burmese/Pali phonotactic rules.
         /// </summary>
         public static bool IsStructurallyValidSyllable(string syllable, out string errorReason)
         {
-            errorReason = string.Empty;
-            if (string.IsNullOrEmpty(syllable))
-                return false;
-
-            // 1. Stray combining mark with no base consonant
-            char first = syllable[0];
-            if (first >= '\u102B' && first <= '\u103E')
-            {
-                errorReason = "အခြေခံဗျည်းမပါဘဲ သရ သို့မဟုတ် ဗျည်းတွဲသင်္ကေတ သီးသန့်ဖြစ်နေပါသည်။";
-                return false;
-            }
-
-            // 2. Duplicate vowels or tone marks (e.g., ာာ, ိီ, းး)
-            if (HasIllegalDuplicateMarks(syllable))
-            {
-                errorReason = "သရ သို့မဟုတ် အသံထွက်သင်္ကေတ နှစ်ထပ်မှားယွင်းရိုက်နှိပ်ထားပါသည်။";
-                return false;
-            }
-
-            // 3. Validate consonant stacking (ပါဌ်ဆင့်) against authentic Pali/Myanmar vagga rules
-            if (syllable.IndexOf('\u1039') >= 0)
-            {
-                foreach (Match m in PatSintStackPattern.Matches(syllable))
-                {
-                    string pair = m.Groups[1].Value + m.Groups[2].Value;
-                    if (!ValidPatSintPairs.Contains(pair))
-                    {
-                        errorReason = $"'{m.Groups[1].Value}္{m.Groups[2].Value}' သည် မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်းနှင့် ပါဠိသဒ္ဒါ စည်းကမ်းဝင် ပါဌ်ဆင့်အတွဲ မဟုတ်ပါ။";
-                        return false;
-                    }
-                }
-            }
-
-            return true;
+            return MyanmarSyllableValidator.IsStructurallyValidSyllable(syllable, out errorReason);
         }
 
         /// <summary>

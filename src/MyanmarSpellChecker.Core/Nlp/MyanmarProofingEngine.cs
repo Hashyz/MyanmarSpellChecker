@@ -1370,7 +1370,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                         int charStart = tokens[i].StartIndex;
                         SyllableToken lastTok = tokens[i + len - 1];
                         int charLen = (lastTok.StartIndex + lastTok.Length) - charStart;
-                        if (!UnicodeNormalizer.HasLookalikeErrorSlice(fullText, charStart, charLen))
+                        if (!UnicodeNormalizer.HasLookalikeErrorSlice(fullText, charStart, charLen) &&
+                            !HasAnyInvalidRawSyllableInRange(tokens, i, len, _trie))
                         {
                             var range = (charStart, charStart + charLen);
                             ws.ExactMultiWordSpans.Add(range);
@@ -2568,8 +2569,13 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return;
             }
 
-            if (!MyanmarSyllableBreaker.IsStructurallyValidSyllable(normSyl, out string structErr))
+            if (!MyanmarSyllableValidator.ValidateSyllable(rawSyl, out string structErr, out string? detProtectedFix, _trie))
             {
+                var suggestions = _suggestionEngine.GetSuggestions(rawSyl);
+                if (!string.IsNullOrEmpty(detProtectedFix))
+                {
+                    EnsureTopSuggestionMetadata(suggestions, rawSyl, detProtectedFix!, "စံဝဏ္ဏ စာလုံးပေါင်းအမှန်");
+                }
                 AddIssueIfNonOverlapping(issues, new ProofingIssue
                 {
                     StartIndex = token.StartIndex,
@@ -2577,7 +2583,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     OriginalText = rawSyl,
                     IssueType = ProofingIssueType.SpellingError,
                     Message = structErr,
-                    Suggestions = _suggestionEngine.GetSuggestions(normSyl)
+                    Suggestions = suggestions
                 });
             }
         }
@@ -2908,7 +2914,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                                 }
                             }));
                     }
-                    else
+                    else if (!HasAnyInvalidRawSyllableInRange(tokens, tokIdx, len, _trie))
                     {
                         exactCleanMask |= 1u << len;
                         edgesOut.Add(LatticeEdge.Clean(len, 0.88 + 0.12 * len - freqBonus));
@@ -3895,24 +3901,34 @@ namespace MyanmarSpellChecker.Core.Nlp
                     });
             }
 
-            if (!MyanmarSyllableBreaker.IsStructurallyValidSyllable(normSyl, out string structError))
+            if (!MyanmarSyllableValidator.ValidateSyllable(rawSyl, out string structError, out string? detSylFix, _trie))
             {
                 var capToken = token;
                 string capRaw = rawSyl;
-                string capNorm = normSyl;
                 string capErr = structError;
+                string? capDetFix = detSylFix;
+                bool isDetStandalone = !string.IsNullOrEmpty(detSylFix) &&
+                                       (_trie.IsStandaloneWord(detSylFix!) || _trie.ContainsExactWord(detSylFix!));
                 return LatticeEdge.DeferredIssue(
                     1,
-                    2.40,
+                    isDetStandalone ? 1.15 : 2.40,
                     rawSyl,
-                    () => new ProofingIssue
+                    () =>
                     {
-                        StartIndex = capToken.StartIndex,
-                        Length = capToken.Length,
-                        OriginalText = capRaw,
-                        IssueType = ProofingIssueType.SpellingError,
-                        Message = capErr,
-                        Suggestions = _suggestionEngine.GetSuggestions(capNorm)
+                        var suggestions = _suggestionEngine.GetSuggestions(capRaw);
+                        if (!string.IsNullOrEmpty(capDetFix))
+                        {
+                            EnsureTopSuggestionMetadata(suggestions, capRaw, capDetFix!, "စံဝဏ္ဏ စာလုံးပေါင်းအမှန်");
+                        }
+                        return new ProofingIssue
+                        {
+                            StartIndex = capToken.StartIndex,
+                            Length = capToken.Length,
+                            OriginalText = capRaw,
+                            IssueType = ProofingIssueType.SpellingError,
+                            Message = capErr,
+                            Suggestions = suggestions
+                        };
                     });
             }
 
@@ -4205,10 +4221,10 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return null;
             }
 
-            // Tier 1b: Dropped-Asat ('်', U+103A) Generative Syllable Merge (e.g. 'တယ' -> 'တယ်', 'မယ' -> 'မယ်', 'သည' -> 'သည်', 'စွမ်းဆောင်ရည' -> 'စွမ်းဆောင်ရည်')
-            // Excludes bare particle consonants 'က' and 'မ' so 'လက'/'ညက'/'စမ...' never false-merge,
-            // and never steals 'lastSyl' when the span is a prefix of a longer exact word ('မြနဒီ') or '[StandalonePrefix] + [EstablishedRightCompound]' ('မြနဂါး')!
-            if (windowLen >= 2 && windowLen <= 5 && IsDroppedAsatBareConsonant(lastSyl, out char finalCons, out string trailingTone))
+            // Tier 1b: Dropped-Asat ('်', U+103A) Generative Syllable Merge (e.g. 'တယ' -> 'တယ်', 'မယ' -> 'မယ်', 'သည' -> 'သည်', 'စွမ်းဆောင်ရည' -> 'စွမ်းဆောင်ရည်', 'ရလဒ' -> 'ရလဒ်', 'အတွက' -> 'အတွက်', 'အချက်အလက' -> 'အချက်အလက်')
+            // Excludes bare particle consonants 'က' and 'မ' for L=2 so 'လက'/'ညက'/'စမ...' never false-merge,
+            // and for L>=3 'က' strictly requires non-word prefix + non-word penultimate stem so '[Noun] + က' is 100% protected!
+            if (windowLen >= 2 && windowLen <= 5 && IsDroppedAsatBareConsonant(lastSyl, windowLen >= 3, out char finalCons, out string trailingTone))
             {
                 bool blockedByLongerOrRightCompound = false;
                 for (int longerLen = windowLen + 1; longerLen <= 12; longerLen++)
@@ -4224,6 +4240,21 @@ namespace MyanmarSpellChecker.Core.Nlp
                     ? firstSyl
                     : ConcatNormalizedTokens(tokens, startIndex, windowLen - 1);
 
+                if (finalCons == '\u1000')
+                {
+                    // Guard any legitimate '[Word] + က' case-particle attachment!
+                    string penultCheck = windowLen == 3
+                        ? tokens[startIndex + 1].NormalizedText
+                        : ConcatNormalizedTokens(tokens, startIndex + windowLen - 3, 2);
+                    if (_trie.IsStandaloneWord(prefixNorm) ||
+                        _trie.ContainsExactWord(prefixNorm) ||
+                        (windowLen == 3 ? _trie.IsStandaloneWord(penultCheck) : _trie.ContainsExactWord(penultCheck)) ||
+                        (startIndex + windowLen < runEnd && _trie.HasStrictHeadwordPrefix(tokens, startIndex + windowLen - 1, 2)))
+                    {
+                        blockedByLongerOrRightCompound = true;
+                    }
+                }
+
                 if (!blockedByLongerOrRightCompound &&
                     _trie.IsStandaloneWord(prefixNorm) &&
                     HasEstablishedExactRightCompound(tokens, startIndex + windowLen - 1, exactMultiWordBits, localOffset + windowLen - 1))
@@ -4237,13 +4268,16 @@ namespace MyanmarSpellChecker.Core.Nlp
                     if (_trie.TryGetExactEntries(asatMerged, out var mergedEntries) && mergedEntries != null && mergedEntries.Count > 0)
                     {
                         int maxMergedFreq = 0;
+                        bool anyOfficialMerged = false;
                         for (int mIdx = 0; mIdx < mergedEntries.Count; mIdx++)
                         {
                             if (mergedEntries[mIdx].Frequency > maxMergedFreq)
                                 maxMergedFreq = mergedEntries[mIdx].Frequency;
+                            if (mergedEntries[mIdx].IsOfficialThatpon)
+                                anyOfficialMerged = true;
                         }
-                        int minReqFreq = windowLen == 2 ? 80 : 15;
-                        if (maxMergedFreq >= minReqFreq)
+                        int minReqFreq = windowLen == 2 ? 80 : (finalCons == '\u1000' ? 25 : 15);
+                        if (maxMergedFreq >= minReqFreq && (finalCons != '\u1000' || anyOfficialMerged))
                         {
                             string chosenTarget = asatMerged;
                             if (StyleMode == ProofingStyleMode.FormalOfficial)
@@ -5772,7 +5806,50 @@ namespace MyanmarSpellChecker.Core.Nlp
             return false;
         }
 
-        private static bool IsDroppedAsatBareConsonant(string syl, out char cons, out string trailingTone)
+        private static bool HasAnyInvalidRawSyllableInRange(
+            List<SyllableToken> tokens,
+            int start,
+            int count,
+            MyanmarTrie trie)
+        {
+            int end = start + count;
+            for (int k = start; k < end; k++)
+            {
+                string raw = tokens[k].Text;
+                // Exempt the two canonical multi-token classical Myanmar ligature continuations:
+                // 1) 'ယောက်' + 'ျား' / 'လက်' + 'ျာ' (\u1000\u103A + \u103B\u102C[\u1037\u1038]?)
+                // 2) 'ကျွန်' + 'ုပ်' (\u1014\u103A + \u102F\u1015\u103A)
+                if (k > 0)
+                {
+                    string prevNorm = tokens[k - 1].NormalizedText;
+                    if ((raw == "\u103B\u102C" || raw == "\u103B\u102C\u1038" || raw == "\u103B\u102C\u1037") &&
+                        prevNorm.EndsWith("\u1000\u103A", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+                    if (raw == "\u102F\u1015\u103A" &&
+                        prevNorm.EndsWith("\u1014\u103A", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+                }
+
+                if (!MyanmarSyllableValidator.ValidateSyllable(raw, out _, out _, trie))
+                {
+                    // Never reject an exact verbatim Official Thatpon headword stored in the dictionary (e.g. 'ကျွနု်ပ်', 'ကို်ယ်ရင့်တတူ')
+                    var sbRaw = new StringBuilder(16);
+                    for (int r = start; r < end; r++)
+                        sbRaw.Append(tokens[r].Text);
+                    if (trie.ContainsExactWord(sbRaw.ToString()))
+                        return false;
+
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool IsDroppedAsatBareConsonant(string syl, bool allowExtendedMultiSylCodas, out char cons, out string trailingTone)
         {
             cons = '\0';
             trailingTone = string.Empty;
@@ -5780,7 +5857,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return false;
 
             char c0 = syl[0];
-            // Valid Burmese coda consonants excluding 'က' and 'မ' (which are standalone case/negative particles)
+            // Valid Burmese coda consonants (excludes 'က' and 'မ' for L=2; allows 'ဒ' and guarded 'က' for L>=3)
             bool isCodaCandidate = c0 == '\u1004' || // င
                                    c0 == '\u1005' || // စ
                                    c0 == '\u1009' || // ဉ
@@ -5790,7 +5867,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                                    c0 == '\u1014' || // န
                                    c0 == '\u1015' || // ပ
                                    c0 == '\u101A' || // ယ
-                                   c0 == '\u101D';   // ဝ
+                                   c0 == '\u101D' || // ဝ
+                                   (allowExtendedMultiSylCodas && (c0 == '\u1000' || c0 == '\u1012')); // က / ဒ
             if (!isCodaCandidate)
                 return false;
 

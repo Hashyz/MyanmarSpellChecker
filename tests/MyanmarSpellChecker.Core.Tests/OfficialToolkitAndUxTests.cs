@@ -2189,5 +2189,118 @@ namespace MyanmarSpellChecker.Core.Tests
             double p95 = latencies[(int)(0.90 * latencies.Count)];
             Assert.True(p50 < 12.0 && p95 < 35.0, $"Expected steady-state p50 < 12 ms & p95 < 35 ms, got p50={p50:F2} ms, p95={p95:F2} ms.");
         }
+
+        [Fact]
+        public void V59_ComprehensiveSyllableValidation_Utn11Phonotactics_AndTop1Repair_Gate()
+        {
+            var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
+            var trie = repo.LoadIntoTrie("MM-GOV-THATPON-SQLCIPHER-2026!");
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+
+            // 1. Direct Layer-1 MyanmarSyllableValidator UTN #11 & Phonotactic Unit Checks
+            (string BadSyl, SyllableErrorKind ExpectedKind, string ExpectedRepair)[] directCases =
+            {
+                ("\u1000\u1031\u103B\u1038", SyllableErrorKind.DottedCircleCombiningOrder, "ကျေး"),
+                ("\u1015\u1032\u103D", SyllableErrorKind.DottedCircleCombiningOrder, "ပွဲ"),
+                ("\u101B\u102D\u103E", SyllableErrorKind.DottedCircleCombiningOrder, "ရှိ"),
+                ("\u1019\u103E\u103B", SyllableErrorKind.DottedCircleCombiningOrder, "မျှ"),
+                ("\u1016\u1037\u102D\u102F", SyllableErrorKind.DottedCircleCombiningOrder, "ဖို့"),
+                ("\u1001\u1037\u1032", SyllableErrorKind.DottedCircleCombiningOrder, "ခဲ့"),
+                ("\u1005\u1038\u102C", SyllableErrorKind.DottedCircleCombiningOrder, "စား"),
+                ("\u1000\u103C\u102F\u102D\u1038", SyllableErrorKind.DottedCircleCombiningOrder, "ကြိုး"),
+                ("\u101B\u103E\u103E\u100A\u103A", SyllableErrorKind.DuplicateCombiningMark, "ရှည်"),
+                ("\u101C\u1014\u103A\u1038\u103A", SyllableErrorKind.DuplicateCombiningMark, "လန်း"),
+                ("\u1021\u103A", SyllableErrorKind.StrayAsatOnVowelOrAh, "အ"),
+                ("\u1011\u102D\u102F\u103A\u1038", SyllableErrorKind.StrayAsatOnVowelOrAh, "ထိုး"),
+                ("\u1015\u103E\u1004\u1037\u103A", SyllableErrorKind.InvalidStopOrSibilantHaHto, "ပွင့်"),
+                ("\u101E\u103E\u102C\u1038", SyllableErrorKind.InvalidStopOrSibilantHaHto, "သွား"),
+                ("\u1029\u103D\u102C\u1038", SyllableErrorKind.InvalidIndependentVowelCluster, "သွား"),
+                ("\u1005\u1010\u1039\u102D", SyllableErrorKind.InvalidViramaOrPatSint, "စိတ်"),
+                ("\u101E\u102D\u1019\u103A\u1039\u1038", SyllableErrorKind.InvalidViramaOrPatSint, "သိမ်း"),
+                ("\u1010\u101A\u1039", SyllableErrorKind.InvalidViramaOrPatSint, "တယ်"),
+                ("\u1016\u102F\u1014\u1038", SyllableErrorKind.MissingCodaAsatBeforeVisarga, "ဖုန်း"),
+                ("\u1014\u100A\u1038", SyllableErrorKind.MissingCodaAsatBeforeVisarga, "နည်း"),
+                ("\u1000\u103C\u102D\u1038", SyllableErrorKind.ShortVowelWithVisarga, "ကြီး")
+            };
+
+            foreach (var dc in directCases)
+            {
+                bool valid = MyanmarSyllableValidator.ValidateSyllable(dc.BadSyl, out SyllableErrorKind kind, out string reason, out string? repair, trie);
+                Assert.False(valid, $"Expected '{dc.BadSyl}' to be invalid.");
+                Assert.Equal(dc.ExpectedKind, kind);
+                Assert.False(string.IsNullOrWhiteSpace(reason));
+                Assert.Equal(
+                    UnicodeNormalizer.NormalizeCanonicalOrder(dc.ExpectedRepair),
+                    UnicodeNormalizer.NormalizeCanonicalOrder(repair ?? string.Empty));
+            }
+
+            // 2. Clean UTN #11 & Classical Pali/Thatpon Invariants (including legacy \u1037\u103A vs \u103A\u1037!)
+            string[] validSyllables = { "နှင့်", "နှင့်", "သင်္ဘော", "ဒွါ", "ဝှါ", "ဩောင်း", "ရှုး", "ကျုး", "မေတ္တာ", "ကမ္ဘာ" };
+            foreach (string vs in validSyllables)
+            {
+                Assert.True(MyanmarSyllableValidator.ValidateSyllable(vs, out _, out string err, out _, trie), $"Expected '{vs}' valid, got '{err}'");
+            }
+
+            string[] cleanSentences =
+            {
+                "ယောက်ျားပီသစွာဖြင့် ကျွန်ုပ်တို့နှင့်အတူ လက်ယာဘက်သို့ လျှောက်လှမ်းသည်။",
+                "ဗုဒ္ဓမြတ်စွာ ဂောတမသည် ဒွါရခြောက်ပါးကို ဆုံးမတော်မူသည်။",
+                "မိုင်းရှုးမြို့နယ်တွင် ကျေးရွာဖွံ့ဖြိုးရေး ဆောင်ရွက်သည်။"
+            };
+            foreach (string cs in cleanSentences)
+            {
+                var fps = formalEngine.CheckText(cs);
+                Assert.True(fps.Count == 0, $"Expected 0 FPs on '{cs}', got: [{string.Join("; ", fps.Select(x => x.OriginalText))}]");
+            }
+
+            // 3. End-to-End Shattered Syllable, Hybrid Unicode/Zawgyi Isolation & Missing-Asat Compound Top-1 Repairs
+            (ProofingStyleMode Mode, string Input, string ExpectedSplicedSubstring)[] endToEndCases =
+            {
+                (ProofingStyleMode.GeneralStandard, "ကူညီပေးတဲ့အတွက် ကေျးဇူးတင်ပါတယ်။", "ကျေးဇူး"),
+                (ProofingStyleMode.GeneralStandard, "ကြိုးပုြတ်သွားလို့ ပြန်ချည်ထားတယ်။", "ကြိုးပြုတ်"),
+                (ProofingStyleMode.GeneralStandard, "စကားပောြဆိုရာမှာ ယဉ်ကျေးသင့်တယ်။", "စကားပြောဆို"),
+                (ProofingStyleMode.FormalOfficial, "စည်းလုံးညီည်ွတ်စွာ ဆောင်ရွက်ကြသည်။", "ညီညွတ်စွာ"),
+                (ProofingStyleMode.GeneralStandard, "ကျန်းမာရေးကောင်းဖို့အတ်ွက် လေ့ကျင့်ပါ။", "ဖို့အတွက်"),
+                (ProofingStyleMode.FormalOfficial, "ကမ္ဘာ်ကြီး ငြိမ်းချမ်းသာယာစေရန် ဆုတောင်းသည်။", "ကမ္ဘာကြီး"),
+                (ProofingStyleMode.GeneralStandard, "မိတ်ဆွေတွေနဲ့ ချိ်တ်ဆက် ဆောင်ရွက်တယ်။", "ချိတ်ဆက်"),
+                (ProofingStyleMode.GeneralStandard, "အချိ်န်ကုန် သက်သာစေတယ်။", "အချိန်ကုန်"),
+                (ProofingStyleMode.GeneralStandard, "ပစ္စည်းတွေကို သေချာသိမ်္းထားပြီးပြီ။", "သိမ်းထားပြီးပြီ"),
+                (ProofingStyleMode.GeneralStandard, "အကြောင်းအရာကို သိချင်ပါတယ္။", "သိချင်ပါတယ်။"),
+                (ProofingStyleMode.FormalOfficial, "အနုပညာသည် ဘဝကို အဓိပ္ပာယ္ရှိစေပါသည်။", "အဓိပ္ပာယ်ရှိ"),
+                (ProofingStyleMode.GeneralStandard, "အလုပ်လုပ်ရာမှာ စတ္ိထားရမယ်။", "စိတ်ထား"),
+                (ProofingStyleMode.GeneralStandard, "မုန့်ဟငိ်းခါး စားချင်တယ်။", "မုန့်ဟင်းခါး"),
+                (ProofingStyleMode.GeneralStandard, "အခက်အခဲတွေကို အတူရ်ငဆိုင်ကြတယ်။", "အတူရင်ဆိုင်"),
+                (ProofingStyleMode.GeneralStandard, "ရာသီဥတု ကော့်င မွန်ပါတယ်။", "ကောင်း"),
+                (ProofingStyleMode.GeneralStandard, "ဆောင်းရာသီမှာတော့ ချမ်းအေးတ္တယ်။", "ချမ်းအေးတတ်တယ်။"),
+                (ProofingStyleMode.GeneralStandard, "အရက်သောက်ခြင်းက အသည်းိကို ထိခိုက်စေတယ်။", "အသည်းကို"),
+                (ProofingStyleMode.GeneralStandard, "သီချင်းနားထောင် ရင်းိ စာဖတ်တယ်။", "ရင်း စာဖတ်"),
+                (ProofingStyleMode.FormalOfficial, "သတင်းအချက်အလက များကို စိစစ်သည်။", "အချက်အလက်"),
+                (ProofingStyleMode.GeneralStandard, "ကျန်းမာရေးအတွက အထောက်အကူပြုတယ်။", "ကျန်းမာရေးအတွက်"),
+                (ProofingStyleMode.FormalOfficial, "စမ်းသပ်ချက် ရလဒကို တင်ပြသည်။", "ရလဒ်ကို"),
+                (ProofingStyleMode.GeneralStandard, "အားလုံး အဆင်ပြေပါတယ။", "အဆင်ပြေပါတယ်။"),
+                (ProofingStyleMode.GeneralStandard, "စွမ်းေဆာင်ရည် မြင့်မားတယ်။", "စွမ်းဆောင်ရည်"),
+                (ProofingStyleMode.GeneralStandard, "အခြေခံသဘောတရားေတွကို လေ့လာတယ်။", "တရားတွေကို"),
+                (ProofingStyleMode.GeneralStandard, "စိတ်ရှှည်သည်းခံမှုရှိကြတယ်။", "စိတ်ရှည်သည်းခံမှုရှိကြတယ်။"),
+                (ProofingStyleMode.GeneralStandard, "အဖေနဲ့အမ\u200Bေက ချစ်ကြတယ်။", "အဖေနဲ့အမေက")
+            };
+
+            foreach (var tc in endToEndCases)
+            {
+                var engine = tc.Mode == ProofingStyleMode.FormalOfficial ? formalEngine : generalEngine;
+                var issues = engine.CheckText(tc.Input);
+                Assert.NotEmpty(issues);
+                string expNorm = UnicodeNormalizer.NormalizeCanonicalOrder(tc.ExpectedSplicedSubstring);
+                bool anyTop1Matches = issues.Any(iss =>
+                    iss.Suggestions.Count > 0 &&
+                    UnicodeNormalizer.NormalizeCanonicalOrder(
+                        tc.Input.Substring(0, iss.StartIndex) +
+                        iss.Suggestions[0].Replacement +
+                        tc.Input.Substring(iss.StartIndex + iss.Length)).Contains(expNorm));
+                Assert.True(
+                    anyTop1Matches,
+                    $"Expected spliced Top-1 containing '{tc.ExpectedSplicedSubstring}' on '{tc.Input}', got: [{string.Join("; ", issues.Select(x => $"{x.OriginalText}=>{x.Suggestions.FirstOrDefault()?.Replacement}"))}]");
+            }
+        }
     }
 }

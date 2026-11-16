@@ -346,10 +346,18 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return results;
             }
 
-            bool hasExactLookalikeFix = lookalikeFixed != normalized && _trie.ContainsExactWord(lookalikeFixed);
+            bool hasExactLookalikeFix = (lookalikeFixed != normalized || lookalikeFixed != rawTrimmed) && _trie.ContainsExactWord(lookalikeFixed);
             if (hasExactLookalikeFix)
             {
                 AddOrUpdateEnrichedCandidate(results, rawTrimmed, lookalikeFixed, 102.5);
+            }
+
+            if (!MyanmarSyllableValidator.ValidateSyllable(rawTrimmed, out _, out string? detSylRepair, _trie) &&
+                !string.IsNullOrEmpty(detSylRepair) &&
+                detSylRepair != rawTrimmed &&
+                (_trie.ContainsExactWord(detSylRepair!) || _trie.IsValidSingleSyllable(detSylRepair!)))
+            {
+                AddOrUpdateEnrichedCandidate(results, rawTrimmed, detSylRepair!, 104.5);
             }
 
             // 2b. Omitted trailing tone mark ('း' U+1038 or '့' U+1037) on an otherwise intact Official Thatpon word

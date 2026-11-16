@@ -20,7 +20,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         // Unambiguous Pyidaungsu Unicode 5.1+ structural markers inside a Myanmar token (impossible in Zawgyi-One: logical E before AA/tone/end, Unicode kinzi \u1004\u103A\u1039, Unicode Ha-hto \u103E, or non-Ya-pin coda + Unicode asat \u103A)
         private static readonly Regex DefiniteUnicodeWordMarkerPattern = new Regex(
-            @"\u1031(?:[\u102B\u102C\u1037\u1038]|$)|\u1004\u103A\u1039|\u103E|[\u1004\u1009\u100A\u100F\u1010\u1014\u101A\u101B\u101D]\u103A",
+            @"\u1031(?:[\u102B\u102C\u1037\u1038]|$)|\u1004\u103A\u1039|\u103E|[\u1004\u1009\u100A\u100F\u1010\u1014\u101A\u101B\u101D]\u103A|\u1019\u103A[\u1037\u1038\u1039]",
             RegexOptions.Compiled);
 
         private static readonly Regex MyanmarWordTokenScanPattern = new Regex(
@@ -77,7 +77,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             RegexOptions.Compiled);
 
         private static readonly Regex MisusedNyaAsVowelUPattern = new Regex(
-            @"(?:(?<=[\u1000-\u103F])\u1009|\u1009(?=[\u1000-\u103F]))(?!(?:[\u102C\u102E\u1031\u103A\u1037\u1038]|\u1039[\u1005-\u1009]|\u103E|\u1010\u103A|\u1010\u1039\u1010|ကလေး|ငယ်|လေး))",
+            @"(?:(?<=[\u1000-\u103F])\u1009|\u1009(?=[\u1000-\u103F]))(?!(?:[\u102C\u102E\u1031\u103A\u1037\u1038]|\u1039[\u1000-\u1021]|\u103E|\u1010\u103A|\u1010\u1039\u1010|ကလေး|ငယ်|လေး))",
             RegexOptions.Compiled);
 
         // 4. Tall AA 'ါ' (U+102B) illegally attached to consonants that strictly require Round AA 'ာ' (U+102C),
@@ -147,7 +147,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         // 11. Duplicate combining marks causing dotted circles (e.g. 'ပါတယ််', 'လုံးး', 'နှင့််')
         private static readonly Regex DuplicateCombiningMarkPattern = new Regex(
-            @"([\u102B-\u1032\u1036-\u103E])\1+|\u103A\u1037\u103A|\u1037\u103A\u1037",
+            @"([\u102B-\u1032\u1036-\u103E])\1+|\u103A[\u1037\u1038]\u103A|\u1037\u103A\u1037|\u1038\u103A\u1038",
             RegexOptions.Compiled);
 
         // 12. Vowel typed after Coda+Asat (e.g. 'မန်ိးမ' / 'မိန်ိးမ' -> 'မိန်းမ'; exempts classical 'ကျွန်ုပ်' \u1014\u103A\u102F\u1015\u103A)
@@ -160,9 +160,14 @@ namespace MyanmarSpellChecker.Core.Nlp
             @"\u102D+\u1030+|\u1030+\u102D+",
             RegexOptions.Compiled);
 
-        // 12b-ii. Medial Wa/Ha (\u103D/\u103E) typed after upper/lower/ai vowel or anusvara causing dotted circles (e.g. 'လွဲှအပ် -> လွှဲအပ်', 'ညိှနှိုင်း -> ညှိနှိုင်း', 'သီးနံှ -> သီးနှံ', 'လံှု့ဆော် -> လှုံ့ဆော်', 'ရံွှ့ -> ရွှံ့')
+        // 12b-ii. Medial Ya/Ra/Wa/Ha (\u103B..\u103E) typed after vowel or anusvara causing dotted circles (e.g. 'ကေျး -> ကျေး', 'လွဲှအပ် -> လွှဲအပ်', 'ညိှနှိုင်း -> ညှိနှိုင်း', 'ရိှ -> ရှိ', 'ပဲွ -> ပွဲ')
         private static readonly Regex MedialAfterVowelPattern = new Regex(
-            @"(?<Vowel>[\u102D-\u1030\u1032\u1036]+)(?<Medial>[\u103D\u103E]+)",
+            @"(?<Vowel>[\u102B-\u1032\u1036]+)(?<Medial>[\u103B-\u103E]+)",
+            RegexOptions.Compiled);
+
+        // 12b-iv. Aukmyit (\u1037) typed before vowel/anusvara causing dotted circles (e.g. 'ဖ့ို -> ဖို့', 'ခ့ဲ -> ခဲ့'; never matches \u1037\u103A)
+        private static readonly Regex AukmyitBeforeVowelPattern = new Regex(
+            @"\u1037(?<Vowel>[\u102B-\u1032\u1036]+)",
             RegexOptions.Compiled);
 
         // 12b-iii. Swapped lower/upper vowels rendering dotted circles in Pyidaungsu (e.g. 'ကြုိး' \u102F\u102D -> 'ကြိုး' \u102D\u102F)
@@ -228,6 +233,7 @@ namespace MyanmarSpellChecker.Core.Nlp
         private const uint LookalikeSwappedLowerUpperVowel = 1u << 20;
         private const uint LookalikeVowelBeforeStack = 1u << 21;
         private const uint LookalikeVisualPreBase = 1u << 22;
+        private const uint LookalikeAukmyitBeforeVowel = 1u << 23;
 
         /// <summary>
         /// Zero-allocation O(N) check returning false when <paramref name="s"/> is already in canonical Myanmar combining order.
@@ -262,7 +268,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                         break;
                     case '\u102B':
                     case '\u102C':
-                        if (c == '\u1039') return true;
+                        if ((c >= '\u103B' && c <= '\u103E') || c == '\u1039') return true;
                         break;
                     case '\u1031':
                         if ((c >= '\u103B' && c <= '\u103E') || c == '\u1039') return true;
@@ -270,19 +276,19 @@ namespace MyanmarSpellChecker.Core.Nlp
                     case '\u102D':
                     case '\u102E':
                     case '\u1032':
-                        if (c == '\u103D' || c == '\u103E' || c == '\u1039') return true;
+                        if ((c >= '\u103B' && c <= '\u103E') || c == '\u1039') return true;
                         break;
                     case '\u102F':
-                        if (c == '\u102D' || c == '\u102E' || c == '\u103D' || c == '\u103E' || c == '\u1039') return true;
+                        if (c == '\u102D' || c == '\u102E' || (c >= '\u103B' && c <= '\u103E') || c == '\u1039') return true;
                         break;
                     case '\u1030':
-                        if (c == '\u102D' || c == '\u103D' || c == '\u103E' || c == '\u1039') return true;
+                        if (c == '\u102D' || (c >= '\u103B' && c <= '\u103E') || c == '\u1039') return true;
                         break;
                     case '\u1036':
-                        if ((c >= '\u102D' && c <= '\u1030') || c == '\u103D' || c == '\u103E' || c == '\u1039') return true;
+                        if ((c >= '\u102D' && c <= '\u1030') || (c >= '\u103B' && c <= '\u103E') || c == '\u1039') return true;
                         break;
                     case '\u1037':
-                        if (c == '\u102B' || c == '\u102C' || c == '\u102F' || c == '\u1036' || c == '\u103A') return true;
+                        if ((c >= '\u102B' && c <= '\u1032') || c == '\u1036' || c == '\u103A') return true;
                         break;
                     case '\u103D':
                         if (c == '\u103B' || c == '\u103C') return true;
@@ -364,7 +370,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
                 else if (c == '\u103C')
                 {
-                    bool validPrevForRa = rel > 0 && prev >= '\u1000' && prev <= '\u1021';
+                    bool validPrevForRa = rel > 0 && ((prev >= '\u1000' && prev <= '\u1032') || prev == '\u1036' || (prev >= '\u103B' && prev <= '\u103E'));
                     if (!validPrevForRa && i + 1 < end)
                     {
                         mask |= LookalikeVisualPreBase;
@@ -401,8 +407,9 @@ namespace MyanmarSpellChecker.Core.Nlp
                         mask |= LookalikeDuplicateMark;
                     }
                     else if (rel >= 2 &&
-                             ((c == '\u103A' && prev == '\u1037' && s[i - 2] == '\u103A') ||
-                              (c == '\u1037' && prev == '\u103A' && s[i - 2] == '\u1037')))
+                             ((c == '\u103A' && (prev == '\u1037' || prev == '\u1038') && s[i - 2] == '\u103A') ||
+                              (c == '\u1037' && prev == '\u103A' && s[i - 2] == '\u1037') ||
+                              (c == '\u1038' && prev == '\u103A' && s[i - 2] == '\u1038')))
                     {
                         mask |= LookalikeDuplicateMark;
                     }
@@ -415,9 +422,13 @@ namespace MyanmarSpellChecker.Core.Nlp
                     {
                         mask |= LookalikeIuCombo;
                     }
-                    else if ((c == '\u103D' || c == '\u103E') && ((prev >= '\u102D' && prev <= '\u1030') || prev == '\u1032' || prev == '\u1036'))
+                    else if ((c >= '\u103B' && c <= '\u103E') && ((prev >= '\u102B' && prev <= '\u1032') || prev == '\u1036'))
                     {
                         mask |= LookalikeMedialAfterVowel;
+                    }
+                    else if (prev == '\u1037' && ((c >= '\u102B' && c <= '\u1032') || c == '\u1036'))
+                    {
+                        mask |= LookalikeAukmyitBeforeVowel;
                     }
                     else if (prev == '\u103A' && ((c >= '\u102D' && c <= '\u1030') || c == '\u1032'))
                     {
@@ -499,12 +510,13 @@ namespace MyanmarSpellChecker.Core.Nlp
                 result = VowelBeforeViramaStackPattern.Replace(result, "${Stack}${Vowel}");
             }
 
-            // 0b. Medials must precede vowel E (U+1031) and upper/lower/ai vowels (U+102D..U+1030, U+1032)
+            // 0b. Medials must precede vowels/anusvara (U+102B..U+1032, U+1036)
             if (result.IndexOf('\u1031') >= 0)
             {
                 result = MedialAfterEVowelPattern.Replace(result, "$1\u1031");
             }
-            if (result.IndexOf('\u103D') >= 0 || result.IndexOf('\u103E') >= 0)
+            if (result.IndexOf('\u103B') >= 0 || result.IndexOf('\u103C') >= 0 ||
+                result.IndexOf('\u103D') >= 0 || result.IndexOf('\u103E') >= 0)
             {
                 result = MedialAfterVowelPattern.Replace(result, "${Medial}${Vowel}");
             }
@@ -528,11 +540,11 @@ namespace MyanmarSpellChecker.Core.Nlp
             result = result.Replace("\u1036\u1030", "\u1030\u1036"); // ံ + ူ -> ူံ
 
             // 4. Vowel / Anusvara / Asat before Dot Below (1037)
-            result = result.Replace("\u1037\u102C", "\u102C\u1037"); // ့ + ာ -> ာ့
-            result = result.Replace("\u1037\u102B", "\u102B\u1037"); // ့ + ါ -> ါ့
-            result = result.Replace("\u1037\u1036", "\u1036\u1037"); // ့ + ံ -> ံ့
-            result = result.Replace("\u1037\u103A", "\u103A\u1037"); // ့ + ် -> ့်
-            result = result.Replace("\u1037\u102F", "\u102F\u1037"); // ့ + ု -> ု့
+            if (result.IndexOf('\u1037') >= 0)
+            {
+                result = AukmyitBeforeVowelPattern.Replace(result, "${Vowel}\u1037");
+                result = result.Replace("\u1037\u103A", "\u103A\u1037"); // ့ + ် -> ့်
+            }
 
             if (result.IndexOf('\u1039') >= 0 && result.IndexOf('\u102B') >= 0)
             {
@@ -589,10 +601,16 @@ namespace MyanmarSpellChecker.Core.Nlp
                 fixedToken = ImpossibleIuVowelComboPattern.Replace(fixedToken, "\u102D\u102F");
             if ((mask & LookalikeMedialAfterVowel) != 0)
                 fixedToken = MedialAfterVowelPattern.Replace(fixedToken, "${Medial}${Vowel}");
+            if ((mask & LookalikeAukmyitBeforeVowel) != 0)
+                fixedToken = AukmyitBeforeVowelPattern.Replace(fixedToken, "${Vowel}\u1037");
             if ((mask & LookalikeVowelAfterAsat) != 0)
                 fixedToken = VowelAfterAsatCodaPattern.Replace(fixedToken, "${Onset}${Vowel}${Coda}${Tone}");
 
-            fixedToken = fixedToken.Replace("\u103A\u1037\u103A", "\u103A\u1037").Replace("\u1037\u103A\u1037", "\u103A\u1037");
+            fixedToken = fixedToken
+                .Replace("\u103A\u1037\u103A", "\u103A\u1037")
+                .Replace("\u1037\u103A\u1037", "\u103A\u1037")
+                .Replace("\u103A\u1038\u103A", "\u103A\u1038")
+                .Replace("\u1038\u103A\u1038", "\u103A\u1038");
             fixedToken = DuplicateCombiningMarkPattern.Replace(fixedToken, "$1");
 
             if ((mask & LookalikeVirama1039) != 0)
@@ -807,7 +825,14 @@ namespace MyanmarSpellChecker.Core.Nlp
             if ((mask & LookalikeMedialAfterVowel) != 0 && MedialAfterVowelPattern.IsMatch(token))
             {
                 correctedToken = FixLookalikeCharacters(token);
-                explanation = "ဗျည်းတွဲ ('ွ / ှ') နှင့် သရ အစီအစဉ် လွဲမှားနေပါသည် — ယူနီကုဒ်စံနှုန်းအရ ဝဆွဲ/ဟထိုးကို သရရှေ့မှ ဦးစွာ ရိုက်နှိပ်ရမည် (ဥပမာ - လွှဲအပ်၊ ညှိနှိုင်း)။";
+                explanation = "ဗျည်းတွဲ ('ျ / ြ / ွ / ှ') နှင့် သရ အစီအစဉ် လွဲမှားနေပါသည် — ယူနီကုဒ်စံနှုန်း (UTN #11) အရ ဗျည်းတွဲကို သရရှေ့မှ ဦးစွာ ရိုက်နှိပ်ရမည် (ဥပမာ - ကျေးဇူး၊ လွှဲအပ်၊ ရှိ)။";
+                return true;
+            }
+
+            if ((mask & LookalikeAukmyitBeforeVowel) != 0 && AukmyitBeforeVowelPattern.IsMatch(token))
+            {
+                correctedToken = FixLookalikeCharacters(token);
+                explanation = "အောက်မြစ် ('့') နှင့် သရ အစီအစဉ် လွဲမှားနေပါသည် — ယူနီကုဒ်စံနှုန်း (UTN #11) အရ သရကို အောက်မြစ်ရှေ့မှ ဦးစွာ ရိုက်နှိပ်ရမည် (ဥပမာ - ဖို့၊ ခဲ့)။";
                 return true;
             }
 
@@ -1038,6 +1063,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // Mixed Unicode + Zawgyi / Double-Converted Mojibake paragraph: isolate corrupted tokens (coalescing adjacent corrupted words separated by spaces)
+            bool hasParagraphUnicode = DefiniteUnicodeWordMarkerPattern.IsMatch(text);
             MatchCollection matches = MyanmarWordTokenScanPattern.Matches(text);
             int i = 0;
             while (i < matches.Count)
@@ -1045,7 +1071,9 @@ namespace MyanmarSpellChecker.Core.Nlp
                 Match cur = matches[i];
                 string tok = cur.Value;
 
+                bool hasNormalUnicodeCoda = Regex.IsMatch(tok, @"[\u1000-\u1020]\u103A(?!\u1039)");
                 bool curIsDoubleConv = hasDoubleConverted &&
+                                       !hasNormalUnicodeCoda &&
                                        !Regex.IsMatch(tok, @"[\u1033\u1034\u1060-\u1097]") &&
                                        (DoubleConvertedUnicodeTokenPattern.IsMatch(tok) ||
                                         (DoubleConvertedCompanionTokenPattern.IsMatch(tok) &&
@@ -1065,7 +1093,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                             break;
 
                         string nxtTok = nxt.Value;
-                        if (Regex.IsMatch(nxtTok, @"[\u1033\u1034\u1060-\u1097]"))
+                        if (Regex.IsMatch(nxtTok, @"[\u1033\u1034\u1060-\u1097]") ||
+                            Regex.IsMatch(nxtTok, @"[\u1000-\u1020]\u103A(?!\u1039)"))
                             break;
 
                         bool nxtMatches = DoubleConvertedUnicodeTokenPattern.IsMatch(nxtTok) ||
@@ -1095,19 +1124,39 @@ namespace MyanmarSpellChecker.Core.Nlp
                     continue;
                 }
 
-                bool isHybridUnicodeToken = ((tok.IndexOf('\u105A') >= 0 || tok.IndexOf('\u1064') >= 0) ||
-                                             (tok.IndexOf("\u1025\u1015\u1031\u1012", StringComparison.Ordinal) >= 0 && tok.IndexOf('\u1039') < 0)) &&
-                                            DefiniteUnicodeWordMarkerPattern.IsMatch(tok) &&
-                                            !Regex.IsMatch(tok, @"[\u1033\u1034\u1060-\u1063\u1065-\u1097]");
-                if (isHybridUnicodeToken)
+                // Never feed an unambiguously Unicode token into full ConvertZawgyiToUnicode (which would scramble its Unicode codas/medials)!
+                if (DefiniteUnicodeWordMarkerPattern.IsMatch(tok))
                 {
-                    string fixedHybrid = RepairHybridZawgyiGlyphsInUnicodeToken(tok);
-                    if (fixedHybrid != tok)
+                    if (Regex.IsMatch(tok, @"[\u1033-\u1035\u105A\u1060-\u1097]|\u1025\u1015\u1031\u1012"))
                     {
-                        spans.Add((cur.Index, cur.Length, tok, fixedHybrid));
+                        string fixedHybrid = RepairHybridZawgyiGlyphsInUnicodeToken(tok);
+                        if (fixedHybrid != tok)
+                        {
+                            spans.Add((cur.Index, cur.Length, tok, fixedHybrid));
+                        }
                     }
                     i++;
                     continue;
+                }
+
+                // In a predominantly Unicode paragraph, leave space-split Pali pat-sint stacks ('စစ်တက္ ကသိုလ်') and pure pre-base 'ေ'/'ြ' visual-order typos to Unicode grammar/visual repair
+                if (hasParagraphUnicode && !Regex.IsMatch(tok, @"[\u1033-\u1035\u105A\u1060-\u1097]"))
+                {
+                    if (tok.Length >= 2 &&
+                        tok[tok.Length - 1] == '\u1039' &&
+                        i + 1 < matches.Count &&
+                        string.IsNullOrWhiteSpace(text.Substring(cur.Index + cur.Length, matches[i + 1].Index - (cur.Index + cur.Length))) &&
+                        MyanmarSyllableBreaker.ValidPatSintPairs.Contains(tok[tok.Length - 2].ToString() + matches[i + 1].Value[0].ToString()))
+                    {
+                        i++;
+                        continue;
+                    }
+
+                    if (tok.IndexOf('\u1039') < 0 && FindVisualOrderPreBaseSyllables(tok).Count > 0)
+                    {
+                        i++;
+                        continue;
+                    }
                 }
 
                 // Pure Zawgyi token: coalesce consecutive pure-Zawgyi tokens separated only by spaces
@@ -1122,7 +1171,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                         break;
 
                     string nxtTok = nxt.Value;
-                    if (!ZawgyiPattern.IsMatch(nxtTok) && DefiniteUnicodeWordMarkerPattern.IsMatch(nxtTok))
+                    if (DefiniteUnicodeWordMarkerPattern.IsMatch(nxtTok))
                         break;
                     if (!ZawgyiPattern.IsMatch(nxtTok) && nxtTok.IndexOf('\u1039') < 0)
                         break;
@@ -1152,6 +1201,15 @@ namespace MyanmarSpellChecker.Core.Nlp
             // e.g. အဂုၤတ္တိုရ် (Base + \u1064) -> အင်္ဂုတ္တိုရ် (\u1004\u103A\u1039 + Base)
             s = Regex.Replace(s, @"(?<Base>[\u1000-\u1021][\u103B-\u103E]*[\u102B-\u1032]?)\u1064", "\u1004\u103A\u1039${Base}");
             s = s.Replace("\u1064", "\u1004\u103A\u1039");
+            // Stray Zawgyi vowel/consonant codepoints inside an otherwise Unicode word ('မဳံ့ပဲသရေစာတွေက', 'ဖဳံးတွေမှာ', 'တႏခု', 'မှုဵ')
+            s = s.Replace("\u1033", "\u102F")
+                 .Replace("\u1034", "\u1030")
+                 .Replace("\u1035", string.Empty)
+                 .Replace("\u108F", "\u1014")
+                 .Replace("\u1090", "\u101B")
+                 .Replace("\u106A", "\u1009")
+                 .Replace("\u106B", "\u100A")
+                 .Replace("\u1086", "\u103F");
             // Visual-order 'ဥပေဒ' typed inside an otherwise Pyidaungsu Unicode compound (e.g. 'ပြည်နယ်ဥပေဒချုပ်')
             s = s.Replace("\u1025\u1015\u1031\u1012", "\u1025\u1015\u1012\u1031");
             return FixLookalikeCharacters(NormalizeCanonicalOrder(s));
@@ -1403,6 +1461,16 @@ namespace MyanmarSpellChecker.Core.Nlp
                     continue;
 
                 bool separatedByInvisible = markPos > rawStart;
+                if (separatedByInvisible && text[rawStart] == '\u200B' && rawStart > 0)
+                {
+                    char prevBeforeZwsp = text[rawStart - 1];
+                    if ((prevBeforeZwsp >= '\u1000' && prevBeforeZwsp <= '\u1021') ||
+                        (prevBeforeZwsp >= '\u103B' && prevBeforeZwsp <= '\u103E'))
+                    {
+                        i = markPos;
+                        continue;
+                    }
+                }
                 if (!separatedByInvisible && rawStart > 0)
                 {
                     char prev = text[rawStart - 1];
@@ -1413,7 +1481,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     }
                     else
                     {
-                        if (prev >= '\u1000' && prev <= '\u1021')
+                        if ((prev >= '\u1000' && prev <= '\u1032') || prev == '\u1036' || (prev >= '\u103B' && prev <= '\u103E'))
                             continue;
                     }
                 }

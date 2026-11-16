@@ -222,16 +222,30 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                 new BenchmarkCase("geographic", 0, ProofingStyleMode.GeneralStandard, "နောက်ရက်တွင် လွိုင်နမ်းဖ ကျေးရွာသို့ ရောက်ရှိခဲ့ပါတယ်။"),
                 new BenchmarkCase("conversational", 0, ProofingStyleMode.GeneralStandard, "ကလေးများ ဘောလုံး ကစားကြပြီး ဇာတ်သဘင်အဖွဲ့က ကပြဖျော်ဖြေတယ်။"),
                 new BenchmarkCase("conversational", 0, ProofingStyleMode.GeneralStandard, "ရေဘူးနဲ့ ထမင်းဘူး ယူလာပေမဲ့ မအားသေးလို့ မစားရသေးဘူး။"),
+                new BenchmarkCase("classical", 0, ProofingStyleMode.FormalOfficial, "ယောက်ျားပီသစွာဖြင့် ကျွန်ုပ်တို့နှင့်အတူ လက်ယာဘက်သို့ လျှောက်လှမ်းသည်။"),
 
-                // Tier 1: Structural Syllable, Detached Coda, Broken Stack, ZWSP & Vowel/Tone Errors
+                // Tier 1: UTN #11 Syllable Validation, Shattered Syllables, Detached Coda, Broken Stack, ZWSP & Vowel/Tone Errors
                 new BenchmarkCase("structural", 1, ProofingStyleMode.FormalOfficial, "လာမ ည့် အပတ်တွင် အစည်းအဝေး ကျင်းပမည်။", "လာမ ည့်", "လာမည့်"),
                 new BenchmarkCase("structural", 1, ProofingStyleMode.FormalOfficial, "အပြုအမူပို င်းဆိုင်ရာ လေ့လာချက်ဖြစ်သည်။", "ပို င်း", "ပိုင်း"),
+                new BenchmarkCase("structural", 1, ProofingStyleMode.FormalOfficial, "စစ်တက္ ကသိုလ်တွင် သင်တန်းတက်ရောက်သည်။", "စစ်တက္ ကသိုလ်", "စစ်တက္ကသိုလ်"),
                 new BenchmarkCase("structural", 1, ProofingStyleMode.FormalOfficial, "သတင်းအချက် အလက်များကို စနစ်တကျ စုဆောင်းသည်။", "အချက် အလက်", "အချက်အလက်"),
                 new BenchmarkCase("structural", 1, ProofingStyleMode.GeneralStandard, "သူငယ်ချင်းအသစ်ရှာတာ ပျော်စရာကောင်း့တယ်။", "ကောင်း့", "ကောင်း"),
                 new BenchmarkCase("structural", 1, ProofingStyleMode.FormalOfficial, "အရေးကြိးချက်များကို စနစ်တကျ တင်ပြထားပါသည်။", "ကြိး", "ကြီး"),
                 new BenchmarkCase("structural", 1, ProofingStyleMode.GeneralStandard, "လုံခြုံစိတ်ချရတဲ့ ငွေပေးချေမှု စနစ်တွေ ရှိပါတယ်.", ".", "။"),
                 new BenchmarkCase("structural", 1, ProofingStyleMode.FormalOfficial, "သက်တမး တိုးမြှင့်ပေးရန် လျှောက်ထားသည်။", "တမး", "တမ်း"),
                 new BenchmarkCase("structural", 1, ProofingStyleMode.FormalOfficial, "မှတ်ပုံ\u200Bတင် စာရင်းကို စစ်ဆေးသည်။", "မှတ်ပုံ\u200Bတင်", "မှတ်ပုံတင်"),
+                new BenchmarkCase("syllable", 1, ProofingStyleMode.GeneralStandard, "ကူညီပေးတဲ့အတွက် ကေျးဇူးတင်ပါတယ်။", "ကေျး", "ကျေး"),
+                new BenchmarkCase("syllable", 1, ProofingStyleMode.GeneralStandard, "ကြိုးပုြတ်သွားလို့ ပြန်ချည်ထားတယ်။", "ပုြတ်", "ပြုတ်"),
+                new BenchmarkCase("syllable", 1, ProofingStyleMode.GeneralStandard, "စကားပောြဆိုရာမှာ ယဉ်ကျေးသင့်တယ်။", "ပောြ", "ပြော"),
+                new BenchmarkCase("syllable", 1, ProofingStyleMode.FormalOfficial, "စည်းလုံးညီည်ွတ်စွာ ဆောင်ရွက်ကြသည်။", "ည်ွတ်", "ညွတ်"),
+                new BenchmarkCase("syllable", 1, ProofingStyleMode.FormalOfficial, "ကမ္ဘာ်ကြီး ငြိမ်းချမ်းသာယာစေရန် ဆုတောင်းသည်။", "ကမ္ဘာ်", "ကမ္ဘာ"),
+                new BenchmarkCase("syllable", 1, ProofingStyleMode.GeneralStandard, "ပစ္စည်းတွေကို သေချာသိမ်္းထားပြီးပြီ။", "သိမ်္း", "သိမ်း"),
+                new BenchmarkCase("syllable", 1, ProofingStyleMode.GeneralStandard, "အလုပ်လုပ်ရာတွင် စတ္ိထားရမယ်။", "စတ္ိ", "စိတ်"),
+                new BenchmarkCase("syllable", 1, ProofingStyleMode.GeneralStandard, "မုန့်ဟငိ်းခါး စားချင်တယ်။", "ဟငိ်း", "ဟင်း"),
+                new BenchmarkCase("syllable", 1, ProofingStyleMode.FormalOfficial, "အဓိပ္ပာယ္ရှိသော လုပ်ငန်းဖြစ်သည်။", "ယ္", "ယ်"),
+                new BenchmarkCase("syllable", 1, ProofingStyleMode.GeneralStandard, "စာအုပ် ိကို ယူလာပေးပါ။", "ိကို", "ကို"),
+                new BenchmarkCase("syllable", 1, ProofingStyleMode.GeneralStandard, "သီချင်းနားထောင် ရင်းိ စာဖတ်တယ်။", "ရင်းိ", "ရင်း"),
+                new BenchmarkCase("syllable", 1, ProofingStyleMode.FormalOfficial, "သတင်းအချက်အလက များကို စိစစ်သည်။", "အချက်အလက", "အချက်အလက်"),
 
                 // Tier 2: Hidden Compounds, Pali/Consonant Substitutions, Space-Split Compounds & Dropped 'အ'
                 new BenchmarkCase("compound", 2, ProofingStyleMode.FormalOfficial, "ပညာရေ ဖွံ့ဖြိုးတိုးတက်မှုအတွက် ဆောင်ရွက်သည်။", "ပညာရေ", "ပညာရေး"),

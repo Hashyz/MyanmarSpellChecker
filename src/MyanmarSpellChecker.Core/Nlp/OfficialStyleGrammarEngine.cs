@@ -1850,7 +1850,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             ScanUnspacedAttachedParticleTypos(text, mmMask, styleMode, trie, issues);
-            ScanStructuralSyllableAndBoundaryRepairs(text, mmMask, trie, issues);
+            ScanStructuralSyllableAndBoundaryRepairs(text, mmMask, styleMode, trie, issues);
 
             if (ContainsMm(text, mmMask, "\u101C\u103B\u103E\u1000\u103A"))
             {
@@ -5717,7 +5717,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             RegexOptions.Compiled);
 
         private static readonly Regex SpacedVerbalParticleTypoPattern = new Regex(
-            @"(?:(?<=(?:သွား|လာ|လုပ်|စား|သောက်|ပြော|ကြည့်|ဖတ်|ရေး|နေ|ဝယ်|ပေး|ယူ|တွေ့|ရောက်)[ \t]+)(?<Khae>ခဲ)(?=[ \t]*(?:တယ်|သည်|ပါ))|(?<=(?:သွား|လာ|လုပ်|စား|သောက်|ပြော|ပေး|ယူ)[ \t]+)(?<Mae>မဲ)(?=[ \t]*(?:လို့|ဟု))|(?<=(?:ဆောက်|လုပ်|သွား|လာ|စား|ပြော|ဖတ်|ရေး|ရှောင်|သင်ယူ|ကြိုးစား))(?<Pho>ဖို)(?=\s+(?:ခက်ခဲ|လွယ်ကူ|လိုအပ်|ကောင်း|သင့်|အတွက်))|(?<=(?:ရှောင်|လုပ်|စား|သွား|ပြော|သတိထား|လိုက်နာ|ထည့်ပေး))(?<Thing>သင်)(?=တယ်|သည်|ပါတယ်|ပါသည်)|(?<KyoKa>ကြိုက)(?=တယ်|သည်|ပါ)|(?<=(?:စို|ကျ|ပျက်|မော|သေ|ရှုံး|နောက်ကျ))(?<IrrealisMar>မာ)(?=ပဲ|လား|လဲ|စိုး))",
+            @"(?:(?<=(?:သွား|လာ|လုပ်|စား|သောက်|ပြော|ကြည့်|ဖတ်|ရေး|နေ|ဝယ်|ပေး|ယူ|တွေ့|ရောက်)[ \t]+)(?<Khae>ခဲ)(?=[ \t]*(?:တယ်|သည်|ပါ))|(?<=(?:သွား|လာ|လုပ်|စား|သောက်|ပြော|ပေး|ယူ)[ \t]+)(?<Mae>မဲ)(?=[ \t]*(?:လို့|ဟု))|(?<=(?:ဆောက်|လုပ်|သွား|လာ|စား|ပြော|ဖတ်|ရေး|ရှောင်|သင်ယူ|ကြိုးစား))(?<Pho>ဖို)(?=\s+(?:ခက်ခဲ|လွယ်ကူ|လိုအပ်|ကောင်း|သင့်|အတွက်))|(?<=(?:ရှောင်|လုပ်|စား|သွား|ပြော|သတိထား|လိုက်နာ|ထည့်ပေး))(?<Thing>သင်)(?=တယ်|သည်|ပါတယ်|ပါသည်)|(?<KyoKa>ကြိုက)(?=တယ်|သည်|ပါ)|(?<=(?:စို|ကျ|ပျက်|မော|သေ|ရှုံး|နောက်ကျ))(?<IrrealisMar>မာ)(?=ပဲ|လား|လဲ|စိုး)|(?<=[\u1000-\u103F])(?<PaTaYa>ပါတယ)(?=[\s\u104A\u104B]|$))",
             RegexOptions.Compiled);
 
         private static readonly Regex MyanmarSentenceFinalAsciiDotPattern = new Regex(
@@ -5727,6 +5727,7 @@ namespace MyanmarSpellChecker.Core.Nlp
         private static void ScanStructuralSyllableAndBoundaryRepairs(
             string text,
             ulong mmMask,
+            ProofingStyleMode styleMode,
             MyanmarTrie? trie,
             List<ProofingIssue> issues)
         {
@@ -5774,6 +5775,9 @@ namespace MyanmarSpellChecker.Core.Nlp
                         "အသတ်နှင့် ရှေ့ဗျည်း တစ်ဆက်တည်းရေးရန်", "N", true);
                 }
             }
+
+            // 1b. Layer-1 UTN #11 & Burmese Phonotactic Cross-Token Shattered Syllable Span Repairs
+            MyanmarSyllableValidator.ScanMalformedSyllableSpans(text, trie, issues);
 
             // 2. Impossible double tone mark on the same syllable ('ကောင်း့ -> ကောင်း')
             if ((text.IndexOf("\u1038\u1037", StringComparison.Ordinal) >= 0) ||
@@ -5974,6 +5978,13 @@ namespace MyanmarSpellChecker.Core.Nlp
                     Group g = m.Groups["IrrealisMar"];
                     AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "မှာ", ProofingIssueType.SpellingError,
                         "ဟထိုး ('ှ') ကျန်ခဲ့ပါသည် — 'မာ' အစား 'မှာ' ဟု ရေးသားရမည်။", "ဖြစ်လတ္တံ့ပြပစ္စည်း ('~မှာပဲ / ~မှာလား')", "PART", false);
+                }
+                else if (m.Groups["PaTaYa"].Success && !OverlapsExistingIssue(issues, m.Groups["PaTaYa"].Index, m.Groups["PaTaYa"].Length))
+                {
+                    Group g = m.Groups["PaTaYa"];
+                    string rep = styleMode == ProofingStyleMode.FormalOfficial ? "ပါသည်" : "ပါတယ်";
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, rep, ProofingIssueType.SpellingError,
+                        $"အသတ် ('်') ကျန်ခဲ့ပါသည် — '{g.Value}' အစား '{rep}' ဟု ရေးသားရမည်။", "ကြိယာအဆုံးသတ်ပစ္စည်း", "PART", styleMode == ProofingStyleMode.FormalOfficial);
                 }
             }
 
