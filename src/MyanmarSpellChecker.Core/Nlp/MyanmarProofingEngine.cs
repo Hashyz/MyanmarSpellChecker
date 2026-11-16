@@ -5816,9 +5816,10 @@ namespace MyanmarSpellChecker.Core.Nlp
             for (int k = start; k < end; k++)
             {
                 string raw = tokens[k].Text;
-                // Exempt the two canonical multi-token classical Myanmar ligature continuations:
+                // Exempt canonical multi-token classical & loanword ligature continuations:
                 // 1) 'ယောက်' + 'ျား' / 'လက်' + 'ျာ' (\u1000\u103A + \u103B\u102C[\u1037\u1038]?)
-                // 2) 'ကျွန်' + 'ုပ်' (\u1014\u103A + \u102F\u1015\u103A)
+                // 2) 'ကျွန်' + 'ု' + 'ပ်' or 'ကျွန်' + 'ုပ်' (\u1014\u103A + \u102F + \u1015\u103A)
+                // 3) Foreign '-ch / -j' loanword codas ('ဒတ်ခ်' + 'ျ', 'ဂျော့ဂ်' + 'ျ', 'ဟာဂ်' + 'ျ')
                 if (k > 0)
                 {
                     string prevNorm = tokens[k - 1].NormalizedText;
@@ -5827,8 +5828,17 @@ namespace MyanmarSpellChecker.Core.Nlp
                     {
                         continue;
                     }
-                    if (raw == "\u102F\u1015\u103A" &&
+                    if ((raw == "\u102F\u1015\u103A" ||
+                         (raw == "\u102F" && k + 1 < tokens.Count && tokens[k + 1].NormalizedText.StartsWith("\u1015\u103A", StringComparison.Ordinal))) &&
                         prevNorm.EndsWith("\u1014\u103A", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+                    if (raw == "\u103B" &&
+                        (prevNorm.EndsWith("\u1001\u103A", StringComparison.Ordinal) ||
+                         prevNorm.EndsWith("\u1002\u103A", StringComparison.Ordinal) ||
+                         prevNorm.EndsWith("\u1017\u103A", StringComparison.Ordinal) ||
+                         prevNorm.EndsWith("\u1007\u103A", StringComparison.Ordinal)))
                     {
                         continue;
                     }
@@ -5836,7 +5846,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
                 if (!MyanmarSyllableValidator.ValidateSyllable(raw, out _, out _, trie))
                 {
-                    // Never reject an exact verbatim Official Thatpon headword stored in the dictionary (e.g. 'ကျွနု်ပ်', 'ကို်ယ်ရင့်တတူ')
+                    // Never reject an exact verbatim headword stored in the verified dictionary (e.g. Judson 'ကျွနု်ပ်')
                     var sbRaw = new StringBuilder(16);
                     for (int r = start; r < end; r++)
                         sbRaw.Append(tokens[r].Text);

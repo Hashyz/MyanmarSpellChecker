@@ -399,7 +399,13 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     return !w.StartsWith("ဘူးသီး", StringComparison.Ordinal) &&
                            !w.StartsWith("ဘူးပင်", StringComparison.Ordinal) &&
                            !w.StartsWith("ဘူးညွန့်", StringComparison.Ordinal) &&
-                           !w.StartsWith("ဘူးရွက်", StringComparison.Ordinal);
+                           !w.StartsWith("ဘူးရွက်", StringComparison.Ordinal) &&
+                           !w.StartsWith("ဘူးခါး", StringComparison.Ordinal) &&
+                           !w.StartsWith("ဘူးစင်", StringComparison.Ordinal) &&
+                           !w.StartsWith("ဘူးလည်", StringComparison.Ordinal) &&
+                           !w.StartsWith("ဘူးသင်း", StringComparison.Ordinal) &&
+                           !w.StartsWith("ဘူးသွင်း", StringComparison.Ordinal) &&
+                           !w.StartsWith("ဘူးတောင်း", StringComparison.Ordinal);
                 case "မှာ":
                     return !w.StartsWith("မှာကြား", StringComparison.Ordinal) &&
                            !w.StartsWith("မှာတမ်း", StringComparison.Ordinal) &&
@@ -407,13 +413,18 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                            !w.StartsWith("မှာထား", StringComparison.Ordinal) &&
                            !w.StartsWith("မှာစာ", StringComparison.Ordinal);
                 case "ပါ":
-                    return !w.StartsWith("ပါဝင်", StringComparison.Ordinal) &&
-                           !w.StartsWith("ပါတီ", StringComparison.Ordinal) &&
-                           !w.StartsWith("ပါရှိ", StringComparison.Ordinal) &&
-                           !w.StartsWith("ပါမောက္ခ", StringComparison.Ordinal) &&
-                           !w.StartsWith("ပါရဂူ", StringComparison.Ordinal) &&
-                           !w.StartsWith("ပါရမီ", StringComparison.Ordinal) &&
-                           !w.StartsWith("ပါဠိ", StringComparison.Ordinal);
+                {
+                    string s1 = matches[1].Value;
+                    return s1 == "တယ်" || s1 == "သည်" || s1 == "သည့်" || s1 == "မည်" || s1 == "မယ်" ||
+                           s1 == "လား" || s1 == "လဲ" || s1 == "နဲ့" || s1 == "နှင့်" || s1 == "စေ" ||
+                           s1 == "ပဲ" || s1 == "ဘဲ" || s1 == "ဦး" || s1 == "အုံး" || s1 == "သေး" ||
+                           s1 == "လိမ့်" || s1 == "ကွာ" || s1 == "ကွယ်" || s1 == "ဗျာ" || s1 == "ရှင်" ||
+                           s1 == "ရှင့်" || s1 == "နော်" || s1 == "ပေါ့" || s1 == "တော့" || s1 == "ချေ" ||
+                           s1 == "လော့" || s1 == "သော်" || s1 == "ကား" || s1 == "၏" || s1 == "ဟု" ||
+                           s1 == "ကြောင်း" || s1 == "ပြီ" || s1 == "ခဲ့" || s1 == "ကြ" || s1 == "ရ" ||
+                           s1 == "နိုင်" || s1 == "စို့" || s1 == "စမ်း" || s1 == "လိုက်" || s1 == "သော" ||
+                           s1 == "လျှင်" || s1 == "မူ";
+                }
                 case "လျက်":
                     return !w.StartsWith("လျက်ဆား", StringComparison.Ordinal);
                 case "ကြောင်း":
@@ -650,6 +661,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
             s = s.Replace("ဂှေးစေ့", "ဂွေးစေ့");
             s = s.Replace("လွဲချွှတ်", "လွဲချွတ်");
             s = s.Replace("တမင်ရှိှုု့", "တမင်ရှို့").Replace("တမင်ရှိှု့", "တမင်ရှို့");
+            s = s.Replace("ကို်ယ်ရင့်တတူ", "ကိုယ်ရင့်တတူ").Replace("ကို်ယ်ရင့်တတူ", "ကိုယ်ရင့်တတူ");
             s = Regex.Replace(s, @"အင်္ကျ(?![\u102B-\u103A])", "အင်္ကျီ");
             s = RepairShiftedEAndMedialMojibake(s);
             return s;
@@ -938,7 +950,16 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                    w.EndsWith("သည့်", StringComparison.Ordinal) ||
                    w.EndsWith("ဖြင့်", StringComparison.Ordinal) ||
                    w.EndsWith("ကြောင့်", StringComparison.Ordinal) ||
-                   w.EndsWith("ပြီ", StringComparison.Ordinal);
+                   w.EndsWith("ပြီ", StringComparison.Ordinal) ||
+                   w.EndsWith("ရဲ့", StringComparison.Ordinal) ||
+                   w.EndsWith("ပါစေ", StringComparison.Ordinal) ||
+                   w.EndsWith("သော်လည်း", StringComparison.Ordinal) ||
+                   w.EndsWith("ပေမယ့်", StringComparison.Ordinal) ||
+                   w.EndsWith("ပေမဲ့", StringComparison.Ordinal) ||
+                   w.EndsWith("ပါတယ်", StringComparison.Ordinal) ||
+                   w.EndsWith("ပါသည်", StringComparison.Ordinal) ||
+                   w.EndsWith("ပါပဲ", StringComparison.Ordinal) ||
+                   w.EndsWith("ပါဘဲ", StringComparison.Ordinal);
         }
 
         private static void Upsert(
@@ -3950,6 +3971,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 for (int pi = 0; pi < parts.Length; pi++)
                 {
                     string cand = Regex.Replace(parts[pi], @"\([^)]*\)|\[[^\]]*\]", " ").Trim(' ', '.', '-', ':', '\'', '"').ToLowerInvariant();
+                    cand = Regex.Replace(cand, @"^(?:physical\s+chem|chem|phys|maths?|bot|zool|mil|law|mach|med|anat|astron|gram|geom|mus|arch|elec|geol|pathol)\.\s*", "");
                     string[] stripLeads = { "to be ", "to ", "be ", "a kind of ", "kind of ", "a ", "an ", "the ", "of " };
                     for (int sl = 0; sl < stripLeads.Length; sl++)
                     {
@@ -4357,7 +4379,7 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     int pIdx = e.UsageNote.IndexOf("ပါဠိအနက်:", StringComparison.Ordinal) + "ပါဠိအနက်:".Length;
                     int pEnd = e.UsageNote.IndexOf('|', pIdx);
                     string pVal = (pEnd > pIdx ? e.UsageNote.Substring(pIdx, pEnd - pIdx) : e.UsageNote.Substring(pIdx)).Trim();
-                    e.MeaningCue = "ပါဠိရင်းမြစ် မြန်မာဝေါဟာရ (ပါဠိမူရင်း — " + pVal + ")။";
+                    e.MeaningCue = "မြန်မာဝေါဟာရ (ပါဠိအနက် — " + pVal + ")။";
                 }
                 else if (oldWasColloc)
                 {
@@ -5950,6 +5972,145 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 khEntries.ToArray(),
                 khRules.ToArray(),
                 outPath);
+
+            // V60 Permanent 6-Gate Word Data Validation, Rescue & Sanitization Pass
+            var builtModel = MyanmarSpellChecker.Core.Dictionary.EncryptedDictionaryRepository.ParseFromJsonFile(outPath);
+            var valReport = MyanmarSpellChecker.Core.Dictionary.MyanmarWordDataValidator.SanitizeAndValidateInPlace(builtModel);
+            Console.WriteLine(valReport.FormatSummaryReport());
+            if (!valReport.IsClean)
+            {
+                throw new InvalidDataException("Master Lexicon failed 6-Gate Word Data Validation with " +
+                    valReport.Violations.Count + " violation(s). First: " +
+                    valReport.Violations[0].Table + " '" + valReport.Violations[0].ItemKey + "' -> " + valReport.Violations[0].Detail);
+            }
+            WriteSanitizedMasterJson(builtModel, outPath);
+        }
+
+        public static void WriteSanitizedMasterJson(
+            MyanmarSpellChecker.Core.Dictionary.MasterDictionaryJsonModel model,
+            string outputJsonPath)
+        {
+            int officialCount = model.Entries
+                .Where(e => e.IsOfficialThatpon)
+                .Select(e => e.Word)
+                .Distinct(StringComparer.Ordinal)
+                .Count();
+            int uniqueWords = model.Entries
+                .Select(e => e.Word)
+                .Distinct(StringComparer.Ordinal)
+                .Count();
+
+            using (var sw = new StreamWriter(outputJsonPath, append: false, new UTF8Encoding(false), bufferSize: 65536))
+            {
+                sw.WriteLine("{");
+                sw.WriteLine("  \"Standard\": \"" + EscapeJson(string.IsNullOrEmpty(model.Standard)
+                    ? "မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း (462-Page Complete Book) + မြန်မာအဘိဓာန် + ဦးဟုတ်စိန် + MOFA/GAD Gazetteer + V11 5-Domain Suite + V16 Encyclopedia + V23 Bilingual EN-MM & myG2P Suite"
+                    : model.Standard) + "\",");
+                sw.WriteLine("  \"Version\": \"" + EscapeJson(string.IsNullOrEmpty(model.Version) ? "2026.60" : model.Version) + "\",");
+                sw.WriteLine("  \"TotalEntries\": " + model.Entries.Count + ",");
+                sw.WriteLine("  \"UniqueHeadwords\": " + uniqueWords + ",");
+                sw.WriteLine("  \"OfficialThatponUniqueWords\": " + officialCount + ",");
+                sw.WriteLine("  \"TotalOrthographyRules\": " + model.OrthographyRules.Count + ",");
+                sw.WriteLine("  \"TotalContextRules\": " + model.ContextRules.Count + ",");
+                sw.WriteLine("  \"TotalWordBigrams\": " + model.WordBigrams.Count + ",");
+                sw.WriteLine("  \"Entries\": [");
+                for (int i = 0; i < model.Entries.Count; i++)
+                {
+                    var e = model.Entries[i];
+                    string comma = (i == model.Entries.Count - 1) ? "" : ",";
+                    sw.Write("{\"Word\":\"");
+                    sw.Write(EscapeJson(e.Word));
+                    sw.Write("\",\"MeaningCue\":\"");
+                    sw.Write(EscapeJson(e.MeaningCue));
+                    sw.Write("\",\"PosTag\":\"");
+                    sw.Write(EscapeJson(e.PosTag));
+                    if (!string.IsNullOrEmpty(e.UsageNote))
+                    {
+                        sw.Write("\",\"UsageNote\":\"");
+                        sw.Write(EscapeJson(e.UsageNote));
+                    }
+                    sw.Write('\"');
+                    if (e.Frequency != 0)
+                    {
+                        sw.Write(",\"Frequency\":");
+                        sw.Write(e.Frequency);
+                    }
+                    if (e.IsOfficialThatpon)
+                    {
+                        sw.Write(",\"IsOfficialThatpon\":true");
+                    }
+                    sw.Write('}');
+                    sw.WriteLine(comma);
+                }
+                sw.WriteLine("  ],");
+                sw.WriteLine("  \"OrthographyRules\": [");
+                for (int i = 0; i < model.OrthographyRules.Count; i++)
+                {
+                    var r = model.OrthographyRules[i];
+                    string comma = (i == model.OrthographyRules.Count - 1) ? "" : ",";
+                    sw.Write("{\"WrongForm\":\"");
+                    sw.Write(EscapeJson(r.WrongForm));
+                    sw.Write("\",\"CorrectForm\":\"");
+                    sw.Write(EscapeJson(r.CorrectForm));
+                    sw.Write("\",\"Category\":\"");
+                    sw.Write(EscapeJson(r.Category));
+                    sw.Write("\",\"Explanation\":\"");
+                    sw.Write(EscapeJson(r.Explanation));
+                    sw.Write("\"}");
+                    sw.WriteLine(comma);
+                }
+                sw.WriteLine("  ],");
+                sw.WriteLine("  \"ContextRules\": [");
+                for (int i = 0; i < model.ContextRules.Count; i++)
+                {
+                    var cr = model.ContextRules[i];
+                    string comma = (i == model.ContextRules.Count - 1) ? "" : ",";
+                    sw.Write("{\"WrongForm\":\"");
+                    sw.Write(EscapeJson(cr.WrongForm));
+                    sw.Write("\",\"CorrectForm\":\"");
+                    sw.Write(EscapeJson(cr.CorrectForm));
+                    sw.Write("\",\"TriggerWords\":\"");
+                    sw.Write(EscapeJson(cr.TriggerWords));
+                    if (!string.IsNullOrEmpty(cr.AntiTriggerWords))
+                    {
+                        sw.Write("\",\"AntiTriggerWords\":\"");
+                        sw.Write(EscapeJson(cr.AntiTriggerWords));
+                    }
+                    sw.Write("\",\"Direction\":\"");
+                    sw.Write(EscapeJson(cr.Direction));
+                    sw.Write("\",\"Window\":");
+                    sw.Write(cr.Window);
+                    if (cr.IsWarningOnly)
+                    {
+                        sw.Write(",\"IsWarningOnly\":true");
+                    }
+                    if (cr.SkipParticles)
+                    {
+                        sw.Write(",\"SkipParticles\":true");
+                    }
+                    sw.Write(",\"Explanation\":\"");
+                    sw.Write(EscapeJson(cr.Explanation));
+                    sw.Write("\"}");
+                    sw.WriteLine(comma);
+                }
+                sw.WriteLine("  ],");
+                sw.WriteLine("  \"WordBigrams\": [");
+                for (int i = 0; i < model.WordBigrams.Count; i++)
+                {
+                    var bg = model.WordBigrams[i];
+                    string comma = (i == model.WordBigrams.Count - 1) ? "" : ",";
+                    sw.Write("{\"LeftWord\":\"");
+                    sw.Write(EscapeJson(bg.LeftWord));
+                    sw.Write("\",\"RightWord\":\"");
+                    sw.Write(EscapeJson(bg.RightWord));
+                    sw.Write("\",\"Count\":");
+                    sw.Write(bg.Count);
+                    sw.Write('}');
+                    sw.WriteLine(comma);
+                }
+                sw.WriteLine("  ]");
+                sw.WriteLine("}");
+            }
         }
     }
 }

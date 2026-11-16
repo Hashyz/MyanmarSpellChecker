@@ -2302,5 +2302,123 @@ namespace MyanmarSpellChecker.Core.Tests
                     $"Expected spliced Top-1 containing '{tc.ExpectedSplicedSubstring}' on '{tc.Input}', got: [{string.Join("; ", issues.Select(x => $"{x.OriginalText}=>{x.Suggestions.FirstOrDefault()?.Replacement}"))}]");
             }
         }
+
+        [Fact]
+        public void V60B_WordDataValidation_SyllablesParticlePurificationContradictionsAndDomainRescue_Gate()
+        {
+            // 1. Full 6-Gate Read-Only Audit on Master JSON (0 violations across all Entries, Rules, ContextRules & Bigrams)
+            var master = EncryptedDictionaryRepository.ParseFromJsonFile(TestPaths.MasterJsonPath);
+            var report = MyanmarWordDataValidator.Validate(master);
+            Assert.True(
+                report.IsClean,
+                $"Expected 0 violations from MyanmarWordDataValidator, got {report.Violations.Count}: " +
+                string.Join(" || ", report.Violations.Take(8).Select(v => $"[{v.Table}] '{v.ItemKey}' ({v.Kind}): {v.Detail}")));
+
+            Assert.All(master.Entries, e => Assert.False(string.IsNullOrWhiteSpace(e.PosTag), $"Empty PosTag on '{e.Word}'"));
+
+            var byWord = master.Entries
+                .GroupBy(e => e.Word, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+
+            // 2. Verify Repaired Official, Geographic, Foreign Coda & Encyclopedia Headwords
+            Assert.True(byWord.ContainsKey(UnicodeNormalizer.NormalizeCanonicalOrder("ကိုယ်ရင့်တတူ")) &&
+                        byWord[UnicodeNormalizer.NormalizeCanonicalOrder("ကိုယ်ရင့်တတူ")].Any(e => e.IsOfficialThatpon));
+            Assert.False(byWord.ContainsKey("ကို်ယ်ရင့်တတူ"));
+            Assert.False(byWord.ContainsKey("ကို်ယ်ရင့်တတူ"));
+            Assert.True(byWord.ContainsKey("ဘန်ဂျူးလ်"));
+            Assert.False(byWord.ContainsKey("ဘန်ဂျုးလ်"));
+            Assert.True(byWord.ContainsKey("မော်ဂါဒီးရှူး"));
+            Assert.False(byWord.ContainsKey("မော်ဂါဒီးသျုး"));
+            Assert.True(byWord.ContainsKey("ဆိုးဇန်းဂျိဘူတာ"));
+            Assert.False(byWord.ContainsKey("ဆိုးဇန်းဂျိူဘူတာ"));
+            Assert.True(byWord.ContainsKey("လိုင်လူမျိုး"));
+            Assert.False(byWord.ContainsKey("လိုင်လူမျိူး"));
+            Assert.True(byWord.ContainsKey(UnicodeNormalizer.NormalizeCanonicalOrder("နှစ် ၇၀၀ ပြည့် အားကစားကွင်း")));
+            Assert.False(byWord.ContainsKey(UnicodeNormalizer.NormalizeCanonicalOrder("နှစ် ၇၀ဝပြည့် အားကစားကွင်း")));
+            Assert.True(byWord.ContainsKey("ဗက်တာ"));
+            Assert.False(byWord.ContainsKey("ဗှတ္တာ"));
+            Assert.True(byWord.ContainsKey("အဗ္ဘဒူ မာလစ်"));
+            Assert.False(byWord.ContainsKey("အဘ္ဘဒူ မာလစ်"));
+            Assert.False(byWord.ContainsKey("ဒီဇိုင်းနာ"));
+            Assert.False(byWord.ContainsKey("မရိုးပင်"));
+            Assert.Contains(byWord["ကားဘီး"], e => e.PosTag == "N");
+            Assert.Contains(byWord["ကက်တိုင်ယွန်"], e => !e.MeaningCue.Contains("နျယန") && !(e.UsageNote ?? "").Contains("နျယန"));
+
+            // 3. Verify Runtime Encrypted DB: Glued-Particle Leaks Purged, Rescued Domain/Dictionary Words Active!
+            var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
+            var trie = repo.LoadIntoTrie(AntiTamperGuard.ReconstructProtectedFallbackKey());
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+
+            string[] purgedGarbage =
+            {
+                "ကကျွမ်းကျင်", "ကကျွမ်းကျင်မှု", "ကနည်းနည်း", "ကတည်းကစ",
+                "ကိုစိုင်းရဲ့", "ကိုလေးဖြူရဲ့", "ငါ့ရဲ့", "တိုင်းပြည်ရဲ့",
+                "ကြည့်လို့", "ကြောက်လို့", "ကောင်းကင်သို့", "ကျွန်ုပ်၏", "တရားသူကြီး၏",
+                "ကင်းပါစေ", "ကစ်ရယ်", "ကစ်ရေ", "ကင်းဘူ", "တဆံဃိး", "ဂန္ဒီ"
+            };
+            foreach (string bad in purgedGarbage)
+            {
+                Assert.False(trie.ContainsExactWord(bad), $"Expected glued-particle/noise entry '{bad}' to be purged from active Trie.");
+            }
+
+            string[] preservedLegitimateWords =
+            {
+                "တကယ်လို့", "ပတ်သက်လို့", "စေသတည်း", "ဤသို့", "ထိုသို့", "မည်သို့",
+                "ဖက်ဒရယ်", "ဂျော့ချ်", "ယောက်ျား", "ကျွန်ုပ်", "ဂန္ဓီ"
+            };
+            foreach (string good in preservedLegitimateWords)
+            {
+                Assert.True(trie.ContainsExactWord(good), $"Expected legitimate word '{good}' to remain active in Trie.");
+            }
+
+            string[] rescuedHelpfulQuantityWords =
+            {
+                "ပါတိမောက်", "ပါရာဇိကကျ", "ပါဒရက်ရောဂါ", "ပါကစ္စတန်ရူပီး",
+                "ပါရှန်ပင်လယ်ကွေ့", "ပါလစ်", "ပါဝါ", "ပါမစ်", "ပါမန်ဂနိတ်",
+                "ပါစက", "ပါစကဓာတ်", "ပါစတာဆေးရုံ", "ပါဏဗေဒဌာန",
+                "ဘူးခါး", "ဘူးစင်", "ဘူးသွင်း"
+            };
+            foreach (string rescued in rescuedHelpfulQuantityWords)
+            {
+                Assert.True(trie.ContainsExactWord(rescued), $"Expected rescued domain/dictionary word '{rescued}' to exist in active Trie.");
+            }
+
+            // Repaired 'ကို်ယ်ရင့်တတူ' is now caught and repaired to 'ကိုယ်ရင့်တတူ'!
+            var strayAsatIssues = formalEngine.CheckText("ကို်ယ်ရင့်တတူ ဆောင်ရွက်သည်။");
+            Assert.NotEmpty(strayAsatIssues);
+            Assert.Contains(strayAsatIssues, x => x.Suggestions.Count > 0 && x.Suggestions[0].Replacement.Contains("ကိုယ်"));
+            Assert.Empty(formalEngine.CheckText("ကိုယ်ရင့်တတူ ဆောင်ရွက်သည်။"));
+            Assert.Empty(formalEngine.CheckText("ရဟန်းတော်များသည် ပါတိမောက် ပြပါသည်။"));
+            Assert.Empty(generalEngine.CheckText("တကယ်လို့ မိုးရွာရင် အိမ်မှာနေမယ်။"));
+
+            // 4. Unit Test SanitizeAndValidateInPlace: Rule-Chain Flattening, ENCYC Contradiction Migration & Noise Pruning
+            var syntheticModel = new MasterDictionaryJsonModel
+            {
+                Entries = new List<DictionaryEntry>
+                {
+                    new DictionaryEntry { Word = "ဒီဇိုင်နာ", PosTag = "", MeaningCue = "ဖန်တီးသူ။", Frequency = 50, IsOfficialThatpon = true },
+                    new DictionaryEntry { Word = "ဒီဇိုင်းနာ", PosTag = "ENCYC", MeaningCue = "ဒီဇိုင်းနာ ဆိုသည်မှာ ဒီဇိုင်းပညာရှင်ဖြစ်သည်။", Frequency = 20, IsOfficialThatpon = false },
+                    new DictionaryEntry { Word = "ကိုစိုင်းရဲ့", PosTag = "N/V", MeaningCue = "ခေတ်သုံး မြန်မာစာပေနှင့် ရုံးသုံး စံသတ်ပုံအမှန် နာမ်ဝေါဟာရ။", Frequency = 12, IsOfficialThatpon = false }
+                },
+                OrthographyRules = new List<OrthographyRule>
+                {
+                    new OrthographyRule { WrongForm = "ဒီဇိုင်းနား", CorrectForm = "ဒီဇိုင်းနာ", Category = "Spelling", Explanation = "စံသတ်ပုံ" },
+                    new OrthographyRule { WrongForm = "ဒီဇိုင်းနာ", CorrectForm = "ဒီဇိုင်နာ", Category = "Spelling", Explanation = "စံသတ်ပုံ" }
+                },
+                WordBigrams = new List<WordBigramEntry>
+                {
+                    new WordBigramEntry { LeftWord = "ဒီဇိုင်းနာ", RightWord = "ဒီဇိုင်နာ", Count = 15 }
+                }
+            };
+
+            var synthReport = MyanmarWordDataValidator.SanitizeAndValidateInPlace(syntheticModel);
+            Assert.True(synthReport.IsClean);
+            Assert.Equal(1, synthReport.RulesFlattenedCount);
+            Assert.Equal("ဒီဇိုင်နာ", syntheticModel.OrthographyRules.First(r => r.WrongForm == "ဒီဇိုင်းနား").CorrectForm);
+            Assert.All(syntheticModel.Entries, e => Assert.Equal("ဒီဇိုင်နာ", e.Word));
+            Assert.Equal("N", syntheticModel.Entries.First(e => e.IsOfficialThatpon).PosTag);
+            Assert.Empty(syntheticModel.WordBigrams);
+        }
     }
 }

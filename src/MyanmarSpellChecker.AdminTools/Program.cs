@@ -34,6 +34,8 @@ namespace MyanmarSpellChecker.AdminTools
                     return RunBuildLexicon(args);
                 case "compile-dict":
                     return RunCompileDict(args);
+                case "validate-data":
+                    return RunValidateData(args);
                 case "gen-keys":
                     return RunGenerateKeys(args);
                 case "sign-license":
@@ -43,6 +45,41 @@ namespace MyanmarSpellChecker.AdminTools
                 default:
                     return RunInteractiveDemo();
             }
+        }
+
+        private static int RunValidateData(string[] args)
+        {
+            string jsonPath = Path.Combine("data", "mlc_thatpon_master.json");
+            bool applyFix = false;
+            for (int i = 1; i < args.Length; i++)
+            {
+                if (string.Equals(args[i], "--fix", StringComparison.OrdinalIgnoreCase))
+                    applyFix = true;
+                else if (!args[i].StartsWith("-", StringComparison.Ordinal))
+                    jsonPath = args[i];
+            }
+
+            if (!File.Exists(jsonPath))
+            {
+                Console.Error.WriteLine($"[!] Master dictionary JSON not found: {Path.GetFullPath(jsonPath)}");
+                return 1;
+            }
+
+            var model = EncryptedDictionaryRepository.ParseFromJsonFile(jsonPath);
+            WordDataValidationReport report;
+            if (applyFix)
+            {
+                report = MyanmarWordDataValidator.SanitizeAndValidateInPlace(model);
+                MasterLexiconCompiler.WriteSanitizedMasterJson(model, jsonPath);
+                Console.WriteLine($"[+] Wrote sanitized master JSON to: {Path.GetFullPath(jsonPath)}");
+            }
+            else
+            {
+                report = MyanmarWordDataValidator.Validate(model);
+            }
+
+            Console.WriteLine(report.FormatSummaryReport());
+            return report.IsClean ? 0 : 2;
         }
 
         private static int RunBuildLexicon(string[] args)
@@ -84,8 +121,23 @@ namespace MyanmarSpellChecker.AdminTools
                 Console.WriteLine($"[+] Loaded {csvEntries.Count} additional entries from CSV: {csvPath}");
             }
 
+            var combinedModel = new MasterDictionaryJsonModel
+            {
+                Entries = entries,
+                OrthographyRules = rules,
+                ContextRules = ctxRules,
+                WordBigrams = bigrams
+            };
+            var compileAudit = MyanmarWordDataValidator.SanitizeAndValidateInPlace(combinedModel);
+            Console.WriteLine($"[+] Word Data Validation Gate: {(compileAudit.IsClean ? "PASS (0 violations)" : $"FAIL ({compileAudit.Violations.Count} violations)")}");
+            if (!compileAudit.IsClean)
+            {
+                Console.Error.WriteLine(compileAudit.FormatSummaryReport());
+                return 2;
+            }
+
             var repo = new EncryptedDictionaryRepository(outDbPath);
-            repo.CompileEncryptedDatabase(password, entries, rules, ctxRules, bigrams);
+            repo.CompileEncryptedDatabase(password, combinedModel.Entries, combinedModel.OrthographyRules, combinedModel.ContextRules, combinedModel.WordBigrams);
 
             var trie = repo.LoadIntoTrie(password);
             Console.WriteLine($"[+] Successfully compiled encrypted AES-256 + HMAC-SHA256 DB: {Path.GetFullPath(outDbPath)}");
