@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Windows.Forms;
 using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
@@ -210,6 +211,16 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 onOpenStandardMenu: null,
                 onAddToDictionary: () =>
                 {
+                    string confirmMsg = targetItem.Issue.BuildAddCustomWordConfirmationMessage(out string confirmTitle, out bool isKnownErr);
+                    DialogResult confirmRes = MessageBox.Show(
+                        confirmMsg,
+                        confirmTitle,
+                        MessageBoxButtons.YesNo,
+                        isKnownErr ? MessageBoxIcon.Warning : MessageBoxIcon.Question,
+                        MessageBoxDefaultButton.Button2);
+                    if (confirmRes != DialogResult.Yes)
+                        return;
+
                     string origTxt = targetItem.Issue.OriginalText ?? string.Empty;
                     _engine.AddCustomWord(origTxt, _customDictionaryFilePath);
                     string normAdded = UnicodeNormalizer.NormalizeCanonicalOrder(origTxt.Trim());

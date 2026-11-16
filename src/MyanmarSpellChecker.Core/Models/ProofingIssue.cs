@@ -177,6 +177,70 @@ namespace MyanmarSpellChecker.Core.Models
         public bool IsReviewNeeded => !IsHighCertaintyPrecheck;
 
         /// <summary>
+        /// True when this issue represents a clean single-token spelling/OOV candidate eligible for Custom Dictionary
+        /// (excludes grammar/style, context warnings, Zawgyi/lookalike errors, multi-word phrases, and zero-width corrupted tokens).
+        /// </summary>
+        public bool CanAddToCustomDictionary
+        {
+            get
+            {
+                string txt = (OriginalText ?? string.Empty).Trim();
+                if (txt.Length == 0 || txt.IndexOf(' ') >= 0)
+                    return false;
+                if (IsGrammarOrStyle || IsContextualWarning)
+                    return false;
+                if (IssueType == ProofingIssueType.ZawgyiEncodingError ||
+                    IssueType == ProofingIssueType.LookalikeCharacterError)
+                    return false;
+                if (txt.IndexOf('\u200B') >= 0 || txt.IndexOf('\u200C') >= 0 ||
+                    txt.IndexOf('\u200D') >= 0 || txt.IndexOf('\uFEFF') >= 0)
+                    return false;
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Builds a bilingual confirmation prompt before permanently saving a flagged word into Custom Dictionary,
+        /// issuing an explicit standard-orthography warning when the word is a confirmed MLC spelling mistake.
+        /// </summary>
+        public string BuildAddCustomWordConfirmationMessage(out string dialogTitle, out bool isKnownStandardErrorWarning)
+        {
+            string word = (OriginalText ?? string.Empty).Trim();
+            string topFix = (Suggestions != null && Suggestions.Count > 0)
+                ? (Suggestions[0].Replacement ?? string.Empty).Trim()
+                : string.Empty;
+
+            if (!IsReviewNeeded && !string.IsNullOrEmpty(topFix) && !string.Equals(word, topFix, StringComparison.Ordinal))
+            {
+                isKnownStandardErrorWarning = true;
+                dialogTitle = Localization.UiLocalizer.Pick(
+                    "⚠ Confirm Adding Known Spelling Error",
+                    "⚠ စံသတ်ပုံအမှားကို အဘိဓာန်သို့ ထည့်သွင်းရန် အတည်ပြုပါ");
+                return Localization.UiLocalizer.Pick(
+                    $"⚠ \"{word}\" is a known standard spelling error (correct form: \"{topFix}\").\n\n" +
+                    "Adding it to your Custom Dictionary will stop Microsoft Word and Excel from catching this mistake in ALL future documents.\n" +
+                    "• Tip: Click [No] and use 'Ignore' instead if you only want to skip it in this file.\n\n" +
+                    $"Are you sure you still want to permanently add \"{word}\"?",
+                    $"⚠ \"{word}\" သည် စံသတ်ပုံကျမ်းအရ အမှားစစ်စစ် ဖြစ်ပါသည် (စံအမှန် - \"{topFix}\")။\n\n" +
+                    "ကိုယ်ပိုင်အဘိဓာန်သို့ ထည့်သွင်းလိုက်ပါက နောင်ရေးသားမည့် Word နှင့် Excel ဖိုင်အားလုံးတွင် ဤအမှားကို စစ်ဆေးပေးတော့မည် မဟုတ်ပါ။\n" +
+                    "• ယခုဖိုင်တစ်ခုတည်းအတွက်သာ ကျော်လိုပါက [No] ကိုနှိပ်ပြီး 'Ignore (ကျော်မည်)' ကိုသာ သုံးပါ။\n\n" +
+                    $"\"{word}\" ကို ကိုယ်ပိုင်အဘိဓာန်သို့ အမြဲတမ်း ထည့်သွင်းလိုပါသလား?");
+            }
+
+            isKnownStandardErrorWarning = false;
+            dialogTitle = Localization.UiLocalizer.Pick(
+                "Confirm Add to Custom Dictionary",
+                "ကိုယ်ပိုင်အဘိဓာန်သို့ ထည့်သွင်းရန် အတည်ပြုပါ");
+            return Localization.UiLocalizer.Pick(
+                $"Add \"{word}\" permanently to your Custom Dictionary (shared across Microsoft Word & Excel)?\n\n" +
+                "• Click [Yes] if this is a valid person/company name or specialized term.\n" +
+                "• Click [No] and use 'Ignore' if you only want to skip it in this document.",
+                $"\"{word}\" ကို ကိုယ်ပိုင်အဘိဓာန် (Word နှင့် Excel နှစ်ခုလုံးသုံး) သို့ အမြဲတမ်း မှတ်သားထည့်သွင်းမည်လား?\n\n" +
+                "• လူအမည်၊ ကုမ္ပဏီအမည် သို့မဟုတ် အထူးဝေါဟာရ အမှန်ဖြစ်ပါက [Yes] ကိုနှိပ်ပါ။\n" +
+                "• ယခုဖိုင်တစ်ခုတည်းအတွက်သာ ကျော်လိုပါက [No] ကိုနှိပ်ပြီး 'Ignore (ကျော်မည်)' ကိုသုံးပါ။");
+        }
+
+        /// <summary>
         /// Human-readable certainty label displayed in the Fix-All Preview Checklist Dialog.
         /// </summary>
         public string CertaintyBadgeText

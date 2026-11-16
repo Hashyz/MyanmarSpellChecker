@@ -1089,7 +1089,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             }
 
             // 6. Card Footer Actions (Jump | Ignore | +Custom Dictionary)
-            bool canAddToCustomDict = !isGrammar && issue.IssueType == ProofingIssueType.SpellingError;
+            bool canAddToCustomDict = issue.CanAddToCustomDictionary;
             var bottomActions = canAddToCustomDict
                 ? new FastPercentRowPanel(34F, 31F, 35F) { Margin = new Padding(0, 2, 0, 0) }
                 : new FastPercentRowPanel(50F, 50F) { Margin = new Padding(0, 2, 0, 0) };
@@ -1118,6 +1118,17 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                     Color.FromArgb(236, 244, 255), Color.FromArgb(20, 72, 155), Color.FromArgb(190, 212, 246), _fontSmall);
                 btnAddDict.Click += (s, e) =>
                 {
+                    string confirmMsg = item.Issue.BuildAddCustomWordConfirmationMessage(out string confirmTitle, out bool isKnownErr);
+                    DialogResult confirmRes = MessageBox.Show(
+                        this,
+                        confirmMsg,
+                        confirmTitle,
+                        MessageBoxButtons.YesNo,
+                        isKnownErr ? MessageBoxIcon.Warning : MessageBoxIcon.Question,
+                        MessageBoxDefaultButton.Button2);
+                    if (confirmRes != DialogResult.Yes)
+                        return;
+
                     string wordSaved = item.Issue.OriginalText;
                     RequestAddToDictionary?.Invoke(item);
                     ShowToastBanner(UiLocalizer.Pick(

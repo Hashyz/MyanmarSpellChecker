@@ -1024,7 +1024,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Color.FromArgb(204, 218, 242),
                 _fontBrandStats);
             btnAddDict.Dock = DockStyle.Fill;
-            btnAddDict.Enabled = !issue.IsContextualWarning && !issue.IsGrammarOrStyle;
+            btnAddDict.Enabled = issue.CanAddToCustomDictionary;
             btnAddDict.Click += (s, e) => RequestAddToDictionary?.Invoke(item);
 
             var btnLookup = CreatePillButton(

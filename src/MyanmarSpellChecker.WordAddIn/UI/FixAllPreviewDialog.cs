@@ -1712,8 +1712,20 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             if (_selectedRow == null || _callbacks.OnAddWordToDictionary == null)
                 return;
 
-            string word = (_selectedRow.Primary.Issue.OriginalText ?? string.Empty).Trim();
+            ProofingIssue selectedIssue = _selectedRow.Primary.Issue;
+            string word = (selectedIssue.OriginalText ?? string.Empty).Trim();
             if (string.IsNullOrEmpty(word))
+                return;
+
+            string confirmMsg = selectedIssue.BuildAddCustomWordConfirmationMessage(out string confirmTitle, out bool isKnownErr);
+            DialogResult confirmRes = MessageBox.Show(
+                this,
+                confirmMsg,
+                confirmTitle,
+                MessageBoxButtons.YesNo,
+                isKnownErr ? MessageBoxIcon.Warning : MessageBoxIcon.Question,
+                MessageBoxDefaultButton.Button2);
+            if (confirmRes != DialogResult.Yes)
                 return;
 
             int currentRowIdx = GetSelectedRowIndex();
@@ -1767,7 +1779,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
                 _btnFixNow.Enabled = !string.IsNullOrEmpty(entry.ChosenReplacement);
                 _btnIgnoreNow.Enabled = true;
-                _btnAddDict.Enabled = !entry.Issue.IsGrammarOrStyle && (entry.Issue.OriginalText ?? string.Empty).IndexOf(' ') < 0;
+                _btnAddDict.Enabled = entry.Issue.CanAddToCustomDictionary;
                 _btnJump.Enabled = _callbacks.OnNavigateToItem != null;
                 _txtCustomReplacement.Text = entry.ChosenReplacement;
 

@@ -1451,5 +1451,72 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.Contains("Color.FromArgb(254, 249, 195)", wordPopupSrc);
             Assert.Contains("Color.FromArgb(254, 249, 195)", excelPopupSrc);
         }
+
+        [Fact]
+        public void V50_AddCustomWordConfirmationAndKnownErrorWarningGate()
+        {
+            // 1. Known standard MLC spelling error triggers explicit warning & displays standard replacement
+            var knownSpellingError = new ProofingIssue
+            {
+                OriginalText = "တုန့်ပြန်",
+                IssueType = ProofingIssueType.SpellingError,
+                RequiresReviewBeforeBatchFix = false,
+                Suggestions = new List<SuggestionCandidate>
+                {
+                    new SuggestionCandidate { Replacement = "တုံ့ပြန်", Score = 100.0 }
+                }
+            };
+            Assert.True(knownSpellingError.CanAddToCustomDictionary);
+            string warnMsg = knownSpellingError.BuildAddCustomWordConfirmationMessage(out string warnTitle, out bool isKnownErr);
+            Assert.True(isKnownErr);
+            Assert.Contains("⚠", warnTitle);
+            Assert.Contains("တုန့်ပြန်", warnMsg);
+            Assert.Contains("တုံ့ပြန်", warnMsg);
+
+            // 2. Review Needed name/brand uses standard confirmation (isKnownErr = false)
+            var brandOrName = new ProofingIssue
+            {
+                OriginalText = "သမိုင်းဘူတာ",
+                IssueType = ProofingIssueType.SpellingError,
+                RequiresReviewBeforeBatchFix = true,
+                Suggestions = new List<SuggestionCandidate>
+                {
+                    new SuggestionCandidate { Replacement = "သမိုင်း", Score = 80.0 }
+                }
+            };
+            Assert.True(brandOrName.CanAddToCustomDictionary);
+            string normalMsg = brandOrName.BuildAddCustomWordConfirmationMessage(out string normalTitle, out bool isBrandKnownErr);
+            Assert.False(isBrandKnownErr);
+            Assert.DoesNotContain("⚠", normalTitle);
+            Assert.Contains("သမိုင်းဘူတာ", normalMsg);
+
+            // 3. Corrupted ZWSP / Lookalike / Grammar items cannot be added to Custom Dictionary
+            var zwspCorrupted = new ProofingIssue
+            {
+                OriginalText = "မှတ်ပုံ\u200Bတင်",
+                IssueType = ProofingIssueType.SpellingError
+            };
+            Assert.False(zwspCorrupted.CanAddToCustomDictionary);
+
+            var lookalikeIssue = new ProofingIssue
+            {
+                OriginalText = "အကောင်အထည်ဖေါ်",
+                IssueType = ProofingIssueType.LookalikeCharacterError
+            };
+            Assert.False(lookalikeIssue.CanAddToCustomDictionary);
+
+            // 4. Static UI Gate: every +Add Word surface requires confirmation with safe default Button2 (No)
+            string wordReviewSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "FixAllPreviewDialog.cs"));
+            string excelReviewSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "FixAllPreviewDialog.cs"));
+            string wordPaneSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "ProofingTaskPaneControl.ProofingTab.cs"));
+            string wordCtxSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "Interop", "WordContextMenuHandler.cs"));
+            string excelAddInSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "ExcelThisAddIn.cs"));
+
+            foreach (string src in new[] { wordReviewSrc, excelReviewSrc, wordPaneSrc, wordCtxSrc, excelAddInSrc })
+            {
+                Assert.Contains("BuildAddCustomWordConfirmationMessage", src);
+                Assert.Contains("MessageBoxDefaultButton.Button2", src);
+            }
+        }
     }
 }

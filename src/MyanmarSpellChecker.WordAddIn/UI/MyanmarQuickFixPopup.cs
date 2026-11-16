@@ -423,7 +423,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             }
 
             // 6. Bottom Footer Row (Ignore Once [I] | +Dictionary [D] | Close [Esc])
-            bool showAddDict = !isGrammar && issue.IssueType == ProofingIssueType.SpellingError && onAddToDictionary != null;
+            bool showAddDict = issue.CanAddToCustomDictionary && onAddToDictionary != null;
             var footerGrid = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,

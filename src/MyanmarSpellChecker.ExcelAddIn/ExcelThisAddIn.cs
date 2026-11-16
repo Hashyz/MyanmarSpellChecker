@@ -1689,7 +1689,26 @@ namespace MyanmarSpellChecker.ExcelAddIn
 
         private void AddIssueWordToDictionaryFromUi(SpreadsheetCellIssue item)
         {
-            if (_proofingEngine == null)
+            if (_proofingEngine == null || item == null)
+                return;
+
+            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
+            string confirmMsg = item.Issue.BuildAddCustomWordConfirmationMessage(out string confirmTitle, out bool isKnownErr);
+            DialogResult confirmRes = ctrl != null && ctrl.IsHandleCreated && !ctrl.IsDisposed
+                ? MessageBox.Show(
+                    ctrl,
+                    confirmMsg,
+                    confirmTitle,
+                    MessageBoxButtons.YesNo,
+                    isKnownErr ? MessageBoxIcon.Warning : MessageBoxIcon.Question,
+                    MessageBoxDefaultButton.Button2)
+                : MessageBox.Show(
+                    confirmMsg,
+                    confirmTitle,
+                    MessageBoxButtons.YesNo,
+                    isKnownErr ? MessageBoxIcon.Warning : MessageBoxIcon.Question,
+                    MessageBoxDefaultButton.Button2);
+            if (confirmRes != DialogResult.Yes)
                 return;
 
             _proofingEngine.AddCustomWord(item.Issue.OriginalText, _customDictFilePath);
@@ -1704,7 +1723,6 @@ namespace MyanmarSpellChecker.ExcelAddIn
                     }
                 }
                 _scannerToolkit.RefreshVisualUnderlinesForActiveWorkbook();
-                var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
                 ctrl?.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
                 ctrl?.ShowToastBanner(UiLocalizer.Pick(
                     $"✓ Added \"{item.Issue.OriginalText}\" to your Personal Dictionary (Word + Excel).",
