@@ -43,6 +43,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
         private readonly Color _accentColor;
         private readonly Color _borderColor = Color.FromArgb(190, 202, 220);
+        private readonly Panel _scrollHost;
+        private readonly TableLayoutPanel _root;
+        private readonly TableLayoutPanel _footerGrid;
         private bool _closingProgrammatically;
         private Rectangle? _lastAnchorRect;
         private Rectangle? _currentScreenBounds;
@@ -93,7 +96,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             int minH = UiFontCache.ScaleLogicalPxForDpi(dpi, 118);
             Rectangle workArea = Screen.FromPoint(Cursor.Position).WorkingArea;
             int maxW = Math.Min(UiFontCache.ScaleLogicalPxForDpi(dpi, 480), Math.Max(minW, workArea.Width - 24));
-            int maxH = Math.Min(UiFontCache.ScaleLogicalPxForDpi(dpi, 760), Math.Max(minH, workArea.Height - 24));
+            int maxH = Math.Min(UiFontCache.ScaleLogicalPxForDpi(dpi, 680), Math.Max(minH, workArea.Height - 28));
             int padH = UiFontCache.ScaleLogicalPxForDpi(dpi, 14);
             int padTop = UiFontCache.ScaleLogicalPxForDpi(dpi, 13);
             int padBot = UiFontCache.ScaleLogicalPxForDpi(dpi, 12);
@@ -108,17 +111,25 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             StartPosition = FormStartPosition.Manual;
             BackColor = Color.White;
             Font = UiFontCache.GetMyanmar(9.5F, FontStyle.Regular);
-            AutoSize = true;
-            AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            AutoSize = false;
             MinimumSize = new Size(minW, minH);
             MaximumSize = new Size(maxW, maxH);
             Padding = new Padding(padH, padTop, padH, padBot);
 
-            int innerWrapWidth = Math.Max(UiFontCache.ScaleLogicalPxForDpi(dpi, 260), maxW - padH * 2 - UiFontCache.ScaleLogicalPxForDpi(dpi, 12));
+            int innerWrapWidth = Math.Max(UiFontCache.ScaleLogicalPxForDpi(dpi, 260), maxW - padH * 2 - SystemInformation.VerticalScrollBarWidth - UiFontCache.ScaleLogicalPxForDpi(dpi, 6));
+
+            _scrollHost = new Panel
+            {
+                Dock = DockStyle.Fill,
+                AutoScroll = true,
+                BackColor = Color.White,
+                Margin = new Padding(0),
+                Padding = new Padding(0)
+            };
 
             var root = new TableLayoutPanel
             {
-                Dock = DockStyle.Fill,
+                Dock = DockStyle.Top,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 ColumnCount = 1,
@@ -126,6 +137,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Margin = new Padding(0),
                 Padding = new Padding(0)
             };
+            _root = root;
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
 
             int row = 0;
@@ -221,9 +233,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             // 2. Highlighted Original -> Best Replacement Callout Banner
             SuggestionCandidate? topCand = issue.Suggestions.Count > 0 ? issue.Suggestions[0] : null;
+            string visOrig = issue.FormatVisualOriginalText(topCand?.Replacement);
             string diffHeader = topCand != null
-                ? $"\"{issue.OriginalText}\"   ➔   \"{topCand.Replacement}\""
-                : UiLocalizer.Pick($"Original: \"{issue.OriginalText}\"", $"မူရင်းစာသား: \"{issue.OriginalText}\"");
+                ? $"\"{visOrig}\"   ➔   \"{topCand.Replacement}\""
+                : UiLocalizer.Pick($"Original: \"{visOrig}\"", $"မူရင်းစာသား: \"{visOrig}\"");
 
             Color diffBg = isReviewNeeded
                 ? Color.FromArgb(254, 249, 195)
@@ -470,17 +483,20 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 root.Controls.Add(lblDetailBox, 0, row++);
             }
 
-            // 6. Bottom Footer Row (Ignore [I] | +Add Word [D] | Close [Esc])
+            // 6. Pinned Bottom Footer Row (Ignore [I] | +Add Word [D] | Close [Esc])
             bool showAddDict = issue.CanAddToCustomDictionary && onAddToDictionary != null;
             var footerGrid = new TableLayoutPanel
             {
-                Dock = DockStyle.Top,
+                Dock = DockStyle.Bottom,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 ColumnCount = showAddDict ? 3 : 2,
                 RowCount = 1,
-                Margin = new Padding(0, 2, 0, 0)
+                BackColor = Color.White,
+                Margin = new Padding(0),
+                Padding = new Padding(0, 6, 0, 0)
             };
+            _footerGrid = footerGrid;
             if (showAddDict)
             {
                 footerGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35F));
@@ -540,10 +556,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 footerGrid.Controls.Add(btnClose, 1, 0);
             }
 
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.Controls.Add(footerGrid, 0, row++);
-
-            Controls.Add(root);
+            _scrollHost.Controls.Add(root);
+            Controls.Add(_scrollHost);
+            Controls.Add(footerGrid);
             UiFontCache.DisableMnemonicsRecursive(this);
 
             Deactivate += (s, e) => ClosePopupSafely();
@@ -644,6 +659,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         {
             _lastAnchorRect = cellScreenRect;
             Point targetPt = ComputePopupLocation(cellScreenRect, out int popupW, out int popupH);
+            Size = new Size(popupW, popupH);
             Location = targetPt;
             _currentScreenBounds = new Rectangle(targetPt.X, targetPt.Y, popupW, popupH);
 
@@ -671,9 +687,17 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private Point ComputePopupLocation(Rectangle? cellScreenRect, out int popupW, out int popupH)
         {
             PerformLayout();
-            Size measured = GetPreferredSize(new Size(MaximumSize.Width, 0));
-            popupW = Math.Max(MinimumSize.Width, Math.Min(MaximumSize.Width, measured.Width));
-            popupH = Math.Max(MinimumSize.Height, Math.Min(MaximumSize.Height, measured.Height));
+            int contentAvailW = Math.Max(180, MaximumSize.Width - Padding.Horizontal);
+            Size rootPref = _root.GetPreferredSize(new Size(contentAvailW, 0));
+            Size footerPref = _footerGrid.GetPreferredSize(new Size(contentAvailW, 0));
+            int desiredW = Math.Max(rootPref.Width, footerPref.Width) + Padding.Horizontal + 6;
+            int desiredH = rootPref.Height + footerPref.Height + Padding.Vertical + 6;
+            if (desiredH > MaximumSize.Height)
+            {
+                desiredW += SystemInformation.VerticalScrollBarWidth;
+            }
+            popupW = Math.Max(MinimumSize.Width, Math.Min(MaximumSize.Width, desiredW));
+            popupH = Math.Max(MinimumSize.Height, Math.Min(MaximumSize.Height, desiredH));
 
             Point refPt;
             int x;

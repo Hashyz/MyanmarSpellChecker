@@ -1767,5 +1767,36 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.DoesNotContain("EnforceActiveWindowStartupPaneWidth(forceIfNarrow: true)", wordAddIn);
             Assert.DoesNotContain("EnforceActiveWindowStartupPaneWidth(forceIfNarrow: true)", excelAddIn);
         }
+
+        [Fact]
+        public void V53B_SmallScreenScrollableDialogsAndPopups_Gate()
+        {
+            string repoRoot = TestPaths.RepoRoot;
+            string wordAbout = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "LicenseActivationForm.cs"));
+            string excelAbout = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "LicenseActivationForm.cs"));
+            string wordPopup = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "MyanmarQuickFixPopup.cs"));
+            string excelPopup = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "ExcelQuickFixPopup.cs"));
+
+            foreach (string aboutSrc in new[] { wordAbout, excelAbout })
+            {
+                Assert.Contains("AutoScroll = true", aboutSrc);
+                Assert.Contains("FormBorderStyle.Sizable", aboutSrc);
+                Assert.Contains("DockStyle.Bottom", aboutSrc);
+                Assert.DoesNotContain("FormBorderStyle.FixedDialog", aboutSrc);
+                // Mandatory GPLv3 Section 7(b) attribution preservation
+                Assert.Contains("Htet Yar Zar (ထက်ရာဇာ)", aboutSrc);
+                Assert.Contains("Kyaukse University", aboutSrc);
+                Assert.Contains("U Moe Kyaw Thu", aboutSrc);
+                Assert.Contains("Hein Htet Zaw", aboutSrc);
+                Assert.Contains("Thu Reain Khant", aboutSrc);
+            }
+
+            foreach (string popupSrc in new[] { wordPopup, excelPopup })
+            {
+                Assert.Contains("AutoScroll = true", popupSrc);
+                Assert.Contains("DockStyle.Bottom", popupSrc);
+                Assert.Contains("_scrollHost", popupSrc);
+            }
+        }
     }
 }
