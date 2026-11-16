@@ -987,6 +987,11 @@ namespace MyanmarSpellChecker.ExcelAddIn
         private void CycleEcoModeFromUi()
         {
             EcoModePreference next = EcoPerformanceGovernor.CyclePreference(EcoPerformanceGovernor.CurrentPreference);
+            ApplyEcoModePreferenceFromUi(next);
+        }
+
+        private void ApplyEcoModePreferenceFromUi(EcoModePreference next)
+        {
             EcoPerformanceGovernor.CurrentPreference = next;
             EcoPerformanceGovernor.SavePreference(_ecoModeConfigPath, next);
 
@@ -1005,14 +1010,14 @@ namespace MyanmarSpellChecker.ExcelAddIn
             string toast = next switch
             {
                 EcoModePreference.AlwaysOn => UiLocalizer.Pick(
-                    "⚡ Eco Mode set to Always On — minimizes CPU & RAM usage for smooth spreadsheet editing.",
-                    "⚡ ပေါ့ပါးစနစ် (Eco Mode) ကို အမြဲဖွင့်ထားပါပြီ — CPU နှင့် RAM အနည်းဆုံးဖြင့် စက်မလေးစေဘဲ စစ်ဆေးပေးပါမည်။"),
+                    "● Eco Mode: ON — minimizes CPU & RAM usage for smooth spreadsheet editing.",
+                    "● ပေါ့ပါးစနစ် (Eco Mode: ON) — CPU နှင့် RAM အနည်းဆုံးဖြင့် စက်မလေးစေဘဲ စစ်ဆေးပေးပါမည်။"),
                 EcoModePreference.Off => UiLocalizer.Pick(
-                    "⚡ Eco Mode turned Off — running at maximum multi-core performance.",
-                    "⚡ ပေါ့ပါးစနစ်ကို ပိတ်ထားပါပြီ — စွမ်းဆောင်ရည်အပြည့်ဖြင့် စစ်ဆေးပါမည်။"),
+                    "○ Eco Mode: OFF (Fast Mode) — running at maximum multi-core performance.",
+                    "○ ပေါ့ပါးစနစ် ပိတ်ထားသည် (Fast Mode) — စွမ်းဆောင်ရည်အပြည့်ဖြင့် စစ်ဆေးပါမည်။"),
                 _ => UiLocalizer.Pick(
-                    "⚡ Eco Mode set to Auto — automatically protects low-spec PCs and large workbooks.",
-                    "⚡ ပေါ့ပါးစနစ် (Auto) အသင့်ရှိပါပြီ — စက်အားနည်းလျှင် သို့မဟုတ် အကွက်များလျှင် အလိုအလျောက် ပေါ့ပါးစွာ စစ်ဆေးပေးပါမည်။")
+                    "◐ Eco Mode: Auto — smartly balances fast scanning with large-workbook protection.",
+                    "◐ ပေါ့ပါးစနစ် (Auto) — စက်အားနည်းလျှင် သို့မဟုတ် အကွက်များလျှင် အလိုအလျောက် ချိန်ညှိစစ်ဆေးပေးပါမည်။")
             };
             ctrl?.ShowToastBanner(toast);
         }
@@ -1023,6 +1028,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
             ctrl.RequestCancelScan += () => _scannerToolkit?.CancelUserScan();
             ctrl.RequestToggleLanguage += ToggleUiLanguageFromUi;
             ctrl.RequestCycleEcoMode += CycleEcoModeFromUi;
+            ctrl.RequestSetEcoMode += ApplyEcoModePreferenceFromUi;
             ctrl.RequestFixAllIssues += ExecuteFixAllInActiveScope;
             ctrl.RequestUndoLastAction += ExecuteUndoLastAction;
             ctrl.RequestApplyDockedBatch += approved => ApplyExcelApprovedBatch(ctrl, approved, GetExcelFilterScopeLabel(_activeReviewFilterMode));

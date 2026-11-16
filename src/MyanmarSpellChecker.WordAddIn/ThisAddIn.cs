@@ -358,6 +358,13 @@ namespace MyanmarSpellChecker.WordAddIn
                 ctrl?.UpdateScanProgress(pct, msg);
             };
             _documentScanner.EcoActiveChanged += ecoActive => SyncEcoStateAcrossTaskPanes(ecoActive);
+            _documentScanner.ScanViewportPreviewReady += (doc, previewItems) =>
+            {
+                if (!ReferenceEquals(_wordApp?.ActiveDocument, doc))
+                    return;
+                var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
+                ctrl?.RenderViewportPreviewDuringScan(previewItems);
+            };
             _documentScanner.ScanCompleted += (doc, items) =>
             {
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
@@ -982,6 +989,11 @@ namespace MyanmarSpellChecker.WordAddIn
         private void CycleEcoModeFromUi()
         {
             EcoModePreference next = EcoPerformanceGovernor.CyclePreference(EcoPerformanceGovernor.CurrentPreference);
+            ApplyEcoModePreferenceFromUi(next);
+        }
+
+        private void ApplyEcoModePreferenceFromUi(EcoModePreference next)
+        {
             EcoPerformanceGovernor.CurrentPreference = next;
             EcoPerformanceGovernor.SavePreference(_ecoModeConfigPath, next);
 
@@ -1000,14 +1012,14 @@ namespace MyanmarSpellChecker.WordAddIn
             string toast = next switch
             {
                 EcoModePreference.AlwaysOn => UiLocalizer.Pick(
-                    "⚡ Eco Mode set to Always On — low CPU & RAM footprint active.",
-                    "⚡ ပေါ့ပါးစနစ် (Eco Mode) ကို အမြဲဖွင့်ထားပါပြီ — CPU နှင့် RAM အနည်းဆုံးဖြင့် စက်မလေးစေဘဲ စစ်ဆေးပေးပါမည်။"),
+                    "● Eco Mode: ON — low CPU & RAM footprint active.",
+                    "● ပေါ့ပါးစနစ် (Eco Mode: ON) — CPU နှင့် RAM အနည်းဆုံးဖြင့် စက်မလေးစေဘဲ စစ်ဆေးပေးပါမည်။"),
                 EcoModePreference.Off => UiLocalizer.Pick(
-                    "⚡ Eco Mode turned Off — full-speed scanning active.",
-                    "⚡ ပေါ့ပါးစနစ်ကို ပိတ်ထားပါပြီ — စွမ်းဆောင်ရည်အပြည့်ဖြင့် စစ်ဆေးပါမည်။"),
+                    "○ Eco Mode: OFF (Fast Mode) — full multi-core speed active.",
+                    "○ ပေါ့ပါးစနစ် ပိတ်ထားသည် (Fast Mode) — စွမ်းဆောင်ရည်အပြည့်ဖြင့် စစ်ဆေးပါမည်။"),
                 _ => UiLocalizer.Pick(
-                    "⚡ Eco Mode set to Auto — automatically protects low-spec PCs and large documents.",
-                    "⚡ ပေါ့ပါးစနစ် (Auto) အသင့်ရှိပါပြီ — စက်အားနည်းလျှင် သို့မဟုတ် စာရွက်များလျှင် အလိုအလျောက် ပေါ့ပါးစွာ စစ်ဆေးပေးပါမည်။")
+                    "◐ Eco Mode: Auto — smartly balances fast scanning with large-file protection.",
+                    "◐ ပေါ့ပါးစနစ် (Auto) — စက်အားနည်းလျှင် သို့မဟုတ် စာရွက်များလျှင် အလိုအလျောက် ချိန်ညှိစစ်ဆေးပေးပါမည်။")
             };
             ctrl?.ShowToastBanner(toast);
         }
@@ -1052,6 +1064,7 @@ namespace MyanmarSpellChecker.WordAddIn
             };
             ctrl.RequestToggleLanguage += ToggleUiLanguageFromUi;
             ctrl.RequestCycleEcoMode += CycleEcoModeFromUi;
+            ctrl.RequestSetEcoMode += ApplyEcoModePreferenceFromUi;
             ctrl.RequestFixAllIssues += ExecuteFixAllInActiveDocument;
             ctrl.RequestUndoLastAction += ExecuteWordUndoLastAction;
             ctrl.RequestApplyDockedBatch += approved => ApplyWordApprovedBatch(_wordApp?.ActiveDocument, ctrl, approved);

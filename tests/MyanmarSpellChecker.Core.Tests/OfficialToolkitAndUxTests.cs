@@ -1798,5 +1798,54 @@ namespace MyanmarSpellChecker.Core.Tests
                 Assert.Contains("_scrollHost", popupSrc);
             }
         }
+
+        [Fact]
+        public void V54_FastWindowedWordBlockScanner_EcoDropdownClarity_AndNoPrematurePassedGate()
+        {
+            Assert.Equal(25_000, MyanmarSpellChecker.Core.Performance.EcoPerformanceGovernor.DefaultWordTrueCountIssueCap);
+
+            var prevLang = MyanmarSpellChecker.Core.Localization.UiLocalizer.CurrentLanguage;
+            try
+            {
+                MyanmarSpellChecker.Core.Localization.UiLocalizer.CurrentLanguage = MyanmarSpellChecker.Core.Localization.UiLanguage.English;
+                Assert.Equal("● Eco: On ▾", MyanmarSpellChecker.Core.Performance.EcoPerformanceGovernor.FormatBadgeLabel(
+                    MyanmarSpellChecker.Core.Performance.EcoModePreference.AlwaysOn, true));
+                Assert.Equal("● Eco: Auto✓ ▾", MyanmarSpellChecker.Core.Performance.EcoPerformanceGovernor.FormatBadgeLabel(
+                    MyanmarSpellChecker.Core.Performance.EcoModePreference.Auto, true));
+                Assert.Equal("◐ Eco: Auto ▾", MyanmarSpellChecker.Core.Performance.EcoPerformanceGovernor.FormatBadgeLabel(
+                    MyanmarSpellChecker.Core.Performance.EcoModePreference.Auto, false));
+                Assert.Equal("○ Eco: Off ▾", MyanmarSpellChecker.Core.Performance.EcoPerformanceGovernor.FormatBadgeLabel(
+                    MyanmarSpellChecker.Core.Performance.EcoModePreference.Off, false));
+            }
+            finally
+            {
+                MyanmarSpellChecker.Core.Localization.UiLocalizer.CurrentLanguage = prevLang;
+            }
+
+            string repoRoot = TestPaths.RepoRoot;
+            string scannerSrc = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "Interop", "StaDocumentScanner.cs"));
+            string wordPane = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "ProofingTaskPaneControl.cs"));
+            string wordPaneTab = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "ProofingTaskPaneControl.ProofingTab.cs"));
+            string excelPane = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "ExcelProofingTaskPaneControl.cs"));
+            string excelPaneTab = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "ExcelProofingTaskPaneControl.ProofingTab.cs"));
+
+            // 1. O(N²) Paragraphs[pIndex] whole-story indexer eliminated in favor of 4KB Windowed Block Scanner + Instant Viewport Preview
+            Assert.Contains("BlockWindowChars = 4096", scannerSrc);
+            Assert.Contains("CurrentBlockCursorOffset", scannerSrc);
+            Assert.Contains("TryEmitInstantVisiblePagePreview", scannerSrc);
+            Assert.Contains("ScanViewportPreviewReady", scannerSrc);
+            Assert.Contains("DefaultWordTrueCountIssueCap", scannerSrc);
+            Assert.DoesNotContain("job.CurrentParagraphs = job.CurrentStoryRange.Paragraphs", scannerSrc);
+
+            // 2. 3-choice Eco Mode dropdown + honest Scanning-in-Progress empty-state card
+            Assert.Contains("ShowEcoModeDropdownMenu", wordPane);
+            Assert.Contains("RequestSetEcoMode", wordPane);
+            Assert.Contains("RenderViewportPreviewDuringScan", wordPane);
+            Assert.Contains("Scanning Document in Progress", wordPaneTab);
+
+            Assert.Contains("ShowExcelEcoModeDropdownMenu", excelPane);
+            Assert.Contains("RequestSetEcoMode", excelPane);
+            Assert.Contains("Scanning Spreadsheet Cells", excelPaneTab);
+        }
     }
 }

@@ -88,9 +88,12 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             public int StoryTypeIndex { get; set; }
             public int StoryHopCount { get; set; }
             public Word.Range? CurrentStoryRange { get; set; }
-            public Word.Paragraphs? CurrentParagraphs { get; set; }
-            public int CurrentParagraphCount { get; set; }
-            public int NextParagraphOneBased { get; set; } = 1;
+            public int CurrentStoryStartOffset { get; set; }
+            public int CurrentStoryEndOffset { get; set; }
+            public int CurrentBlockCursorOffset { get; set; }
+            public int LastCollectedParaEndOffset { get; set; } = -1;
+            public int RunningParagraphNumber { get; set; } = 1;
+            public bool BlockWindowModeInitialized { get; set; }
             public bool ShapesEnumerated { get; set; }
             public List<Word.Range> PendingShapeTextRanges { get; } = new List<Word.Range>();
             public int PendingShapeIndex { get; set; }
@@ -164,6 +167,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         public event Action<Word.Document>? ScanStarted;
         public event Action<int, string>? ScanProgressChanged;
         public event Action<bool>? EcoActiveChanged;
+        public event Action<Word.Document, IReadOnlyList<DocumentProofingItem>>? ScanViewportPreviewReady;
         public event Action<Word.Document, IReadOnlyList<DocumentProofingItem>>? ScanCompleted;
         public event Action? UserTypingDetected;
 
@@ -1034,6 +1038,10 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         {
             try
             {
+                // Never interrupt or overwrite scanning state while a full-document snapshot/underline job is actively running
+                if (_activeSnapshotJob != null || _activeUnderlineJob != null)
+                    return;
+
                 Word.Document? doc = _app.ActiveDocument;
                 Word.Selection? sel = _app.Selection;
                 if (doc == null || sel == null || sel.Range == null)
@@ -1520,7 +1528,13 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 UpdateEcoActiveState(openBudgets.IsEcoActive);
 
                 ScanStarted?.Invoke(doc);
-                ScanProgressChanged?.Invoke(5, UiLocalizer.Pick("⏳ Reading document text...", "⏳ စာသားဖတ်ယူနေသည်..."));
+                ScanProgressChanged?.Invoke(5, UiLocalizer.Pick("Reading document text...", "စာသားဖတ်ယူနေသည်..."));
+
+                // Instant <0.3s visible-page preview on large documents when user clicks [Scan Doc] so nearby issues appear right away
+                if (!allowSmartPartialAutoScan && docCharLen >= 20_000)
+                {
+                    TryEmitInstantVisiblePagePreview(doc, generation, Math.Max(0, caretOffset), docCharLen, openBudgets);
+                }
 
                 // Always yield one WinForms message-pump turn via _snapshotChunkTimer so Task Pane progress UI & [Stop] button
                 // complete layout and WM_PAINT before any COM StoryRanges / Paragraphs calls execute on STA!
@@ -1536,12 +1550,144 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 };
 
                 _activeSnapshotJob = snapshotJob;
+                _snapshotChunkTimer.Interval = allowSmartPartialAutoScan ? 24 : 15;
                 _snapshotChunkTimer.Start();
             }
             catch
             {
                 // Ignore
             }
+        }
+
+        private void TryEmitInstantVisiblePagePreview(
+            Word.Document doc,
+            int generation,
+            int caretOffset,
+            int docCharLen,
+            EcoRuntimeBudgets budgets)
+        {
+            try
+            {
+                int winStart = Math.Max(0, caretOffset - 2_500);
+                int winEnd = Math.Min(docCharLen, winStart + 7_500);
+                if (winEnd <= winStart)
+                    return;
+
+                Word.Range winRange = doc.Range(winStart, winEnd);
+                string winProbe = winRange.Text ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(winProbe) || !ContainsMyanmarOrZawgyiCandidate(winProbe))
+                    return;
+
+                Word.Paragraphs paras = winRange.Paragraphs;
+                var previewSnaps = new List<ParagraphSnapshot>(32);
+                int pIdx = 0;
+                foreach (Word.Paragraph p in paras)
+                {
+                    pIdx++;
+                    if (pIdx > 45)
+                        break;
+                    Word.Range? pr = null;
+                    try { pr = p.Range; } catch { continue; }
+                    if (pr == null) continue;
+                    string raw = pr.Text ?? string.Empty;
+                    if (!ContainsMyanmarOrZawgyiCandidate(raw))
+                        continue;
+                    string clean = CleanWordControlChars(raw);
+                    if (string.IsNullOrWhiteSpace(clean))
+                        continue;
+                    bool inTbl = raw.IndexOf('\a') >= 0;
+                    previewSnaps.Add(new ParagraphSnapshot
+                    {
+                        StoryType = Word.WdStoryType.wdMainTextStory,
+                        StorySlotId = 0,
+                        StoryContainerRange = null,
+                        StoryName = GetFriendlyStoryName(Word.WdStoryType.wdMainTextStory, inTbl),
+                        ParagraphIndex = pIdx,
+                        ParagraphRange = pr,
+                        StartOffset = pr.Start,
+                        EndOffset = pr.End,
+                        RawText = clean,
+                        NeedsNlpCheck = true
+                    });
+                }
+
+                if (previewSnaps.Count == 0)
+                    return;
+
+                Task.Run(() =>
+                {
+                    if (generation != Volatile.Read(ref _scanGeneration))
+                        return;
+
+                    var analyzedPreview = new List<(ParagraphSnapshot Snap, List<ProofingIssue> Issues)>(previewSnaps.Count);
+                    int issueSum = 0;
+                    for (int i = 0; i < previewSnaps.Count; i++)
+                    {
+                        if (generation != Volatile.Read(ref _scanGeneration))
+                            return;
+                        var found = CheckTextCrashSafe(previewSnaps[i].RawText);
+                        if (found.Count > 0)
+                        {
+                            analyzedPreview.Add((previewSnaps[i], found));
+                            issueSum += found.Count;
+                        }
+                    }
+
+                    if (issueSum == 0 || generation != Volatile.Read(ref _scanGeneration))
+                        return;
+
+                    SafeBeginInvokeOnSta(() =>
+                    {
+                        if (generation != Volatile.Read(ref _scanGeneration))
+                            return;
+                        // Only emit preview if the full scan hasn't already completed
+                        if (_activeSnapshotJob == null && _activeUnderlineJob == null &&
+                            Volatile.Read(ref _activeBackgroundNlpGeneration) != generation)
+                        {
+                            return;
+                        }
+
+                        try
+                        {
+                            var previewItems = new List<DocumentProofingItem>(issueSum);
+                            int previewUnderlineBudget = Math.Min(24, budgets.WordVisualUnderlineCap);
+                            _underlineManager.ExecuteInSharedProofingBatch(doc, () =>
+                            {
+                                foreach (var (snap, issues) in analyzedPreview)
+                                {
+                                    if (snap.ParagraphRange == null)
+                                        continue;
+                                    bool canUl = _underlineManager.GetTrackedCountForDocument(doc) < previewUnderlineBudget;
+                                    var bound = _underlineManager.BindAndUnderlineRangeIssues(
+                                        doc,
+                                        snap.ParagraphRange,
+                                        snap.StoryName,
+                                        snap.ParagraphIndex,
+                                        issues,
+                                        insideSharedBatch: true,
+                                        applyVisualUnderline: canUl,
+                                        preloadedCleanText: snap.RawText,
+                                        storyType: snap.StoryType,
+                                        maxLiveUnderlines: previewUnderlineBudget,
+                                        allowResidualWavyScrub: false,
+                                        storySlotId: snap.StorySlotId,
+                                        storyContainerRange: snap.StoryContainerRange);
+                                    if (bound.Count > 0)
+                                        previewItems.AddRange(bound);
+                                }
+                            });
+
+                            if (previewItems.Count > 0)
+                            {
+                                _documentIssuesCache[doc] = previewItems;
+                                ScanViewportPreviewReady?.Invoke(doc, previewItems);
+                            }
+                        }
+                        catch { }
+                    });
+                });
+            }
+            catch { }
         }
 
         private bool TryStartSmartPartialViewportScan(
@@ -1648,7 +1794,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     }
                 }
 
-                if (ProcessSnapshotCollectionSlice(job, MaxSnapshotChunkWallMs))
+                int sliceBudgetMs = job.AllowSmartPartialAutoScan ? MaxSnapshotChunkWallMs : 18;
+                if (ProcessSnapshotCollectionSlice(job, sliceBudgetMs))
                 {
                     _snapshotChunkTimer.Stop();
                     _activeSnapshotJob = null;
@@ -1659,10 +1806,19 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     }
                     LaunchBackgroundNlpAndUnderline(job.Document, job.Generation, job.Snapshots, job.CollectedContainers, job.CaretFocusOffset, wasPartialAutoScan: false, docChars);
                 }
-                else if (job.CurrentParagraphCount > 0)
+                else
                 {
-                    int pct = Math.Min(18, 4 + (job.NextParagraphOneBased * 14) / Math.Max(1, job.CurrentParagraphCount));
-                    ScanProgressChanged?.Invoke(pct, UiLocalizer.Pick($"⏳ Reading paragraphs... ({job.Snapshots.Count:N0})", $"⏳ စာပိုဒ်များ ဖတ်ယူနေသည်... ({job.Snapshots.Count:N0})"));
+                    int totalChars = Math.Max(1, job.TotalDocumentChars);
+                    int readChars = job.StoryTypeIndex == 0
+                        ? Math.Min(totalChars, Math.Max(0, job.CurrentBlockCursorOffset))
+                        : totalChars;
+                    int pct = Math.Min(24, 5 + (int)((long)readChars * 19L / totalChars));
+                    int readDispPct = Math.Min(99, (int)((long)readChars * 100L / totalChars));
+                    ScanProgressChanged?.Invoke(
+                        pct,
+                        UiLocalizer.Pick(
+                            $"Reading document ({readDispPct}% • {job.Snapshots.Count:N0} blocks)",
+                            $"စာသားဖတ်ယူနေသည် ({readDispPct}% • {job.Snapshots.Count:N0} ပိုဒ်)"));
                 }
             }
             catch
@@ -1713,8 +1869,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
         private static void AdvanceNextStoryRangeSafe(PendingSnapshotCollectionJob job, Word.WdStoryType storyType)
         {
-            job.CurrentParagraphs = null;
-            job.NextParagraphOneBased = 1;
+            job.BlockWindowModeInitialized = false;
+            job.LastCollectedParaEndOffset = -1;
+            job.RunningParagraphNumber = 1;
 
             if (job.CurrentContainerIsShape || job.CurrentStoryRange == null || job.StoryHopCount >= MaxStoryChainHops)
             {
@@ -1824,6 +1981,10 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             }
             catch { }
 
+            // Only probe per-section Header/Footer Shapes when the document actually contains header/footer story containers
+            if (job.CollectedContainers.Count == 0)
+                return;
+
             try
             {
                 Word.Sections sections = job.Document.Sections;
@@ -1912,8 +2073,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     }
 
                     job.StoryHopCount = 0;
-                    job.CurrentParagraphs = null;
-                    job.NextParagraphOneBased = 1;
+                    job.BlockWindowModeInitialized = false;
+                    job.LastCollectedParaEndOffset = -1;
+                    job.RunningParagraphNumber = 1;
                     job.CurrentStorySlotId = RegisterStoryContainerSlot(job, storyType, job.CurrentStoryRange);
                 }
 
@@ -1940,8 +2102,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     Word.WdStoryType st = Word.WdStoryType.wdTextFrameStory;
                     try { st = shapeRange.StoryType; } catch { }
                     job.CurrentStoryRange = shapeRange;
-                    job.CurrentParagraphs = null;
-                    job.NextParagraphOneBased = 1;
+                    job.BlockWindowModeInitialized = false;
+                    job.LastCollectedParaEndOffset = -1;
+                    job.RunningParagraphNumber = 1;
                     job.CurrentStorySlotId = RegisterStoryContainerSlot(job, st, shapeRange);
                 }
 
@@ -1963,24 +2126,25 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             Stopwatch sw,
             int budgetMs)
         {
+            const int BlockWindowChars = 4096;
+
             while (job.CurrentStoryRange != null)
             {
                 Word.Range? containerRef = job.CurrentStorySlotId == 0 ? null : job.CurrentStoryRange;
 
-                // Tier 1: Ultra-Fast Whole-Story Single-Read Path (zero per-paragraph COM calls!)
-                if (job.CurrentParagraphs == null)
+                if (!job.BlockWindowModeInitialized)
                 {
+                    // Tier 1: Ultra-Fast Whole-Story Single-Read Path (zero per-paragraph COM calls!)
                     if (TryCollectPlainStoryFast(job.CurrentStoryRange, storyType, job.CurrentStorySlotId, containerRef, job.CurrentContainerIsShape, job.Snapshots))
                     {
                         AdvanceNextStoryRangeSafe(job, storyType);
-
                         if (sw.ElapsedMilliseconds >= budgetMs)
                             return false;
                         continue;
                     }
 
                     // Whole-story non-Myanmar fast skip before Tier 2:
-                    // Avoids enumerating header/footer/shape Paragraphs when containers hold floating graphics or English text!
+                    // Avoids enumerating header/footer/shape/body Paragraphs when containers hold only English, numbers, or graphics!
                     try
                     {
                         string storyProbe = job.CurrentStoryRange.Text ?? string.Empty;
@@ -1996,12 +2160,16 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     }
                     catch { }
 
-                    // Tier 2: Story contains Myanmar text plus Tables, Hyperlinks, Fields, Footnotes, or Shapes — prepare chunked indexing
+                    // Tier 2: O(1) 4KB Windowed Block Scanner — completely eliminates Word's O(N²) Paragraphs[pIndex] slowdown
+                    // on 5,000–50,000+ paragraph/table-cell documents!
                     try
                     {
-                        job.CurrentParagraphs = job.CurrentStoryRange.Paragraphs;
-                        job.CurrentParagraphCount = job.CurrentParagraphs.Count;
-                        job.NextParagraphOneBased = 1;
+                        job.CurrentStoryStartOffset = job.CurrentStoryRange.Start;
+                        job.CurrentStoryEndOffset = job.CurrentStoryRange.End;
+                        job.CurrentBlockCursorOffset = job.CurrentStoryStartOffset;
+                        job.LastCollectedParaEndOffset = job.CurrentStoryStartOffset;
+                        job.RunningParagraphNumber = 1;
+                        job.BlockWindowModeInitialized = true;
                     }
                     catch
                     {
@@ -2010,41 +2178,175 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     }
                 }
 
-                Word.Paragraphs paras = job.CurrentParagraphs!;
-                while (job.NextParagraphOneBased <= job.CurrentParagraphCount)
+                bool docHasPriorUnderlines = _underlineManager.HasEverAppliedWavyUnderlines(job.Document);
+
+                while (job.CurrentBlockCursorOffset < job.CurrentStoryEndOffset)
                 {
-                    int pIndex = job.NextParagraphOneBased++;
+                    int winStart = job.CurrentBlockCursorOffset;
+                    int rawWinEnd = Math.Min(job.CurrentStoryEndOffset, winStart + BlockWindowChars);
+                    if (rawWinEnd <= winStart)
+                    {
+                        job.CurrentBlockCursorOffset = job.CurrentStoryEndOffset;
+                        break;
+                    }
+
+                    Word.Range? winRange = null;
                     try
                     {
-                        Word.Range r = paras[pIndex].Range;
-                        string rawBeforeClean = r.Text ?? string.Empty;
-                        string raw = CleanWordControlChars(rawBeforeClean);
-                        if (!string.IsNullOrWhiteSpace(raw))
+                        if (job.CurrentStorySlotId == 0 && !job.CurrentContainerIsShape)
                         {
-                            bool hasMyanmar = ContainsMyanmarOrZawgyiCandidate(raw);
-                            bool inTable = rawBeforeClean.IndexOf('\a') >= 0;
+                            winRange = job.Document.Range(winStart, rawWinEnd);
+                        }
+                        else
+                        {
+                            winRange = job.CurrentStoryRange.Duplicate;
+                            winRange.SetRange(winStart, rawWinEnd);
+                        }
+                    }
+                    catch
+                    {
+                        job.CurrentBlockCursorOffset = rawWinEnd;
+                        continue;
+                    }
 
-                            job.Snapshots.Add(new ParagraphSnapshot
+                    string winText = string.Empty;
+                    try { winText = winRange.Text ?? string.Empty; } catch { }
+
+                    // Fast Path 2A: Plain 4KB prose window (1:1 CP alignment and no table cell markers inside this window)
+                    // Splits paragraphs in pure C# (~0.05ms) even if another page of the document contains tables or logos!
+                    if (winText.Length > 0 &&
+                        (rawWinEnd - winStart) == winText.Length &&
+                        winText.IndexOf('\a') < 0)
+                    {
+                        int safeLen = rawWinEnd >= job.CurrentStoryEndOffset
+                            ? winText.Length
+                            : winText.LastIndexOf('\r') + 1;
+
+                        if (safeLen > 0)
+                        {
+                            string storyLabel = GetFriendlyStoryName(storyType, inTable: false, job.CurrentContainerIsShape);
+                            int segStart = 0;
+                            for (int i = 0; i < safeLen; i++)
                             {
-                                StoryType = storyType,
-                                StorySlotId = job.CurrentStorySlotId,
-                                StoryContainerRange = containerRef,
-                                StoryName = GetFriendlyStoryName(storyType, inTable, job.CurrentContainerIsShape),
-                                ParagraphIndex = pIndex,
-                                ParagraphRange = null, // Never pin thousands of live COM Range RCWs across threads!
-                                StartOffset = r.Start,
-                                EndOffset = r.End,
-                                RawText = raw,
-                                NeedsNlpCheck = hasMyanmar
-                            });
+                                if (winText[i] == '\r')
+                                {
+                                    int segEnd = i + 1;
+                                    AppendFastParagraphSlice(winText, winStart, segStart, segEnd, storyType, job.CurrentStorySlotId, containerRef, storyLabel, job.RunningParagraphNumber, job.Snapshots);
+                                    job.RunningParagraphNumber++;
+                                    segStart = segEnd;
+                                }
+                            }
+                            if (segStart < safeLen)
+                            {
+                                AppendFastParagraphSlice(winText, winStart, segStart, safeLen, storyType, job.CurrentStorySlotId, containerRef, storyLabel, job.RunningParagraphNumber, job.Snapshots);
+                                job.RunningParagraphNumber++;
+                            }
+
+                            job.CurrentBlockCursorOffset = winStart + safeLen;
+                            job.LastCollectedParaEndOffset = job.CurrentBlockCursorOffset;
+                            if (sw.ElapsedMilliseconds >= budgetMs)
+                                return false;
+                            continue;
+                        }
+                    }
+
+                    // Fast Path 2B: Non-Myanmar 4KB table/field window skip (skips 100+ English/number/empty cells in 1-2 COM calls!)
+                    bool windowHasTracked = docHasPriorUnderlines &&
+                        _underlineManager.HasTrackedInSpanForDocument(job.Document, winStart, rawWinEnd, job.CurrentStorySlotId);
+                    if (!windowHasTracked && !ContainsMyanmarOrZawgyiCandidate(winText))
+                    {
+                        if (rawWinEnd >= job.CurrentStoryEndOffset)
+                        {
+                            job.CurrentBlockCursorOffset = job.CurrentStoryEndOffset;
+                            break;
+                        }
+
+                        try
+                        {
+                            Word.Range tailProbe = (job.CurrentStorySlotId == 0 && !job.CurrentContainerIsShape)
+                                ? job.Document.Range(rawWinEnd, rawWinEnd)
+                                : job.CurrentStoryRange.Duplicate;
+                            if (job.CurrentStorySlotId != 0 || job.CurrentContainerIsShape)
+                                tailProbe.SetRange(rawWinEnd, rawWinEnd);
+
+                            Word.Range tailPara = tailProbe.Paragraphs[1].Range;
+                            int tailEnd = tailPara.End;
+                            string tailText = tailPara.Text ?? string.Empty;
+                            bool tailTracked = docHasPriorUnderlines &&
+                                _underlineManager.HasTrackedInSpanForDocument(job.Document, rawWinEnd, tailEnd, job.CurrentStorySlotId);
+                            if (tailEnd > winStart && !tailTracked && !ContainsMyanmarOrZawgyiCandidate(tailText))
+                            {
+                                for (int k = 0; k < winText.Length; k++)
+                                {
+                                    if (winText[k] == '\r')
+                                        job.RunningParagraphNumber++;
+                                }
+                                job.CurrentBlockCursorOffset = tailEnd;
+                                job.LastCollectedParaEndOffset = tailEnd;
+                                if (sw.ElapsedMilliseconds >= budgetMs)
+                                    return false;
+                                continue;
+                            }
+                        }
+                        catch { }
+                    }
+
+                    // Path 2C: Local 4KB forward IEnumerator walk (bounded to ~30-120 local paragraphs, O(1) per hop!)
+                    int maxParaEndSeen = rawWinEnd;
+                    try
+                    {
+                        Word.Paragraphs localParas = winRange.Paragraphs;
+                        foreach (Word.Paragraph para in localParas)
+                        {
+                            try
+                            {
+                                Word.Range r = para.Range;
+                                int pStart = r.Start;
+                                int pEnd = r.End;
+                                if (pEnd > maxParaEndSeen)
+                                    maxParaEndSeen = pEnd;
+
+                                if (pEnd <= job.LastCollectedParaEndOffset)
+                                    continue;
+
+                                int pNum = job.RunningParagraphNumber++;
+                                job.LastCollectedParaEndOffset = pEnd;
+
+                                string rawBeforeClean = r.Text ?? string.Empty;
+                                bool hasMyanmar = ContainsMyanmarOrZawgyiCandidate(rawBeforeClean);
+                                bool hasPriorInPara = docHasPriorUnderlines &&
+                                    _underlineManager.HasTrackedInSpanForDocument(job.Document, pStart, pEnd, job.CurrentStorySlotId);
+
+                                if (!hasMyanmar && !hasPriorInPara)
+                                    continue;
+
+                                string raw = CleanWordControlChars(rawBeforeClean);
+                                if (!string.IsNullOrWhiteSpace(raw))
+                                {
+                                    bool inTable = rawBeforeClean.IndexOf('\a') >= 0;
+                                    job.Snapshots.Add(new ParagraphSnapshot
+                                    {
+                                        StoryType = storyType,
+                                        StorySlotId = job.CurrentStorySlotId,
+                                        StoryContainerRange = containerRef,
+                                        StoryName = GetFriendlyStoryName(storyType, inTable, job.CurrentContainerIsShape),
+                                        ParagraphIndex = pNum,
+                                        ParagraphRange = null,
+                                        StartOffset = pStart,
+                                        EndOffset = pEnd,
+                                        RawText = raw,
+                                        NeedsNlpCheck = hasMyanmar
+                                    });
+                                }
+                            }
+                            catch { }
                         }
                     }
                     catch { }
 
-                    if ((pIndex & 7) == 0 && sw.ElapsedMilliseconds >= budgetMs)
-                    {
+                    job.CurrentBlockCursorOffset = Math.Max(winStart + 1, maxParaEndSeen);
+                    if (sw.ElapsedMilliseconds >= budgetMs)
                         return false;
-                    }
                 }
 
                 AdvanceNextStoryRangeSafe(job, storyType);
@@ -2243,22 +2545,36 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     int count = snapshots.Count;
                     bool isLargeFile = EcoPerformanceGovernor.IsLargeWordDocument(count, totalDocChars);
                     EcoRuntimeBudgets budgets = EcoPerformanceGovernor.ComputeBudgets(isLargeFile);
-                    int maxIssueCap = budgets.MaxIssuesPerFullScan;
+                    int maxIssueCap = wasPartialAutoScan
+                        ? budgets.MaxIssuesPerFullScan
+                        : EcoPerformanceGovernor.DefaultWordTrueCountIssueCap;
+
+                    // On explicit user-initiated Full Scan, use multi-core NLP on capable CPUs unless user explicitly forced Eco AlwaysOn,
+                    // while still keeping Eco's safe visual underline cap (80) so Word's UI stays 60 FPS smooth!
+                    bool allowMultiCoreExplicitScan = !wasPartialAutoScan &&
+                        EcoPerformanceGovernor.CurrentPreference != EcoModePreference.AlwaysOn &&
+                        !EcoPerformanceGovernor.Hardware.IsLowSpecHardware;
+                    int effectiveWorkers = allowMultiCoreExplicitScan
+                        ? Math.Max(budgets.MaxBackgroundWorkers, Math.Min(Environment.ProcessorCount / 2, 4))
+                        : budgets.MaxBackgroundWorkers;
+                    int effectiveMicroYield = allowMultiCoreExplicitScan ? 0 : budgets.MicroYieldEveryItems;
+                    bool useLowPrio = allowMultiCoreExplicitScan ? false : budgets.UseLowPriorityThreads;
+
                     bool wasIssueCapReached = false;
                     var issuesPerParagraph = new List<ProofingIssue>[count];
 
-                    EcoPerformanceGovernor.ExecuteWithGentlePriority(budgets.UseLowPriorityThreads, () =>
+                    EcoPerformanceGovernor.ExecuteWithGentlePriority(useLowPrio, () =>
                     {
                         long lastProgressTick = Environment.TickCount;
                         int runningIssues = 0;
 
-                        if (count >= 48 && budgets.MaxBackgroundWorkers > 1 && !wasPartialAutoScan)
+                        if (count >= 32 && effectiveWorkers > 1 && !wasPartialAutoScan)
                         {
                             int completedCount = 0;
                             Parallel.For(
                                 0,
                                 count,
-                                new ParallelOptions { MaxDegreeOfParallelism = budgets.MaxBackgroundWorkers },
+                                new ParallelOptions { MaxDegreeOfParallelism = effectiveWorkers },
                                 (idx, loopState) =>
                                 {
                                     if (generation != Volatile.Read(ref _scanGeneration))
@@ -2298,9 +2614,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                                     long prevTick = Interlocked.Read(ref lastProgressTick);
                                     if (nowTick - prevTick >= 120 && Interlocked.CompareExchange(ref lastProgressTick, nowTick, prevTick) == prevTick)
                                     {
-                                        int pct = 18 + (done * 60) / Math.Max(1, count);
+                                        int pct = 24 + (done * 56) / Math.Max(1, count);
                                         int dispPct = Math.Min(99, (done * 100) / Math.Max(1, count));
-                                        PostProgressFromBackground(generation, Math.Min(78, pct), UiLocalizer.Pick($"⏳ Checking spelling & grammar... {dispPct}%", $"⏳ စာလုံးပေါင်း စစ်ဆေးနေသည်... {dispPct}%"));
+                                        PostProgressFromBackground(generation, Math.Min(80, pct), UiLocalizer.Pick($"Checking spelling & grammar... {dispPct}%", $"စာလုံးပေါင်း စစ်ဆေးနေသည်... {dispPct}%"));
                                     }
                                 });
                         }
@@ -2322,7 +2638,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                                 if (snap.NeedsNlpCheck)
                                 {
                                     nlpChecked++;
-                                    EcoPerformanceGovernor.MaybeMicroYield(nlpChecked, budgets.MicroYieldEveryItems);
+                                    EcoPerformanceGovernor.MaybeMicroYield(nlpChecked, effectiveMicroYield);
                                     if ((nlpChecked & 255) == 0)
                                     {
                                         EcoPerformanceGovernor.MaybeTrimUnderMemoryPressure(() => _engine.TrimMemoryCaches(aggressive: true));
@@ -2340,9 +2656,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                                 if (!wasPartialAutoScan && count >= 32 && nowTick - lastProgressTick >= 120)
                                 {
                                     lastProgressTick = nowTick;
-                                    int pct = 18 + ((idx + 1) * 60) / Math.Max(1, count);
+                                    int pct = 24 + ((idx + 1) * 56) / Math.Max(1, count);
                                     int dispPct = ((idx + 1) * 100) / Math.Max(1, count);
-                                    PostProgressFromBackground(generation, Math.Min(78, pct), UiLocalizer.Pick($"⏳ Checking spelling & grammar... {dispPct}%", $"⏳ စာလုံးပေါင်း စစ်ဆေးနေသည်... {dispPct}%"));
+                                    PostProgressFromBackground(generation, Math.Min(80, pct), UiLocalizer.Pick($"Checking spelling & grammar... {dispPct}%", $"စာလုံးပေါင်း စစ်ဆေးနေသည်... {dispPct}%"));
                                 }
                             }
                         }

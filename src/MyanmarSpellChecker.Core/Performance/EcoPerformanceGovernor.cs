@@ -102,6 +102,7 @@ namespace MyanmarSpellChecker.Core.Performance
         public const int LargeWordCharacterThreshold = 40_000;
         public const int LargeExcelCellThreshold = 8_000;
         public const int DefaultSafeIssueCap = 2_500;
+        public const int DefaultWordTrueCountIssueCap = 25_000;
         public const int DefaultExcelTrueCountIssueCap = 50_000;
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
@@ -437,17 +438,17 @@ namespace MyanmarSpellChecker.Core.Performance
             {
                 return preference switch
                 {
-                    EcoModePreference.AlwaysOn => "⚡ Eco: On",
-                    EcoModePreference.Off => "⚡ Eco: Off",
-                    _ => currentlyActive ? "⚡ Eco: Auto✓" : "⚡ Eco: Auto"
+                    EcoModePreference.AlwaysOn => "● Eco: On ▾",
+                    EcoModePreference.Off => "○ Eco: Off ▾",
+                    _ => currentlyActive ? "● Eco: Auto✓ ▾" : "◐ Eco: Auto ▾"
                 };
             }
 
             return preference switch
             {
-                EcoModePreference.AlwaysOn => "⚡ ပေါ့ပါး: ဖွင့်",
-                EcoModePreference.Off => "⚡ ပေါ့ပါး: ပိတ်",
-                _ => currentlyActive ? "⚡ ပေါ့ပါး: Auto✓" : "⚡ ပေါ့ပါး: Auto"
+                EcoModePreference.AlwaysOn => "● ပေါ့ပါး: ဖွင့် ▾",
+                EcoModePreference.Off => "○ ပေါ့ပါး: ပိတ် ▾",
+                _ => currentlyActive ? "● ပေါ့ပါး: Auto✓ ▾" : "◐ ပေါ့ပါး: Auto ▾"
             };
         }
 

@@ -721,6 +721,56 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         private Control BuildEmptyStateCard(int cardWidth)
         {
             int innerWrap = Math.Max(180, cardWidth - 32);
+            if (_isScanning)
+            {
+                Color scanBlue = Color.FromArgb(24, 90, 188);
+                var scanCard = CreateStyledCardContainer(cardWidth, scanBlue, isSelectableItem: null);
+                int sRow = 0;
+
+                var lblScanHead = new Label
+                {
+                    Text = UiLocalizer.Pick(
+                        "⟳ Scanning Document in Progress...",
+                        "⟳ စာတမ်းကို အမြန်စစ်ဆေးနေပါသည်..."),
+                    Font = _fontBodyBold,
+                    ForeColor = scanBlue,
+                    AutoSize = true,
+                    MaximumSize = new Size(innerWrap, 0),
+                    Tag = WrapTag,
+                    Dock = DockStyle.Fill,
+                    Margin = new Padding(0, 0, 0, 5),
+                    Padding = new Padding(2, 2, 2, 2)
+                };
+                scanCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                scanCard.Controls.Add(lblScanHead, 0, sRow++);
+
+                var lblScanBody = new Label
+                {
+                    Text = UiLocalizer.Pick(
+                        "Checking body text, tables, and headers/footers in the background. You can keep reading or editing Word freely while the scan completes.",
+                        "စာကိုယ်၊ ဇယားကွက်များနှင့် ခေါင်းစီး/အောက်ခြေများကို နောက်ခံ၌ အမြန်စစ်ဆေးနေပါသည်။ စစ်ဆေးနေစဉ် စာတမ်းကို လွတ်လပ်စွာ ဆက်လက်ဖတ်ရှု/ရေးသားနိုင်ပါသည်။"),
+                    Font = _fontSmall,
+                    ForeColor = Color.FromArgb(65, 76, 92),
+                    AutoSize = true,
+                    MaximumSize = new Size(innerWrap, 0),
+                    Tag = WrapTag,
+                    Dock = DockStyle.Fill,
+                    Margin = new Padding(0, 0, 0, 8),
+                    Padding = new Padding(2, 1, 2, 2)
+                };
+                scanCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                scanCard.Controls.Add(lblScanBody, 0, sRow++);
+
+                var btnCancelCard = CreatePillButton(
+                    UiLocalizer.Pick("■ Stop Scan", "■ စစ်ဆေးမှု ရပ်မည်"),
+                    Color.FromArgb(254, 236, 236), Color.FromArgb(178, 28, 28), Color.FromArgb(238, 182, 182), _fontSmallBold);
+                btnCancelCard.Click += (s, e) => RequestCancelScan?.Invoke();
+                scanCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                scanCard.Controls.Add(btnCancelCard, 0, sRow++);
+
+                return scanCard;
+            }
+
             Color emerald = Color.FromArgb(22, 132, 68);
 
             var card = CreateStyledCardContainer(cardWidth, emerald, isSelectableItem: null);

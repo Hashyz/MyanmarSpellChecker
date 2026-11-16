@@ -164,6 +164,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private readonly Label _lblSummary;
         private readonly Button _btnExportReport;
         private readonly ContextMenuStrip _proofingReportMenu;
+        private readonly ContextMenuStrip _ecoModeMenu;
         private readonly Panel _pnlToast;
         private readonly Label _lblToast;
 
@@ -235,6 +236,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         public event Action? RequestCancelScan;
         public event Action? RequestToggleLanguage;
         public event Action? RequestCycleEcoMode;
+        public event Action<EcoModePreference>? RequestSetEcoMode;
         public event Action<IssueFilterMode>? RequestFixAllIssues;
         public event Action? RequestUndoLastAction;
         public event Func<IReadOnlyDictionary<SpreadsheetCellIssue, string>, int>? RequestApplyDockedBatch;
@@ -422,6 +424,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _btnLangToggle.Margin = new Padding(0, 1, 2, 1);
             _btnLangToggle.Click += (s, e) => RequestToggleLanguage?.Invoke();
 
+            _ecoModeMenu = new ContextMenuStrip { Font = _fontBody };
             _btnEcoMode = CreateActionButton(
                 EcoPerformanceGovernor.FormatBadgeLabel(EcoModePreference.Auto, false),
                 Color.FromArgb(236, 248, 241),
@@ -430,7 +433,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 _fontSmallBold);
             _btnEcoMode.Height = initBrandPillH;
             _btnEcoMode.Margin = new Padding(1, 1, 2, 1);
-            _btnEcoMode.Click += (s, e) => RequestCycleEcoMode?.Invoke();
+            _btnEcoMode.Click += (s, e) => ShowExcelEcoModeDropdownMenu();
 
             _btnAboutLic = CreateActionButton(
                 UiLocalizer.Pick("ⓘ About", "ⓘ အချက်"),
@@ -1506,28 +1509,74 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                         "ပြန်ဆုတ်ရန် မှတ်တမ်း မရှိသေးပါ"));
         }
 
+        private void ShowExcelEcoModeDropdownMenu()
+        {
+            if (RequestSetEcoMode == null)
+            {
+                RequestCycleEcoMode?.Invoke();
+                return;
+            }
+
+            _ecoModeMenu.Items.Clear();
+            string autoLiveStatus = _lastEcoActive
+                ? UiLocalizer.Pick("Eco Active Now", "ယခု ပေါ့ပါးစနစ် အသက်ဝင်နေသည်")
+                : UiLocalizer.Pick("Fast Standby", "မြန်နှုန်းမြင့် အသင့်ရှိသည်");
+
+            var miAuto = new ToolStripMenuItem(UiLocalizer.Pick(
+                $"◐ Auto — Smart Balance (Recommended • {autoLiveStatus})",
+                $"◐ Auto — အလိုအလျောက် ချိန်ညှိစနစ် (အကြံပြု • {autoLiveStatus})"))
+            {
+                Checked = _lastEcoPref == EcoModePreference.Auto,
+                Font = _lastEcoPref == EcoModePreference.Auto ? _fontSmallBold : _fontSmall
+            };
+            miAuto.Click += (_, __) => RequestSetEcoMode?.Invoke(EcoModePreference.Auto);
+
+            var miOn = new ToolStripMenuItem(UiLocalizer.Pick(
+                "● Eco: On — Low CPU & RAM Saver (Battery / Small PC)",
+                "● Eco: ဖွင့် — CPU နှင့် RAM အနည်းဆုံးသုံး (စက်မလေးစေရန်)"))
+            {
+                Checked = _lastEcoPref == EcoModePreference.AlwaysOn,
+                Font = _lastEcoPref == EcoModePreference.AlwaysOn ? _fontSmallBold : _fontSmall
+            };
+            miOn.Click += (_, __) => RequestSetEcoMode?.Invoke(EcoModePreference.AlwaysOn);
+
+            var miOff = new ToolStripMenuItem(UiLocalizer.Pick(
+                "○ Eco: Off (Fast Mode) — Maximum Multi-Core Speed",
+                "○ Eco: ပိတ် (Fast Mode) — အမြန်ဆုံး Multi-Core စွမ်းဆောင်ရည်"))
+            {
+                Checked = _lastEcoPref == EcoModePreference.Off,
+                Font = _lastEcoPref == EcoModePreference.Off ? _fontSmallBold : _fontSmall
+            };
+            miOff.Click += (_, __) => RequestSetEcoMode?.Invoke(EcoModePreference.Off);
+
+            _ecoModeMenu.Items.Add(miAuto);
+            _ecoModeMenu.Items.Add(miOn);
+            _ecoModeMenu.Items.Add(miOff);
+            _ecoModeMenu.Show(_btnEcoMode, new Point(0, _btnEcoMode.Height));
+        }
+
         public void SetEcoModeState(EcoModePreference preference, bool currentlyActive)
         {
             _lastEcoPref = preference;
             _lastEcoActive = currentlyActive;
             _btnEcoMode.Text = EcoPerformanceGovernor.FormatBadgeLabel(preference, currentlyActive);
-            if (currentlyActive)
+            if (preference == EcoModePreference.AlwaysOn || currentlyActive)
             {
-                _btnEcoMode.BackColor = Color.FromArgb(226, 247, 234);
-                _btnEcoMode.ForeColor = Color.FromArgb(16, 112, 52);
-                _btnEcoMode.FlatAppearance.BorderColor = Color.FromArgb(164, 220, 186);
+                _btnEcoMode.BackColor = Color.FromArgb(222, 247, 232);
+                _btnEcoMode.ForeColor = Color.FromArgb(14, 108, 50);
+                _btnEcoMode.FlatAppearance.BorderColor = Color.FromArgb(154, 216, 178);
             }
             else if (preference == EcoModePreference.Off)
             {
-                _btnEcoMode.BackColor = Color.FromArgb(244, 245, 248);
-                _btnEcoMode.ForeColor = Color.FromArgb(98, 108, 124);
-                _btnEcoMode.FlatAppearance.BorderColor = Color.FromArgb(214, 220, 230);
+                _btnEcoMode.BackColor = Color.FromArgb(230, 242, 255);
+                _btnEcoMode.ForeColor = Color.FromArgb(18, 78, 168);
+                _btnEcoMode.FlatAppearance.BorderColor = Color.FromArgb(168, 202, 245);
             }
             else
             {
-                _btnEcoMode.BackColor = Color.FromArgb(236, 248, 241);
-                _btnEcoMode.ForeColor = Color.FromArgb(16, 104, 54);
-                _btnEcoMode.FlatAppearance.BorderColor = Color.FromArgb(178, 218, 194);
+                _btnEcoMode.BackColor = Color.FromArgb(240, 246, 242);
+                _btnEcoMode.ForeColor = Color.FromArgb(22, 92, 52);
+                _btnEcoMode.FlatAppearance.BorderColor = Color.FromArgb(184, 218, 198);
             }
             _toolTip.SetToolTip(_btnEcoMode, EcoPerformanceGovernor.FormatTooltip(preference, currentlyActive));
         }
@@ -1536,9 +1585,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         {
             int clamped = Math.Max(0, Math.Min(100, percent));
             _isScanning = true;
-            _lblScanProgress.Text = string.IsNullOrWhiteSpace(message)
-                ? UiLocalizer.Pick($"⏳ Scanning... ({clamped}%)", $"⏳ စစ်ဆေးနေသည်... ({clamped}%)")
-                : $"{message} ({clamped}%)";
+            string cleanMsg = (message ?? string.Empty).TrimStart('⏳', '⟳', ' ');
+            _lblScanProgress.Text = string.IsNullOrWhiteSpace(cleanMsg)
+                ? UiLocalizer.Pick($"⟳ Scanning... ({clamped}%)", $"⟳ စစ်ဆေးနေသည်... ({clamped}%)")
+                : $"⟳ {cleanMsg} ({clamped}%)";
             _pnlScanProgress.Visible = true;
         }
 
@@ -1553,21 +1603,27 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
         public void SetScanningState(bool scanning)
         {
+            bool changed = _isScanning != scanning;
             _isScanning = scanning;
             if (scanning)
             {
                 _lblScanProgress.Text = UiLocalizer.Pick(
-                    "⏳ Scanning spreadsheet cells...",
-                    "⏳ Excel အကွက်များကို စတင်စစ်ဆေးနေပါသည်...");
+                    "⟳ Scanning spreadsheet cells...",
+                    "⟳ Excel အကွက်များကို စတင်စစ်ဆေးနေပါသည်...");
                 _pnlScanProgress.Visible = true;
                 _lblSummary.Text = UiLocalizer.Pick(
-                    "⏳ Scanning spreadsheet cells...",
-                    "⏳ Excel အကွက်များကို အမြန်စစ်ဆေးနေပါသည်...");
+                    "⟳ Scanning spreadsheet cells...",
+                    "⟳ Excel အကွက်များကို အမြန်စစ်ဆေးနေပါသည်...");
                 _lblSummary.ForeColor = Color.FromArgb(24, 90, 188);
             }
             else
             {
                 _pnlScanProgress.Visible = false;
+            }
+
+            if (changed && _activeTab == TaskPaneWorkspaceTab.Proofing && _allItems.All(i => i.IsResolved))
+            {
+                RenderProofingCards();
             }
         }
 
@@ -2065,6 +2121,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 _toastTimer.Dispose();
                 _toolTip.Dispose();
                 _proofingReportMenu.Dispose();
+                _ecoModeMenu.Dispose();
 
                 _fontBrandTitle.Dispose();
                 _fontBrandStats.Dispose();

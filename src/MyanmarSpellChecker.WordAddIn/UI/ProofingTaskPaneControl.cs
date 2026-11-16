@@ -157,6 +157,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         private readonly Label _lblSummary;
         private readonly Button _btnExportReport;
         private readonly ContextMenuStrip _proofingReportMenu;
+        private readonly ContextMenuStrip _ecoModeMenu;
         private readonly Panel _pnlToast;
         private readonly Label _lblToast;
 
@@ -228,6 +229,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         public event Action? RequestSelectionScan;
         public event Action? RequestCancelScan;
         public event Action? RequestCycleEcoMode;
+        public event Action<EcoModePreference>? RequestSetEcoMode;
         public event Action? RequestToggleLanguage;
         public event Action<IssueFilterMode>? RequestFixAllIssues;
         public event Action? RequestUndoLastAction;
@@ -414,6 +416,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             _btnLangToggle.Margin = new Padding(0, 1, 2, 1);
             _btnLangToggle.Click += (s, e) => RequestToggleLanguage?.Invoke();
 
+            _ecoModeMenu = new ContextMenuStrip { Font = _fontBody };
             _btnEcoMode = CreateToolbarSlotButton(
                 EcoPerformanceGovernor.FormatBadgeLabel(EcoModePreference.Auto, false),
                 Color.FromArgb(238, 244, 254),
@@ -422,7 +425,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 _fontSmallBold,
                 initBrandPillH);
             _btnEcoMode.Margin = new Padding(1, 1, 2, 1);
-            _btnEcoMode.Click += (s, e) => RequestCycleEcoMode?.Invoke();
+            _btnEcoMode.Click += (s, e) => ShowEcoModeDropdownMenu();
 
             _btnAboutLic = CreateToolbarSlotButton(
                 UiLocalizer.Pick("ⓘ About", "ⓘ အချက်"),
@@ -1295,6 +1298,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 _toastTimer.Dispose();
                 _toolTip.Dispose();
                 _proofingReportMenu.Dispose();
+                _ecoModeMenu.Dispose();
 
                 _fontBrandTitle.Dispose();
                 _fontBrandStats.Dispose();
@@ -1496,28 +1500,74 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             }
         }
 
+        private void ShowEcoModeDropdownMenu()
+        {
+            if (RequestSetEcoMode == null)
+            {
+                RequestCycleEcoMode?.Invoke();
+                return;
+            }
+
+            _ecoModeMenu.Items.Clear();
+            string autoLiveStatus = _lastEcoActive
+                ? UiLocalizer.Pick("Eco Active Now", "ယခု ပေါ့ပါးစနစ် အသက်ဝင်နေသည်")
+                : UiLocalizer.Pick("Fast Standby", "မြန်နှုန်းမြင့် အသင့်ရှိသည်");
+
+            var miAuto = new ToolStripMenuItem(UiLocalizer.Pick(
+                $"◐ Auto — Smart Balance (Recommended • {autoLiveStatus})",
+                $"◐ Auto — အလိုအလျောက် ချိန်ညှိစနစ် (အကြံပြု • {autoLiveStatus})"))
+            {
+                Checked = _lastEcoPref == EcoModePreference.Auto,
+                Font = _lastEcoPref == EcoModePreference.Auto ? _fontSmallBold : _fontSmall
+            };
+            miAuto.Click += (_, __) => RequestSetEcoMode?.Invoke(EcoModePreference.Auto);
+
+            var miOn = new ToolStripMenuItem(UiLocalizer.Pick(
+                "● Eco: On — Low CPU & RAM Saver (Battery / Small PC)",
+                "● Eco: ဖွင့် — CPU နှင့် RAM အနည်းဆုံးသုံး (စက်မလေးစေရန်)"))
+            {
+                Checked = _lastEcoPref == EcoModePreference.AlwaysOn,
+                Font = _lastEcoPref == EcoModePreference.AlwaysOn ? _fontSmallBold : _fontSmall
+            };
+            miOn.Click += (_, __) => RequestSetEcoMode?.Invoke(EcoModePreference.AlwaysOn);
+
+            var miOff = new ToolStripMenuItem(UiLocalizer.Pick(
+                "○ Eco: Off (Fast Mode) — Maximum Multi-Core Speed",
+                "○ Eco: ပိတ် (Fast Mode) — အမြန်ဆုံး Multi-Core စွမ်းဆောင်ရည်"))
+            {
+                Checked = _lastEcoPref == EcoModePreference.Off,
+                Font = _lastEcoPref == EcoModePreference.Off ? _fontSmallBold : _fontSmall
+            };
+            miOff.Click += (_, __) => RequestSetEcoMode?.Invoke(EcoModePreference.Off);
+
+            _ecoModeMenu.Items.Add(miAuto);
+            _ecoModeMenu.Items.Add(miOn);
+            _ecoModeMenu.Items.Add(miOff);
+            _ecoModeMenu.Show(_btnEcoMode, new Point(0, _btnEcoMode.Height));
+        }
+
         public void SetEcoModeState(EcoModePreference preference, bool currentlyActive)
         {
             _lastEcoPref = preference;
             _lastEcoActive = currentlyActive;
             _btnEcoMode.Text = EcoPerformanceGovernor.FormatBadgeLabel(preference, currentlyActive);
-            if (currentlyActive)
+            if (preference == EcoModePreference.AlwaysOn || currentlyActive)
             {
-                _btnEcoMode.BackColor = Color.FromArgb(226, 247, 234);
-                _btnEcoMode.ForeColor = Color.FromArgb(16, 112, 52);
-                _btnEcoMode.FlatAppearance.BorderColor = Color.FromArgb(164, 220, 186);
+                _btnEcoMode.BackColor = Color.FromArgb(222, 247, 232);
+                _btnEcoMode.ForeColor = Color.FromArgb(14, 108, 50);
+                _btnEcoMode.FlatAppearance.BorderColor = Color.FromArgb(154, 216, 178);
             }
             else if (preference == EcoModePreference.Off)
             {
-                _btnEcoMode.BackColor = Color.FromArgb(244, 245, 248);
-                _btnEcoMode.ForeColor = Color.FromArgb(98, 108, 124);
-                _btnEcoMode.FlatAppearance.BorderColor = Color.FromArgb(214, 220, 230);
+                _btnEcoMode.BackColor = Color.FromArgb(230, 242, 255);
+                _btnEcoMode.ForeColor = Color.FromArgb(18, 78, 168);
+                _btnEcoMode.FlatAppearance.BorderColor = Color.FromArgb(168, 202, 245);
             }
             else
             {
-                _btnEcoMode.BackColor = Color.FromArgb(238, 244, 254);
-                _btnEcoMode.ForeColor = Color.FromArgb(24, 78, 162);
-                _btnEcoMode.FlatAppearance.BorderColor = Color.FromArgb(196, 214, 245);
+                _btnEcoMode.BackColor = Color.FromArgb(240, 245, 253);
+                _btnEcoMode.ForeColor = Color.FromArgb(42, 68, 118);
+                _btnEcoMode.FlatAppearance.BorderColor = Color.FromArgb(196, 212, 238);
             }
             _toolTip.SetToolTip(_btnEcoMode, EcoPerformanceGovernor.FormatTooltip(preference, currentlyActive));
         }
@@ -1526,9 +1576,10 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         {
             int clamped = Math.Max(0, Math.Min(100, percent));
             _isScanning = true;
-            string nextText = string.IsNullOrWhiteSpace(message)
+            string cleanMsg = (message ?? string.Empty).TrimStart('⏳', '⟳', ' ');
+            string nextText = string.IsNullOrWhiteSpace(cleanMsg)
                 ? UiLocalizer.Pick($"⟳ Scanning... ({clamped}%)", $"⟳ စစ်ဆေးနေသည်... ({clamped}%)")
-                : $"⟳ {message} ({clamped}%)";
+                : $"⟳ {cleanMsg} ({clamped}%)";
             if (!string.Equals(_lblScanProgress.Text, nextText, StringComparison.Ordinal))
             {
                 _lblScanProgress.Text = nextText;
@@ -1552,6 +1603,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
         public void SetScanningState(bool isScanning)
         {
+            bool changed = _isScanning != isScanning;
             _isScanning = isScanning;
             _proofingToolbar.SuspendLayout();
             try
@@ -1561,8 +1613,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                     _lblScanProgress.Text = UiLocalizer.Pick("⟳ Starting document scan...", "⟳ စာတမ်းကို စတင်စစ်ဆေးနေပါသည်...");
                     _pnlScanProgress.Visible = true;
                     _lblSummary.Text = UiLocalizer.Pick(
-                        "⟳ Scanning document for spelling, grammar & style...",
-                        "⟳ စာတမ်းတစ်ခုလုံးကို အသေးစိတ် စစ်ဆေးနေပါသည်...");
+                        "⟳ Scanning document — visible page first, then full file...",
+                        "⟳ ယခုမြင်ကွင်းနှင့် စာတမ်းတစ်ခုလုံးကို အမြန်စစ်ဆေးနေပါသည်...");
                     _lblSummary.ForeColor = Color.FromArgb(24, 88, 182);
                 }
                 else
@@ -1573,6 +1625,34 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             finally
             {
                 _proofingToolbar.ResumeLayout(true);
+            }
+
+            if (changed && _activeTab == TaskPaneWorkspaceTab.Proofing && _allItems.All(i => i.IsResolved))
+            {
+                RefreshProofingCardsFull();
+            }
+        }
+
+        public void RenderViewportPreviewDuringScan(IReadOnlyList<DocumentProofingItem> previewItems)
+        {
+            if (!_isScanning || previewItems == null || previewItems.Count == 0)
+                return;
+
+            var nextList = previewItems.Where(i => !i.IsResolved).ToList();
+            if (nextList.Count == 0)
+                return;
+
+            _allItems = nextList;
+            ResetProofingPagination();
+            _lblSummary.Text = UiLocalizer.Pick(
+                $"⟳ {nextList.Count} nearby found — finishing full document...",
+                $"⟳ အနီး၌ ({nextList.Count}) ခု တွေ့ရှိ — တစ်ဖိုင်လုံး ဆက်စစ်နေသည်...");
+            _lblSummary.ForeColor = Color.FromArgb(24, 88, 182);
+
+            if (_activeTab == TaskPaneWorkspaceTab.Proofing)
+            {
+                _hasRenderedProofingOnce = true;
+                RefreshProofingCardsFull();
             }
         }
 
