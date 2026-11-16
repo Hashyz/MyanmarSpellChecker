@@ -226,6 +226,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         public event Action? RequestCycleEcoMode;
         public event Action<IssueFilterMode>? RequestFixAllIssues;
         public event Action? RequestUndoLastAction;
+        public event Func<IReadOnlyDictionary<SpreadsheetCellIssue, string>, int>? RequestApplyDockedBatch;
+        public event Action<IReadOnlyList<FixPreviewEntry<SpreadsheetCellIssue>>>? RequestPopOutDockedChecklist;
         public event Action? RequestClearUnderlines;
         public event Action? RequestLicenseDialog;
         public event Action<ProofingStyleMode>? RequestChangeStyleMode;

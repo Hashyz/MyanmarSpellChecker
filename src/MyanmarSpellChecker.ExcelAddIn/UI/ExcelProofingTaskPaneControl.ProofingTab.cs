@@ -19,6 +19,55 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private int _visibleWindowStart;
         private int _visibleCardLimit = DefaultExcelProofingCardBatchSize;
         private bool _hasRenderedProofingOnce;
+        private bool _isDockedChecklistMode;
+        private readonly Dictionary<SpreadsheetCellIssue, (bool Checked, string Chosen)> _dockedStateByItem =
+            new Dictionary<SpreadsheetCellIssue, (bool Checked, string Chosen)>();
+
+        public bool IsDockedChecklistMode => _isDockedChecklistMode;
+
+        public void EnterDockedChecklistMode(IReadOnlyList<FixPreviewEntry<SpreadsheetCellIssue>>? seedEntries = null)
+        {
+            _isDockedChecklistMode = true;
+            if (seedEntries != null)
+            {
+                foreach (var entry in seedEntries)
+                {
+                    _dockedStateByItem[entry.Payload] = (entry.IsChecked, entry.ChosenReplacement);
+                }
+            }
+            SwitchWorkspaceTab(TaskPaneWorkspaceTab.Proofing);
+            _visibleWindowStart = 0;
+            _visibleCardLimit = ExcelProofingCardBatchSize;
+            RenderProofingCards();
+        }
+
+        public void ExitDockedChecklistMode()
+        {
+            if (!_isDockedChecklistMode)
+                return;
+
+            _isDockedChecklistMode = false;
+            var prefs = MyanmarSpellChecker.Core.Performance.ReviewWindowPreferencesStore.Load("excel");
+            prefs.PreferDockedInTaskPane = false;
+            MyanmarSpellChecker.Core.Performance.ReviewWindowPreferencesStore.Save("excel", prefs);
+            _visibleWindowStart = 0;
+            _visibleCardLimit = ExcelProofingCardBatchSize;
+            RenderProofingCards();
+        }
+
+        private (bool Checked, string Chosen) GetOrInitExcelDockedState(SpreadsheetCellIssue item)
+        {
+            if (_dockedStateByItem.TryGetValue(item, out var st))
+                return st;
+
+            bool defCheck = item.Issue.IsHighCertaintyPrecheck;
+            string defRep = item.Issue.Suggestions != null && item.Issue.Suggestions.Count > 0
+                ? item.Issue.Suggestions[0].Replacement
+                : string.Empty;
+            var created = (defCheck, defRep);
+            _dockedStateByItem[item] = created;
+            return created;
+        }
 
         private int ExcelProofingCardBatchSize => _lastEcoActive ? EcoExcelProofingCardBatchSize : DefaultExcelProofingCardBatchSize;
 
@@ -472,19 +521,35 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     }
                 }
 
-                var sameWordCounts = BuildExcelSameWordCountsMap();
                 int windowCount = Math.Min(MaxMountedExcelCards, Math.Max(batchSize, _visibleCardLimit));
                 int endExclusive = Math.Min(filtered.Count, _visibleWindowStart + windowCount);
 
-                for (int idx = _visibleWindowStart; idx < endExclusive; idx++)
+                if (_isDockedChecklistMode)
                 {
-                    SpreadsheetCellIssue item = filtered[idx];
-                    string normOrig = UnicodeNormalizer.NormalizeCanonicalOrder((item.Issue.OriginalText ?? string.Empty).Trim());
-                    int dupCount = sameWordCounts.TryGetValue(normOrig, out int cnt) ? cnt : 1;
+                    batchControls.Add(BuildExcelDockedChecklistHeaderCard(filtered, cardWidth, innerWrap));
+                    for (int idx = _visibleWindowStart; idx < endExclusive; idx++)
+                    {
+                        SpreadsheetCellIssue item = filtered[idx];
+                        if (item.Issue.Suggestions == null || item.Issue.Suggestions.Count == 0)
+                            continue;
+                        Control rowCard = BuildExcelDockedChecklistRowCard(item, cardWidth, innerWrap);
+                        _cardByItem[item] = rowCard;
+                        batchControls.Add(rowCard);
+                    }
+                }
+                else
+                {
+                    var sameWordCounts = BuildExcelSameWordCountsMap();
+                    for (int idx = _visibleWindowStart; idx < endExclusive; idx++)
+                    {
+                        SpreadsheetCellIssue item = filtered[idx];
+                        string normOrig = UnicodeNormalizer.NormalizeCanonicalOrder((item.Issue.OriginalText ?? string.Empty).Trim());
+                        int dupCount = sameWordCounts.TryGetValue(normOrig, out int cnt) ? cnt : 1;
 
-                    Control card = BuildExcelIssueCard(item, idx + 1, cardWidth, innerWrap, dupCount);
-                    _cardByItem[item] = card;
-                    batchControls.Add(card);
+                        Control card = BuildExcelIssueCard(item, idx + 1, cardWidth, innerWrap, dupCount);
+                        _cardByItem[item] = card;
+                        batchControls.Add(card);
+                    }
                 }
 
                 if (filtered.Count > endExclusive)
@@ -738,9 +803,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             };
             pnlDiff.Click += (s, e) => JumpToCell();
 
+            string visOrig = issue.FormatVisualOriginalText(hasSuggestion ? topSuggested : null);
             var lblDiff = new Label
             {
-                Text = $"\"{issue.OriginalText}\"   ➔   \"{topSuggested}\"",
+                Text = $"\"{visOrig}\"   ➔   \"{topSuggested}\"",
                 Font = _fontCardDiff,
                 ForeColor = Color.FromArgb(24, 32, 46),
                 AutoSize = true,
@@ -978,6 +1044,256 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             if (clean.Length <= maxChars)
                 return clean;
             return MyanmarSpellChecker.Core.Nlp.MyanmarSyllableBreaker.TruncateAtSyllableBoundary(clean, maxChars, "…");
+        }
+
+        private Control BuildExcelDockedChecklistHeaderCard(List<SpreadsheetCellIssue> filtered, int cardWidth, int innerWrap)
+        {
+            var fixable = filtered.Where(i => i.Issue.Suggestions != null && i.Issue.Suggestions.Count > 0).ToList();
+            int checkedCount = 0;
+            foreach (var it in fixable)
+            {
+                if (GetOrInitExcelDockedState(it).Checked)
+                    checkedCount++;
+            }
+
+            var card = CreateStyledCardContainer(cardWidth, Color.FromArgb(16, 108, 56));
+            int r = 0;
+
+            var lblTitle = new Label
+            {
+                Text = UiLocalizer.Pick(
+                    $"⇥ Docked Review Checklist ({checkedCount}/{fixable.Count} selected)",
+                    $"⇥ ဘေးကွက်အတွင်း စိစစ်ပြင်ဆင်မှု ({checkedCount}/{fixable.Count} ရွေးထားသည်)"),
+                Font = _fontBodyBold,
+                ForeColor = Color.FromArgb(14, 78, 42),
+                AutoSize = true,
+                MaximumSize = new Size(innerWrap, 0),
+                Tag = WrapTag,
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0, 0, 0, 4)
+            };
+            card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            card.Controls.Add(lblTitle, 0, r++);
+
+            var strip1 = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = true,
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0, 0, 0, 4)
+            };
+
+            var btnSure = CreatePillButton(
+                UiLocalizer.Pick("☑ Sure", "☑ သေချာ"),
+                Color.FromArgb(224, 245, 233), Color.FromArgb(16, 102, 54), Color.FromArgb(148, 208, 172), _fontSmallBold);
+            btnSure.AutoSize = true;
+            btnSure.Dock = DockStyle.None;
+            btnSure.Click += (s, e) =>
+            {
+                foreach (var it in fixable)
+                {
+                    var st = GetOrInitExcelDockedState(it);
+                    _dockedStateByItem[it] = (it.Issue.IsHighCertaintyPrecheck, st.Chosen);
+                }
+                RenderProofingCards();
+            };
+
+            var btnAll = CreatePillButton(
+                UiLocalizer.Pick("☑ All", "☑ အားလုံး"),
+                Color.White, Color.FromArgb(20, 62, 42), Color.FromArgb(188, 214, 200), _fontSmall);
+            btnAll.AutoSize = true;
+            btnAll.Dock = DockStyle.None;
+            btnAll.Click += (s, e) =>
+            {
+                foreach (var it in fixable)
+                {
+                    var st = GetOrInitExcelDockedState(it);
+                    _dockedStateByItem[it] = (true, st.Chosen);
+                }
+                RenderProofingCards();
+            };
+
+            var btnNone = CreatePillButton(
+                UiLocalizer.Pick("☐ None", "☐ ဖြုတ်"),
+                Color.White, Color.FromArgb(88, 98, 92), Color.FromArgb(204, 214, 208), _fontSmall);
+            btnNone.AutoSize = true;
+            btnNone.Dock = DockStyle.None;
+            btnNone.Click += (s, e) =>
+            {
+                foreach (var it in fixable)
+                {
+                    var st = GetOrInitExcelDockedState(it);
+                    _dockedStateByItem[it] = (false, st.Chosen);
+                }
+                RenderProofingCards();
+            };
+
+            var btnUndo = CreatePillButton(
+                UiLocalizer.Pick("↶ Undo", "↶ ပြန်ဆုတ်"),
+                Color.FromArgb(242, 248, 244), Color.FromArgb(20, 68, 40), Color.FromArgb(196, 218, 204), _fontSmall);
+            btnUndo.AutoSize = true;
+            btnUndo.Dock = DockStyle.None;
+            btnUndo.Click += (s, e) => RequestUndoLastAction?.Invoke();
+
+            var btnPopOut = CreatePillButton(
+                UiLocalizer.Pick("⧉ Pop Out", "⧉ အကျယ်ဖွင့်"),
+                Color.FromArgb(234, 247, 239), Color.FromArgb(16, 96, 50), Color.FromArgb(168, 212, 184), _fontSmallBold);
+            btnPopOut.AutoSize = true;
+            btnPopOut.Dock = DockStyle.None;
+            btnPopOut.Click += (s, e) =>
+            {
+                var snapshot = fixable.Select(it =>
+                {
+                    var st = GetOrInitExcelDockedState(it);
+                    var entry = new FixPreviewEntry<SpreadsheetCellIssue>(
+                        it,
+                        it.DisplayLocation,
+                        it.CellSnapshotText,
+                        it.Issue)
+                    {
+                        IsChecked = st.Checked,
+                        ChosenReplacement = st.Chosen
+                    };
+                    return entry;
+                }).ToList();
+
+                ExitDockedChecklistMode();
+                RequestPopOutDockedChecklist?.Invoke(snapshot);
+            };
+
+            var btnBackCards = CreatePillButton(
+                UiLocalizer.Pick("✕ Cards", "✕ ကတ်ပုံစံ"),
+                Color.FromArgb(245, 248, 246), Color.FromArgb(72, 84, 78), Color.FromArgb(208, 218, 212), _fontSmall);
+            btnBackCards.AutoSize = true;
+            btnBackCards.Dock = DockStyle.None;
+            btnBackCards.Click += (s, e) => ExitDockedChecklistMode();
+
+            strip1.Controls.AddRange(new Control[] { btnSure, btnAll, btnNone, btnUndo, btnPopOut, btnBackCards });
+            card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            card.Controls.Add(strip1, 0, r++);
+
+            var btnApplyChecked = new WordWrapChoiceButton
+            {
+                Text = checkedCount > 0
+                    ? UiLocalizer.Pick($"✓ Apply {checkedCount} Checked Fix(es)", $"✓ ရွေးထားသော ({checkedCount}) ခုကို ပြင်ဆင်မည်")
+                    : UiLocalizer.Pick("Select items below to apply", "အောက်ပါစာရင်းမှ ရွေးချယ်ပါ"),
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                MaximumSize = new Size(innerWrap, 0),
+                Tag = WrapTag,
+                Dock = DockStyle.Fill,
+                Enabled = checkedCount > 0,
+                BackColor = checkedCount > 0 ? Color.FromArgb(16, 108, 56) : Color.FromArgb(182, 194, 186),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Font = _fontBodyBold,
+                Padding = new Padding(8, 5, 8, 5),
+                Cursor = Cursors.Hand
+            };
+            btnApplyChecked.FlatAppearance.BorderColor = checkedCount > 0 ? Color.FromArgb(12, 86, 44) : Color.FromArgb(170, 182, 174);
+            btnApplyChecked.Click += (s, e) =>
+            {
+                var approved = new Dictionary<SpreadsheetCellIssue, string>();
+                foreach (var it in fixable)
+                {
+                    var st = GetOrInitExcelDockedState(it);
+                    if (st.Checked && !string.IsNullOrEmpty(st.Chosen))
+                        approved[it] = st.Chosen;
+                }
+                if (approved.Count > 0)
+                {
+                    RequestApplyDockedBatch?.Invoke(approved);
+                }
+            };
+            card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            card.Controls.Add(btnApplyChecked, 0, r++);
+
+            return card;
+        }
+
+        private Control BuildExcelDockedChecklistRowCard(SpreadsheetCellIssue item, int cardWidth, int innerWrap)
+        {
+            var st = GetOrInitExcelDockedState(item);
+            Color accent = st.Checked ? Color.FromArgb(16, 108, 56) : Color.FromArgb(164, 178, 170);
+            var card = CreateStyledCardContainer(cardWidth, accent, item);
+            card.Margin = new Padding(0, 0, 0, 5);
+            card.Padding = new Padding(10, 6, 8, 6);
+            int r = 0;
+
+            string visOrig = item.Issue.FormatVisualOriginalText(st.Chosen);
+            var lblLine = new Label
+            {
+                Text = $"{(st.Checked ? "☑" : "☐")}  [{item.DisplayLocation}]  {visOrig}  ➔  {st.Chosen}",
+                Font = st.Checked ? _fontSmallBold : _fontSmall,
+                ForeColor = st.Checked ? Color.FromArgb(14, 52, 30) : Color.FromArgb(72, 84, 78),
+                AutoSize = true,
+                MaximumSize = new Size(innerWrap, 0),
+                Tag = WrapTag,
+                Dock = DockStyle.Fill,
+                Cursor = Cursors.Hand,
+                Margin = new Padding(0, 0, 0, 4)
+            };
+            lblLine.Click += (s, e) =>
+            {
+                _selectedItem = item;
+                RequestSelectIssueInSheet?.Invoke(item);
+            };
+            card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            card.Controls.Add(lblLine, 0, r++);
+
+            var rowBtns = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = true,
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0)
+            };
+
+            var btnToggle = CreatePillButton(
+                st.Checked ? UiLocalizer.Pick("☑ Checked", "☑ ရွေးထား") : UiLocalizer.Pick("☐ Check", "☐ ရွေးမည်"),
+                st.Checked ? Color.FromArgb(224, 245, 233) : Color.White,
+                st.Checked ? Color.FromArgb(16, 102, 54) : Color.FromArgb(68, 80, 74),
+                Color.FromArgb(182, 206, 192),
+                _fontSmall);
+            btnToggle.AutoSize = true;
+            btnToggle.Dock = DockStyle.None;
+            btnToggle.Click += (s, e) =>
+            {
+                var cur = GetOrInitExcelDockedState(item);
+                _dockedStateByItem[item] = (!cur.Checked, cur.Chosen);
+                RenderProofingCards();
+            };
+
+            var btnFixOne = CreatePillButton(
+                UiLocalizer.Pick("✓ Fix Now", "✓ ယခုပြင်"),
+                Color.FromArgb(16, 108, 56), Color.White, Color.FromArgb(12, 88, 44), _fontSmallBold);
+            btnFixOne.AutoSize = true;
+            btnFixOne.Dock = DockStyle.None;
+            btnFixOne.Click += (s, e) =>
+            {
+                var cur = GetOrInitExcelDockedState(item);
+                if (!string.IsNullOrEmpty(cur.Chosen))
+                {
+                    RequestApplySuggestion?.Invoke(item, cur.Chosen);
+                }
+            };
+
+            var btnIgnore = CreatePillButton(
+                UiLocalizer.Pick("Ignore", "ကျော်"),
+                Color.FromArgb(245, 248, 246), Color.FromArgb(82, 94, 86), Color.FromArgb(208, 218, 212), _fontSmall);
+            btnIgnore.AutoSize = true;
+            btnIgnore.Dock = DockStyle.None;
+            btnIgnore.Click += (s, e) => RequestIgnoreOnce?.Invoke(item);
+
+            rowBtns.Controls.AddRange(new Control[] { btnToggle, btnFixOne, btnIgnore });
+            card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            card.Controls.Add(rowBtns, 0, r++);
+
+            return card;
         }
     }
 }

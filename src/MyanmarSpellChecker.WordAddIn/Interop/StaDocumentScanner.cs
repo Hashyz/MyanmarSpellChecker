@@ -153,6 +153,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             new Dictionary<Word.Document, DocumentQualityReport>();
         private readonly Dictionary<Word.Document, WordScanOutcomeMetadata> _documentScanMeta =
             new Dictionary<Word.Document, WordScanOutcomeMetadata>();
+        private readonly Dictionary<Word.Document, (int SlotId, int MinStart, int MaxEnd)> _selectionScopeByDoc =
+            new Dictionary<Word.Document, (int SlotId, int MinStart, int MaxEnd)>();
         private bool _lastEcoActive;
 
         public bool IsLiveAutoScanEnabled { get; set; } = true;
@@ -204,10 +206,31 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             _liveTypingWatchTimer.Start();
         }
 
+        public bool IsSelectionScopeActive(Word.Document? doc) =>
+            doc != null && _selectionScopeByDoc.ContainsKey(doc);
+
+        public void ClearSelectionScope(Word.Document? doc)
+        {
+            if (doc != null)
+            {
+                _selectionScopeByDoc.Remove(doc);
+            }
+        }
+
         public IReadOnlyList<DocumentProofingItem> GetCachedIssues(Word.Document? doc)
         {
             if (doc != null && _documentIssuesCache.TryGetValue(doc, out var list))
             {
+                if (_selectionScopeByDoc.TryGetValue(doc, out var scope))
+                {
+                    return list
+                        .Where(i => !i.IsResolved &&
+                                    i.StorySlotId == scope.SlotId &&
+                                    i.CachedEnd >= scope.MinStart &&
+                                    i.CachedStart <= scope.MaxEnd)
+                        .ToList();
+                }
+
                 return list.Where(i => !i.IsResolved).ToList();
             }
             return Array.Empty<DocumentProofingItem>();
@@ -305,6 +328,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 _storyContainersByDoc.Remove(doc);
                 _documentQualityCache.Remove(doc);
                 _documentScanMeta.Remove(doc);
+                _selectionScopeByDoc.Remove(doc);
                 ScanCompleted?.Invoke(doc, Array.Empty<DocumentProofingItem>());
             }
         }
@@ -353,6 +377,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             _storyContainersByDoc.Remove(doc);
             _documentQualityCache.Remove(doc);
             _documentScanMeta.Remove(doc);
+            _selectionScopeByDoc.Remove(doc);
 
             if (wasLarge || _documentIssuesCache.Count == 0)
             {
@@ -1263,6 +1288,200 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         }
 
         /// <summary>
+        /// Scans ONLY the user's currently highlighted Word selection (or the active paragraph at the cursor when collapsed),
+        /// supporting multi-cell tables, body paragraphs, and headers/footers in milliseconds without scanning the whole document.
+        /// Scopes <see cref="GetCachedIssues"/> to the scanned selection until the next Full Document Scan.
+        /// </summary>
+        public void ScanSelectionAsync()
+        {
+            try
+            {
+                _deferredFullScanTimer.Stop();
+                _pasteDebounceTimer.Stop();
+                _debounceTimer.Stop();
+
+                Word.Document? doc = _app.ActiveDocument;
+                Word.Selection? sel = _app.Selection;
+                if (doc == null || sel == null || sel.Range == null)
+                    return;
+
+                Word.Range selRange = sel.Range.Duplicate;
+                Word.Paragraphs paras = selRange.Paragraphs;
+                int paraCount = paras.Count;
+                if (paraCount <= 0)
+                {
+                    ScanCompleted?.Invoke(doc, Array.Empty<DocumentProofingItem>());
+                    return;
+                }
+
+                ScanStarted?.Invoke(doc);
+
+                const int MaxSelectionParagraphs = 1200;
+                int limit = Math.Min(paraCount, MaxSelectionParagraphs);
+                var pendingSnapshots = new List<ParagraphSnapshot>(Math.Min(limit, 128));
+                int minStart = int.MaxValue;
+                int maxEnd = int.MinValue;
+                int primarySlotId = 0;
+
+                for (int pIdx = 1; pIdx <= limit; pIdx++)
+                {
+                    try
+                    {
+                        Word.Paragraph para = paras[pIdx];
+                        Word.Range paraRange = para.Range;
+                        int startOffset = paraRange.Start;
+                        int endOffset = paraRange.End;
+                        if (startOffset < minStart) minStart = startOffset;
+                        if (endOffset > maxEnd) maxEnd = endOffset;
+
+                        string rawBeforeClean = paraRange.Text ?? string.Empty;
+                        string rawText = CleanWordControlChars(rawBeforeClean);
+                        if (string.IsNullOrWhiteSpace(rawText))
+                            continue;
+
+                        bool inTable = rawBeforeClean.IndexOf('\a') >= 0;
+                        Word.WdStoryType st = Word.WdStoryType.wdMainTextStory;
+                        try { st = paraRange.StoryType; } catch { }
+                        (int slotId, Word.Range? containerRange, bool isShapeContainer) = ResolveLiveParagraphStorySlot(doc, paraRange, st);
+                        primarySlotId = slotId;
+
+                        pendingSnapshots.Add(new ParagraphSnapshot
+                        {
+                            StoryType = st,
+                            StorySlotId = slotId,
+                            StoryContainerRange = containerRange,
+                            StoryName = GetFriendlyStoryName(st, inTable, isShapeContainer),
+                            ParagraphIndex = pIdx,
+                            ParagraphRange = paraRange,
+                            StartOffset = startOffset,
+                            EndOffset = endOffset,
+                            RawText = rawText,
+                            NeedsNlpCheck = ContainsMyanmarOrZawgyiCandidate(rawText)
+                        });
+                    }
+                    catch
+                    {
+                        // Skip inaccessible cell/paragraph
+                    }
+                }
+
+                if (minStart <= maxEnd)
+                {
+                    _selectionScopeByDoc[doc] = (primarySlotId, minStart, maxEnd);
+                }
+
+                if (pendingSnapshots.Count == 0)
+                {
+                    ScanCompleted?.Invoke(doc, GetCachedIssues(doc));
+                    return;
+                }
+
+                int generation = Interlocked.Increment(ref _scanGeneration);
+                Task.Run(() =>
+                {
+                    var analyzed = new List<(ParagraphSnapshot Snap, List<ProofingIssue> Issues)>(pendingSnapshots.Count);
+                    for (int idx = 0; idx < pendingSnapshots.Count; idx++)
+                    {
+                        if (generation != Volatile.Read(ref _scanGeneration))
+                            return;
+
+                        var snap = pendingSnapshots[idx];
+                        List<ProofingIssue> issues = snap.NeedsNlpCheck
+                            ? CheckTextCrashSafe(snap.RawText)
+                            : new List<ProofingIssue>();
+                        analyzed.Add((snap, issues));
+                    }
+
+                    SafeBeginInvokeOnSta(() =>
+                    {
+                        if (generation != Volatile.Read(ref _scanGeneration))
+                            return;
+
+                        try
+                        {
+                            if (!_documentIssuesCache.TryGetValue(doc, out var docList))
+                            {
+                                docList = new List<DocumentProofingItem>();
+                                _documentIssuesCache[doc] = docList;
+                            }
+                            if (!_lastParagraphTextByStart.TryGetValue(doc, out var doneMap))
+                            {
+                                doneMap = new Dictionary<long, string>();
+                                _lastParagraphTextByStart[doc] = doneMap;
+                            }
+
+                            const int DriftWindow = 640;
+                            _underlineManager.ExecuteInSharedProofingBatch(doc, () =>
+                            {
+                                foreach (var (snap, issues) in analyzed)
+                                {
+                                    if (snap.ParagraphRange == null)
+                                        continue;
+
+                                    List<DocumentProofingItem> bound = _underlineManager.BindAndUnderlineRangeIssues(
+                                        doc,
+                                        snap.ParagraphRange,
+                                        snap.StoryName,
+                                        snap.ParagraphIndex,
+                                        issues,
+                                        insideSharedBatch: true,
+                                        applyVisualUnderline: true,
+                                        preloadedCleanText: snap.RawText,
+                                        storyType: snap.StoryType,
+                                        storySlotId: snap.StorySlotId,
+                                        storyContainerRange: snap.StoryContainerRange);
+
+                                    long slotKey = MakeSlotOffsetKey(snap.StorySlotId, snap.StartOffset);
+                                    doneMap[slotKey] = snap.RawText;
+
+                                    docList.RemoveAll(existing =>
+                                    {
+                                        if (existing.IsResolved)
+                                            return true;
+                                        if (existing.StorySlotId != snap.StorySlotId)
+                                            return false;
+                                        if (existing.CachedEnd < snap.StartOffset - DriftWindow ||
+                                            existing.CachedStart > snap.EndOffset + DriftWindow)
+                                        {
+                                            return false;
+                                        }
+                                        try
+                                        {
+                                            int s = existing.TargetRange != null ? existing.TargetRange.Start : existing.FallbackStartOffset;
+                                            if (existing.TargetRange != null)
+                                            {
+                                                existing.CachedStart = s;
+                                                existing.CachedEnd = existing.TargetRange.End;
+                                            }
+                                            return s >= snap.StartOffset && s < snap.EndOffset;
+                                        }
+                                        catch
+                                        {
+                                            return true;
+                                        }
+                                    });
+
+                                    docList.AddRange(bound);
+                                }
+                            });
+
+                            _documentQualityCache.Remove(doc);
+                            ScanCompleted?.Invoke(doc, GetCachedIssues(doc));
+                        }
+                        catch
+                        {
+                            ScanCompleted?.Invoke(doc, GetCachedIssues(doc));
+                        }
+                    });
+                });
+            }
+            catch
+            {
+                // Ignore transient COM errors
+            }
+        }
+
+        /// <summary>
         /// Scans Main Body, Tables, and Headers/Footers (StoryRanges) across the entire active document
         /// using non-blocking whole-story / time-sliced STA extraction, hardware-throttled background NLP,
         /// and wall-clock-budgeted chunked underlining so Word never freezes on 50–500+ page documents.
@@ -1279,6 +1498,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 Word.Document? doc = _app.ActiveDocument;
                 if (doc == null)
                     return;
+
+                _selectionScopeByDoc.Remove(doc);
 
                 int generation = Interlocked.Increment(ref _scanGeneration);
                 CancelActiveJobs();

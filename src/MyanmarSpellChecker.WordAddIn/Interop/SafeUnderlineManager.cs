@@ -674,14 +674,89 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         }
 
         /// <summary>
-        /// Replaces a single issue using its live Word.Range and restores its original user underline style
-        /// (e.g., preserving wdUnderlineSingle on 'အကြောင်းအရာ ။').
+        /// Verifies that the live Word.Range still matches <see cref="ProofingIssue.OriginalText"/> before writing
+        /// (crucial when Review &amp; Fix runs modelessly while the user edits text in the background).
+        /// If earlier edits shifted offsets slightly within the same paragraph, relocates the nearest exact match;
+        /// if the user already fixed or deleted the word manually, marks it resolved and returns null so manual edits are never overwritten.
         /// </summary>
-        public void ReplaceIssueInDocument(Word.Document doc, DocumentProofingItem item, string replacementText)
+        private Word.Range? TryVerifyOrRelocateLiveTargetRange(Word.Document doc, DocumentProofingItem item)
+        {
+            Word.Range? r = EnsureTargetRangeResolved(doc, item);
+            if (r == null)
+                return null;
+
+            string expected = item.Issue.OriginalText ?? string.Empty;
+            if (string.IsNullOrEmpty(expected))
+                return null;
+
+            try
+            {
+                string liveText = r.Text ?? string.Empty;
+                if (string.Equals(liveText, expected, StringComparison.Ordinal))
+                    return r;
+
+                // Attempt safe same-paragraph relocation if user typed earlier in the same paragraph while Review & Fix was open
+                if (r.Paragraphs.Count > 0)
+                {
+                    Word.Range paraRange = r.Paragraphs[1].Range;
+                    int paraStart = paraRange.Start;
+                    string paraRaw = paraRange.Text ?? string.Empty;
+                    int approxLocal = Math.Max(0, r.Start - paraStart);
+                    int bestIdx = -1;
+                    int bestDist = int.MaxValue;
+
+                    int searchFrom = Math.Max(0, approxLocal - 160);
+                    int searchLimit = Math.Min(paraRaw.Length, approxLocal + expected.Length + 160);
+                    int idx = searchFrom;
+                    while (idx <= searchLimit - expected.Length)
+                    {
+                        int hit = paraRaw.IndexOf(expected, idx, searchLimit - idx, StringComparison.Ordinal);
+                        if (hit < 0)
+                            break;
+
+                        int dist = Math.Abs(hit - approxLocal);
+                        if (dist < bestDist)
+                        {
+                            bestDist = dist;
+                            bestIdx = hit;
+                        }
+                        idx = hit + 1;
+                    }
+
+                    if (bestIdx >= 0)
+                    {
+                        Word.Range relocated = paraRange.Duplicate;
+                        relocated.SetRange(paraStart + bestIdx, paraStart + bestIdx + expected.Length);
+                        if (string.Equals(relocated.Text ?? string.Empty, expected, StringComparison.Ordinal))
+                        {
+                            item.TargetRange = relocated;
+                            item.CachedStart = relocated.Start;
+                            item.CachedEnd = relocated.End;
+                            return relocated;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                return null;
+            }
+
+            // User already edited/fixed this word manually in the background — mark resolved & do not overwrite!
+            item.IsResolved = true;
+            return null;
+        }
+
+        /// <summary>
+        /// Replaces a single issue using its live Word.Range and restores its original user underline style
+        /// (e.g., preserving wdUnderlineSingle on 'အကြောင်းအရာ ။'). Returns true if applied, false if stale/already edited.
+        /// </summary>
+        public bool ReplaceIssueInDocument(Word.Document doc, DocumentProofingItem item, string replacementText)
         {
             if (doc == null || item == null)
-                return;
+                return false;
 
+            bool applied = false;
             Word.UndoRecord? undoRecord = null;
             bool startedOwnUndo = false;
             try
@@ -690,7 +765,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     UiLocalizer.Pick($"Myanmar Fix ({replacementText})", $"သတ်ပုံပြင်ဆင်ခြင်း ({replacementText})"),
                     out undoRecord);
 
-                Word.Range? r = EnsureTargetRangeResolved(doc, item);
+                Word.Range? r = TryVerifyOrRelocateLiveTargetRange(doc, item);
                 if (r != null)
                 {
                     r.Font.Underline = item.OriginalUnderline;
@@ -700,6 +775,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     r.Font.Underline = item.OriginalUnderline;
                     r.Font.UnderlineColor = item.OriginalUnderlineColor;
                     item.IsResolved = true;
+                    applied = true;
 
                     for (int i = _trackedRanges.Count - 1; i >= 0; i--)
                     {
@@ -719,6 +795,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             {
                 EndOwnUndoRecord(undoRecord, startedOwnUndo);
             }
+            return applied;
         }
 
         /// <summary>
@@ -761,7 +838,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 {
                     try
                     {
-                        Word.Range? r = EnsureTargetRangeResolved(doc, item);
+                        Word.Range? r = TryVerifyOrRelocateLiveTargetRange(doc, item);
                         if (r == null)
                             continue;
 
@@ -846,7 +923,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     var item = ordered[idx];
                     try
                     {
-                        Word.Range? r = EnsureTargetRangeResolved(doc, item);
+                        Word.Range? r = TryVerifyOrRelocateLiveTargetRange(doc, item);
                         if (r == null)
                             continue;
 
@@ -963,7 +1040,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                     try
                     {
-                        Word.Range? r = EnsureTargetRangeResolved(doc, item);
+                        Word.Range? r = TryVerifyOrRelocateLiveTargetRange(doc, item);
                         if (r == null)
                             continue;
 

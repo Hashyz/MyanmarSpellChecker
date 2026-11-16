@@ -134,6 +134,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         private readonly Button _btnStyleFormal;
         private readonly Label _lblStyleHint;
         private readonly Button _btnScanAll;
+        private readonly Button _btnScanSelection;
         private readonly Button _btnFixAll;
         private readonly Button _btnClearLines;
         private readonly Button _btnFilterAll;
@@ -214,10 +215,14 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
         // Events wired by ThisAddIn
         public event Action? RequestFullDocumentScan;
+        public event Action? RequestSelectionScan;
         public event Action? RequestCancelScan;
         public event Action? RequestCycleEcoMode;
         public event Action? RequestToggleLanguage;
         public event Action<IssueFilterMode>? RequestFixAllIssues;
+        public event Action? RequestUndoLastAction;
+        public event Func<IReadOnlyDictionary<DocumentProofingItem, string>, int>? RequestApplyDockedBatch;
+        public event Action<IReadOnlyList<FixPreviewEntry<DocumentProofingItem>>>? RequestPopOutDockedChecklist;
         public event Action? RequestClearUnderlines;
         public event Action? RequestLicenseDialog;
         public event Action<ProofingStyleMode>? RequestChangeStyleMode;
@@ -536,23 +541,24 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Padding = new Padding(2, 0, 2, 0)
             };
 
-            // Primary Action Strip (Scan | Fix All | Clear Underlines)
+            // Primary Action Strip (Scan Doc | Scan Sel | Review & Fix | Clear)
             var actionStrip = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 3,
+                ColumnCount = 4,
                 RowCount = 1,
                 Margin = new Padding(0, 0, 0, 6)
             };
-            actionStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 37F));
-            actionStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 37F));
-            actionStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 26F));
+            actionStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 27F));
+            actionStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 23F));
+            actionStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 31F));
+            actionStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 19F));
             actionStrip.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             int initActionBtnH = MeasureSingleLineButtonHeight(_fontSmallBold, 13);
-            _btnScanAll = CreateToolbarSlotButton("စာတမ်းစစ်မည်", Color.FromArgb(24, 90, 188), Color.White, Color.FromArgb(20, 76, 162), _fontSmallBold, initActionBtnH);
+            _btnScanAll = CreateToolbarSlotButton("စာတမ်းစစ်", Color.FromArgb(24, 90, 188), Color.White, Color.FromArgb(20, 76, 162), _fontSmallBold, initActionBtnH);
             _btnScanAll.Click += (s, e) =>
             {
                 SetScanningState(true);
@@ -560,18 +566,27 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             };
             _toolTip.SetToolTip(_btnScanAll, "စာကိုယ်၊ ဇယားကွက်နှင့် ခေါင်းစီး/အောက်ခြေ အားလုံးကို စစ်ဆေးရန်");
 
-            _btnFixAll = CreateToolbarSlotButton("အားလုံးပြင်မည်", Color.FromArgb(22, 132, 68), Color.White, Color.FromArgb(18, 114, 58), _fontSmallBold, initActionBtnH);
+            _btnScanSelection = CreateToolbarSlotButton("ရွေးစစ်", Color.FromArgb(234, 243, 255), Color.FromArgb(20, 74, 158), Color.FromArgb(182, 208, 244), _fontSmallBold, initActionBtnH);
+            _btnScanSelection.Click += (s, e) =>
+            {
+                SetScanningState(true);
+                RequestSelectionScan?.Invoke();
+            };
+            _toolTip.SetToolTip(_btnScanSelection, "Highlight ရွေးထားသော စာသား/ဇယားကွက် (သို့မဟုတ် လက်ရှိစာပိုဒ်) ကိုသာ အမြန်စစ်ဆေးရန်");
+
+            _btnFixAll = CreateToolbarSlotButton("စိစစ်ပြင်", Color.FromArgb(22, 132, 68), Color.White, Color.FromArgb(18, 114, 58), _fontSmallBold, initActionBtnH);
             _btnFixAll.Click += (s, e) => RequestFixAllIssues?.Invoke(_currentFilter);
-            _toolTip.SetToolTip(_btnFixAll, "ရွေးချယ်ထားသော စစ်ထုတ်မှုအလိုက် အမှားများကို တစ်ပြိုင်နက် ပြင်ဆင်ရန် — အနက်သံသယ သတိပြုချက်များကို အလိုအလျောက် မပြင်ဘဲ ချန်ထားပေးသည် (Ctrl+Z တစ်ချက်တည်းဖြင့် ပြန်ပြင်နိုင်သည်)");
+            _toolTip.SetToolTip(_btnFixAll, "ရွေးချယ်ထားသော စစ်ထုတ်မှုအလိုက် အမှားများကို စာတမ်းမပိတ်ဆို့ဘဲ တိုက်ရိုက်စိစစ်ပြင်ဆင်ရန်");
 
             _btnClearLines = CreateToolbarSlotButton(
-                UiLocalizer.Pick("Clear Marks", "မျဉ်းရှင်း"),
+                UiLocalizer.Pick("Clear", "ရှင်း"),
                 Color.FromArgb(242, 244, 248), Color.FromArgb(55, 65, 80), Color.FromArgb(215, 220, 230), _fontSmall, initActionBtnH);
             _btnClearLines.Click += (s, e) => RequestClearUnderlines?.Invoke();
 
             actionStrip.Controls.Add(_btnScanAll, 0, 0);
-            actionStrip.Controls.Add(_btnFixAll, 1, 0);
-            actionStrip.Controls.Add(_btnClearLines, 2, 0);
+            actionStrip.Controls.Add(_btnScanSelection, 1, 0);
+            actionStrip.Controls.Add(_btnFixAll, 2, 0);
+            actionStrip.Controls.Add(_btnClearLines, 3, 0);
 
             // Filter Pills + Issue Stepper (All | Spelling | Grammar | Context | ↑ | ↓)
             var filterAndStepRow = new TableLayoutPanel
@@ -1542,20 +1557,27 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                     "Formal ministry & literary mode (flags colloquial particles: ပါတယ် ➔ ပါသည်, တွေ ➔ များ)",
                     "အစိုးရရုံးသုံးနှင့် စာပေအရေးအသားစနစ် (ပါတယ် ➔ ပါသည်၊ တွေ ➔ များ ပါ စစ်ဆေးသည်)"));
 
-            _btnScanAll.Text = UiLocalizer.Pick("Scan Document", "စာတမ်းစစ်မည်");
+            _btnScanAll.Text = UiLocalizer.Pick("Scan Doc", "စာတမ်းစစ်");
             _toolTip.SetToolTip(
                 _btnScanAll,
                 UiLocalizer.Pick(
-                    "Scan document body, tables, headers, and footers",
+                    "Scan entire document body, tables, headers, and footers",
                     "စာကိုယ်၊ ဇယားကွက်နှင့် ခေါင်းစီး/အောက်ခြေ အားလုံးကို စစ်ဆေးရန်"));
+
+            _btnScanSelection.Text = UiLocalizer.Pick("Scan Sel", "ရွေးစစ်");
+            _toolTip.SetToolTip(
+                _btnScanSelection,
+                UiLocalizer.Pick(
+                    "Fast-scan only your highlighted selection/table (or current paragraph at cursor)",
+                    "Highlight ရွေးထားသော စာသား/ဇယားကွက် (သို့မဟုတ် လက်ရှိစာပိုဒ်) ကိုသာ အမြန်စစ်ဆေးရန်"));
 
             _toolTip.SetToolTip(
                 _btnFixAll,
                 UiLocalizer.Pick(
-                    "Review and apply fixes for the active filter — leaves names & context warnings unchecked by default (single Ctrl+Z undo)",
-                    "ရွေးချယ်ထားသော စစ်ထုတ်မှုအလိုက် အမှားများကို တစ်ပြိုင်နက် ပြင်ဆင်ရန် — အနက်သံသယ သတိပြုချက်များကို အလိုအလျောက် မပြင်ဘဲ ချန်ထားပေးသည် (Ctrl+Z တစ်ချက်တည်းဖြင့် ပြန်ပြင်နိုင်သည်)"));
+                    "Open non-blocking live Review & Fix (document stays unlocked; dockable in pane)",
+                    "စာတမ်းမပိတ်ဆို့ဘဲ တိုက်ရိုက် စိစစ်ပြင်ဆင်ရန် (ဘေးကွက်အတွင်းလည်း ထည့်သုံးနိုင်သည်)"));
 
-            _btnClearLines.Text = UiLocalizer.Pick("Clear Marks", "မျဉ်းရှင်း");
+            _btnClearLines.Text = UiLocalizer.Pick("Clear", "ရှင်း");
             _toolTip.SetToolTip(
                 _btnClearLines,
                 UiLocalizer.Pick(
@@ -1760,6 +1782,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
                 int actionBtnH = MeasureSingleLineButtonHeight(_fontSmallBold, 13);
                 _btnScanAll.Height = actionBtnH;
+                _btnScanSelection.Height = actionBtnH;
                 _btnFixAll.Height = actionBtnH;
                 _btnClearLines.Height = actionBtnH;
 

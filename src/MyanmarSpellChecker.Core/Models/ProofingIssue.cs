@@ -192,6 +192,103 @@ namespace MyanmarSpellChecker.Core.Models
             !RequiresReviewBeforeBatchFix &&
             Suggestions != null &&
             Suggestions.Count > 0;
+
+        /// <summary>
+        /// Computes a concise, BMP-safe visual diff badge (e.g. "[ZWSP]", "[ါ->ာ]", "[၀->ဝ]", "[ုိ->ို]", "[ေ/ြ ရှေ့ထား]")
+        /// whenever an issue involves invisible zero-width characters, Unicode combining-mark ordering, or lookalike codepoints
+        /// that otherwise look identical or near-identical to the human eye in UI tables and cards.
+        /// </summary>
+        public string FormatVisualDiffBadge(string? chosenReplacement = null)
+        {
+            string orig = OriginalText ?? string.Empty;
+            string rep = chosenReplacement ?? (Suggestions != null && Suggestions.Count > 0 ? Suggestions[0].Replacement : string.Empty) ?? string.Empty;
+            if (string.IsNullOrEmpty(orig))
+                return string.Empty;
+
+            bool hasZwsp = orig.IndexOf('\u200B') >= 0;
+            bool hasZwnj = orig.IndexOf('\u200C') >= 0;
+            bool hasZwj = orig.IndexOf('\u200D') >= 0;
+            bool hasBom = orig.IndexOf('\uFEFF') >= 0;
+
+            // Visual-order pre-base 'ေ' / 'ြ' typed before base consonant
+            for (int i = 0; i < orig.Length; i++)
+            {
+                char ch = orig[i];
+                if ((ch == '\u1031' || ch == '\u103C') &&
+                    (i == 0 || orig[i - 1] == '\u200C' || !((orig[i - 1] >= '\u1000' && orig[i - 1] <= '\u102A') || orig[i - 1] == '\u103F' || orig[i - 1] == '\u104E' || (orig[i - 1] >= '\u103B' && orig[i - 1] <= '\u103E'))))
+                {
+                    return Localization.UiLocalizer.Pick("[Visual ေ/ြ]", "[ေ/ြ အစီအစဉ်]");
+                }
+            }
+
+            if (hasZwsp && rep.IndexOf('\u200B') < 0)
+                return "[ZWSP]";
+            if (hasBom && rep.IndexOf('\uFEFF') < 0)
+                return "[BOM]";
+            if (hasZwj && rep.IndexOf('\u200D') < 0)
+                return "[ZWJ]";
+            if (hasZwnj && rep.IndexOf('\u200C') < 0)
+                return "[ZWNJ]";
+
+            if (!string.IsNullOrEmpty(rep) && !string.Equals(orig, rep, StringComparison.Ordinal))
+            {
+                if (orig.IndexOf("\u102F\u102D", StringComparison.Ordinal) >= 0 && rep.IndexOf("\u102D\u102F", StringComparison.Ordinal) >= 0)
+                    return "[ုိ➔ို]";
+                if (orig.IndexOf("\u1037\u103A", StringComparison.Ordinal) >= 0 && rep.IndexOf("\u103A\u1037", StringComparison.Ordinal) >= 0)
+                    return "[့်➔င့်]";
+                if (orig.IndexOf("\u103A\u1039", StringComparison.Ordinal) >= 0 && rep.IndexOf("\u103A\u1039", StringComparison.Ordinal) < 0 && IssueType == ProofingIssueType.LookalikeCharacterError)
+                    return "[ကင်းစီး]";
+                if (orig.IndexOf('\u1040') >= 0 && rep.IndexOf('\u101D') >= 0 && rep.IndexOf('\u1040') < 0)
+                    return "[၀➔ဝ]";
+                if (orig.IndexOf('\u101D') >= 0 && rep.IndexOf('\u1040') >= 0 && rep.IndexOf('\u101D') < 0)
+                    return "[ဝ➔၀]";
+                if (orig.IndexOf('\u102B') >= 0 && rep.IndexOf('\u102C') >= 0 && orig.Length == rep.Length)
+                    return "[ါ➔ာ]";
+                if (orig.IndexOf('\u102C') >= 0 && rep.IndexOf('\u102B') >= 0 && orig.Length == rep.Length)
+                    return "[ာ➔ါ]";
+                if (orig.IndexOf("\u1005\u103B", StringComparison.Ordinal) >= 0 && rep.IndexOf('\u1008') >= 0)
+                    return "[စျ➔ဈ]";
+                if (orig.IndexOf("\u1025\u103A", StringComparison.Ordinal) >= 0 && rep.IndexOf("\u1009\u103A", StringComparison.Ordinal) >= 0)
+                    return "[ဥ်➔ဉ်]";
+
+                string normOrig = Nlp.UnicodeNormalizer.NormalizeCanonicalOrder(orig);
+                string normRep = Nlp.UnicodeNormalizer.NormalizeCanonicalOrder(rep);
+                if (string.Equals(normOrig, normRep, StringComparison.Ordinal))
+                {
+                    return Localization.UiLocalizer.Pick("[Unicode Order]", "[ယူနီကုဒ်အစီအစဉ်]");
+                }
+            }
+
+            return string.Empty;
+        }
+
+        /// <summary>
+        /// Formats <see cref="OriginalText"/> for checklist grids and cards so invisible zero-width spaces and
+        /// subtle combining-mark / lookalike differences are immediately visible to the user.
+        /// </summary>
+        public string FormatVisualOriginalText(string? chosenReplacement = null)
+        {
+            string orig = OriginalText ?? string.Empty;
+            if (string.IsNullOrEmpty(orig))
+                return string.Empty;
+
+            string display = orig
+                .Replace("\u200B", "[ZWSP]")
+                .Replace("\uFEFF", "[BOM]")
+                .Replace("\u200D", "[ZWJ]");
+
+            string badge = FormatVisualDiffBadge(chosenReplacement);
+            if (!string.IsNullOrEmpty(badge) &&
+                badge != "[ZWSP]" &&
+                badge != "[BOM]" &&
+                badge != "[ZWJ]" &&
+                display.IndexOf(badge, StringComparison.Ordinal) < 0)
+            {
+                return $"{display}  {badge}";
+            }
+
+            return display;
+        }
     }
 }
 

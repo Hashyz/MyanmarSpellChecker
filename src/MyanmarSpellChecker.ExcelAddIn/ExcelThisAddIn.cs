@@ -79,6 +79,9 @@ namespace MyanmarSpellChecker.ExcelAddIn
         private string _activeDatabaseKey = string.Empty;
         private DateTime _loadedDbLastWriteUtc = DateTime.MinValue;
         private int _dbHotReloadInProgress;
+        private FixAllPreviewDialog<SpreadsheetCellIssue>? _activeReviewDialog;
+        private string _activeReviewWorkbookName = string.Empty;
+        private IssueFilterMode _activeReviewFilterMode = IssueFilterMode.All;
 
         static ExcelThisAddIn()
         {
@@ -380,6 +383,15 @@ namespace MyanmarSpellChecker.ExcelAddIn
                     ctrl.SetScanOutcomeMetadata(_scannerToolkit.GetLastScanMetadataForActiveWorkbook());
                     ctrl.RenderIssues(items);
                 }
+                if (_activeReviewDialog != null && !_activeReviewDialog.IsDisposed)
+                {
+                    try
+                    {
+                        var freshEntries = BuildExcelFixPreviewEntries(_activeReviewFilterMode);
+                        _activeReviewDialog.ReloadEntriesFromHost(freshEntries);
+                    }
+                    catch { }
+                }
                 _quickFixController?.ScheduleRefreshForActiveCell(70);
             };
             _scannerToolkit.UndoStateChanged += SyncUndoStateAcrossTaskPanes;
@@ -608,6 +620,10 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 _wavyOverlay?.HideOverlayImmediate();
                 string? wbName = null;
                 try { wbName = wb?.Name; } catch { }
+                if (willClose && !string.IsNullOrEmpty(wbName) && string.Equals(wbName, _activeReviewWorkbookName, StringComparison.OrdinalIgnoreCase))
+                {
+                    CloseActiveExcelReviewDialog();
+                }
                 _scannerToolkit?.PurgeClosedWorkbook(wbName);
                 PruneClosedWindowTaskPanes();
                 try
@@ -1002,6 +1018,9 @@ namespace MyanmarSpellChecker.ExcelAddIn
             ctrl.RequestCycleEcoMode += CycleEcoModeFromUi;
             ctrl.RequestFixAllIssues += ExecuteFixAllInActiveScope;
             ctrl.RequestUndoLastAction += ExecuteUndoLastAction;
+            ctrl.RequestApplyDockedBatch += approved => ApplyExcelApprovedBatch(ctrl, approved, GetExcelFilterScopeLabel(_activeReviewFilterMode));
+            ctrl.RequestPopOutDockedChecklist += entries =>
+                OpenOrUpdateExcelModelessReviewStudio(_activeReviewFilterMode, ctrl, entries, forceFloating: true);
             ctrl.RequestClearUnderlines += () => ExecuteClearExcelUnderlines();
             ctrl.RequestLicenseDialog += ShowLicenseDialog;
             ctrl.RequestChangeStyleMode += ApplyStyleModeAndRescan;
@@ -1145,14 +1164,20 @@ namespace MyanmarSpellChecker.ExcelAddIn
             };
         }
 
-        private void ExecuteFixAllInActiveScope(IssueFilterMode filterMode = IssueFilterMode.All)
+        private void CloseActiveExcelReviewDialog()
         {
-            if (_scannerToolkit == null)
-                return;
+            var dlg = _activeReviewDialog;
+            _activeReviewDialog = null;
+            _activeReviewWorkbookName = string.Empty;
+            if (dlg != null && !dlg.IsDisposed)
+            {
+                try { dlg.Close(); } catch { }
+                try { dlg.Dispose(); } catch { }
+            }
+        }
 
-            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
-
-            Func<SpreadsheetCellIssue, bool> predicate = filterMode switch
+        private static Func<SpreadsheetCellIssue, bool> GetExcelFilterPredicate(IssueFilterMode filterMode) =>
+            filterMode switch
             {
                 IssueFilterMode.SpellingOnly => i => !i.Issue.IsGrammarOrStyle && !i.Issue.IsContextualWarning,
                 IssueFilterMode.GrammarOnly => i => i.Issue.IsGrammarOrStyle,
@@ -1160,7 +1185,8 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 _ => _ => true
             };
 
-            string scopeLabel = filterMode switch
+        private static string GetExcelFilterScopeLabel(IssueFilterMode filterMode) =>
+            filterMode switch
             {
                 IssueFilterMode.SpellingOnly => UiLocalizer.Pick("Spelling Issues", "သတ်ပုံအမှား"),
                 IssueFilterMode.GrammarOnly => UiLocalizer.Pick("Grammar / Style Issues", "သဒ္ဒါ/စာဟန်အမှား"),
@@ -1168,15 +1194,74 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 _ => UiLocalizer.Pick("All Issues", "အမှားစုစုပေါင်း")
             };
 
-            var cachedBefore = _scannerToolkit.GetCachedIssuesForActiveWorkbook();
-            var candidates = cachedBefore
+        private List<FixPreviewEntry<SpreadsheetCellIssue>> BuildExcelFixPreviewEntries(IssueFilterMode filterMode)
+        {
+            if (_scannerToolkit == null)
+                return new List<FixPreviewEntry<SpreadsheetCellIssue>>();
+
+            var predicate = GetExcelFilterPredicate(filterMode);
+            return _scannerToolkit.GetCachedIssuesForActiveWorkbook()
                 .Where(i => !i.IsResolved &&
                             i.Issue.Suggestions != null &&
                             i.Issue.Suggestions.Count > 0 &&
                             predicate(i))
+                .Select(item => new FixPreviewEntry<SpreadsheetCellIssue>(
+                    item,
+                    item.DisplayLocation,
+                    item.CellSnapshotText,
+                    item.Issue))
                 .ToList();
+        }
 
-            if (candidates.Count == 0)
+        private int ApplyExcelApprovedBatch(
+            ExcelProofingTaskPaneControl? ctrl,
+            IReadOnlyDictionary<SpreadsheetCellIssue, string> approvedReplacements,
+            string scopeLabel)
+        {
+            if (_scannerToolkit == null || approvedReplacements == null || approvedReplacements.Count == 0)
+                return 0;
+
+            int fixedCount;
+            string busyWarn;
+            try
+            {
+                fixedCount = _scannerToolkit.ApplyApprovedFixes(
+                    approvedReplacements,
+                    UiLocalizer.Pick($"Fix ({scopeLabel})", $"{scopeLabel} စိစစ်ပြင်ဆင်မှု"),
+                    out busyWarn);
+            }
+            finally
+            {
+                ctrl?.SetScanningState(false);
+            }
+
+            ctrl?.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
+
+            if (!string.IsNullOrEmpty(busyWarn))
+            {
+                ctrl?.ShowToastBanner(busyWarn, isSuccess: false);
+                return 0;
+            }
+
+            if (fixedCount > 0)
+            {
+                ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                    $"✓ Applied {fixedCount} approved fix(es) safely without touching formulas (↶ Undo available).",
+                    $"✓ စိစစ်အတည်ပြုထားသော ({fixedCount}) ခုကို Formula မပျက်စေဘဲ ပြင်ဆင်ပြီးပါပြီ (↶ ပြန်ဆုတ်နိုင်သည်)။"));
+            }
+            return fixedCount;
+        }
+
+        private void ExecuteFixAllInActiveScope(IssueFilterMode filterMode = IssueFilterMode.All)
+        {
+            if (_scannerToolkit == null)
+                return;
+
+            _activeReviewFilterMode = filterMode;
+            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+            var previewEntries = BuildExcelFixPreviewEntries(filterMode);
+
+            if (previewEntries.Count == 0)
             {
                 ctrl?.ShowToastBanner(UiLocalizer.Pick(
                     "✓ No remaining issues to fix in this scope.",
@@ -1184,59 +1269,113 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 return;
             }
 
-            var previewEntries = candidates
-                .Select(item => new FixPreviewEntry<SpreadsheetCellIssue>(
-                    item,
-                    item.DisplayLocation,
-                    item.CellSnapshotText,
-                    item.Issue))
-                .ToList();
-
-            using (var dlg = new FixAllPreviewDialog<SpreadsheetCellIssue>(
-                previewEntries,
-                $"Excel — {scopeLabel}",
-                target => _scannerToolkit.SelectAndScrollToIssue(target)))
+            var prefs = ReviewWindowPreferencesStore.Load("excel");
+            if (prefs.PreferDockedInTaskPane && ctrl != null)
             {
-                IWin32Window? ownerWin = ctrl != null && ctrl.IsHandleCreated ? ctrl : null;
-                DialogResult result = ownerWin != null ? dlg.ShowDialog(ownerWin) : dlg.ShowDialog();
-                if (result != DialogResult.OK || dlg.ApprovedReplacements.Count == 0)
-                {
-                    return;
-                }
+                CloseActiveExcelReviewDialog();
+                ctrl.EnterDockedChecklistMode(previewEntries);
+                return;
+            }
 
-                int skippedCount = candidates.Count - dlg.ApprovedReplacements.Count;
-                int fixedCount;
-                string busyWarn;
-                try
-                {
-                    fixedCount = _scannerToolkit.ApplyApprovedFixes(
-                        dlg.ApprovedReplacements,
-                        UiLocalizer.Pick($"Fix All ({scopeLabel})", $"{scopeLabel} စိစစ်ပြင်ဆင်မှု"),
-                        out busyWarn);
-                }
-                finally
-                {
-                    ctrl?.SetScanningState(false);
-                }
+            OpenOrUpdateExcelModelessReviewStudio(filterMode, ctrl, previewEntries, forceFloating: true);
+        }
 
-                ctrl?.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
+        private void OpenOrUpdateExcelModelessReviewStudio(
+            IssueFilterMode filterMode,
+            ExcelProofingTaskPaneControl? ctrl,
+            IReadOnlyList<FixPreviewEntry<SpreadsheetCellIssue>> previewEntries,
+            bool forceFloating)
+        {
+            if (_scannerToolkit == null)
+                return;
 
-                if (!string.IsNullOrEmpty(busyWarn))
-                {
-                    ctrl?.ShowToastBanner(busyWarn, isSuccess: false);
-                    return;
-                }
+            string wbName = "Excel";
+            try { if (_excelApp?.ActiveWorkbook != null && !string.IsNullOrWhiteSpace(_excelApp.ActiveWorkbook.Name)) wbName = _excelApp.ActiveWorkbook.Name; } catch { }
+            string scopeLabel = GetExcelFilterScopeLabel(filterMode);
+            string scopeTitle = $"{wbName} — {scopeLabel}";
 
-                if (fixedCount > 0)
+            if (_activeReviewDialog != null && !_activeReviewDialog.IsDisposed)
+            {
+                _activeReviewWorkbookName = wbName;
+                _activeReviewFilterMode = filterMode;
+                if (_activeReviewDialog.WindowState == FormWindowState.Minimized)
+                    _activeReviewDialog.WindowState = FormWindowState.Normal;
+                _activeReviewDialog.ReloadEntriesFromHost(previewEntries, scopeTitle);
+                _activeReviewDialog.Show();
+                _activeReviewDialog.BringToFront();
+                _activeReviewDialog.Activate();
+                return;
+            }
+
+            var callbacks = new FixPreviewStudioCallbacks<SpreadsheetCellIssue>
+            {
+                HostTag = "excel",
+                OnNavigateToItem = target => _scannerToolkit.SelectAndScrollToIssue(target),
+                OnApplyBatch = approved => ApplyExcelApprovedBatch(ctrl, approved, scopeLabel),
+                OnIgnoreItems = items =>
                 {
-                    string skipTail = skippedCount > 0
-                        ? UiLocalizer.Pick($" ({skippedCount} skipped)", $" (ချန်လှပ်ထားသည် {skippedCount} ခု)")
-                        : string.Empty;
+                    foreach (var item in items)
+                    {
+                        _proofingEngine?.IgnoreWordInSession(item.Issue.OriginalText);
+                        item.IsResolved = true;
+                    }
+                    _scannerToolkit.RefreshVisualUnderlinesForActiveWorkbook();
+                    ctrl?.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
+                },
+                OnAddWordToDictionary = (word, items) =>
+                {
+                    _proofingEngine?.AddCustomWord(word, _customDictFilePath);
+                    string normAdded = UnicodeNormalizer.NormalizeCanonicalOrder(word.Trim());
+                    foreach (var cached in _scannerToolkit.GetCachedIssuesForActiveWorkbook())
+                    {
+                        if (UnicodeNormalizer.NormalizeCanonicalOrder(cached.Issue.OriginalText.Trim()) == normAdded)
+                            cached.IsResolved = true;
+                    }
+                    _scannerToolkit.RefreshVisualUnderlinesForActiveWorkbook();
+                    ctrl?.RenderIssues(_scannerToolkit.GetCachedIssuesForActiveWorkbook());
                     ctrl?.ShowToastBanner(UiLocalizer.Pick(
-                        $"✓ Applied {fixedCount} approved fix(es) safely without touching formulas{skipTail} (↶ Undo available).",
-                        $"✓ စိစစ်အတည်ပြုထားသော ({fixedCount}) ခုကို Formula မပျက်စေဘဲ ပြင်ဆင်ပြီးပါပြီ{skipTail} (↶ ပြန်ဆုတ်နိုင်သည်)။"));
+                        $"✓ Added \"{word}\" to your Custom Dictionary.",
+                        $"✓ \"{word}\" ကို မှတ်သားစာလုံးစာရင်းသို့ ထည့်သွင်းပြီးပါပြီ။"));
+                },
+                OnRefreshEntries = () => BuildExcelFixPreviewEntries(_activeReviewFilterMode),
+                OnUndoLastFix = ExecuteUndoLastAction,
+                OnDockInTaskPane = snapshot =>
+                {
+                    var paneCtrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+                    paneCtrl?.EnterDockedChecklistMode(snapshot);
+                }
+            };
+
+            if (forceFloating)
+            {
+                var p = ReviewWindowPreferencesStore.Load("excel");
+                if (p.PreferDockedInTaskPane)
+                {
+                    p.PreferDockedInTaskPane = false;
+                    ReviewWindowPreferencesStore.Save("excel", p);
                 }
             }
+
+            var dlg = new FixAllPreviewDialog<SpreadsheetCellIssue>(
+                previewEntries,
+                scopeTitle,
+                callbacks.OnNavigateToItem,
+                callbacks);
+
+            _activeReviewDialog = dlg;
+            _activeReviewWorkbookName = wbName;
+            dlg.FormClosed += (s, e) =>
+            {
+                if (ReferenceEquals(_activeReviewDialog, dlg))
+                {
+                    _activeReviewDialog = null;
+                    _activeReviewWorkbookName = string.Empty;
+                }
+                try { dlg.Dispose(); } catch { }
+            };
+
+            // Modeless Show(): Excel workbook & Task Pane stay 100% live, scrollable, editable, and minimizable!
+            dlg.Show();
         }
 
         private void ExecuteUndoLastAction()
@@ -2072,13 +2211,33 @@ namespace MyanmarSpellChecker.ExcelAddIn
             });
         }
 
+        private LicenseActivationForm? _activeAboutDialog;
+
         private void ShowLicenseDialog()
         {
-            int totalEntries = (_proofingEngine?.Trie.WordCount ?? 0) + (_proofingEngine?.Trie.ReferenceCount ?? 0);
-            using (var dlg = new LicenseActivationForm(DefaultVendorPublicKeyXml, _licenseFilePath, totalEntries))
+            if (_activeAboutDialog != null && !_activeAboutDialog.IsDisposed)
             {
-                dlg.ShowDialog();
+                if (_activeAboutDialog.WindowState == FormWindowState.Minimized)
+                    _activeAboutDialog.WindowState = FormWindowState.Normal;
+                _activeAboutDialog.BringToFront();
+                _activeAboutDialog.Activate();
+                return;
             }
+
+            int totalEntries = (_proofingEngine?.Trie.WordCount ?? 0) + (_proofingEngine?.Trie.ReferenceCount ?? 0);
+            var dlg = new LicenseActivationForm(DefaultVendorPublicKeyXml, _licenseFilePath, totalEntries)
+            {
+                MinimizeBox = true,
+                ShowInTaskbar = true
+            };
+            _activeAboutDialog = dlg;
+            dlg.FormClosed += (s, e) =>
+            {
+                if (ReferenceEquals(_activeAboutDialog, dlg))
+                    _activeAboutDialog = null;
+                try { dlg.Dispose(); } catch { }
+            };
+            dlg.Show();
         }
 
         public void OnDisconnection(ext_DisconnectMode removeMode, ref Array custom)
@@ -2120,6 +2279,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
                     _excelApp.WorkbookBeforeClose -= OnWorkbookBeforeClose;
                 }
 
+                CloseActiveExcelReviewDialog();
                 _quickFixController?.Dispose();
                 _quickFixController = null;
 

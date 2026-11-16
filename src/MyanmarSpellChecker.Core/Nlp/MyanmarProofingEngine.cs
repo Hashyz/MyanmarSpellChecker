@@ -2824,7 +2824,14 @@ namespace MyanmarSpellChecker.Core.Nlp
                             string canonCorrect = UnicodeNormalizer.NormalizeCanonicalOrder(capturedRule.CorrectForm);
                             _trie.TryGetExactEntries(canonCorrect, out var targetEntries);
                             string? ruleMeaningCue = targetEntries != null && targetEntries.Count > 0 ? targetEntries[0].MeaningCue : null;
-                            var suggestions = _suggestionEngine.GetSuggestions(capturedSpan.NormalizedText);
+                            bool allowHomophoneAlternates =
+                                capturedSpan.NormalizedText == "ကြော်ညာ" ||
+                                (capturedSpan.NormalizedText.Length >= 4 &&
+                                 capturedSpan.NormalizedText.EndsWith("ချ", StringComparison.Ordinal) &&
+                                 _trie.ContainsExactWord(capturedSpan.NormalizedText.Substring(0, capturedSpan.NormalizedText.Length - 2) + "ကျ"));
+                            var suggestions = allowHomophoneAlternates
+                                ? _suggestionEngine.GetSuggestions(capturedSpan.NormalizedText)
+                                : new List<SuggestionCandidate>(2);
                             EnsureTopSuggestionMetadata(suggestions, capturedSpan.RawText, canonCorrect, ruleMeaningCue);
                             string diffDetail = OrthographicDiffExplainer.ExplainDifference(capturedSpan.RawText, canonCorrect);
 
@@ -4104,7 +4111,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                         capSpan.RawText,
                         () =>
                         {
-                            var suggestions = _suggestionEngine.GetSuggestions(capNormFixed);
+                            var suggestions = new List<SuggestionCandidate>(2);
                             EnsureTopSuggestionMetadata(suggestions, capSpan.RawText, capNormFixed, "စာလုံးပေါင်းအမှန်");
                             return new ProofingIssue
                             {
@@ -4130,7 +4137,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                         () =>
                         {
                             string targetWord = UnicodeNormalizer.NormalizeCanonicalOrder(capRule.CorrectForm);
-                            var suggestions = _suggestionEngine.GetSuggestions(targetWord);
+                            var suggestions = new List<SuggestionCandidate>(2);
                             EnsureTopSuggestionMetadata(suggestions, capSpan.RawText, targetWord, "စာလုံးပေါင်းအမှန်");
                             return new ProofingIssue
                             {
@@ -4243,7 +4250,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                                 capSpan.RawText,
                                 () =>
                                 {
-                                    var suggestions = _suggestionEngine.GetSuggestions(capTarget);
+                                    var suggestions = new List<SuggestionCandidate>(2);
                                     EnsureTopSuggestionMetadata(suggestions, capSpan.RawText, capTarget, capFirstMerged.MeaningCue, capFirstMerged.PosTag, capFirstMerged.IsOfficialThatpon);
                                     return new ProofingIssue
                                     {

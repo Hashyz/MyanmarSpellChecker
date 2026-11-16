@@ -1106,5 +1106,98 @@ namespace MyanmarSpellChecker.Core.Tests
                     $"Unexpected General false positive in '{cleanGen}': {string.Join("; ", fpGen.Select(i => i.OriginalText + "=>" + (i.Suggestions.FirstOrDefault()?.Replacement ?? "")))}");
             }
         }
+
+        [Fact]
+        public void V47_ModelessReviewStudio_DiffBadges_DeterministicSuggestions_AndZeroModalLockGate()
+        {
+            // 1. Static Non-Blocking Modeless & Minimizable Window Gate across WordAddIn + ExcelAddIn
+            string wordAddInSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "ThisAddIn.cs"));
+            string excelAddInSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "ExcelThisAddIn.cs"));
+            string wordReviewSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "FixAllPreviewDialog.cs"));
+            string excelReviewSrc = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "FixAllPreviewDialog.cs"));
+
+            // Review & Fix must NEVER call modal ShowDialog(ownerWin) (which locks background Word/Excel windows)
+            Assert.DoesNotContain("dlg.ShowDialog(", wordAddInSrc);
+            Assert.DoesNotContain("dlg.ShowDialog(", excelAddInSrc);
+            Assert.Contains("dlg.Show();", wordAddInSrc);
+            Assert.Contains("dlg.Show();", excelAddInSrc);
+
+            // Review & Fix window must allow MinimizeBox = true and ShowInTaskbar = true
+            Assert.Contains("MinimizeBox = true;", wordReviewSrc);
+            Assert.Contains("MinimizeBox = true;", excelReviewSrc);
+            Assert.Contains("ShowInTaskbar = true;", wordReviewSrc);
+            Assert.Contains("ShowInTaskbar = true;", excelReviewSrc);
+
+            // 2. Visual Diff Clarity Badges for invisible ZWSP, Myanmar3 mark-order, and lookalike characters
+            var zwspIssue = new ProofingIssue
+            {
+                OriginalText = "မှတ်ပုံတင်ထားခြင်း\u200Bအတွက်",
+                IssueType = ProofingIssueType.SpellingError,
+                Suggestions = new List<SuggestionCandidate> { new SuggestionCandidate { Replacement = "မှတ်ပုံတင်ထားခြင်းအတွက်", Score = 100.0 } }
+            };
+            Assert.Contains("[ZWSP]", zwspIssue.FormatVisualOriginalText());
+
+            var myanmar3OrderIssue = new ProofingIssue
+            {
+                OriginalText = "ပု\u102D\u1037ကုန်သွင်းကုန်",
+                IssueType = ProofingIssueType.LookalikeCharacterError,
+                Suggestions = new List<SuggestionCandidate> { new SuggestionCandidate { Replacement = "ပို့ကုန်သွင်းကုန်", Score = 100.0 } }
+            };
+            Assert.Contains("[ုိ➔ို]", myanmar3OrderIssue.FormatVisualOriginalText());
+
+            var tallAaIssue = new ProofingIssue
+            {
+                OriginalText = "အကောင်အထည်ဖေါ်",
+                IssueType = ProofingIssueType.LookalikeCharacterError,
+                Suggestions = new List<SuggestionCandidate> { new SuggestionCandidate { Replacement = "အကောင်အထည်ဖော်", Score = 100.0 } }
+            };
+            Assert.Contains("[ါ➔ာ]", tallAaIssue.FormatVisualOriginalText());
+
+            // 3. Deterministic Suggestion Cleanliness (no bogus fuzzy noise on 100% certain lookalike/orthography rules)
+            var model = EncryptedDictionaryRepository.ParseFromJsonFile(TestPaths.MasterJsonPath);
+            var trie = new MyanmarTrie();
+            foreach (var e in model.Entries) trie.InsertEntry(e);
+            foreach (var r in model.OrthographyRules) trie.InsertOrthographyRule(r);
+            if (model.ContextRules != null)
+                foreach (var cr in model.ContextRules) trie.InsertContextualRule(cr);
+            if (model.WordBigrams != null)
+                foreach (var bg in model.WordBigrams) trie.InsertWordBigram(bg.LeftWord, bg.RightWord, bg.Count);
+
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            var akaungIssues = formalEngine.CheckText("အကောင်အထည်ဖေါ် ဆောင်ရွက်သည်");
+            var akaungHit = Assert.Single(akaungIssues, i => i.OriginalText == "အကောင်အထည်ဖေါ်");
+            var akaungSingleSug = Assert.Single(akaungHit.Suggestions);
+            Assert.Equal("အကောင်အထည်ဖော်", akaungSingleSug.Replacement);
+
+            var anagatIssues = formalEngine.CheckText("အနာဂါတ် စီမံကိန်း");
+            var anagatHit = Assert.Single(anagatIssues, i => i.OriginalText == "အနာဂါတ်");
+            var anagatSingleSug = Assert.Single(anagatHit.Suggestions);
+            Assert.Equal("အနာဂတ်", anagatSingleSug.Replacement);
+
+            // 4. Window Preferences Store round-trip
+            string testHost = "unit_test_v47_" + Guid.NewGuid().ToString("N");
+            var prefsIn = new MyanmarSpellChecker.Core.Performance.ReviewWindowPreferences
+            {
+                HasSavedBounds = true,
+                X = 48,
+                Y = 92,
+                Width = 760,
+                Height = 560,
+                IsPinnedTopMost = false,
+                IsGroupedByWord = true,
+                PreferDockedInTaskPane = true
+            };
+            MyanmarSpellChecker.Core.Performance.ReviewWindowPreferencesStore.Save(testHost, prefsIn);
+            var prefsOut = MyanmarSpellChecker.Core.Performance.ReviewWindowPreferencesStore.Load(testHost);
+            Assert.True(prefsOut.HasSavedBounds);
+            Assert.Equal(48, prefsOut.X);
+            Assert.Equal(92, prefsOut.Y);
+            Assert.Equal(760, prefsOut.Width);
+            Assert.Equal(560, prefsOut.Height);
+            Assert.False(prefsOut.IsPinnedTopMost);
+            Assert.True(prefsOut.IsGroupedByWord);
+            Assert.True(prefsOut.PreferDockedInTaskPane);
+        }
     }
 }

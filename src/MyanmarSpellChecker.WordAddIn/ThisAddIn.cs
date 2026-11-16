@@ -76,6 +76,9 @@ namespace MyanmarSpellChecker.WordAddIn
         private DateTime _loadedDbLastWriteUtc = DateTime.MinValue;
         private int _dbHotReloadInProgress;
         private volatile bool _bulkWriteCancelRequested;
+        private FixAllPreviewDialog<DocumentProofingItem>? _activeReviewDialog;
+        private Word.Document? _activeReviewDocument;
+        private IssueFilterMode _activeReviewFilterMode = IssueFilterMode.All;
 
         static ThisAddIn()
         {
@@ -362,6 +365,15 @@ namespace MyanmarSpellChecker.WordAddIn
                     // Use precomputed background QualityReport for full scans; invalidate lazily for incremental keystrokes!
                     ctrl.UpdateQualityReport(_documentScanner.GetCachedQualityReport(doc));
                 }
+                if (_activeReviewDialog != null && !_activeReviewDialog.IsDisposed && ReferenceEquals(_activeReviewDocument, doc))
+                {
+                    try
+                    {
+                        var freshEntries = BuildWordFixPreviewEntries(doc, _activeReviewFilterMode);
+                        _activeReviewDialog.ReloadEntriesFromHost(freshEntries);
+                    }
+                    catch { }
+                }
                 // Never auto-pop the floating Quick-Fix window during background/typing scans;
                 // Quick-Fix popup opens cleanly only when the user clicks or moves caret onto an underlined word.
             };
@@ -606,6 +618,10 @@ namespace MyanmarSpellChecker.WordAddIn
             bool willClose = !cancel;
             AddInDiagnostics.SafeExecute("OnDocumentBeforeClose", () =>
             {
+                if (willClose && ReferenceEquals(_activeReviewDocument, doc))
+                {
+                    CloseActiveReviewDialog();
+                }
                 _contextMenuHandler?.CloseActivePopup();
                 _documentScanner?.PurgeDocument(doc);
                 _underlineManager?.PurgeClosedDocument(doc);
@@ -1010,6 +1026,16 @@ namespace MyanmarSpellChecker.WordAddIn
         private void WireTaskPaneControlEvents(ProofingTaskPaneControl ctrl)
         {
             ctrl.RequestFullDocumentScan += TriggerManualDocumentScanWithHotReload;
+            ctrl.RequestSelectionScan += () =>
+            {
+                if (_proofingEngine == null || _documentScanner == null)
+                    return;
+                if (!string.IsNullOrEmpty(_customDictFilePath) && File.Exists(_customDictFilePath))
+                {
+                    _proofingEngine.LoadCustomDictionaryFile(_customDictFilePath);
+                }
+                _documentScanner.ScanSelectionAsync();
+            };
             ctrl.RequestCancelScan += () =>
             {
                 _bulkWriteCancelRequested = true;
@@ -1018,6 +1044,10 @@ namespace MyanmarSpellChecker.WordAddIn
             ctrl.RequestToggleLanguage += ToggleUiLanguageFromUi;
             ctrl.RequestCycleEcoMode += CycleEcoModeFromUi;
             ctrl.RequestFixAllIssues += ExecuteFixAllInActiveDocument;
+            ctrl.RequestUndoLastAction += ExecuteWordUndoLastAction;
+            ctrl.RequestApplyDockedBatch += approved => ApplyWordApprovedBatch(_wordApp?.ActiveDocument, ctrl, approved);
+            ctrl.RequestPopOutDockedChecklist += entries =>
+                OpenOrUpdateWordModelessReviewStudio(_wordApp?.ActiveDocument, _activeReviewFilterMode, ctrl, entries, forceFloating: true);
             ctrl.RequestClearUnderlines += () =>
             {
                 if (_wordApp?.ActiveDocument != null)
@@ -1451,15 +1481,54 @@ namespace MyanmarSpellChecker.WordAddIn
                 ok);
         }
 
-        private void ExecuteFixAllInActiveDocument(IssueFilterMode filterMode = IssueFilterMode.All)
+        private void CloseActiveReviewDialog()
+        {
+            var dlg = _activeReviewDialog;
+            _activeReviewDialog = null;
+            _activeReviewDocument = null;
+            if (dlg != null && !dlg.IsDisposed)
+            {
+                try { dlg.Close(); } catch { }
+                try { dlg.Dispose(); } catch { }
+            }
+        }
+
+        private void ExecuteWordUndoLastAction()
         {
             Word.Document? doc = _wordApp?.ActiveDocument;
-            if (doc == null || _documentScanner == null || _underlineManager == null)
+            if (doc == null || _documentScanner == null)
                 return;
 
             var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+            bool undone = false;
+            try
+            {
+                undone = doc.Undo(1);
+            }
+            catch { }
 
-            Func<DocumentProofingItem, bool> predicate = filterMode switch
+            if (undone)
+            {
+                _documentScanner.InvalidateParagraphCache(doc);
+                if (_documentScanner.IsSelectionScopeActive(doc))
+                    _documentScanner.ScanSelectionAsync();
+                else
+                    _documentScanner.ScanFullDocumentAsync();
+
+                ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                    "↶ Undid last change and refreshed proofing.",
+                    "↶ နောက်ဆုံးပြင်ဆင်ချက်ကို ပြန်ဆုတ်ပြီး ပြန်လည်စစ်ဆေးနေပါသည်။"));
+            }
+            else
+            {
+                ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                    "⚠ Nothing available to undo.",
+                    "⚠ ပြန်ဆုတ်ရန် ပြင်ဆင်ချက် မရှိသေးပါ။"), isSuccess: false);
+            }
+        }
+
+        private static Func<DocumentProofingItem, bool> GetWordFilterPredicate(IssueFilterMode filterMode) =>
+            filterMode switch
             {
                 IssueFilterMode.SpellingOnly => i => !i.Issue.IsGrammarOrStyle && !i.Issue.IsContextualWarning,
                 IssueFilterMode.GrammarOnly => i => i.Issue.IsGrammarOrStyle,
@@ -1467,7 +1536,8 @@ namespace MyanmarSpellChecker.WordAddIn
                 _ => _ => true
             };
 
-            string scopeLabel = filterMode switch
+        private static string GetWordFilterScopeLabel(IssueFilterMode filterMode) =>
+            filterMode switch
             {
                 IssueFilterMode.SpellingOnly => UiLocalizer.Pick("Spelling Issues", "သတ်ပုံအမှား"),
                 IssueFilterMode.GrammarOnly => UiLocalizer.Pick("Grammar & Style Issues", "သဒ္ဒါ/စာဟန်အမှား"),
@@ -1475,23 +1545,19 @@ namespace MyanmarSpellChecker.WordAddIn
                 _ => UiLocalizer.Pick("All Issues", "အမှားစုစုပေါင်း")
             };
 
-            var cached = _documentScanner.GetCachedIssues(doc);
-            var candidates = cached
+        private List<FixPreviewEntry<DocumentProofingItem>> BuildWordFixPreviewEntries(
+            Word.Document doc,
+            IssueFilterMode filterMode)
+        {
+            if (_documentScanner == null)
+                return new List<FixPreviewEntry<DocumentProofingItem>>();
+
+            var predicate = GetWordFilterPredicate(filterMode);
+            return _documentScanner.GetCachedIssues(doc)
                 .Where(i => !i.IsResolved &&
                             i.Issue.Suggestions != null &&
                             i.Issue.Suggestions.Count > 0 &&
                             predicate(i))
-                .ToList();
-
-            if (candidates.Count == 0)
-            {
-                ctrl?.ShowToastBanner(UiLocalizer.Pick(
-                    "✓ No remaining issues to fix.",
-                    "✓ ပြင်ဆင်ရန် အမှားအယွင်း မကျန်ရှိတော့ပါ။"));
-                return;
-            }
-
-            var previewEntries = candidates
                 .Select(item => new FixPreviewEntry<DocumentProofingItem>(
                     item,
                     UiLocalizer.Pick(
@@ -1500,49 +1566,200 @@ namespace MyanmarSpellChecker.WordAddIn
                     TryExtractWordParagraphSnippet(item),
                     item.Issue))
                 .ToList();
+        }
 
-            using (var dlg = new FixAllPreviewDialog<DocumentProofingItem>(
-                previewEntries,
-                $"Word — {scopeLabel}",
-                target => _underlineManager.SelectAndScrollToIssue(target)))
+        private int ApplyWordApprovedBatch(
+            Word.Document? doc,
+            ProofingTaskPaneControl? ctrl,
+            IReadOnlyDictionary<DocumentProofingItem, string> approvedReplacements)
+        {
+            if (doc == null || _documentScanner == null || _underlineManager == null || approvedReplacements == null || approvedReplacements.Count == 0)
+                return 0;
+
+            var cached = _documentScanner.GetCachedIssues(doc);
+            _bulkWriteCancelRequested = false;
+            int count;
+            try
             {
-                IWin32Window? ownerWin = ctrl != null && ctrl.IsHandleCreated ? ctrl : null;
-                DialogResult result = ownerWin != null ? dlg.ShowDialog(ownerWin) : dlg.ShowDialog();
-                if (result != DialogResult.OK || dlg.ApprovedReplacements.Count == 0)
-                {
-                    return;
-                }
+                count = _underlineManager.ReplaceApprovedIssuesInDocument(
+                    doc,
+                    cached,
+                    approvedReplacements,
+                    (pct, msg) => ctrl?.UpdateScanProgress(pct, msg),
+                    () => _bulkWriteCancelRequested);
+            }
+            finally
+            {
+                ctrl?.SetScanningState(false);
+            }
 
-                int skippedCount = candidates.Count - dlg.ApprovedReplacements.Count;
-                _bulkWriteCancelRequested = false;
-                int count;
-                try
-                {
-                    count = _underlineManager.ReplaceApprovedIssuesInDocument(
-                        doc,
-                        cached,
-                        dlg.ApprovedReplacements,
-                        (pct, msg) => ctrl?.UpdateScanProgress(pct, msg),
-                        () => _bulkWriteCancelRequested);
-                }
-                finally
-                {
-                    ctrl?.SetScanningState(false);
-                }
-                _documentScanner.InvalidateParagraphCache(doc);
+            _documentScanner.InvalidateParagraphCache(doc);
+            ctrl?.RenderIssues(_documentScanner.GetCachedIssues(doc));
 
-                ctrl?.RenderIssues(_documentScanner.GetCachedIssues(doc));
+            if (count > 0)
+            {
+                ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                    $"✓ Applied ({count}) approved fix(es) (press Ctrl+Z or ↶ Undo to revert).",
+                    $"✓ စိစစ်ရွေးချယ်ထားသော ({count}) ခုကို ပြင်ဆင်ပြီးပါပြီ (Ctrl+Z သို့မဟုတ် ↶ ပြန်ဆုတ် နှိပ်နိုင်သည်)။"));
+            }
+            return count;
+        }
 
-                if (count > 0)
+        private void ExecuteFixAllInActiveDocument(IssueFilterMode filterMode = IssueFilterMode.All)
+        {
+            Word.Document? doc = _wordApp?.ActiveDocument;
+            if (doc == null || _documentScanner == null || _underlineManager == null)
+                return;
+
+            _activeReviewFilterMode = filterMode;
+            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+            var previewEntries = BuildWordFixPreviewEntries(doc, filterMode);
+
+            if (previewEntries.Count == 0)
+            {
+                ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                    "✓ No remaining issues to fix.",
+                    "✓ ပြင်ဆင်ရန် အမှားအယွင်း မကျန်ရှိတော့ပါ။"));
+                return;
+            }
+
+            var prefs = ReviewWindowPreferencesStore.Load("word");
+            if (prefs.PreferDockedInTaskPane && ctrl != null)
+            {
+                CloseActiveReviewDialog();
+                ctrl.EnterDockedChecklistMode(previewEntries);
+                return;
+            }
+
+            OpenOrUpdateWordModelessReviewStudio(doc, filterMode, ctrl, previewEntries, forceFloating: true);
+        }
+
+        private void OpenOrUpdateWordModelessReviewStudio(
+            Word.Document? doc,
+            IssueFilterMode filterMode,
+            ProofingTaskPaneControl? ctrl,
+            IReadOnlyList<FixPreviewEntry<DocumentProofingItem>> previewEntries,
+            bool forceFloating)
+        {
+            if (doc == null || _documentScanner == null || _underlineManager == null)
+                return;
+
+            string docTitle = "Word";
+            try { if (!string.IsNullOrWhiteSpace(doc.Name)) docTitle = doc.Name; } catch { }
+            string scopeTitle = $"{docTitle} — {GetWordFilterScopeLabel(filterMode)}";
+
+            if (_activeReviewDialog != null && !_activeReviewDialog.IsDisposed)
+            {
+                _activeReviewDocument = doc;
+                _activeReviewFilterMode = filterMode;
+                if (_activeReviewDialog.WindowState == FormWindowState.Minimized)
+                    _activeReviewDialog.WindowState = FormWindowState.Normal;
+                _activeReviewDialog.ReloadEntriesFromHost(previewEntries, scopeTitle);
+                _activeReviewDialog.Show();
+                _activeReviewDialog.BringToFront();
+                _activeReviewDialog.Activate();
+                return;
+            }
+
+            var callbacks = new FixPreviewStudioCallbacks<DocumentProofingItem>
+            {
+                HostTag = "word",
+                OnNavigateToItem = target => _underlineManager.SelectAndScrollToIssue(target),
+                OnApplyBatch = approved => ApplyWordApprovedBatch(_wordApp?.ActiveDocument ?? doc, ctrl, approved),
+                OnIgnoreItems = items =>
                 {
-                    string skipTail = skippedCount > 0
-                        ? UiLocalizer.Pick($" ({skippedCount} skipped)", $" (ချန်လှပ်ထားသည် {skippedCount} ခု)")
-                        : string.Empty;
-                    ctrl?.ShowToastBanner(UiLocalizer.Pick(
-                        $"✓ Applied ({count}) approved fixes{skipTail} (press Ctrl+Z to undo).",
-                        $"✓ စိစစ်အတည်ပြုထားသော ({count}) ခုကို တစ်ပြိုင်နက် ပြင်ဆင်ပြီးပါပြီ{skipTail} (Ctrl+Z ဖြင့် မူလအတိုင်း ပြန်ပြင်နိုင်သည်)။"));
+                    Word.Document? activeDoc = _wordApp?.ActiveDocument ?? doc;
+                    foreach (var item in items)
+                    {
+                        _proofingEngine?.IgnoreWordInSession(item.Issue.OriginalText);
+                        item.IsResolved = true;
+                        if (item.TargetRange != null)
+                        {
+                            try
+                            {
+                                item.TargetRange.Font.Underline = item.OriginalUnderline;
+                                item.TargetRange.Font.UnderlineColor = item.OriginalUnderlineColor;
+                            }
+                            catch { }
+                        }
+                    }
+                    if (activeDoc != null)
+                        ctrl?.RenderIssues(_documentScanner.GetCachedIssues(activeDoc));
+                },
+                OnAddWordToDictionary = (word, items) =>
+                {
+                    _proofingEngine?.AddCustomWord(word, _customDictFilePath);
+                    string normAdded = UnicodeNormalizer.NormalizeCanonicalOrder(word.Trim());
+                    Word.Document? activeDoc = _wordApp?.ActiveDocument ?? doc;
+                    if (activeDoc != null)
+                    {
+                        foreach (var cached in _documentScanner.GetCachedIssues(activeDoc))
+                        {
+                            if (UnicodeNormalizer.NormalizeCanonicalOrder(cached.Issue.OriginalText.Trim()) == normAdded)
+                            {
+                                cached.IsResolved = true;
+                                if (cached.TargetRange != null)
+                                {
+                                    try
+                                    {
+                                        cached.TargetRange.Font.Underline = cached.OriginalUnderline;
+                                        cached.TargetRange.Font.UnderlineColor = cached.OriginalUnderlineColor;
+                                    }
+                                    catch { }
+                                }
+                            }
+                        }
+                        ctrl?.RenderIssues(_documentScanner.GetCachedIssues(activeDoc));
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            $"✓ Added \"{word}\" to your Custom Dictionary.",
+                            $"✓ \"{word}\" ကို မှတ်သားစာလုံးစာရင်းသို့ ထည့်သွင်းပြီးပါပြီ။"));
+                    }
+                },
+                OnRefreshEntries = () =>
+                {
+                    Word.Document? activeDoc = _wordApp?.ActiveDocument ?? doc;
+                    if (activeDoc == null)
+                        return Array.Empty<FixPreviewEntry<DocumentProofingItem>>();
+                    return BuildWordFixPreviewEntries(activeDoc, _activeReviewFilterMode);
+                },
+                OnUndoLastFix = ExecuteWordUndoLastAction,
+                OnDockInTaskPane = snapshot =>
+                {
+                    var paneCtrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+                    paneCtrl?.EnterDockedChecklistMode(snapshot);
+                }
+            };
+
+            if (forceFloating)
+            {
+                var p = ReviewWindowPreferencesStore.Load("word");
+                if (p.PreferDockedInTaskPane)
+                {
+                    p.PreferDockedInTaskPane = false;
+                    ReviewWindowPreferencesStore.Save("word", p);
                 }
             }
+
+            var dlg = new FixAllPreviewDialog<DocumentProofingItem>(
+                previewEntries,
+                scopeTitle,
+                callbacks.OnNavigateToItem,
+                callbacks);
+
+            _activeReviewDialog = dlg;
+            _activeReviewDocument = doc;
+            dlg.FormClosed += (s, e) =>
+            {
+                if (ReferenceEquals(_activeReviewDialog, dlg))
+                {
+                    _activeReviewDialog = null;
+                    _activeReviewDocument = null;
+                }
+                try { dlg.Dispose(); } catch { }
+            };
+
+            // Modeless Show(): Word window & Task Pane remain 100% live, scrollable, editable, and minimizable!
+            dlg.Show();
         }
 
         private static string TryExtractWordParagraphSnippet(DocumentProofingItem item)
@@ -2153,13 +2370,33 @@ namespace MyanmarSpellChecker.WordAddIn
             AddInDiagnostics.SafeExecute("OnRibbonExportAuditReport", ExecuteExportAuditCertificate);
         }
 
+        private LicenseActivationForm? _activeAboutDialog;
+
         private void ShowLicenseDialog()
         {
-            int totalEntries = (_proofingEngine?.Trie.WordCount ?? 0) + (_proofingEngine?.Trie.ReferenceCount ?? 0);
-            using (var dlg = new LicenseActivationForm(DefaultVendorPublicKeyXml, _licenseFilePath, totalEntries))
+            if (_activeAboutDialog != null && !_activeAboutDialog.IsDisposed)
             {
-                dlg.ShowDialog();
+                if (_activeAboutDialog.WindowState == FormWindowState.Minimized)
+                    _activeAboutDialog.WindowState = FormWindowState.Normal;
+                _activeAboutDialog.BringToFront();
+                _activeAboutDialog.Activate();
+                return;
             }
+
+            int totalEntries = (_proofingEngine?.Trie.WordCount ?? 0) + (_proofingEngine?.Trie.ReferenceCount ?? 0);
+            var dlg = new LicenseActivationForm(DefaultVendorPublicKeyXml, _licenseFilePath, totalEntries)
+            {
+                MinimizeBox = true,
+                ShowInTaskbar = true
+            };
+            _activeAboutDialog = dlg;
+            dlg.FormClosed += (s, e) =>
+            {
+                if (ReferenceEquals(_activeAboutDialog, dlg))
+                    _activeAboutDialog = null;
+                try { dlg.Dispose(); } catch { }
+            };
+            dlg.Show();
         }
 
         public void OnDisconnection(ext_DisconnectMode removeMode, ref Array custom)
@@ -2197,6 +2434,7 @@ namespace MyanmarSpellChecker.WordAddIn
                     _wordApp.DocumentBeforePrint -= OnDocumentBeforePrint;
                     _wordApp.DocumentBeforeClose -= OnDocumentBeforeClose;
                 }
+                CloseActiveReviewDialog();
                 _contextMenuHandler?.CloseActivePopup();
                 _contextMenuHandler?.ClearCustomContextMenuItems();
                 _documentScanner?.Dispose();

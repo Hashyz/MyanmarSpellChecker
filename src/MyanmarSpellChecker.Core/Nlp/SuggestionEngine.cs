@@ -815,8 +815,10 @@ namespace MyanmarSpellChecker.Core.Nlp
                 AddRegisterAlternativeChoices(issue.Suggestions, raw, norm, top, styleMode);
             }
 
-            // 3. For true OOV spelling errors (not real-word contextual rules or space-split mandatory compounds) with fewer than 3 choices, supplement with top runner-up dictionary/compositional candidates
-            if (!issue.IsGrammarOrStyle &&
+            // 3. For true OOV spelling errors (not deterministic explicit rules, real-word contextual rules, or space-split mandatory compounds)
+            // with fewer than 3 choices, supplement with top runner-up dictionary/compositional candidates
+            if (!hadSingleDeterministicRule &&
+                !issue.IsGrammarOrStyle &&
                 issue.IssueType == ProofingIssueType.SpellingError &&
                 raw.IndexOf(' ') < 0 && raw.IndexOf('\t') < 0 &&
                 !_trie.ContainsExactWord(norm) &&
