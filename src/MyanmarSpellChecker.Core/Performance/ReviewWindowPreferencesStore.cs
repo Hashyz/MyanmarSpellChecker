@@ -17,6 +17,9 @@ namespace MyanmarSpellChecker.Core.Performance
         public bool IsPinnedTopMost { get; set; } = true;
         public bool IsGroupedByWord { get; set; }
         public bool PreferDockedInTaskPane { get; set; }
+        public double DetailSplitRatio { get; set; }
+        public bool SlimTaskPaneHeader { get; set; }
+        public bool HasSlimHeaderPreference { get; set; }
     }
 
     /// <summary>
@@ -80,6 +83,17 @@ namespace MyanmarSpellChecker.Core.Performance
                         case "Docked":
                             if (bool.TryParse(val, out bool dck)) prefs.PreferDockedInTaskPane = dck;
                             break;
+                        case "SplitRatio":
+                            if (double.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out double sr) && sr >= 0.18 && sr <= 0.72)
+                                prefs.DetailSplitRatio = sr;
+                            break;
+                        case "SlimPane":
+                            if (bool.TryParse(val, out bool sp))
+                            {
+                                prefs.SlimTaskPaneHeader = sp;
+                                prefs.HasSlimHeaderPreference = true;
+                            }
+                            break;
                     }
                 }
             }
@@ -114,7 +128,9 @@ namespace MyanmarSpellChecker.Core.Performance
                     $"H={prefs.Height.ToString(CultureInfo.InvariantCulture)}",
                     $"Pin={prefs.IsPinnedTopMost}",
                     $"Group={prefs.IsGroupedByWord}",
-                    $"Docked={prefs.PreferDockedInTaskPane}");
+                    $"Docked={prefs.PreferDockedInTaskPane}",
+                    $"SplitRatio={prefs.DetailSplitRatio.ToString("0.###", CultureInfo.InvariantCulture)}",
+                    $"SlimPane={prefs.SlimTaskPaneHeader}");
 
                 File.WriteAllText(path, content);
             }

@@ -305,6 +305,10 @@ namespace MyanmarSpellChecker.Core.Models
             {
                 if (orig.IndexOf("\u102F\u102D", StringComparison.Ordinal) >= 0 && rep.IndexOf("\u102D\u102F", StringComparison.Ordinal) >= 0)
                     return "[ုိ➔ို]";
+                if (orig.IndexOf("\u1037\u102F", StringComparison.Ordinal) >= 0 && rep.IndexOf("\u102F\u1037", StringComparison.Ordinal) >= 0)
+                    return "[့ု➔ု့]";
+                if (orig.IndexOf("\u1037\u102D", StringComparison.Ordinal) >= 0 && rep.IndexOf("\u102D\u1037", StringComparison.Ordinal) >= 0)
+                    return "[့ိ➔ိ့]";
                 if (orig.IndexOf("\u1037\u103A", StringComparison.Ordinal) >= 0 && rep.IndexOf("\u103A\u1037", StringComparison.Ordinal) >= 0)
                     return "[့်➔င့်]";
                 if (orig.IndexOf("\u103A\u1039", StringComparison.Ordinal) >= 0 && rep.IndexOf("\u103A\u1039", StringComparison.Ordinal) < 0 && IssueType == ProofingIssueType.LookalikeCharacterError)
@@ -322,11 +326,20 @@ namespace MyanmarSpellChecker.Core.Models
                 if (orig.IndexOf("\u1025\u103A", StringComparison.Ordinal) >= 0 && rep.IndexOf("\u1009\u103A", StringComparison.Ordinal) >= 0)
                     return "[ဥ်➔ဉ်]";
 
+                for (int i = 1; i < orig.Length; i++)
+                {
+                    char c = orig[i];
+                    if (c == orig[i - 1] && c >= '\u102B' && c <= '\u103E')
+                    {
+                        return Localization.UiLocalizer.Pick("[Dup Mark]", "[အပိုသင်္ကေတ]");
+                    }
+                }
+
                 string normOrig = Nlp.UnicodeNormalizer.NormalizeCanonicalOrder(orig);
                 string normRep = Nlp.UnicodeNormalizer.NormalizeCanonicalOrder(rep);
                 if (string.Equals(normOrig, normRep, StringComparison.Ordinal))
                 {
-                    return Localization.UiLocalizer.Pick("[Unicode Order]", "[ယူနီကုဒ်အစီအစဉ်]");
+                    return Localization.UiLocalizer.Pick("[Mark Order]", "[ယူနီကုဒ်အစီအစဉ်]");
                 }
             }
 

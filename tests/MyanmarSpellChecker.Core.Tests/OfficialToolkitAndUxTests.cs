@@ -1663,5 +1663,109 @@ namespace MyanmarSpellChecker.Core.Tests
                 try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); } catch { }
             }
         }
+
+        [Fact]
+        public void V52B_SlimLaptopChrome_AdjustableDockedCards_Splitter_AndAukmyitDiffGate()
+        {
+            // 1. Aukmyit-before-lower-vowel (\u1037\u102F -> \u102F\u1037) visual diff badge (Screenshot 4: ပို့ကုန်သွင်းကုန်)
+            string wrongAukmyit = "ပ\u102D\u1037\u102Fကုန်သွင်းကုန်";
+            string canonicalAukmyit = "ပ\u102D\u102F\u1037ကုန်သွင်းကုန်";
+            var markOrderIssue = new ProofingIssue
+            {
+                OriginalText = wrongAukmyit,
+                IssueType = ProofingIssueType.SpellingError,
+                RequiresReviewBeforeBatchFix = false,
+                Suggestions = new List<SuggestionCandidate>
+                {
+                    new SuggestionCandidate { Replacement = canonicalAukmyit, Score = 99.0 }
+                }
+            };
+            string visMarkOrder = markOrderIssue.FormatVisualOriginalText(canonicalAukmyit);
+            Assert.Contains("့ု➔ု့", visMarkOrder);
+
+            // Duplicate combining mark visual diff badge
+            string dupMarkOrig = "ပို့\u1037ကုန်";
+            var dupMarkIssue = new ProofingIssue
+            {
+                OriginalText = dupMarkOrig,
+                IssueType = ProofingIssueType.SpellingError,
+                RequiresReviewBeforeBatchFix = false,
+                Suggestions = new List<SuggestionCandidate>
+                {
+                    new SuggestionCandidate { Replacement = "ပို့ကုန်", Score = 99.0 }
+                }
+            };
+            string visDup = dupMarkIssue.FormatVisualOriginalText(canonicalAukmyit);
+            Assert.NotEqual(dupMarkOrig, visDup);
+            Assert.Contains("[", visDup);
+
+            // 2. ReviewWindowPreferencesStore round-trip for DetailSplitRatio + SlimTaskPaneHeader
+            string testHostTag = "v52test_" + Guid.NewGuid().ToString("N");
+            string prefsFile = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "MyanmarSpellChecker",
+                $"review_window_{testHostTag}.prefs");
+            try
+            {
+                var prefs = new MyanmarSpellChecker.Core.Performance.ReviewWindowPreferences
+                {
+                    IsPinnedTopMost = false,
+                    IsGroupedByWord = true,
+                    PreferDockedInTaskPane = true,
+                    DetailSplitRatio = 0.365,
+                    SlimTaskPaneHeader = true,
+                    HasSlimHeaderPreference = true,
+                    HasSavedBounds = true,
+                    X = 40,
+                    Y = 50,
+                    Width = 680,
+                    Height = 490
+                };
+                MyanmarSpellChecker.Core.Performance.ReviewWindowPreferencesStore.Save(testHostTag, prefs);
+
+                var loaded = MyanmarSpellChecker.Core.Performance.ReviewWindowPreferencesStore.Load(testHostTag);
+                Assert.False(loaded.IsPinnedTopMost);
+                Assert.True(loaded.IsGroupedByWord);
+                Assert.True(loaded.PreferDockedInTaskPane);
+                Assert.InRange(loaded.DetailSplitRatio, 0.36, 0.37);
+                Assert.True(loaded.SlimTaskPaneHeader);
+                Assert.True(loaded.HasSlimHeaderPreference);
+            }
+            finally
+            {
+                try { if (File.Exists(prefsFile)) File.Delete(prefsFile); } catch { }
+            }
+
+            // 3. Static architecture gates across Word & Excel Task Panes, Docked Studios, and Resizable Splitters
+            string repoRoot = TestPaths.RepoRoot;
+            string wordPane = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "ProofingTaskPaneControl.cs"));
+            string wordPaneTab = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "ProofingTaskPaneControl.ProofingTab.cs"));
+            string excelPane = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "ExcelProofingTaskPaneControl.cs"));
+            string excelPaneTab = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "ExcelProofingTaskPaneControl.ProofingTab.cs"));
+            string wordDialog = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "FixAllPreviewDialog.cs"));
+            string excelDialog = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "FixAllPreviewDialog.cs"));
+            string wordAddIn = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "ThisAddIn.cs"));
+            string excelAddIn = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "ExcelThisAddIn.cs"));
+
+            Assert.Contains("_pnlStickyDockedBar", wordPane);
+            Assert.Contains("_btnSlimHeader", wordPane);
+            Assert.Contains("_pnlStickyDockedBar", excelPane);
+            Assert.Contains("_btnSlimHeader", excelPane);
+
+            Assert.Contains("_expandedDockedItems", wordPaneTab);
+            Assert.Contains("Adjust", wordPaneTab);
+            Assert.Contains("_expandedDockedItems", excelPaneTab);
+            Assert.Contains("Adjust", excelPaneTab);
+
+            Assert.Contains("_splitterBar", wordDialog);
+            Assert.Contains("Cursors.HSplit", wordDialog);
+            Assert.Contains("_userDetailSplitRatio", wordDialog);
+            Assert.Contains("_splitterBar", excelDialog);
+            Assert.Contains("Cursors.HSplit", excelDialog);
+            Assert.Contains("_userDetailSplitRatio", excelDialog);
+
+            Assert.DoesNotContain("EnforceActiveWindowStartupPaneWidth(forceIfNarrow: true)", wordAddIn);
+            Assert.DoesNotContain("EnforceActiveWindowStartupPaneWidth(forceIfNarrow: true)", excelAddIn);
+        }
     }
 }

@@ -599,7 +599,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
             AddInDiagnostics.SafeExecute("OnWorkbookOpen", () =>
             {
                 GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
-                EnforceActiveWindowStartupPaneWidth(forceIfNarrow: true);
+                EnforceActiveWindowStartupPaneWidth(forceIfNarrow: false);
                 _scannerToolkit?.ScheduleDeferredScanScope(SpreadsheetScanScope.ActiveSheet, 280);
             });
         }
@@ -609,7 +609,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
             AddInDiagnostics.SafeExecute("OnNewWorkbook", () =>
             {
                 GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
-                EnforceActiveWindowStartupPaneWidth(forceIfNarrow: true);
+                EnforceActiveWindowStartupPaneWidth(forceIfNarrow: false);
             });
         }
 
@@ -882,12 +882,13 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 float dpiScale = Math.Max(1.0f, dpi / 96.0f);
                 int hostPhysicalWidth = UiFontCache.GetWindowWidthPx(hostPtr);
 
-                int desiredWidth = (int)Math.Round(420 * dpiScale);
-                int maxSafeWidth = Math.Max((int)Math.Round(320 * dpiScale), (int)(hostPhysicalWidth * 0.42));
+                bool isCompactLaptop = hostPhysicalWidth > 0 && hostPhysicalWidth <= (int)Math.Round(1720 * dpiScale);
+                int desiredWidth = (int)Math.Round((isCompactLaptop ? 365 : 410) * dpiScale);
+                int maxSafeWidth = Math.Max((int)Math.Round(290 * dpiScale), (int)(hostPhysicalWidth * (isCompactLaptop ? 0.34 : 0.40)));
                 int targetWidth = Math.Min(desiredWidth, maxSafeWidth);
-                int minStartupWidth = Math.Min((int)Math.Round(360 * dpiScale), targetWidth);
+                int minStartupWidth = Math.Min((int)Math.Round(300 * dpiScale), targetWidth);
 
-                if (forceIfNarrow || !_settledPaneWidthHwnds.Contains(winHwnd))
+                if (!_settledPaneWidthHwnds.Contains(winHwnd))
                 {
                     int initialPaneWidth = pane.Width;
                     if (pane.Width < minStartupWidth)

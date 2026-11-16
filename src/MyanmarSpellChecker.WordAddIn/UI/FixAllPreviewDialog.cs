@@ -100,7 +100,10 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         private bool _boundsLoaded;
         private bool _suppressSelectionChanged;
         private bool _keepGridFocusOnNextNavigate;
+        private double _userDetailSplitRatio;
+        private bool _isDraggingSplitter;
 
+        private readonly ToolTip _toolTip = new ToolTip { InitialDelay = 300, ReshowDelay = 150 };
         private readonly Font _fontTitle;
         private readonly Font _fontSubtitle;
         private readonly Font _fontBody;
@@ -134,6 +137,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         private DataGridViewTextBoxColumn _colRep = null!;
         private DataGridViewTextBoxColumn _colCert = null!;
 
+        private Panel _splitterBar = null!;
         private Panel _detailCard = null!;
         private Label _lblContextPreview = null!;
         private FlowLayoutPanel _itemActionStrip = null!;
@@ -182,6 +186,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             var savedPrefs = ReviewWindowPreferencesStore.Load(_callbacks.HostTag);
             _isPinnedTopMost = savedPrefs.IsPinnedTopMost;
             _isGroupedByWord = savedPrefs.IsGroupedByWord;
+            _userDetailSplitRatio = savedPrefs.DetailSplitRatio;
 
             _fontTitle = UiFontCache.CreateOwnedMyanmar(10.8f, FontStyle.Bold);
             _fontSubtitle = UiFontCache.CreateOwnedMyanmar(8.8f, FontStyle.Regular);
@@ -253,6 +258,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             {
                 SaveCurrentWindowPreferences(preferDockedOverride: null);
                 DisposeAndClearChoicesPanel();
+                _toolTip?.Dispose();
                 _reportMenu?.Dispose();
                 _searchDebounceTimer.Stop();
                 _searchDebounceTimer.Dispose();
@@ -285,6 +291,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 var existing = ReviewWindowPreferencesStore.Load(_callbacks.HostTag);
                 existing.IsPinnedTopMost = _isPinnedTopMost;
                 existing.IsGroupedByWord = _isGroupedByWord;
+                existing.DetailSplitRatio = _userDetailSplitRatio;
                 if (preferDockedOverride.HasValue)
                 {
                     existing.PreferDockedInTaskPane = preferDockedOverride.Value;
@@ -318,10 +325,10 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             BackColor = Color.FromArgb(245, 248, 252);
 
             Rectangle workArea = Screen.FromPoint(Cursor.Position).WorkingArea;
-            int minW = Math.Min(S(640), Math.Max(S(440), (int)(workArea.Width * 0.44)));
-            int minH = Math.Min(S(440), Math.Max(S(340), (int)(workArea.Height * 0.48)));
-            int defaultW = Math.Max(minW, Math.Min(S(820), (int)(workArea.Width * 0.58)));
-            int defaultH = Math.Max(minH, Math.Min(S(600), (int)(workArea.Height * 0.72)));
+            int minW = Math.Min(S(580), Math.Max(S(420), (int)(workArea.Width * 0.40)));
+            int minH = Math.Min(S(400), Math.Max(S(310), (int)(workArea.Height * 0.44)));
+            int defaultW = Math.Max(minW, Math.Min(S(760), (int)(workArea.Width * 0.54)));
+            int defaultH = Math.Max(minH, Math.Min(S(560), (int)(workArea.Height * 0.68)));
 
             _expandedMinimumSize = new Size(minW, minH);
             MinimumSize = _expandedMinimumSize;
@@ -377,7 +384,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             _lblTitle = new Label
             {
-                Font = _fontTitle,
+                Font = _fontBodyBold,
                 ForeColor = Color.FromArgb(16, 42, 72),
                 AutoSize = true,
                 BackColor = Color.Transparent
@@ -388,7 +395,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Font = _fontSubtitle,
                 ForeColor = Color.FromArgb(52, 72, 96),
                 AutoSize = true,
-                BackColor = Color.Transparent
+                BackColor = Color.Transparent,
+                Visible = false // Kept compact in tooltip to save ~70px vertical height on laptops
             };
 
             _windowControlStrip = new FlowLayoutPanel
@@ -410,11 +418,17 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 SaveCurrentWindowPreferences(preferDockedOverride: null);
             };
 
-            _btnCompact = CreateHeaderMiniButton(UiLocalizer.Pick("▴ Compact", "▴ ခေါက်သိမ်း"));
+            _btnCompact = CreateHeaderMiniButton(UiLocalizer.Pick("▴ Mini", "▴ ခေါက်"));
             _btnCompact.Click += (s, e) => ToggleCompactMiniBar();
+            _toolTip.SetToolTip(_btnCompact, UiLocalizer.Pick(
+                "Collapse to a slim floating bar while editing the document",
+                "စာတမ်းရေးသားနေစဉ် အပေါ်ဘားအသေးအဖြစ် ခေါက်သိမ်းထားရန်"));
 
-            _btnDockPane = CreateHeaderMiniButton(UiLocalizer.Pick("⇥ Dock in Pane", "⇥ ဘေးကွက်သို့ပို့"));
+            _btnDockPane = CreateHeaderMiniButton(UiLocalizer.Pick("⇥ Dock", "⇥ ဘေးပို့"));
             _btnDockPane.Visible = _callbacks.OnDockInTaskPane != null;
+            _toolTip.SetToolTip(_btnDockPane, UiLocalizer.Pick(
+                "Move checklist into the right Task Pane (sticky controls + adjustable items)",
+                "ညာဘက် Task Pane အတွင်းသို့ ပို့၍ စိစစ်ပြင်ဆင်ရန်"));
             _btnDockPane.Click += (s, e) =>
             {
                 if (_callbacks.OnDockInTaskPane != null)
@@ -428,7 +442,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             _reportMenu = new ContextMenuStrip { Font = _fontBody };
             _btnReportMenu = CreateToolbarButton(
-                UiLocalizer.Pick("≡ Report ▾", "≡ အစီရင်ခံစာ ▾"),
+                UiLocalizer.Pick("≡ Report ▾", "≡ အစီရင် ▾"),
                 Color.FromArgb(236, 245, 255), Color.FromArgb(16, 72, 152), Color.FromArgb(168, 198, 240));
             _btnReportMenu.Visible = _callbacks.OnExportReport != null;
             _btnReportMenu.Click += (s, e) =>
@@ -461,12 +475,14 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 _reportMenu.Show(_btnReportMenu, new Point(0, _btnReportMenu.Height));
             };
 
-            _btnRefresh = CreateHeaderMiniButton(UiLocalizer.Pick("↻ Refresh", "↻ ပြန်စစ်"));
+            _btnRefresh = CreateHeaderMiniButton("↻");
             _btnRefresh.Visible = _callbacks.OnRefreshEntries != null;
+            _toolTip.SetToolTip(_btnRefresh, UiLocalizer.Pick("Refresh live issues from document", "စာတမ်းမှ အမှားစာရင်း အသစ်ပြန်ရယူရန်"));
             _btnRefresh.Click += (s, e) => TriggerLiveRefresh();
 
-            _btnUndo = CreateHeaderMiniButton(UiLocalizer.Pick("↶ Undo", "↶ ပြန်ဆုတ်"));
+            _btnUndo = CreateHeaderMiniButton(UiLocalizer.Pick("↶ Undo", "↶ နောက်"));
             _btnUndo.Visible = _callbacks.OnUndoLastFix != null;
+            _toolTip.SetToolTip(_btnUndo, UiLocalizer.Pick("Undo last applied fix", "နောက်ဆုံးပြင်ဆင်ချက်ကို ပြန်ဆုတ်ရန်"));
             _btnUndo.Click += (s, e) =>
             {
                 _callbacks.OnUndoLastFix?.Invoke();
@@ -896,11 +912,78 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             _footerPanel.Controls.Add(_btnCancel);
             _footerPanel.Controls.Add(_btnConfirm);
 
+            // Draggable Horizontal Resize Bar between Checklist Grid and Detail Inspector
+            _splitterBar = new Panel
+            {
+                BackColor = Color.Transparent,
+                Cursor = Cursors.HSplit
+            };
+            EnableDoubleBuffering(_splitterBar);
+            _toolTip.SetToolTip(_splitterBar, UiLocalizer.Pick(
+                "Drag up/down to adjust checklist vs. detail panel height (double-click to auto-fit)",
+                "အထက်/အောက် ဆွဲ၍ ဇယားနှင့် အသေးစိတ်အကွက် အမြင့်ကို စိတ်ကြိုက်ညှိနိုင်သည် (၂ ချက်နှိပ်လျှင် မူလအတိုင်း ပြန်ချိန်မည်)"));
+            _splitterBar.Paint += (s, e) =>
+            {
+                int midY = _splitterBar.Height / 2;
+                int gripW = Math.Min(S(44), Math.Max(S(24), _splitterBar.Width / 8));
+                int gripX = (_splitterBar.Width - gripW) / 2;
+                using (var linePen = new Pen(Color.FromArgb(218, 228, 240), 1f))
+                {
+                    e.Graphics.DrawLine(linePen, S(8), midY, Math.Max(S(8), gripX - S(8)), midY);
+                    e.Graphics.DrawLine(linePen, Math.Min(_splitterBar.Width - S(8), gripX + gripW + S(8)), midY, _splitterBar.Width - S(8), midY);
+                }
+                using (var gripBrush = new SolidBrush(_isDraggingSplitter ? Color.FromArgb(24, 90, 188) : Color.FromArgb(164, 180, 202)))
+                {
+                    e.Graphics.FillRectangle(gripBrush, gripX, Math.Max(1, midY - S(1)), gripW, Math.Max(2, S(3)));
+                }
+            };
+            _splitterBar.MouseDown += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    _isDraggingSplitter = true;
+                    _splitterBar.Capture = true;
+                    _splitterBar.Invalidate();
+                }
+            };
+            _splitterBar.MouseMove += (s, e) =>
+            {
+                if (!_isDraggingSplitter)
+                    return;
+
+                int gap = S(6);
+                int middleTop = _toolBarPanel.Bottom + gap;
+                int middleBottom = _footerPanel.Top - gap;
+                int availH = Math.Max(S(160), middleBottom - middleTop);
+                Point clientPt = PointToClient(Cursor.Position);
+                int desiredDetailH = middleBottom - clientPt.Y;
+                double nextRatio = (double)desiredDetailH / availH;
+                _userDetailSplitRatio = Math.Max(0.20, Math.Min(0.68, nextRatio));
+                LayoutDialogSections();
+            };
+            _splitterBar.MouseUp += (s, e) =>
+            {
+                if (_isDraggingSplitter)
+                {
+                    _isDraggingSplitter = false;
+                    _splitterBar.Capture = false;
+                    _splitterBar.Invalidate();
+                    SaveCurrentWindowPreferences(preferDockedOverride: null);
+                }
+            };
+            _splitterBar.DoubleClick += (s, e) =>
+            {
+                _userDetailSplitRatio = 0;
+                SaveCurrentWindowPreferences(preferDockedOverride: null);
+                LayoutDialogSections();
+            };
+
             Controls.AddRange(new Control[]
             {
                 _headerCard,
                 _toolBarPanel,
                 _grid,
+                _splitterBar,
                 _detailCard,
                 _footerPanel
             });
@@ -924,19 +1007,22 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             {
                 int checkedCount = _allEntries.Count(x => x.IsChecked && !string.IsNullOrEmpty(x.ChosenReplacement));
                 _lblTitle.Text = UiLocalizer.Pick(
-                    $"Review & Fix • {totalCount} remaining ({checkedCount} checked) — Document is unlocked",
-                    $"စိစစ်ပြင်ဆင်ရန် • ({totalCount}) ခုကျန် ({checkedCount} ခုရွေးထားသည်) — စာတမ်းကို လွတ်လပ်စွာ ရေးသားနိုင်သည်");
+                    $"✓ {checkedCount}/{totalCount} selected • Document Unlocked",
+                    $"✓ ({checkedCount}/{totalCount}) ရွေးထားသည် • စာတမ်း ပွင့်နေသည်");
             }
             else
             {
                 _lblTitle.Text = UiLocalizer.Pick(
-                    $"Live Review & Fix ({_scopeDisplayTitle})",
-                    $"တိုက်ရိုက် စိစစ်ပြင်ဆင်ရန် ({_scopeDisplayTitle})");
+                    $"✓ {safeCount} Sure  •  ⚠ {reviewCount} Review  •  Document Unlocked",
+                    $"✓ သေချာ ({safeCount})  •  ⚠ စိစစ်ရန် ({reviewCount})  •  စာတမ်းမပိတ်ဆို့ပါ");
             }
 
-            _lblGuide.Text = UiLocalizer.Pick(
-                $"✓ Document stays unlocked — scroll or edit anytime. High-certainty ({safeCount}) pre-checked (☑); review items ({reviewCount}) unchecked (☐). Keys: Enter = Fix Now, Space = Toggle, Del = Ignore.",
-                $"✓ နောက်ခံစာတမ်းကို လွတ်လပ်စွာ ကြည့်ရှုပြင်ဆင်နိုင်သည်။ သေချာသော ({safeCount}) ခုကို (☑) ရွေးပေးထားပြီး စိစစ်ရန် ({reviewCount}) ခုကို (☐) ချန်ထားသည်။ (Enter = ယခုပြင်၊ Space = ရွေး၊ Del = ကျော်)");
+            string guideTip = UiLocalizer.Pick(
+                $"Document stays unlocked — scroll or edit anytime.\nHigh-certainty ({safeCount}) pre-checked (☑); review items ({reviewCount}) unchecked (☐).\nShortcuts: Enter = Fix Now, Space = Toggle, Del = Ignore.\nTip: Drag the horizontal divider bar between the table and details to resize.",
+                $"နောက်ခံစာတမ်းကို လွတ်လပ်စွာ ကြည့်ရှုပြင်ဆင်နိုင်သည်။\nသေချာသော ({safeCount}) ခုကို (☑) ရွေးထားပြီး စိစစ်ရန် ({reviewCount}) ခုကို (☐) ချန်ထားသည်။\n(Enter = ယခုပြင်၊ Space = ရွေး၊ Del = ကျော်)");
+            _lblGuide.Text = guideTip;
+            _toolTip.SetToolTip(_lblTitle, guideTip);
+            _toolTip.SetToolTip(_headerCard, guideTip);
 
             _btnSafeOnly.Text = UiLocalizer.Pick($"☑ Sure Only ({safeCount})", $"☑ သေချာသည်သာ ({safeCount})");
             _btnCheckAll.Text = UiLocalizer.Pick($"☑ All ({totalCount})", $"☑ အားလုံး ({totalCount})");
@@ -945,8 +1031,11 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         private void UpdatePinAndGroupButtonStyles()
         {
             _btnPinTop.Text = _isPinnedTopMost
-                ? UiLocalizer.Pick("◈ Pin: ON", "◈ အပေါ်တင်: ON")
-                : UiLocalizer.Pick("◇ Pin: OFF", "◇ အပေါ်တင်: OFF");
+                ? UiLocalizer.Pick("◈ Pin", "◈ အပေါ်တင်")
+                : UiLocalizer.Pick("◇ Pin", "◇ မတင်ထား");
+            _toolTip.SetToolTip(_btnPinTop, _isPinnedTopMost
+                ? UiLocalizer.Pick("Pinned above Word (click to unpin so Word can come in front)", "Word အပေါ်၌ အမြဲတင်ထားသည် (ဖြုတ်ရန် နှိပ်ပါ)")
+                : UiLocalizer.Pick("Unpinned (click to keep Review window on top)", "အပေါ်၌ အမြဲမတင်ထားပါ (အမြဲတင်ထားရန် နှိပ်ပါ)"));
             _btnPinTop.BackColor = _isPinnedTopMost
                 ? Color.FromArgb(224, 240, 255)
                 : Color.FromArgb(244, 247, 252);
@@ -980,25 +1069,27 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 {
                     WindowState = FormWindowState.Normal;
                 }
-                _expandedClientHeight = Math.Max(S(360), ClientSize.Height);
-                _btnCompact.Text = UiLocalizer.Pick("▾ Expand", "▾ ပြန်ချဲ့မည်");
+                _expandedClientHeight = Math.Max(S(340), ClientSize.Height);
+                _btnCompact.Text = UiLocalizer.Pick("▾ Expand", "▾ ပြန်ချဲ့");
                 _lblGuide.Visible = false;
                 _toolBarPanel.Visible = false;
                 _grid.Visible = false;
+                _splitterBar.Visible = false;
                 _detailCard.Visible = false;
                 _footerPanel.Visible = false;
                 RefreshHeaderBannerTexts();
                 LayoutDialogSections();
-                int miniH = _headerCard.Bottom + S(10);
-                MinimumSize = new Size(S(420), miniH);
+                int miniH = _headerCard.Bottom + S(8);
+                MinimumSize = new Size(S(400), miniH);
                 ClientSize = new Size(ClientSize.Width, miniH);
             }
             else
             {
-                _btnCompact.Text = UiLocalizer.Pick("▴ Compact", "▴ ခေါက်သိမ်း");
-                _lblGuide.Visible = true;
+                _btnCompact.Text = UiLocalizer.Pick("▴ Mini", "▴ ခေါက်");
+                _lblGuide.Visible = false;
                 _toolBarPanel.Visible = true;
                 _grid.Visible = true;
+                _splitterBar.Visible = true;
                 _detailCard.Visible = true;
                 _footerPanel.Visible = true;
                 MinimumSize = _expandedMinimumSize;
@@ -1086,40 +1177,42 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             {
                 int cw = ClientSize.Width;
                 int ch = ClientSize.Height;
-                int padX = S(12);
-                int padY = S(10);
-                int gap = S(7);
+                int padX = S(10);
+                int padY = S(8);
+                int gap = S(6);
                 int innerW = Math.Max(S(240), cw - padX * 2);
 
-                // 0. Header Banner Card + Window Control Strip
-                int headerPadL = S(14);
-                int headerPadR = S(10);
-                int headerPadV = S(8);
+                // 0. Sleek 1-Row Header Banner Card + Window Control Strip
+                int headerPadL = S(12);
+                int headerPadR = S(8);
+                int headerPadV = S(6);
                 int headerFullW = Math.Max(S(200), innerW - headerPadL - headerPadR);
 
                 foreach (Control c in _windowControlStrip.Controls)
                 {
                     if (c is Button hb && hb.Visible)
                     {
-                        hb.Size = MeasureSingleLineButtonSize(hb.Text, _fontBadge, 14, 6);
-                        hb.Margin = new Padding(0, 0, S(4), S(2));
+                        hb.Size = MeasureSingleLineButtonSize(hb.Text, _fontBadge, 12, 5);
+                        hb.Margin = new Padding(0, 0, S(3), S(1));
                     }
                 }
 
                 Size stripPref = _windowControlStrip.GetPreferredSize(new Size(headerFullW, 0));
-                bool singleHeaderTopRow = stripPref.Width + S(220) <= headerFullW;
+                bool singleHeaderTopRow = stripPref.Width + S(145) <= headerFullW;
                 int headerBottom;
 
                 if (singleHeaderTopRow)
                 {
-                    int titleMaxW = Math.Max(S(160), headerFullW - stripPref.Width - S(8));
+                    int titleMaxW = Math.Max(S(130), headerFullW - stripPref.Width - S(6));
                     _lblTitle.MaximumSize = new Size(titleMaxW, 0);
-                    _lblTitle.Location = new Point(headerPadL, headerPadV);
-                    _lblTitle.Size = _lblTitle.GetPreferredSize(new Size(titleMaxW, 0));
+                    Size titleSz = _lblTitle.GetPreferredSize(new Size(titleMaxW, 0));
+                    int rowH = Math.Max(titleSz.Height, stripPref.Height);
+                    _lblTitle.Location = new Point(headerPadL, headerPadV + Math.Max(0, (rowH - titleSz.Height) / 2));
+                    _lblTitle.Size = titleSz;
 
-                    _windowControlStrip.Location = new Point(innerW - headerPadR - stripPref.Width, headerPadV - S(1));
+                    _windowControlStrip.Location = new Point(innerW - headerPadR - stripPref.Width, headerPadV + Math.Max(0, (rowH - stripPref.Height) / 2));
                     _windowControlStrip.Size = stripPref;
-                    headerBottom = Math.Max(_lblTitle.Bottom, _windowControlStrip.Bottom);
+                    headerBottom = headerPadV + rowH;
                 }
                 else
                 {
@@ -1144,9 +1237,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 int headerH = headerBottom + headerPadV;
                 if (!_isCompactMiniBar)
                 {
-                    headerH = Math.Min((int)(ch * 0.25), headerH);
+                    headerH = Math.Min((int)(ch * 0.22), headerH);
                 }
-                _headerCard.SetBounds(padX, padY, innerW, Math.Max(S(40), headerH));
+                _headerCard.SetBounds(padX, padY, innerW, Math.Max(S(36), headerH));
 
                 if (_isCompactMiniBar)
                     return;
@@ -1208,30 +1301,45 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 int footerTop = ch - padY - footerH;
                 _footerPanel.SetBounds(padX, footerTop, innerW, footerH);
 
-                // Middle Workspace
+                // Middle Workspace (Resizable via _splitterBar!)
                 int middleTop = _toolBarPanel.Bottom + gap;
                 int middleBottom = footerTop - gap;
                 int middleAvailH = Math.Max(S(140), middleBottom - middleTop);
+                int splitterH = S(8);
 
-                // 3. Detail Inspector Card (capped at <= 46% of middle workspace so _grid stays prominent)
+                // 3. Detail Inspector Card (user-adjustable via drag splitter, or laptop-friendly auto-fit)
                 int desiredDetailH = LayoutDetailCardChildren(innerW, reserveScrollbar: false);
-                int maxDetailH = Math.Max(S(96), (int)(middleAvailH * 0.46));
                 int finalDetailH;
-                if (desiredDetailH > maxDetailH)
+                if (_userDetailSplitRatio >= 0.18 && _userDetailSplitRatio <= 0.72)
                 {
-                    LayoutDetailCardChildren(innerW, reserveScrollbar: true);
-                    finalDetailH = maxDetailH;
+                    int userTargetH = Math.Max(S(86), Math.Min((int)(middleAvailH * 0.68), (int)Math.Round(middleAvailH * _userDetailSplitRatio)));
+                    if (desiredDetailH > userTargetH)
+                    {
+                        LayoutDetailCardChildren(innerW, reserveScrollbar: true);
+                    }
+                    finalDetailH = userTargetH;
                 }
                 else
                 {
-                    finalDetailH = Math.Max(S(88), desiredDetailH);
+                    double autoCapRatio = ch < S(540) ? 0.40 : 0.45;
+                    int maxDetailH = Math.Max(S(92), (int)(middleAvailH * autoCapRatio));
+                    if (desiredDetailH > maxDetailH)
+                    {
+                        LayoutDetailCardChildren(innerW, reserveScrollbar: true);
+                        finalDetailH = maxDetailH;
+                    }
+                    else
+                    {
+                        finalDetailH = Math.Max(S(86), desiredDetailH);
+                    }
                 }
 
                 int detailTop = middleBottom - finalDetailH;
                 _detailCard.SetBounds(padX, detailTop, innerW, finalDetailH);
+                _splitterBar.SetBounds(padX, detailTop - splitterH, innerW, splitterH);
 
                 // 2. Checklist DataGridView
-                int gridH = Math.Max(S(92), (detailTop - gap) - middleTop);
+                int gridH = Math.Max(S(84), _splitterBar.Top - middleTop);
                 _grid.SetBounds(padX, middleTop, innerW, gridH);
             }
             finally

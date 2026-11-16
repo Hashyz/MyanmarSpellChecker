@@ -121,6 +121,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private readonly Button _btnLangToggle;
         private readonly Button _btnEcoMode;
         private readonly Button _btnAboutLic;
+        private readonly Button _btnSlimHeader;
+        private bool _isSlimHeader;
         private readonly Button _btnTabProofing;
         private readonly Button _btnTabDictionary;
         private readonly Button _btnTabToolkit;
@@ -128,6 +130,13 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
         // Contextual Workspace Sub-Toolbars
         private readonly TableLayoutPanel _proofingToolbar;
+        private readonly TableLayoutPanel _styleRow;
+        private readonly TableLayoutPanel _scopeRow;
+        private readonly TableLayoutPanel _actionRow;
+        private readonly TableLayoutPanel _summaryAndReportRow;
+        private readonly TableLayoutPanel _pnlStickyDockedBar;
+        private readonly Label _lblDockedTitle;
+        private readonly Button _btnDockedApply;
         private readonly TableLayoutPanel _dictionaryToolbar;
         private readonly TableLayoutPanel _toolkitToolbar;
         private readonly TableLayoutPanel _customToolbar;
@@ -359,8 +368,14 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Height = MeasureSingleLineLabelHeight(_fontBrandTitle, 6),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
-                Padding = new Padding(2, 0, 2, 0)
+                Padding = new Padding(2, 0, 2, 0),
+                Visible = false // Office CustomTaskPane frame already renders the title right above
             };
+
+            var savedPanePrefs = MyanmarSpellChecker.Core.Performance.ReviewWindowPreferencesStore.Load("excel");
+            _isSlimHeader = savedPanePrefs.HasSlimHeaderPreference
+                ? savedPanePrefs.SlimTaskPaneHeader
+                : (Screen.PrimaryScreen != null && Screen.PrimaryScreen.WorkingArea.Height < 860);
 
             _lblLexiconStats = new Label
             {
@@ -375,23 +390,25 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Height = MeasureSingleLineLabelHeight(_fontBrandStats, 5),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0, 0, 0, 3),
-                Padding = new Padding(2, 0, 2, 0)
+                Padding = new Padding(2, 0, 2, 0),
+                Visible = !_isSlimHeader
             };
 
-            // Deterministic 1-row 3-column grid (eliminates WinForms FlowLayoutPanel-in-TableLayoutPanel wrapped-height phantom gap!)
+            // Deterministic 1-row 4-column grid (Lang | Eco | About | Slim)
             var brandPillsGrid = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 3,
+                ColumnCount = 4,
                 RowCount = 1,
                 Margin = new Padding(0),
                 Padding = new Padding(0)
             };
-            brandPillsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 29F));
-            brandPillsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 43F));
-            brandPillsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 28F));
+            brandPillsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 24F));
+            brandPillsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34F));
+            brandPillsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22F));
+            brandPillsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20F));
             brandPillsGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             int initBrandPillH = MeasureSingleLineButtonHeight(_fontSmallBold, 10);
@@ -402,7 +419,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Color.FromArgb(182, 206, 245),
                 _fontSmallBold);
             _btnLangToggle.Height = initBrandPillH;
-            _btnLangToggle.Margin = new Padding(0, 1, 3, 1);
+            _btnLangToggle.Margin = new Padding(0, 1, 2, 1);
             _btnLangToggle.Click += (s, e) => RequestToggleLanguage?.Invoke();
 
             _btnEcoMode = CreateActionButton(
@@ -412,22 +429,33 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Color.FromArgb(178, 218, 194),
                 _fontSmallBold);
             _btnEcoMode.Height = initBrandPillH;
-            _btnEcoMode.Margin = new Padding(1, 1, 3, 1);
+            _btnEcoMode.Margin = new Padding(1, 1, 2, 1);
             _btnEcoMode.Click += (s, e) => RequestCycleEcoMode?.Invoke();
 
             _btnAboutLic = CreateActionButton(
-                UiLocalizer.Pick("ⓘ About", "အချက်အလက် ⓘ"),
+                UiLocalizer.Pick("ⓘ About", "ⓘ အချက်"),
                 Color.FromArgb(236, 248, 241),
                 Color.FromArgb(16, 104, 54),
                 Color.FromArgb(178, 218, 194),
                 _fontSmallBold);
             _btnAboutLic.Height = initBrandPillH;
-            _btnAboutLic.Margin = new Padding(1, 1, 0, 1);
+            _btnAboutLic.Margin = new Padding(1, 1, 2, 1);
             _btnAboutLic.Click += (s, e) => RequestLicenseDialog?.Invoke();
+
+            _btnSlimHeader = CreateActionButton(
+                _isSlimHeader ? UiLocalizer.Pick("▾ Full", "▾ အပြည့်") : UiLocalizer.Pick("▴ Slim", "▴ ကျစ်လျစ်"),
+                _isSlimHeader ? Color.FromArgb(224, 244, 232) : Color.FromArgb(244, 248, 246),
+                Color.FromArgb(16, 98, 52),
+                Color.FromArgb(176, 214, 190),
+                _fontSmallBold);
+            _btnSlimHeader.Height = initBrandPillH;
+            _btnSlimHeader.Margin = new Padding(1, 1, 0, 1);
+            _btnSlimHeader.Click += (s, e) => ToggleExcelSlimTaskPaneChrome();
 
             brandPillsGrid.Controls.Add(_btnLangToggle, 0, 0);
             brandPillsGrid.Controls.Add(_btnEcoMode, 1, 0);
             brandPillsGrid.Controls.Add(_btnAboutLic, 2, 0);
+            brandPillsGrid.Controls.Add(_btnSlimHeader, 3, 0);
 
             brandRow.Controls.Add(_lblBrandTitle, 0, 0);
             brandRow.Controls.Add(_lblLexiconStats, 0, 1);
@@ -473,15 +501,15 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 ColumnCount = 1,
-                RowCount = 7,
+                RowCount = 8,
                 Margin = new Padding(0)
             };
             _proofingToolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            for (int i = 0; i < 7; i++)
+            for (int i = 0; i < 8; i++)
                 _proofingToolbar.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             // Style mode toggle row
-            var styleRow = new TableLayoutPanel
+            _styleRow = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
@@ -492,16 +520,16 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Padding = new Padding(2),
                 Margin = new Padding(0, 0, 0, 2)
             };
-            styleRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-            styleRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-            styleRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            _styleRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            _styleRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            _styleRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             _btnStyleGeneral = CreateTabSegmentButton("အထွေထွေ စံသတ်ပုံ");
             _btnStyleFormal = CreateTabSegmentButton("ရုံးသုံး / စာပေဟန်");
             _btnStyleGeneral.Click += (s, e) => OnUserSelectedStyleMode(ProofingStyleMode.GeneralStandard);
             _btnStyleFormal.Click += (s, e) => OnUserSelectedStyleMode(ProofingStyleMode.FormalOfficial);
-            styleRow.Controls.Add(_btnStyleGeneral, 0, 0);
-            styleRow.Controls.Add(_btnStyleFormal, 1, 0);
+            _styleRow.Controls.Add(_btnStyleGeneral, 0, 0);
+            _styleRow.Controls.Add(_btnStyleFormal, 1, 0);
 
             _lblStyleHint = new Label
             {
@@ -515,11 +543,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Width = 360,
                 Height = MeasureSingleLineLabelHeight(_fontBrandStats, 5),
                 TextAlign = ContentAlignment.MiddleLeft,
-                Margin = new Padding(1, 0, 1, 4)
+                Margin = new Padding(1, 0, 1, 4),
+                Visible = !_isSlimHeader
             };
 
             // 3-Scope Selector Row (Sheet | Selection | Workbook)
-            var scopeRow = new TableLayoutPanel
+            _scopeRow = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
@@ -530,10 +559,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Padding = new Padding(2),
                 Margin = new Padding(0, 0, 0, 4)
             };
-            scopeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34F));
-            scopeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33F));
-            scopeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33F));
-            scopeRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            _scopeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34F));
+            _scopeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33F));
+            _scopeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33F));
+            _scopeRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             _btnScopeSheet = CreateTabSegmentButton("လက်ရှိ Sheet");
             _btnScopeSelection = CreateTabSegmentButton("ရွေးထားကွက်");
@@ -541,12 +570,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _btnScopeSheet.Click += (s, e) => SelectAndScanScope(SpreadsheetScanScope.ActiveSheet);
             _btnScopeSelection.Click += (s, e) => SelectAndScanScope(SpreadsheetScanScope.Selection);
             _btnScopeWorkbook.Click += (s, e) => SelectAndScanScope(SpreadsheetScanScope.EntireWorkbook);
-            scopeRow.Controls.Add(_btnScopeSheet, 0, 0);
-            scopeRow.Controls.Add(_btnScopeSelection, 1, 0);
-            scopeRow.Controls.Add(_btnScopeWorkbook, 2, 0);
+            _scopeRow.Controls.Add(_btnScopeSheet, 0, 0);
+            _scopeRow.Controls.Add(_btnScopeSelection, 1, 0);
+            _scopeRow.Controls.Add(_btnScopeWorkbook, 2, 0);
 
             // Primary Action Buttons Row: Scan | Fix All | Undo | Clear Underlines
-            var actionRow = new TableLayoutPanel
+            _actionRow = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
@@ -555,11 +584,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 RowCount = 1,
                 Margin = new Padding(0, 0, 0, 4)
             };
-            actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30F));
-            actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30F));
-            actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22F));
-            actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 18F));
-            actionRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            _actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30F));
+            _actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30F));
+            _actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22F));
+            _actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 18F));
+            _actionRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             _btnScanNow = CreateActionButton("Sheet စစ်မည်", Color.FromArgb(16, 124, 65), Color.White, Color.FromArgb(14, 102, 53), _fontSmallBold);
             _btnScanNow.Margin = new Padding(0, 0, 2, 0);
@@ -579,10 +608,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _btnClearUnderlines.Click += (s, e) => RequestClearUnderlines?.Invoke();
             _toolTip.SetToolTip(_btnClearUnderlines, "ဖန်သားပြင်ပေါ်ရှိ စစ်ဆေးရေး အနီ/အပြာ/လိမ္မော် မျဉ်းလှိုင်းများကို ဖျောက်ရန် (Cell စာသားအရောင်နှင့် .xlsx ဖိုင်ကို လုံးဝ မပြောင်းလဲပါ)");
 
-            actionRow.Controls.Add(_btnScanNow, 0, 0);
-            actionRow.Controls.Add(_btnFixAll, 1, 0);
-            actionRow.Controls.Add(_btnUndoLast, 2, 0);
-            actionRow.Controls.Add(_btnClearUnderlines, 3, 0);
+            _actionRow.Controls.Add(_btnScanNow, 0, 0);
+            _actionRow.Controls.Add(_btnFixAll, 1, 0);
+            _actionRow.Controls.Add(_btnUndoLast, 2, 0);
+            _actionRow.Controls.Add(_btnClearUnderlines, 3, 0);
 
             // 4-Pill Filter + Stepper Row
             var filterRow = new TableLayoutPanel
@@ -735,7 +764,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 _proofingReportMenu.Show(_btnExportReport, new Point(0, _btnExportReport.Height));
             };
 
-            var summaryAndReportRow = new TableLayoutPanel
+            _summaryAndReportRow = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
@@ -744,19 +773,155 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 RowCount = 1,
                 Margin = new Padding(0)
             };
-            summaryAndReportRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 73F));
-            summaryAndReportRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 27F));
-            summaryAndReportRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            summaryAndReportRow.Controls.Add(_lblSummary, 0, 0);
-            summaryAndReportRow.Controls.Add(_btnExportReport, 1, 0);
+            _summaryAndReportRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 75F));
+            _summaryAndReportRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
+            _summaryAndReportRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            _summaryAndReportRow.Controls.Add(_lblSummary, 0, 0);
+            _summaryAndReportRow.Controls.Add(_btnExportReport, 1, 0);
 
-            _proofingToolbar.Controls.Add(styleRow, 0, 0);
+            int initFilterBtnH = MeasureSingleLineButtonHeight(_fontBrandStats, 10);
+            int initActionBtnH = MeasureSingleLineButtonHeight(_fontSmallBold, 13);
+
+            // Sticky Pinned Docked Review Studio Header (never scrolls away while reviewing spreadsheet items!)
+            _pnlStickyDockedBar = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 1,
+                RowCount = 3,
+                BackColor = Color.FromArgb(236, 248, 241),
+                Padding = new Padding(7, 5, 7, 6),
+                Margin = new Padding(0, 2, 0, 0),
+                Visible = false
+            };
+            _pnlStickyDockedBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            _pnlStickyDockedBar.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            _pnlStickyDockedBar.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            _pnlStickyDockedBar.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            var dockTopRow = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 3,
+                RowCount = 1,
+                Margin = new Padding(0, 0, 0, 3)
+            };
+            dockTopRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 54F));
+            dockTopRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
+            dockTopRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 21F));
+            dockTopRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            _lblDockedTitle = new Label
+            {
+                Text = "⇥ Docked Review",
+                Font = _fontSmallBold,
+                ForeColor = Color.FromArgb(14, 78, 42),
+                AutoSize = false,
+                AutoEllipsis = true,
+                UseMnemonic = false,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Height = initFilterBtnH,
+                Margin = new Padding(0)
+            };
+
+            var btnDockPopOut = CreateActionButton(
+                UiLocalizer.Pick("⧉ Window", "⧉ အကျယ်"),
+                Color.White, Color.FromArgb(16, 98, 52), Color.FromArgb(172, 214, 188), _fontSmallBold);
+            btnDockPopOut.Height = initFilterBtnH;
+            btnDockPopOut.Margin = new Padding(2, 0, 2, 0);
+            btnDockPopOut.Click += (s, e) => PopOutFromExcelStickyDockedBar();
+
+            var btnDockExit = CreateActionButton(
+                UiLocalizer.Pick("✕ Exit", "✕ ပိတ်"),
+                Color.White, Color.FromArgb(72, 84, 78), Color.FromArgb(204, 214, 208), _fontSmall);
+            btnDockExit.Height = initFilterBtnH;
+            btnDockExit.Margin = new Padding(2, 0, 0, 0);
+            btnDockExit.Click += (s, e) => ExitDockedChecklistMode();
+
+            dockTopRow.Controls.Add(_lblDockedTitle, 0, 0);
+            dockTopRow.Controls.Add(btnDockPopOut, 1, 0);
+            dockTopRow.Controls.Add(btnDockExit, 2, 0);
+
+            var dockPillStrip = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 5,
+                RowCount = 1,
+                Margin = new Padding(0, 0, 0, 4)
+            };
+            dockPillStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 21F));
+            dockPillStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 18F));
+            dockPillStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 19F));
+            dockPillStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 19F));
+            dockPillStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 23F));
+            dockPillStrip.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            var btnDockSure = CreateActionButton(
+                UiLocalizer.Pick("☑ Sure", "☑ သေချာ"),
+                Color.FromArgb(224, 245, 233), Color.FromArgb(16, 102, 54), Color.FromArgb(148, 208, 172), _fontSmallBold);
+            btnDockSure.Height = initFilterBtnH;
+            btnDockSure.Margin = new Padding(1);
+            btnDockSure.Click += (s, e) => SetAllExcelDockedCheckStates(sureOnly: true, checkAll: false);
+
+            var btnDockAll = CreateActionButton(
+                UiLocalizer.Pick("☑ All", "☑ အားလုံး"),
+                Color.White, Color.FromArgb(20, 62, 42), Color.FromArgb(188, 214, 200), _fontSmall);
+            btnDockAll.Height = initFilterBtnH;
+            btnDockAll.Margin = new Padding(1);
+            btnDockAll.Click += (s, e) => SetAllExcelDockedCheckStates(sureOnly: false, checkAll: true);
+
+            var btnDockNone = CreateActionButton(
+                UiLocalizer.Pick("☐ None", "☐ ဖြုတ်"),
+                Color.White, Color.FromArgb(88, 98, 92), Color.FromArgb(204, 214, 208), _fontSmall);
+            btnDockNone.Height = initFilterBtnH;
+            btnDockNone.Margin = new Padding(1);
+            btnDockNone.Click += (s, e) => SetAllExcelDockedCheckStates(sureOnly: false, checkAll: false);
+
+            var btnDockUndo = CreateActionButton(
+                UiLocalizer.Pick("↶ Undo", "↶ နောက်"),
+                Color.White, Color.FromArgb(20, 68, 40), Color.FromArgb(196, 218, 204), _fontSmall);
+            btnDockUndo.Height = initFilterBtnH;
+            btnDockUndo.Margin = new Padding(1);
+            btnDockUndo.Click += (s, e) => RequestUndoLastAction?.Invoke();
+
+            var btnDockReport = CreateActionButton(
+                UiLocalizer.Pick("≡ Report ▾", "≡ အစီရင် ▾"),
+                Color.White, Color.FromArgb(14, 92, 48), Color.FromArgb(172, 214, 188), _fontSmallBold);
+            btnDockReport.Height = initFilterBtnH;
+            btnDockReport.Margin = new Padding(1);
+            btnDockReport.Click += (s, e) => _btnExportReport.PerformClick();
+
+            dockPillStrip.Controls.Add(btnDockSure, 0, 0);
+            dockPillStrip.Controls.Add(btnDockAll, 1, 0);
+            dockPillStrip.Controls.Add(btnDockNone, 2, 0);
+            dockPillStrip.Controls.Add(btnDockUndo, 3, 0);
+            dockPillStrip.Controls.Add(btnDockReport, 4, 0);
+
+            _btnDockedApply = CreateActionButton(
+                UiLocalizer.Pick("✓ Apply Selected Fixes", "✓ ရွေးထားသည်များကို ပြင်မည်"),
+                Color.FromArgb(16, 108, 56), Color.White, Color.FromArgb(12, 86, 44), _fontSmallBold);
+            _btnDockedApply.Height = initActionBtnH;
+            _btnDockedApply.Margin = new Padding(0);
+            _btnDockedApply.Click += (s, e) => ApplyExcelDockedBatchFromStickyBar();
+
+            _pnlStickyDockedBar.Controls.Add(dockTopRow, 0, 0);
+            _pnlStickyDockedBar.Controls.Add(dockPillStrip, 0, 1);
+            _pnlStickyDockedBar.Controls.Add(_btnDockedApply, 0, 2);
+
+            _proofingToolbar.Controls.Add(_styleRow, 0, 0);
             _proofingToolbar.Controls.Add(_lblStyleHint, 0, 1);
-            _proofingToolbar.Controls.Add(scopeRow, 0, 2);
-            _proofingToolbar.Controls.Add(actionRow, 0, 3);
+            _proofingToolbar.Controls.Add(_scopeRow, 0, 2);
+            _proofingToolbar.Controls.Add(_actionRow, 0, 3);
             _proofingToolbar.Controls.Add(filterRow, 0, 4);
             _proofingToolbar.Controls.Add(_pnlScanProgress, 0, 5);
-            _proofingToolbar.Controls.Add(summaryAndReportRow, 0, 6);
+            _proofingToolbar.Controls.Add(_summaryAndReportRow, 0, 6);
+            _proofingToolbar.Controls.Add(_pnlStickyDockedBar, 0, 7);
 
             // ================= TAB 2 TOOLBAR: DICTIONARY & ENCYCLOPEDIA =================
             _dictionaryToolbar = new TableLayoutPanel
@@ -1174,12 +1339,14 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _btnLangToggle.Text = UiLocalizer.FormatLanguageBadge();
             _toolTip.SetToolTip(_btnLangToggle, UiLocalizer.FormatLanguageTooltip());
 
-            _btnAboutLic.Text = UiLocalizer.Pick("About ⓘ", "အချက်အလက် ⓘ");
+            _btnAboutLic.Text = UiLocalizer.Pick("ⓘ About", "ⓘ အချက်");
             _toolTip.SetToolTip(
                 _btnAboutLic,
                 UiLocalizer.Pick(
                     "System Info, Creator Attribution (Htet Yar Zar — Kyaukse University) & GNU GPL v3.0 Open-Source License",
                     "စနစ်အချက်အလက်၊ ဖန်တီးသူ (ထက်ရာဇာ — ကျောက်ဆည်တက္ကသိုလ်) နှင့် GNU GPL v3.0 Open-Source လိုင်စင်"));
+
+            UpdateExcelSlimButtonChrome();
 
             _btnTabProofing.Text = UiLocalizer.Pick("Proofing", "စာစစ်");
             _btnTabDictionary.Text = UiLocalizer.Pick("Dictionary", "အဘိဓာန်");
@@ -1724,6 +1891,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 _btnLangToggle.Height = brandPillH;
                 _btnEcoMode.Height = brandPillH;
                 _btnAboutLic.Height = brandPillH;
+                _btnSlimHeader.Height = brandPillH;
 
                 int tabBtnH = MeasureSingleLineButtonHeight(_fontTabActive, 12);
                 _btnTabProofing.Height = tabBtnH;
@@ -1756,6 +1924,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 _lblScanProgress.MinimumSize = new Size(0, MeasureSingleLineLabelHeight(_fontSmallBold, 6));
                 _lblSummary.Height = MeasureSingleLineLabelHeight(_fontSmallBold, 6);
                 _btnExportReport.Height = filterBtnH;
+                _lblDockedTitle.Height = filterBtnH;
+                _btnDockedApply.Height = actionBtnH;
 
                 int auxBtnH = MeasureSingleLineButtonHeight(_fontSmall, 11);
                 _btnClearDictSearch.Height = auxBtnH;
