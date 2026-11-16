@@ -2045,6 +2045,14 @@ namespace MyanmarSpellChecker.Core.Nlp
             return summary;
         }
 
+        public void PrewarmLengthBuckets(int maxLen = 16)
+        {
+            for (int len = 2; len <= maxLen; len++)
+            {
+                _ = GetCompiledLengthBucket(len);
+            }
+        }
+
         internal CompiledLengthBucket? GetCompiledLengthBucket(int length)
         {
             if (length <= 0)
@@ -3623,10 +3631,18 @@ namespace MyanmarSpellChecker.Core.Nlp
                             i += 1;
                             continue;
                         case '\u1000': // က် -> Q
-                        case '\u1010': // တ် -> Q
-                        case '\u1015': // ပ် -> Q
+                        case '\u1001': // ခ် -> Q
                         case '\u1002': // ဂ် -> Q
+                        case '\u1003': // ဃ် -> Q
+                        case '\u100B': // ဋ် -> Q
+                        case '\u100C': // ဌ် -> Q
+                        case '\u100D': // ဍ် -> Q
+                        case '\u1010': // တ် -> Q
+                        case '\u1011': // ထ် -> Q
                         case '\u1012': // ဒ် -> Q
+                        case '\u1013': // ဓ် -> Q
+                        case '\u1015': // ပ် -> Q
+                        case '\u1016': // ဖ် -> Q
                         case '\u1017': // ဗ် -> Q
                         case '\u1018': // ဘ် -> Q
                         case '\u101E': // သ် -> Q
@@ -3650,14 +3666,18 @@ namespace MyanmarSpellChecker.Core.Nlp
                         sb.Append(ignoreTones ? '\u102E' : c);
                         break;
                     case '\u1001': // ခ
-                    case '\u1002': // ဂ
-                    case '\u1003': // ဃ
                         sb.Append(ignoreTones ? '\u1000' : c);
                         break;
+                    case '\u1002': // ဂ (/ɡ/)
+                    case '\u1003': // ဃ (/ɡ/ — exact voiced velar homophone with ဂ in Burmese)
+                        sb.Append(ignoreTones ? '\u1000' : '\u1002');
+                        break;
                     case '\u1006': // ဆ
-                    case '\u1007': // ဇ
-                    case '\u1008': // ဈ
                         sb.Append(ignoreTones ? '\u1005' : c);
+                        break;
+                    case '\u1007': // ဇ (/z/)
+                    case '\u1008': // ဈ (/z/ — exact voiced sibilant homophone with ဇ in Burmese)
+                        sb.Append(ignoreTones ? '\u1005' : '\u1007');
                         break;
                     case '\u1016': // ဖ
                     case '\u1017': // ဗ

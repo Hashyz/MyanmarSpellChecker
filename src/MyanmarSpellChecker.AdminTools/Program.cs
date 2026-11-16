@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using MyanmarSpellChecker.AdminTools.Benchmark;
 using MyanmarSpellChecker.AdminTools.Compiler;
 using MyanmarSpellChecker.Core.Dictionary;
 using MyanmarSpellChecker.Core.Models;
@@ -37,6 +38,8 @@ namespace MyanmarSpellChecker.AdminTools
                     return RunGenerateKeys(args);
                 case "sign-license":
                     return RunSignLicense(args);
+                case "benchmark":
+                    return ProofingBenchmarkRunner.Run(args);
                 default:
                     return RunInteractiveDemo();
             }

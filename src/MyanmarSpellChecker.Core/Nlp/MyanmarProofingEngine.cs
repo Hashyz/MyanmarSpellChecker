@@ -4008,9 +4008,11 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return LatticeEdge.Clean(1, 1.44);
             }
 
-            // Valid Pali pat-sint / Kinzi / Great-Sa syllable (e.g. က္ကံ, ဗ္ဗ, ဂ္ဂီ, န္ဒ, င်္ခ, ဋ္ဌာ, ဿု), classical Pali Gatha word (e.g. ဓမ္မေန, မက္ကဋော, ကိမ္ပုရိသော, နိဝတ္တဿု), or foreign transliteration coda (ကားလ်, ဂိတ်စ်, ဖေ့စ်, လိုက်ဘ်, သိသ်)
+            // Valid Pali pat-sint / Kinzi / Great-Sa syllable (e.g. က္ကံ, ဗ္ဗ, ဂ္ဂီ, န္ဒ, င်္ခ, ဋ္ဌာ, ဿု), classical Pali Gatha word (e.g. ဓမ္မေန, မက္ကဋော, ကိမ္ပုရိသော, နိဝတ္တဿု), foreign transliteration coda/continuation (ကားလ်, မတ်ခ်လီး), or Shan/Kayah 'လွိုင်' mountain/village prefix (လွိုင်နမ်းဖ)
             if ((_trie.IsValidSingleSyllable(normSyl) && (normSyl.IndexOf('\u1039') >= 0 || normSyl.IndexOf('\u103F') >= 0)) ||
                 IsForeignOrPaliKilledCoda(normSyl) ||
+                (tokIdx > runStart && IsForeignOrPaliKilledCoda(tokens[tokIdx - 1].NormalizedText) && _trie.IsValidSingleSyllable(normSyl)) ||
+                (normSyl == "လွိုင်" && tokIdx + 1 < runEnd) ||
                 isPaliVerseRun ||
                 IsAdjacentToParenthesizedCodaClarifier(fullText, token))
             {
@@ -4637,6 +4639,23 @@ namespace MyanmarSpellChecker.Core.Nlp
                 ProductiveVerbalAuxiliaries.Contains(lastSyl) &&
                 _trie.IsStandaloneWord(firstSyl) &&
                 _trie.GetWordFrequency(firstSyl) >= 5)
+            {
+                return null;
+            }
+
+            // Guard '[Standalone Noun] + ကျ + (သော|သည့်|တဲ့|ရာ)' (e.g. 'ထောင့်ကျသော နေရာတွင်' must never strip creaky tone into 'ထောင်ကျ'!)
+            // and Shan/Kayah 'လွိုင် + [Syllable]' place names ('လွိုင်နမ်းဖ' != 'လှိုင်')
+            if (firstSyl == "လွိုင်" ||
+                (windowLen == 2 &&
+                 lastSyl == "ကျ" &&
+                 firstSyl.IndexOf('\u1037') >= 0 &&
+                 _trie.IsStandaloneWord(firstSyl) &&
+                 startIndex + 2 < tokens.Count &&
+                 tokens[startIndex + 2].Kind == TokenKind.MyanmarSyllable &&
+                 (tokens[startIndex + 2].NormalizedText == "သော" ||
+                  tokens[startIndex + 2].NormalizedText == "သည့်" ||
+                  tokens[startIndex + 2].NormalizedText == "တဲ့" ||
+                  tokens[startIndex + 2].NormalizedText == "ရာ")))
             {
                 return null;
             }

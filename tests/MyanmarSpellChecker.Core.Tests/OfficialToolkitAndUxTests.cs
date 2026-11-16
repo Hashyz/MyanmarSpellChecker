@@ -2103,5 +2103,91 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.Contains("ClassifyMyanmarAndLatinPresence", scannerSrc);
             Assert.Contains("SuppressBuiltInEnglishSquigglesOnRangeOnce", underlineSrc);
         }
+
+        [Fact]
+        public void V58_ComprehensiveAccuracyLatencyAndCleanFprBenchmark_Gate()
+        {
+            var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
+            var trie = repo.LoadIntoTrie("MM-GOV-THATPON-SQLCIPHER-2026!");
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+
+            // Warmup
+            _ = formalEngine.CheckText("မြန်မာနိုင်ငံသည် သာယာလှပသော နိုင်ငံတစ်ခု ဖြစ်ပါသည်။");
+            _ = generalEngine.CheckText("လာမ ည့် အပတ်တွင် ဃီတပွဲ ကျင်းပမည်။");
+
+            // 1. Clean False-Positive Resistance (Nested Curly Quotes, 'ထောင့်ကျသော', Shan/Kayah 'လွိုင်', Foreign Coda Names, Technical Loanwords)
+            string[] cleanControls =
+            {
+                "“ယခု အမိန့်တော်သည် သင့်ပေ၏။ “လိုက်၍ ပြချေ” ဆိုလျှင် ကျွန်ုပ် သွားပါအံ့” ဟု လျှောက်တင်၏။",
+                "အိမ်တွင် ဘုရားစင် မရှိသဖြင့် ထောင့်ကျသော နေရာတွင် နံရံကို မျက်နှာပြု၍ ထားရှိသည်။",
+                "နောက်ရက်တွင် လွိုင်နမ်းဖ ကျေးရွာသို့ ရောက်ရှိခဲ့ပါတယ်။",
+                "ဆော့ဖ်ဝဲလ်အင်ဂျင်နီယာများသည် ဆာဗာလော့ဂ်များကို ပုံမှန်စစ်ဆေးပြုပြင်ကြသည်။",
+                "မက်ခ်လီးနှင့် မေရီကလိဗ်တို့ တက်ရောက်ဆွေးနွေးကြသည်။"
+            };
+            foreach (string clean in cleanControls)
+            {
+                var modeEngine = clean.Contains("တယ်။") ? generalEngine : formalEngine;
+                var fps = modeEngine.CheckText(clean);
+                Assert.True(fps.Count == 0, $"Expected 0 false positives on '{clean}', got: [{string.Join("; ", fps.Select(x => $"{x.OriginalText}=>{x.Suggestions.FirstOrDefault()?.Replacement}"))}]");
+            }
+
+            // 2. Structural, Detached Intra-Syllable Coda, Pali/Voiced Homophone, Dropped-2nd-'အ', Space-Split & Contextual Accuracy
+            (ProofingStyleMode Mode, string Input, string ExpectedTopSubstring)[] errorSuite =
+            {
+                (ProofingStyleMode.FormalOfficial, "လာမ ည့် အပတ်တွင် အစည်းအဝေး ကျင်းပမည်။", "လာမည့်"),
+                (ProofingStyleMode.FormalOfficial, "အပြုအမူပို င်းဆိုင်ရာ လေ့လာချက်ဖြစ်သည်။", "ပိုင်း"),
+                (ProofingStyleMode.FormalOfficial, "ကာယကံရု ပ်သည် အရေးပါသည်။", "ရုပ်"),
+                (ProofingStyleMode.GeneralStandard, "သူငယ်ချင်းအသစ်ရှာတာ ပျော်စရာကောင်း့တယ်။", "ကောင်း"),
+                (ProofingStyleMode.FormalOfficial, "အရေးကြိးချက်များကို စနစ်တကျ တင်ပြထားပါသည်။", "ကြီး"),
+                (ProofingStyleMode.FormalOfficial, "သက်တမး တိုးမြှင့်ပေးရန် လျှောက်ထားသည်။", "တမ်း"),
+                (ProofingStyleMode.FormalOfficial, "သမန္တမင်း ပြော့င်းရွှေ့၍ နေထိုင်သည်။", "ပြောင်း"),
+                (ProofingStyleMode.FormalOfficial, "A မျိုးသားဒီမိုကရေစီ A ဖွဲ့ချုပ် Aား ဖိတ်ကြားသည်။", "အမျိုးသား"),
+                (ProofingStyleMode.FormalOfficial, "ကျောင်းတွင် ဃီတပွဲ ကျင်းပသည်။", "ဂီတ"),
+                (ProofingStyleMode.FormalOfficial, "စမ်းသပ်ချက် ရလဓ် ကောင်းမွန်ပါသည်။", "ရလဒ်"),
+                (ProofingStyleMode.FormalOfficial, "စီမံကိန်းကို အကောင်ထည်ဖော် ဆောင်ရွက်သည်။", "အကောင်အထည်ဖော်"),
+                (ProofingStyleMode.FormalOfficial, "အဖွဲ့အစည်းအကြား ပြေလည်မူရရှိခဲ့သည်။", "ပြေလည်မှု"),
+                (ProofingStyleMode.FormalOfficial, "စာ ကြည့် တိုက် နှင့် လူ မှု ရေး လုပ်ငန်းများ ဆောင်ရွက်သည်။", "စာကြည့်တိုက်"),
+                (ProofingStyleMode.GeneralStandard, "တစ်နည်းပြော့ရရင် ဒါဟာ ကိုယ်တွေ့ပါဘဲ။", "ပြော"),
+                (ProofingStyleMode.GeneralStandard, "ခွေးကို အစာ ကြွေး ပါ။", "ကျွေး"),
+                (ProofingStyleMode.GeneralStandard, "ဒီသတင်းကို ကျား ရ တယ်။", "ကြား"),
+                (ProofingStyleMode.GeneralStandard, "တောထဲမှာ ကြား တွေ ကို သတိထားရမယ်။", "ကျား"),
+                (ProofingStyleMode.GeneralStandard, "ကလေးတွေ ထမင်းဆားပြီးရင် ကျောင်းသွားကြ။", "စား"),
+                (ProofingStyleMode.GeneralStandard, "လုံခြုံစိတ်ချရတဲ့ ငွေပေးချေမှု စနစ်တွေ ရှိပါတယ်.", "။")
+            };
+
+            // Warmup pass so RegexOptions.Compiled IL generation is excluded from steady-state latency measurement
+            foreach (var tc in errorSuite)
+            {
+                var eng = tc.Mode == ProofingStyleMode.FormalOfficial ? formalEngine : generalEngine;
+                _ = eng.CheckText(tc.Input, cacheParagraph: false);
+            }
+
+            var latencies = new List<double>(errorSuite.Length);
+            var sw = new System.Diagnostics.Stopwatch();
+            foreach (var tc in errorSuite)
+            {
+                var eng = tc.Mode == ProofingStyleMode.FormalOfficial ? formalEngine : generalEngine;
+                sw.Restart();
+                var issues = eng.CheckText(tc.Input, cacheParagraph: false);
+                sw.Stop();
+                latencies.Add(sw.Elapsed.TotalMilliseconds);
+
+                string canonExp = UnicodeNormalizer.NormalizeCanonicalOrder(tc.ExpectedTopSubstring);
+                Assert.True(
+                    issues.Any(iss => iss.Suggestions.Count > 0 &&
+                        (UnicodeNormalizer.NormalizeCanonicalOrder(iss.Suggestions[0].Replacement).Contains(canonExp) ||
+                         UnicodeNormalizer.NormalizeCanonicalOrder(
+                             tc.Input.Substring(0, iss.StartIndex) +
+                             iss.Suggestions[0].Replacement +
+                             tc.Input.Substring(iss.StartIndex + iss.Length)).Contains(canonExp))),
+                    $"Expected Top-1 containing '{tc.ExpectedTopSubstring}' on '{tc.Input}', got: [{string.Join("; ", issues.Select(x => $"{x.OriginalText}=>{x.Suggestions.FirstOrDefault()?.Replacement}"))}]");
+            }
+
+            latencies.Sort();
+            double p50 = latencies[latencies.Count / 2];
+            double p95 = latencies[(int)(0.90 * latencies.Count)];
+            Assert.True(p50 < 12.0 && p95 < 35.0, $"Expected steady-state p50 < 12 ms & p95 < 35 ms, got p50={p50:F2} ms, p95={p95:F2} ms.");
+        }
     }
 }

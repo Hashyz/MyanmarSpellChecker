@@ -144,7 +144,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             @"(?<![\u1000-\u103F])(?<Stem>[\u1000-\u103F]{2,24}?)(?<Target>နဲ)(?=\s+(?:အတူ|ပတ်သက်|စပ်လျဉ်း|သွား|လာ|နေ|စား|သောက်|ပြော|ဆို|လုပ်|ဆောင်ရွက်|တွေ့|ဆုံ|ရေး|ဖတ်|တွဲ|တူ))");
 
         private static readonly Regex UnspacedAttachedTaePattern = new Regex(
-            @"(?<![\u1000-\u103F])(?<Stem>[\u1000-\u103F]{1,20}?)(?<Target>တဲ)(?=\s*(?:အခါ|အချိန်|နေရာ|အလုပ်|စကား|ကိစ္စ|လူ|သူ|ပုံစံ|နည်းလမ်း|အကြောင်း|အချက်|စာအုပ်|စာတမ်း|နေ့|နှစ်|လ))");
+            @"(?<![\u1000-\u103F])(?<Stem>[\u1000-\u103F]{1,24}?)(?<Target>တဲ)(?=\s+(?!(?:အိမ်|နန်း|စု|ခို|ကုပ်|ပုတ်))[\u1000-\u102A][\u1000-\u103F]{1,24}|\s*(?:အခါ|အချိန်|နေရာ|အလုပ်|စကား|ကိစ္စ|လူ|သူ|ပုံစံ|နည်းလမ်း|အကြောင်း|အချက်|စာအုပ်|စာတမ်း))");
 
         private static readonly Regex UnspacedAttachedYaePattern = new Regex(
             @"(?<![\u1000-\u103F])(?<Stem>[\u1000-\u103F]{3,24}?)(?<Target>ရဲ)(?=\s+(?!(?:တပ်ဖွဲ့|စခန်း|အရာရှိ|မှူး|ဘော်|မေ|ဝံ့|ရင့်|စွမ်း|တိုက်|ကင်း|သား|ချုပ်))[\u1000-\u102A][\u1000-\u103F]{1,20})");
@@ -476,7 +476,11 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         // 4h. Broken Space-Split Mandatory Compounds (e.g. 'စာ ကြည့်တိုက်' -> 'စာကြည့်တိုက်', 'အစည်း အဝေး' -> 'အစည်းအဝေး', 'နေ့အထိမ်း အမှတ်ဂုဏ်ပြု' -> 'အထိမ်းအမှတ်')
         private static readonly Regex CuratedBrokenCompoundPattern = new Regex(
-            @"(?:(?<![\u1000-\u103F])(?<Left>စာ|ဝန်|လေ|အိမ်|ဘယ်|ဘာ|ကိုယ်)|(?<Left>အစည်း|အခမ်း|အစီ|အခြေ|အတွေ့|အခွင့်|အချက်|အဆောက်|အထိမ်း|ကျောင်း|အလုပ်|မိန်း|ယောက်ျား|သတင်း|မော်တော်|ကွန်ပျူ|တယ်လီ|စာသင်|တက္က|အစိုး|ဥပ|ကျန်းမာ|စီးပွား|လူနာတင်|မီးသတ်|တပ်မ|ကိုယ်စား|ပလတ်))[ \t]+(?<Right>ကြည့်တိုက်|အဝေး|အနား|အစဉ်|အနေ|အကြုံ|အရေး|အလမ်း|အလက်|အအုံ|အမှတ်|သား|သူ|ထမ်း|သမား|ချိန်|ကလေး|လေး|စာ|ယာဉ်|တာ|ဖုန်း|ကျောင်း|သိုလ်|ရ|အဖွဲ့|ဒေ|ရေး|ကား|လို|လို့|တော်|စားလှယ်|လှယ်|စတစ်)(?=\s|$|[\u104A\u104B]|ကို|အား|မှ|သို့|နှင့်|နဲ့|သည်|၏|၌|တွင်|က|မှာ|များ|တွေ|အတွက်|အကြောင်း|ဆိုင်ရာ|ဖြင့်|သဖြင့်|ကြောင့်|အပြင်|ရရှိ|ဖြတ်စ)",
+            @"(?:(?<![\u1000-\u103F])(?<Left>စာ|ဝန်|လေ|အိမ်|ဘယ်|ဘာ|ကိုယ်|လက်|ဒီအ|ထိုနေ|ဆရာ|ကား|ရေ|မြို့|ရုံး)|(?<Left>အစိုးရ|အစည်း|အခမ်း|အစီ|အခြေ|အတွေ့|အခွင့်|အချက်|အဆောက်|အထိမ်း|အလုပ်|အစား|အဝတ်|အရောင်း|အပေး|အဆက်|အကောင်|အသိ|လုပ်ရိုး|ကျောင်း|ကျောင်းအုပ်|ဆေးရုံ|မိန်း|ယောက်ျား|သတင်း|မော်တော်|ကွန်ပျူ|တယ်လီ|စာသင်|တက္က|အစိုး|ဥပ|ကျန်းမာ|စီးပွား|စိုက်ပျိုး|မွေးမြူ|ပညာ|လူမှု|ပို့ဆောင်|ရေကြောင်း|ဝန်ကြီး|ဦးစီး|အိမ်ခြံ|နိုင်ငံ|ဆောင်ရွက်|လူနာတင်|မီးသတ်|တပ်မ|ကိုယ်စား|ပလတ်))[ \t]+(?<Right>ကြည့်တိုက်|အဝေး|အနား|အစဉ်|အနေ|အကြုံ|အရေး|အလမ်း|အလက်|အအုံ|အမှတ်|အကိုင်|အသောက်|အစား|အဝယ်|အယူ|အသွယ်|အထည်|လုပ်စဉ်|သား|သူ|ထမ်း|သမား|ချိန်|အုပ်|ကြီး|ဝန်|လမ်း|ချိုး|နယ်|ခန်း|ကလေး|လေး|စာ|ယာဉ်|တာ|ဖုန်း|ကျောင်း|သိုလ်|ရ|အဖွဲ့|ဒေ|ရေး|ပို့ဆောင်ရေး|ဌာန|မြေ|ခြား|မှတ်|ချက်|တိုင်း|ရာ|ကား|လို|လို့|တော်|စားလှယ်|လှယ်|စတစ်)(?=\s|$|[\u104A\u104B]|ကို|အား|မှ|သို့|နှင့်|နဲ့|သည်|၏|၌|တွင်|က|မှာ|များ|တွေ|အတွက်|အကြောင်း|ဆိုင်ရာ|ဖြင့်|သဖြင့်|ကြောင့်|အပြင်|ရရှိ|ဖြတ်စ|ကဏ္ဍ|ရေးရာ|အုပ်ချုပ်|လုပ်ငန်း)",
+            RegexOptions.Compiled);
+
+        private static readonly Regex ThreePartBrokenCompoundPattern = new Regex(
+            @"(?<![\u1000-\u103F])(?:(?<P1>စာ)[ \t]+(?<P2>ကြည့်)[ \t]+(?<P3>တိုက်)|(?<P1>လူ)[ \t]+(?<P2>သွား)[ \t]+(?<P3>လမ်း)|(?<P1>မျက်နှာ)[ \t]+(?<P2>ချင်း)[ \t]+(?<P3>ဆိုင်)|(?<P1>ကျောင်း)[ \t]+(?<P2>အုပ်)[ \t]+(?<P3>ကြီး)|(?<P1>လူ)[ \t]+(?<P2>မှု)[ \t]+(?<P3>ရေး))(?=\s|$|[\u104A\u104B]|ကို|အား|မှ|သို့|နှင့်|နဲ့|သည်|၏|၌|တွင်|က|မှာ|များ|တွေ|လုပ်ငန်း)",
             RegexOptions.Compiled);
 
         private static readonly Regex BoundStemBrokenCompoundPattern = new Regex(
@@ -511,9 +515,15 @@ namespace MyanmarSpellChecker.Core.Nlp
         private static readonly HashSet<string> VerifiedMandatoryCompounds = CreateNormalizedSet(
             "စာကြည့်တိုက်", "အစည်းအဝေး", "အခမ်းအနား", "အစီအစဉ်", "အခြေအနေ", "အတွေ့အကြုံ",
             "အခွင့်အရေး", "အခွင့်အလမ်း", "အချက်အလက်", "အဆောက်အအုံ", "အထိမ်းအမှတ်", "ကျောင်းသား", "ကျောင်းသူ", "ဝန်ထမ်း",
-            "အလုပ်သမား", "အလုပ်ချိန်", "မိန်းကလေး", "ယောက်ျားလေး", "သတင်းစာ", "လေယာဉ်", "မော်တော်ယာဉ်",
+            "အလုပ်သမား", "အလုပ်ချိန်", "အလုပ်အကိုင်", "အစားအသောက်", "အဝတ်အစား", "အရောင်းအဝယ်", "အပေးအယူ",
+            "အဆက်အသွယ်", "အကောင်အထည်", "အသိအမှတ်", "လုပ်ရိုးလုပ်စဉ်",
+            "မိန်းကလေး", "ယောက်ျားလေး", "သတင်းစာ", "လေယာဉ်", "မော်တော်ယာဉ်",
             "ကွန်ပျူတာ", "တယ်လီဖုန်း", "စာသင်ကျောင်း", "တက္ကသိုလ်", "အစိုးရ", "အစိုးရအဖွဲ့", "ဥပဒေ",
-            "ကျန်းမာရေး", "စီးပွားရေး", "လူနာတင်ယာဉ်", "အိမ်စာ", "မီးသတ်ကား", "ဘယ်လို", "ဘာလို့",
+            "ကျန်းမာရေး", "စီးပွားရေး", "စိုက်ပျိုးရေး", "မွေးမြူရေး", "ပညာရေး", "လူမှုရေး", "ပို့ဆောင်ရေး", "ရေကြောင်းပို့ဆောင်ရေး",
+            "ဝန်ကြီးဌာန", "ဦးစီးဌာန", "ဆေးရုံအုပ်", "ကျောင်းအုပ်", "ကျောင်းအုပ်ကြီး", "ဆရာဝန်", "ကားလမ်း", "ရေချိုး", "မြို့နယ်", "ရုံးခန်း",
+            "အိမ်ခြံမြေ", "နိုင်ငံခြား", "လက်မှတ်", "ဆောင်ရွက်ချက်", "ဒီအတိုင်း", "ထိုနေရာ",
+            "လူသွားလမ်း", "မျက်နှာချင်းဆိုင်",
+            "လူနာတင်ယာဉ်", "အိမ်စာ", "မီးသတ်ကား", "ဘယ်လို", "ဘာလို့",
             "တပ်မတော်", "ကိုယ်စားလှယ်", "ပလတ်စတစ်", "မြင့်မိုရ်"
         );
 
@@ -1840,6 +1850,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             ScanUnspacedAttachedParticleTypos(text, mmMask, styleMode, trie, issues);
+            ScanStructuralSyllableAndBoundaryRepairs(text, mmMask, trie, issues);
 
             if (ContainsMm(text, mmMask, "\u101C\u103B\u103E\u1000\u103A"))
             {
@@ -3332,8 +3343,24 @@ namespace MyanmarSpellChecker.Core.Nlp
             // 4h. Broken Space-Split Mandatory Compounds ('စာ ကြည့်တိုက်' -> 'စာကြည့်တိုက်', 'အစည်း အဝေး' -> 'အစည်းအဝေး')
             if (hasMyanmarSpaceMyanmar)
             {
+                foreach (Match m3 in ThreePartBrokenCompoundPattern.Matches(text))
+                {
+                    string joined3 = UnicodeNormalizer.NormalizeCanonicalOrder(
+                        m3.Groups["P1"].Value + m3.Groups["P2"].Value + m3.Groups["P3"].Value);
+                    if (VerifiedMandatoryCompounds.Contains(joined3))
+                    {
+                        AddGrammarOrSpellingIssue(
+                            issues, m3.Index, m3.Length, m3.Value, joined3,
+                            ProofingIssueType.SpellingError,
+                            $"တစ်ပေါင်းတည်း ရေးသားရမည့် ပေါင်းစပ်ပုဒ် ဖြစ်ပါသည် — '{m3.Value}' အစား '{joined3}' ဟု ခြားမရေးဘဲ ရေးသားရမည်။",
+                            "တစ်ဆက်တည်းရေးရမည့် ပေါင်းစပ်ပုဒ် (သတ်ပုံကျမ်း)", "N", true);
+                    }
+                }
+
                 foreach (Match m in CuratedBrokenCompoundPattern.Matches(text))
                 {
+                    if (OverlapsExistingIssue(issues, m.Index, m.Length))
+                        continue;
                     string joined = UnicodeNormalizer.NormalizeCanonicalOrder(m.Groups["Left"].Value + m.Groups["Right"].Value);
                     if (VerifiedMandatoryCompounds.Contains(joined))
                     {
@@ -4201,6 +4228,15 @@ namespace MyanmarSpellChecker.Core.Nlp
                     {
                         return true;
                     }
+                    if (!leftIsStandalone)
+                    {
+                        var taHomos = trie.LookupStrictHomophones(stemEndingTa);
+                        for (int hi = 0; hi < taHomos.Count; hi++)
+                        {
+                            if (taHomos[hi].IsOfficialThatpon && taHomos[hi].Word.EndsWith("တ", StringComparison.Ordinal))
+                                return true;
+                        }
+                    }
                 }
             }
 
@@ -5033,7 +5069,7 @@ namespace MyanmarSpellChecker.Core.Nlp
         private static void AnalyzeCurlyAndMismatchedQuotes(string text, List<ProofingIssue> issues)
         {
             int len = text.Length;
-            int openCurlyIdx = -1;
+            var openCurlyStack = new List<int>(4);
             int openDoubleSingleIdx = -1;
             int openStraightBeforeMmIdx = -1;
 
@@ -5043,7 +5079,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 char c = text[i];
                 if (c == '\r' || c == '\n')
                 {
-                    openCurlyIdx = -1;
+                    openCurlyStack.Clear();
                     openDoubleSingleIdx = -1;
                     openStraightBeforeMmIdx = -1;
                     i++;
@@ -5060,26 +5096,22 @@ namespace MyanmarSpellChecker.Core.Nlp
                 if (c == '\u2019' && i + 1 < len && text[i + 1] == '\u2019')
                 {
                     openDoubleSingleIdx = -1;
-                    openCurlyIdx = -1;
+                    if (openCurlyStack.Count > 0)
+                        openCurlyStack.RemoveAt(openCurlyStack.Count - 1);
                     i += 2;
                     continue;
                 }
 
-                if (c == '\u201C') // “
+                if (c == '\u201C') // “ (supports nested quotes “... “...” ...” cleanly)
                 {
-                    if (openCurlyIdx >= 0)
-                    {
-                        // Previous “ was never closed before a second “ opened!
-                        EmitUnclosedOpenQuoteIssue(text, openCurlyIdx, i, issues);
-                    }
-                    openCurlyIdx = i;
+                    openCurlyStack.Add(i);
                     openStraightBeforeMmIdx = -1;
                 }
                 else if (c == '\u201D') // ”
                 {
-                    if (openCurlyIdx >= 0)
+                    if (openCurlyStack.Count > 0)
                     {
-                        openCurlyIdx = -1;
+                        openCurlyStack.RemoveAt(openCurlyStack.Count - 1);
                     }
                     else if (openDoubleSingleIdx >= 0)
                     {
@@ -5119,10 +5151,11 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
                 else if (c == '"')
                 {
-                    if (openCurlyIdx >= 0 && i > openCurlyIdx + 1 && !char.IsWhiteSpace(text[i - 1]) && !IsInchOrArcsecondSymbol(text, i))
+                    int topCurlyIdx = openCurlyStack.Count > 0 ? openCurlyStack[openCurlyStack.Count - 1] : -1;
+                    if (topCurlyIdx >= 0 && i > topCurlyIdx + 1 && !char.IsWhiteSpace(text[i - 1]) && !IsInchOrArcsecondSymbol(text, i))
                     {
                         // Opened with curly “ and closed with straight ASCII " -> offer converting " to ”
-                        openCurlyIdx = -1;
+                        openCurlyStack.RemoveAt(openCurlyStack.Count - 1);
                         if (!OverlapsExistingIssue(issues, i, 1))
                         {
                             AddGrammarOrSpellingIssue(
@@ -5140,7 +5173,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                         // Balanced straight quotes "..." -> close cleanly
                         openStraightBeforeMmIdx = -1;
                     }
-                    else if (openCurlyIdx < 0 &&
+                    else if (openCurlyStack.Count == 0 &&
                              !IsInchOrArcsecondSymbol(text, i) &&
                              (i == 0 || char.IsWhiteSpace(text[i - 1]) || text[i - 1] == '(' || text[i - 1] == '[' ||
                               text[i - 1] == '\u104A' || text[i - 1] == '\u104B' || text[i - 1] == ':') &&
@@ -5154,9 +5187,9 @@ namespace MyanmarSpellChecker.Core.Nlp
                 i++;
             }
 
-            if (openCurlyIdx >= 0)
+            for (int q = 0; q < openCurlyStack.Count; q++)
             {
-                EmitUnclosedOpenQuoteIssue(text, openCurlyIdx, len, issues);
+                EmitUnclosedOpenQuoteIssue(text, openCurlyStack[q], len, issues);
             }
         }
 
@@ -5466,7 +5499,7 @@ namespace MyanmarSpellChecker.Core.Nlp
         {
             if (string.IsNullOrEmpty(stem))
                 return false;
-            string[] auxEndings = { "နေ", "ခဲ့", "ပြီး", "နိုင်", "ချင်", "တတ်", "သင့်", "ရ", "ပါ", "သွား", "လာ", "ထား", "ပေး" };
+            string[] auxEndings = { "နေ", "ခဲ့", "ပြီး", "နိုင်", "ချင်", "တတ်", "သင့်", "ရ", "ပါ", "သွား", "လာ", "ထား", "ပေး", "များ" };
             for (int i = 0; i < auxEndings.Length; i++)
             {
                 string aux = auxEndings[i];
@@ -5653,6 +5686,313 @@ namespace MyanmarSpellChecker.Core.Nlp
                     }
                 }
             });
+        }
+
+        private static readonly Regex OrphanSpaceDetachedCodaPattern = new Regex(
+            @"(?<Prefix>[\u1000-\u103F]{0,14}?)(?<OpenSyl>[\u1000-\u1021][\u103B-\u103E]*[\u102B-\u1032\u1036]*)[ \t]+(?<Coda>[\u1000-\u1021]\u103A[\u1037\u1038]?|[\u1004\u1014\u1019\u100A\u101A]\u1037\u103A)(?![\u102B-\u1039\u103B-\u103E])",
+            RegexOptions.Compiled);
+
+        private static readonly Regex BrokenViramaStackAcrossSpacePattern = new Regex(
+            @"(?<Left>[\u1000-\u103F]*?[\u1000-\u1021]\u1039)[ \t]+(?<Right>[\u1000-\u1021][\u1000-\u103F]{0,14})",
+            RegexOptions.Compiled);
+
+        private static readonly Regex ImpossibleSyllableVowelMedialPattern = new Regex(
+            @"(?:(?<ShortIVisarga>[\u1000-\u1021][\u103B-\u103E]*\u102D\u1038)|(?<DoubleMedial>[\u1000-\u1021](?:\u103B\u103C|\u103C\u103B)[\u102B-\u103E]*[\u1000-\u1021]?\u103A?[\u1037\u1038]?)|(?<MissingAsatVisarga>[\u1000-\u1021][\u103B-\u103E]*[\u1004\u1014\u1019\u101A]\u1038)|(?<=နိုင်ငံ|ကမ္ဘာ့|ဒေသ|ပြည်နယ်|မြို့နယ်)(?<TaWun>တဝန်း)(?=ရှိ|၌|တွင်|မှာ|လုံး))",
+            RegexOptions.Compiled);
+
+        private static readonly Regex RedundantDoubleToneSyllablePattern = new Regex(
+            @"(?<Syl>[\u1000-\u102A][\u103B-\u103E]*[\u102B-\u1036]*(?:[\u1000-\u1021]\u103A)?(?:\u1038\u1037|\u1037\u1038))",
+            RegexOptions.Compiled);
+
+        private static readonly Regex CorruptedZawgyiAwNasalCodaPattern = new Regex(
+            @"(?<Syl>[\u1000-\u1021][\u103B-\u103E]*\u1031[\u102B\u102C]\u1037[\u1004\u1014\u1019]\u103A\u1038)",
+            RegexOptions.Compiled);
+
+        private static readonly Regex CorruptedAsciiAPrefixPattern = new Regex(
+            @"(?<![A-Za-z0-9])(?:(?<Target>A[\u102B-\u103E]+)|(?<Target2>A[ \t]+(?<Stem>[\u1000-\u1021][\u1000-\u103F]{1,16})))(?![A-Za-z])",
+            RegexOptions.Compiled);
+
+        private static readonly Regex AffirmativeEmphaticBaePattern = new Regex(
+            @"(?:^|[\u104A\u104B]\s*)(?![^\u104A\u104B\r\n]*?(?<![\u1000-\u103F])မ[\u1000-\u1021])[^\u104A\u104B\r\n]{1,64}?(?:ပါ|တာ|သလို|ရုံ)(?<Target>ဘဲ)(?=[\s\u104A\u104B]|$)",
+            RegexOptions.Compiled);
+
+        private static readonly Regex SpacedVerbalParticleTypoPattern = new Regex(
+            @"(?:(?<=(?:သွား|လာ|လုပ်|စား|သောက်|ပြော|ကြည့်|ဖတ်|ရေး|နေ|ဝယ်|ပေး|ယူ|တွေ့|ရောက်)[ \t]+)(?<Khae>ခဲ)(?=[ \t]*(?:တယ်|သည်|ပါ))|(?<=(?:သွား|လာ|လုပ်|စား|သောက်|ပြော|ပေး|ယူ)[ \t]+)(?<Mae>မဲ)(?=[ \t]*(?:လို့|ဟု))|(?<=(?:ဆောက်|လုပ်|သွား|လာ|စား|ပြော|ဖတ်|ရေး|ရှောင်|သင်ယူ|ကြိုးစား))(?<Pho>ဖို)(?=\s+(?:ခက်ခဲ|လွယ်ကူ|လိုအပ်|ကောင်း|သင့်|အတွက်))|(?<=(?:ရှောင်|လုပ်|စား|သွား|ပြော|သတိထား|လိုက်နာ|ထည့်ပေး))(?<Thing>သင်)(?=တယ်|သည်|ပါတယ်|ပါသည်)|(?<KyoKa>ကြိုက)(?=တယ်|သည်|ပါ)|(?<=(?:စို|ကျ|ပျက်|မော|သေ|ရှုံး|နောက်ကျ))(?<IrrealisMar>မာ)(?=ပဲ|လား|လဲ|စိုး))",
+            RegexOptions.Compiled);
+
+        private static readonly Regex MyanmarSentenceFinalAsciiDotPattern = new Regex(
+            @"(?<=(?:ပါတယ်|ပါသည်|ပါမည်|ပါမယ်|ခဲ့သည်|ခဲ့တယ်|ဖြစ်သည်|ရှိသည်|ရမည်|ပါပြီ))(?<Dot>\.)(?!\.|[0-9A-Za-z])(?=\s|$)",
+            RegexOptions.Compiled);
+
+        private static void ScanStructuralSyllableAndBoundaryRepairs(
+            string text,
+            ulong mmMask,
+            MyanmarTrie? trie,
+            List<ProofingIssue> issues)
+        {
+            // 1. Space-detached intra-syllable killed coda ('လာမ ည့် -> လာမည့်', 'ပီကု တ် -> ပီကုတ်', 'ကို ယ် -> ကိုယ်', 'ပို င်း -> ပိုင်း') & broken virama stack ('စစ်တက္ ကသိုလ် -> စစ်တက္ကသိုလ်')
+            if (text.IndexOf(' ') >= 0 || text.IndexOf('\t') >= 0)
+            {
+                if (text.IndexOf('\u1039') >= 0)
+                {
+                    foreach (Match mv in BrokenViramaStackAcrossSpacePattern.Matches(text))
+                    {
+                        if (OverlapsExistingIssue(issues, mv.Index, mv.Length))
+                            continue;
+                        string joinedStack = UnicodeNormalizer.NormalizeCanonicalOrder(mv.Groups["Left"].Value + mv.Groups["Right"].Value);
+                        AddGrammarOrSpellingIssue(
+                            issues, mv.Index, mv.Length, mv.Value, joinedStack,
+                            ProofingIssueType.SpellingError,
+                            $"ပါဋ္ဌ်ဆင့်သင်္ကေတ ('္') နောက်၌ နေရာလွတ် (Space) မှားခြားမိနေပါသည် — '{mv.Value}' အစား '{joinedStack}' ဟု တစ်ဆက်တည်း ရေးသားရမည်။",
+                            "ပါဋ္ဌ်ဆင့်စာလုံး တစ်ဆက်တည်းရေးရန်", "N", true);
+                    }
+                }
+
+                foreach (Match m in OrphanSpaceDetachedCodaPattern.Matches(text))
+                {
+                    string openSyl = m.Groups["OpenSyl"].Value;
+                    string coda = m.Groups["Coda"].Value;
+                    string joinedSyl = UnicodeNormalizer.NormalizeCanonicalOrder(openSyl + coda);
+                    if (trie != null && !trie.IsValidSingleSyllable(joinedSyl) && !trie.ContainsExactWord(joinedSyl))
+                        continue;
+
+                    string prefix = m.Groups["Prefix"].Value;
+                    string fullJoined = UnicodeNormalizer.NormalizeCanonicalOrder(prefix + openSyl + coda);
+                    bool useFullPrefix = prefix.Length > 0 && trie != null && trie.ContainsExactWord(fullJoined);
+
+                    int startIdx = useFullPrefix ? m.Index : m.Groups["OpenSyl"].Index;
+                    int spanLen = (m.Index + m.Length) - startIdx;
+                    if (OverlapsExistingIssue(issues, startIdx, spanLen))
+                        continue;
+
+                    string rawSpan = text.Substring(startIdx, spanLen);
+                    string targetRep = useFullPrefix ? fullJoined : joinedSyl;
+                    AddGrammarOrSpellingIssue(
+                        issues, startIdx, spanLen, rawSpan, targetRep,
+                        ProofingIssueType.SpellingError,
+                        $"ဝဏ္ဏအတွင်း အသတ်ရှေ့၌ နေရာလွတ် (Space) မှားခြားမိနေပါသည် — '{rawSpan}' အစား '{targetRep}' ဟု တစ်ဆက်တည်း ရေးသားရမည်။",
+                        "အသတ်နှင့် ရှေ့ဗျည်း တစ်ဆက်တည်းရေးရန်", "N", true);
+                }
+            }
+
+            // 2. Impossible double tone mark on the same syllable ('ကောင်း့ -> ကောင်း')
+            if ((text.IndexOf("\u1038\u1037", StringComparison.Ordinal) >= 0) ||
+                (text.IndexOf("\u1037\u1038", StringComparison.Ordinal) >= 0))
+            {
+                foreach (Match m in RedundantDoubleToneSyllablePattern.Matches(text))
+                {
+                    if (OverlapsExistingIssue(issues, m.Index, m.Length))
+                        continue;
+                    string raw = m.Value;
+                    string keepVisarga = UnicodeNormalizer.NormalizeCanonicalOrder(raw.Replace("\u1037", string.Empty));
+                    string keepCreaky = UnicodeNormalizer.NormalizeCanonicalOrder(raw.Replace("\u1038", string.Empty));
+                    string best = (trie != null && !trie.ContainsExactWord(keepVisarga) && trie.ContainsExactWord(keepCreaky))
+                        ? keepCreaky
+                        : keepVisarga;
+                    AddGrammarOrSpellingIssue(
+                        issues, m.Index, m.Length, raw, best,
+                        ProofingIssueType.SpellingError,
+                        $"ဝဏ္ဏတစ်ခုတည်း၌ ဝစ္စပေါက် ('း') နှင့် အောက်မြစ် ('့') နှစ်ခုတွဲ မသုံးရပါ — '{raw}' အစား '{best}' ဟု ရေးသားရမည်။",
+                        "ပိုနေသော အသံပြောင်းသင်္ကေတ ဖယ်ရှားရန်", "V", true);
+                }
+            }
+
+            // 2b. Impossible syllable vowel/medial/missing-asat combinations ('အရေးကြိး -> ကြီး', 'ကျြန်တော် -> ကျွန်', 'သက်တမး -> တမ်း', 'နိုင်ငံတဝန်း -> တစ်ဝန်း')
+            foreach (Match mImp in ImpossibleSyllableVowelMedialPattern.Matches(text))
+            {
+                if (OverlapsExistingIssue(issues, mImp.Index, mImp.Length))
+                    continue;
+                if (mImp.Groups["ShortIVisarga"].Success)
+                {
+                    string raw = mImp.Value;
+                    string rep = UnicodeNormalizer.NormalizeCanonicalOrder(raw.Replace("\u102D\u1038", "\u102E\u1038"));
+                    if (trie == null || trie.IsValidSingleSyllable(rep) || trie.ContainsExactWord(rep))
+                    {
+                        AddGrammarOrSpellingIssue(issues, mImp.Index, mImp.Length, raw, rep, ProofingIssueType.SpellingError,
+                            $"ဝစ္စပေါက် ('း') နှင့်တွဲရာတွင် လုံးကြီးတင်ဆန်ခတ် ('ီး') ဖြင့် '{rep}' ဟု ရေးသားရမည်။", "စံဝဏ္ဏဖွဲ့စည်းပုံအမှန်", "ADJ", true);
+                    }
+                }
+                else if (mImp.Groups["DoubleMedial"].Success)
+                {
+                    string raw = mImp.Value;
+                    string srcMed = raw.IndexOf("\u103B\u103C", StringComparison.Ordinal) >= 0 ? "\u103B\u103C" : "\u103C\u103B";
+                    string repYw = UnicodeNormalizer.NormalizeCanonicalOrder(raw.Replace(srcMed, "\u103B\u103D"));
+                    string repRw = UnicodeNormalizer.NormalizeCanonicalOrder(raw.Replace(srcMed, "\u103C\u103D"));
+                    string? chosen = (trie == null || trie.IsValidSingleSyllable(repYw) || trie.ContainsExactWord(repYw))
+                        ? repYw
+                        : ((trie.IsValidSingleSyllable(repRw) || trie.ContainsExactWord(repRw)) ? repRw : null);
+                    if (chosen != null)
+                    {
+                        AddGrammarOrSpellingIssue(issues, mImp.Index, mImp.Length, raw, chosen, ProofingIssueType.SpellingError,
+                            $"ဗျည်းတွဲ ယပင့်နှင့် ရရစ် ('ျြ') တွဲမသုံးရပါ — '{raw}' အစား '{chosen}' ဟု ရေးသားရမည်။", "ဗျည်းတွဲ စာလုံးပေါင်းအမှန်", "N", true);
+                    }
+                }
+                else if (mImp.Groups["MissingAsatVisarga"].Success)
+                {
+                    string raw = mImp.Value;
+                    string rep = UnicodeNormalizer.NormalizeCanonicalOrder(raw.Substring(0, raw.Length - 1) + "\u103A\u1038");
+                    if (trie == null || trie.IsValidSingleSyllable(rep) || trie.ContainsExactWord(rep))
+                    {
+                        AddGrammarOrSpellingIssue(issues, mImp.Index, mImp.Length, raw, rep, ProofingIssueType.SpellingError,
+                            $"အသတ် ('်') ကျန်ခဲ့ပါသည် — '{raw}' အစား '{rep}' ဟု ရေးသားရမည်။", "အသတ်နှင့် ဝစ္စပေါက် အမှန်", "N", true);
+                    }
+                }
+                else if (mImp.Groups["TaWun"].Success)
+                {
+                    AddGrammarOrSpellingIssue(issues, mImp.Index, mImp.Length, mImp.Value, "တစ်ဝန်း", ProofingIssueType.NumeralClassifierError,
+                        "သတ်ပုံကျမ်းစံနှုန်းအရ 'တစ်ဝန်း' ဟု စသတ်ဖြင့် ရေးသားရမည်။", "တစ်ဝန်း (နိုင်ငံ~ရှိ)", "N", true);
+                }
+            }
+
+            // 3. Corrupted Zawgyi '-ော့င်း' conversion artifact ('ပြော့င်း -> ပြောင်း')
+            if (text.IndexOf("\u1037", StringComparison.Ordinal) >= 0 && text.IndexOf("\u1038", StringComparison.Ordinal) >= 0)
+            {
+                foreach (Match m in CorruptedZawgyiAwNasalCodaPattern.Matches(text))
+                {
+                    if (OverlapsExistingIssue(issues, m.Index, m.Length))
+                        continue;
+                    string raw = m.Value;
+                    string repaired = UnicodeNormalizer.NormalizeCanonicalOrder(raw.Replace("\u1037", string.Empty));
+                    if (trie != null && (trie.ContainsExactWord(raw) || (!trie.IsValidSingleSyllable(repaired) && !trie.ContainsExactWord(repaired))))
+                        continue;
+
+                    AddGrammarOrSpellingIssue(
+                        issues, m.Index, m.Length, raw, repaired,
+                        ProofingIssueType.SpellingError,
+                        $"စာလုံးဖွဲ့စည်းပုံ မှားယွင်းနေပါသည် — '{raw}' အစား အောက်မြစ်မပါဘဲ '{repaired}' ဟု ရေးသားရမည်။",
+                        "စံယူနီကုဒ် ဝဏ္ဏအမှန်", "V", true);
+                }
+            }
+
+            // 4. Corrupted Zawgyi/WinInnwa ASCII 'A' for Burmese 'အ' ('Aား -> အား', 'A မျိုးသား -> အမျိုးသား')
+            if (text.IndexOf('A') >= 0)
+            {
+                foreach (Match m in CorruptedAsciiAPrefixPattern.Matches(text))
+                {
+                    if (OverlapsExistingIssue(issues, m.Index, m.Length))
+                        continue;
+                    if (m.Groups["Target"].Success)
+                    {
+                        string raw = m.Groups["Target"].Value;
+                        string repaired = UnicodeNormalizer.NormalizeCanonicalOrder("\u1021" + raw.Substring(1));
+                        AddGrammarOrSpellingIssue(
+                            issues, m.Index, m.Length, raw, repaired,
+                            ProofingIssueType.SpellingError,
+                            $"အင်္ဂလိပ်အက္ခရာ 'A' ရောနှောနေပါသည် — '{raw}' အစား မြန်မာအက္ခရာ 'အ' ဖြင့် '{repaired}' ဟု ရေးသားရမည်။",
+                            "မြန်မာအက္ခရာ 'အ' အမှန်", "PART", true);
+                    }
+                    else if (m.Groups["Target2"].Success && trie != null)
+                    {
+                        Group stemGrp = m.Groups["Stem"];
+                        string rawStem = stemGrp.Value;
+                        if (!rawStem.StartsWith("\u1021", StringComparison.Ordinal))
+                        {
+                            var syls = MyanmarSyllableBreaker.BreakIntoSyllables(rawStem);
+                            string? bestPrefix = null;
+                            int bestRawLen = 0;
+                            int accumRaw = 0;
+                            for (int sCnt = 1; sCnt <= Math.Min(4, syls.Count); sCnt++)
+                            {
+                                accumRaw += syls[sCnt - 1].Length;
+                                if (accumRaw <= rawStem.Length)
+                                {
+                                    string subNorm = UnicodeNormalizer.NormalizeCanonicalOrder(rawStem.Substring(0, accumRaw));
+                                    string tryCand = "\u1021" + subNorm;
+                                    if (trie.TryGetExactEntries(tryCand, out var aEntries) &&
+                                        aEntries != null && aEntries.Count > 0 && aEntries[0].IsOfficialThatpon)
+                                    {
+                                        bestPrefix = tryCand;
+                                        bestRawLen = (stemGrp.Index - m.Index) + accumRaw;
+                                    }
+                                }
+                            }
+                            if (bestPrefix != null && bestRawLen > 0 && !OverlapsExistingIssue(issues, m.Index, bestRawLen))
+                            {
+                                string rawSlice = text.Substring(m.Index, bestRawLen);
+                                AddGrammarOrSpellingIssue(
+                                    issues, m.Index, bestRawLen, rawSlice, bestPrefix,
+                                    ProofingIssueType.SpellingError,
+                                    $"အင်္ဂလိပ်အက္ခရာ 'A' ရောနှောနေပါသည် — '{rawSlice}' အစား '{bestPrefix}' ဟု ရေးသားရမည်။",
+                                    "သတ်ပုံကျမ်းဝင် 'အ~' ပေါင်းစပ်ပုဒ်", "N", true);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 5. Affirmative emphatic 'ဘဲ' -> 'ပဲ' (when clause contains no 'မ-' negation)
+            if (ContainsMm(text, mmMask, "ဘဲ"))
+            {
+                foreach (Match m in AffirmativeEmphaticBaePattern.Matches(text))
+                {
+                    Group g = m.Groups["Target"];
+                    if (OverlapsExistingIssue(issues, g.Index, g.Length))
+                        continue;
+                    AddGrammarOrSpellingIssue(
+                        issues, g.Index, g.Length, g.Value, "ပဲ",
+                        ProofingIssueType.SpellingError,
+                        "အဟုတ်အမှန် အလေးအနက်ပြပစ္စည်းကို ပစောက်ဖြင့် 'ပဲ' ဟု ရေးသားရမည် ('ဘဲ' ကို 'မ...ဘဲ' အငြင်းပစ္စည်း၌သာ သုံးသည်)။",
+                        "အလေးအနက်ပြပစ္စည်း ('~ပါပဲ / ~သလိုပဲ')", "PART", true);
+                }
+            }
+
+            // 6. Spaced/unspaced verbal particle & modal typos ('သွား ခဲ တယ် -> ခဲ့', 'ပေး မဲ လို့ -> မယ်', '~ဖို -> ~ဖို့', '~သင်တယ် -> ~သင့်', 'ကြိုကတယ် -> ကြိုက်')
+            foreach (Match m in SpacedVerbalParticleTypoPattern.Matches(text))
+            {
+                if (m.Groups["Khae"].Success && !OverlapsExistingIssue(issues, m.Groups["Khae"].Index, m.Groups["Khae"].Length))
+                {
+                    Group g = m.Groups["Khae"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "ခဲ့", ProofingIssueType.SpellingError,
+                        "အတိတ်ပြ ကြိယာထောက်ပစ္စည်းတွင် အောက်မြစ် ('့') ကျန်ခဲ့ပါသည် — 'ခဲ့' ဟု ရေးသားရမည်။", "အတိတ်ပြပစ္စည်း ('~ခဲ့')", "PART", true);
+                }
+                else if (m.Groups["Mae"].Success && !OverlapsExistingIssue(issues, m.Groups["Mae"].Index, m.Groups["Mae"].Length))
+                {
+                    Group g = m.Groups["Mae"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "မယ်", ProofingIssueType.SpellingError,
+                        "အနာဂတ်ပြ ကြိယာပိတ်ပစ္စည်းကို ယပက်လက် အသတ်ဖြင့် 'မယ်' ဟု ရေးသားရမည်။", "အနာဂတ်ပြပစ္စည်း ('~မယ်')", "PART", false);
+                }
+                else if (m.Groups["Pho"].Success && !OverlapsExistingIssue(issues, m.Groups["Pho"].Index, m.Groups["Pho"].Length))
+                {
+                    Group g = m.Groups["Pho"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "ဖို့", ProofingIssueType.SpellingError,
+                        "ရည်ရွယ်ချက်ပြပစ္စည်းတွင် အောက်မြစ် ('့') ကျန်ခဲ့ပါသည် — 'ဖို့' ဟု ရေးသားရမည်။", "ရည်ရွယ်ချက်ပြပစ္စည်း ('~ဖို့')", "PART", true);
+                }
+                else if (m.Groups["Thing"].Success && !OverlapsExistingIssue(issues, m.Groups["Thing"].Index, m.Groups["Thing"].Length))
+                {
+                    Group g = m.Groups["Thing"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "သင့်", ProofingIssueType.SpellingError,
+                        "ကြိယာထောက်ပစ္စည်း '~သင့်' တွင် အောက်မြစ် ('့') ကျန်ခဲ့ပါသည် — 'သင့်' ဟု ရေးသားရမည်။", "သင့်လျော်ကြောင်းပြပစ္စည်း ('~သင့်')", "PART", true);
+                }
+                else if (m.Groups["KyoKa"].Success && !OverlapsExistingIssue(issues, m.Groups["KyoKa"].Index, m.Groups["KyoKa"].Length))
+                {
+                    Group g = m.Groups["KyoKa"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "ကြိုက်", ProofingIssueType.SpellingError,
+                        "အသတ် ('်') ကျန်ခဲ့ပါသည် — 'ကြိုက' အစား 'ကြိုက်' ဟု ရေးသားရမည်။", "နှစ်သက်သည် ('ကြိုက်')", "V", true);
+                }
+                else if (m.Groups["IrrealisMar"].Success && !OverlapsExistingIssue(issues, m.Groups["IrrealisMar"].Index, m.Groups["IrrealisMar"].Length))
+                {
+                    Group g = m.Groups["IrrealisMar"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "မှာ", ProofingIssueType.SpellingError,
+                        "ဟထိုး ('ှ') ကျန်ခဲ့ပါသည် — 'မာ' အစား 'မှာ' ဟု ရေးသားရမည်။", "ဖြစ်လတ္တံ့ပြပစ္စည်း ('~မှာပဲ / ~မှာလား')", "PART", false);
+                }
+            }
+
+            // 7. Trailing ASCII period '.' right after Myanmar sentence-final verb closer ('ရှိပါတယ်. -> ရှိပါတယ်။')
+            if (text.IndexOf('.') >= 0)
+            {
+                foreach (Match m in MyanmarSentenceFinalAsciiDotPattern.Matches(text))
+                {
+                    Group g = m.Groups["Dot"];
+                    if (!OverlapsExistingIssue(issues, g.Index, g.Length))
+                    {
+                        AddGrammarOrSpellingIssue(
+                            issues, g.Index, g.Length, ".", "။",
+                            ProofingIssueType.PunctuationError,
+                            "မြန်မာဝါကျအဆုံးတွင် အင်္ဂလိပ် Full Stop ('.') အစား မြန်မာပုဒ်မ ('။') ကို သုံးနှုန်းရမည်။",
+                            "မြန်မာပုဒ်မ ('။')", "PUNCT", true);
+                    }
+                }
+            }
         }
     }
 }

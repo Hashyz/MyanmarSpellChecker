@@ -166,6 +166,10 @@ namespace MyanmarSpellChecker.Core.Nlp
         public SuggestionEngine(MyanmarTrie trie)
         {
             _trie = trie ?? throw new ArgumentNullException(nameof(trie));
+            if (_trie.WordCount > 5000)
+            {
+                _trie.PrewarmLengthBuckets(16);
+            }
         }
 
         public void ClearCache()
@@ -358,6 +362,55 @@ namespace MyanmarSpellChecker.Core.Nlp
                     TryBoostOmittedToneCandidate(results, rawTrimmed, lookalikeFixed + "\u1038");
                     TryBoostOmittedToneCandidate(results, rawTrimmed, lookalikeFixed + "\u1037");
                 }
+
+                // 2c. Deterministic phonological repairs for impossible Burmese vowel/tone/coda combinations:
+                //     - short -ိ + း (\u102D\u1038) -> -ီး (\u102E\u1038) (e.g. 'အရေးကြိး -> အရေးကြီး')
+                //     - short -ု + း (\u102F\u1038) -> -ူး (\u1030\u1038) (e.g. 'အထုး -> အထူး')
+                //     - bare coda consonant + း without asat (e.g. 'တမး -> တမ်း', 'လမး -> လမ်း')
+                //     - medial စြ (\u1005\u103C) -> ဈ (\u1008) (e.g. 'စြေး -> ဈေး')
+                if (lookalikeFixed.IndexOf("\u102D\u1038", StringComparison.Ordinal) >= 0)
+                {
+                    string fixedIi = UnicodeNormalizer.NormalizeCanonicalOrder(lookalikeFixed.Replace("\u102D\u1038", "\u102E\u1038"));
+                    if (_trie.ContainsExactWord(fixedIi))
+                        AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedIi, 101.5);
+                }
+                if (lookalikeFixed.IndexOf("\u102F\u1038", StringComparison.Ordinal) >= 0)
+                {
+                    string fixedUu = UnicodeNormalizer.NormalizeCanonicalOrder(lookalikeFixed.Replace("\u102F\u1038", "\u1030\u1038"));
+                    if (_trie.ContainsExactWord(fixedUu))
+                        AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedUu, 101.5);
+                }
+                if (lookalikeFixed.IndexOf("\u1005\u103C", StringComparison.Ordinal) >= 0)
+                {
+                    string fixedZay = UnicodeNormalizer.NormalizeCanonicalOrder(lookalikeFixed.Replace("\u1005\u103C", "\u1008"));
+                    if (_trie.ContainsExactWord(fixedZay))
+                        AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedZay, 101.0);
+                }
+                if (lookalikeFixed.IndexOf("\u103B\u103C", StringComparison.Ordinal) >= 0 ||
+                    lookalikeFixed.IndexOf("\u103C\u103B", StringComparison.Ordinal) >= 0)
+                {
+                    string srcMed = lookalikeFixed.IndexOf("\u103B\u103C", StringComparison.Ordinal) >= 0 ? "\u103B\u103C" : "\u103C\u103B";
+                    string tryYw = UnicodeNormalizer.NormalizeCanonicalOrder(lookalikeFixed.Replace(srcMed, "\u103B\u103D"));
+                    if (_trie.ContainsExactWord(tryYw))
+                        AddOrUpdateEnrichedCandidate(results, rawTrimmed, tryYw, 102.0);
+                    string tryRw = UnicodeNormalizer.NormalizeCanonicalOrder(lookalikeFixed.Replace(srcMed, "\u103C\u103D"));
+                    if (_trie.ContainsExactWord(tryRw))
+                        AddOrUpdateEnrichedCandidate(results, rawTrimmed, tryRw, 101.5);
+                }
+                for (int vi = 1; vi < lookalikeFixed.Length; vi++)
+                {
+                    if (lookalikeFixed[vi] == '\u1038')
+                    {
+                        char prevC = lookalikeFixed[vi - 1];
+                        if (prevC == '\u1004' || prevC == '\u1014' || prevC == '\u1019' || prevC == '\u101A')
+                        {
+                            string withAsat = UnicodeNormalizer.NormalizeCanonicalOrder(
+                                lookalikeFixed.Substring(0, vi) + "\u103A" + lookalikeFixed.Substring(vi));
+                            if (_trie.ContainsExactWord(withAsat))
+                                AddOrUpdateEnrichedCandidate(results, rawTrimmed, withAsat, 101.5);
+                        }
+                    }
+                }
             }
 
             bool isBareInitialismQuery = IsBareConsonantInitialismQuery(lookalikeFixed);
@@ -402,7 +455,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                 double freqBonus = Math.Min(8.5, Math.Log10(entry.Frequency + 1) * 2.5);
                 double thatponBonus = entry.IsOfficialThatpon ? 1.5 : 0.0;
                 double cueBonus = string.IsNullOrWhiteSpace(entry.MeaningCue) ? 0.0 : 0.8;
-                double score = Math.Max(80.0, 96.0 - dist * 6.5 + freqBonus + thatponBonus + cueBonus);
+                double sameOnsetBonus = (dist <= 0.30 && lookalikeFixed[0] == entry.Word[0]) ? 3.2 : 0.0;
+                double score = Math.Max(80.0, 96.0 - dist * 6.5 + freqBonus + thatponBonus + cueBonus + sameOnsetBonus);
                 AddOrUpdateEnrichedCandidate(results, rawTrimmed, entry.Word, score);
             }
 
@@ -577,14 +631,15 @@ namespace MyanmarSpellChecker.Core.Nlp
             bool hasAuthoritativeTopMatch = false;
             for (int rIdx = 0; rIdx < results.Count; rIdx++)
             {
-                if (results[rIdx].Score >= 98.5 && results[rIdx].IsOfficialThatpon)
+                if (results[rIdx].Score >= 94.0 && results[rIdx].IsOfficialThatpon)
                 {
                     hasAuthoritativeTopMatch = true;
                     break;
                 }
             }
 
-            if (allowCompositional && !hasExplicitWrongRule && !hasExactLookalikeFix && !hasAuthoritativeTopMatch &&
+            if (allowCompositional && !hasExplicitWrongRule && !hasExactLookalikeFix &&
+                (!hasAuthoritativeTopMatch || results.Count < 2) &&
                 results.Count < computeCap && spanSyllables.Count >= 2 && spanSyllables.Count <= 6)
             {
                 SynthesizeCompositionalCandidates(results, rawTrimmed, normalized, spanSyllables);
@@ -1849,10 +1904,18 @@ namespace MyanmarSpellChecker.Core.Nlp
                         case '\u1019': mapped2 = '\uE005'; break; // မ်
                         case '\u100F': mapped2 = '\uE006'; break; // ဏ်
                         case '\u1000': mapped2 = '\uE007'; break; // က်
+                        case '\u1001': mapped2 = '\uE007'; break; // ခ်
                         case '\u1010': mapped2 = '\uE008'; break; // တ်
+                        case '\u1011': mapped2 = '\uE008'; break; // ထ်
+                        case '\u100B': mapped2 = '\uE008'; break; // ဋ်
+                        case '\u100C': mapped2 = '\uE008'; break; // ဌ်
                         case '\u1015': mapped2 = '\uE009'; break; // ပ်
+                        case '\u1016': mapped2 = '\uE009'; break; // ဖ်
                         case '\u1002': mapped2 = '\uE012'; break; // ဂ်
+                        case '\u1003': mapped2 = '\uE012'; break; // ဃ်
+                        case '\u100D': mapped2 = '\uE013'; break; // ဍ်
                         case '\u1012': mapped2 = '\uE013'; break; // ဒ်
+                        case '\u1013': mapped2 = '\uE013'; break; // ဓ်
                         case '\u1017': mapped2 = '\uE014'; break; // ဗ်
                         case '\u1018': mapped2 = '\uE015'; break; // ဘ်
                         case '\u101E': mapped2 = '\uE016'; break; // သ်
