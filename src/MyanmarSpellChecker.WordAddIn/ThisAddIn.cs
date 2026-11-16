@@ -1248,6 +1248,8 @@ namespace MyanmarSpellChecker.WordAddIn
             ctrl.RequestPasteCleanClipboard += ExecuteToolkitPasteCleanClipboard;
             ctrl.RequestFormatNumerals += (toMyanmarDigits, selectionOnly) => ExecuteToolkitFormatNumerals(toMyanmarDigits, selectionOnly);
             ctrl.RequestFormatPunctuation += selectionOnly => ExecuteToolkitFormatPunctuation(selectionOnly);
+            ctrl.RequestStripAllZwsp += selectionOnly => ExecuteToolkitStripAllZwsp(selectionOnly);
+            ctrl.RequestInsertSmartWordWrapZwsp += selectionOnly => ExecuteToolkitSmartWordWrapZwsp(selectionOnly);
             ctrl.RequestInsertOfficialTemplate += (kind, dt) => ExecuteInsertOfficialTemplate(kind, dt);
             ctrl.RequestRefreshQualityReport += () => BuildActiveDocumentQualityReport();
             ctrl.RequestExportAuditCertificate += ExecuteExportAuditCertificate;
@@ -1425,6 +1427,73 @@ namespace MyanmarSpellChecker.WordAddIn
             if (doc != null && _documentScanner != null)
             {
                 _documentScanner.InvalidateParagraphCache(doc);
+                _documentScanner.ScanFullDocumentAsync(allowSmartPartialAutoScan: true);
+            }
+
+            ctrl?.ShowToastBanner(res.UserMessage, res.Success);
+        }
+
+        private void ExecuteToolkitStripAllZwsp(bool selectionOnly)
+        {
+            if (_wordApp == null) return;
+            Word.Document? doc = _wordApp.ActiveDocument;
+            if (doc != null) _underlineManager?.StripAllProofingUnderlines(doc);
+
+            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+            _bulkWriteCancelRequested = false;
+            ToolkitActionSummary res;
+            try
+            {
+                res = _toolkitService.StripAllZeroWidthInDocument(
+                    _wordApp,
+                    doc,
+                    selectionOnly,
+                    (pct, msg) => ctrl?.UpdateScanProgress(pct, msg),
+                    () => _bulkWriteCancelRequested);
+            }
+            finally
+            {
+                ctrl?.SetScanningState(false);
+            }
+
+            if (doc != null && _documentScanner != null)
+            {
+                _documentScanner.InvalidateParagraphCache(doc);
+                ctrl?.UpdateQualityReport(null);
+                _documentScanner.ScanFullDocumentAsync(allowSmartPartialAutoScan: false);
+            }
+
+            ctrl?.ShowToastBanner(res.UserMessage, res.Success);
+        }
+
+        private void ExecuteToolkitSmartWordWrapZwsp(bool selectionOnly)
+        {
+            if (_wordApp == null) return;
+            Word.Document? doc = _wordApp.ActiveDocument;
+            if (doc != null) _underlineManager?.StripAllProofingUnderlines(doc);
+
+            var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+            _bulkWriteCancelRequested = false;
+            ToolkitActionSummary res;
+            try
+            {
+                res = _toolkitService.InsertSmartWordWrapZwspInDocument(
+                    _wordApp,
+                    doc,
+                    _proofingEngine?.Trie,
+                    selectionOnly,
+                    (pct, msg) => ctrl?.UpdateScanProgress(pct, msg),
+                    () => _bulkWriteCancelRequested);
+            }
+            finally
+            {
+                ctrl?.SetScanningState(false);
+            }
+
+            if (doc != null && _documentScanner != null)
+            {
+                _documentScanner.InvalidateParagraphCache(doc);
+                ctrl?.UpdateQualityReport(null);
                 _documentScanner.ScanFullDocumentAsync(allowSmartPartialAutoScan: true);
             }
 

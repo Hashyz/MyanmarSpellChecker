@@ -11,6 +11,7 @@ using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
 using MyanmarSpellChecker.Core.Performance;
+using MyanmarSpellChecker.Core.Typography;
 using Word = Microsoft.Office.Interop.Word;
 using WinFormsTimer = System.Windows.Forms.Timer;
 
@@ -24,6 +25,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         public bool WasCancelled { get; set; }
         public int ScannedParagraphCount { get; set; }
         public int TotalDocumentChars { get; set; }
+        public int HiddenZeroWidthCount { get; set; }
     }
 
     /// <summary>
@@ -1387,6 +1389,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 int generation = Interlocked.Increment(ref _scanGeneration);
                 Task.Run(() =>
                 {
+                    int selectionHiddenZwsp = 0;
                     var analyzed = new List<(ParagraphSnapshot Snap, List<ProofingIssue> Issues)>(pendingSnapshots.Count);
                     for (int idx = 0; idx < pendingSnapshots.Count; idx++)
                     {
@@ -1394,6 +1397,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                             return;
 
                         var snap = pendingSnapshots[idx];
+                        selectionHiddenZwsp += MyanmarZwspToolkit.CountZeroWidthChars(snap.RawText);
                         List<ProofingIssue> issues = snap.NeedsNlpCheck
                             ? CheckTextCrashSafe(snap.RawText)
                             : new List<ProofingIssue>();
@@ -1473,6 +1477,12 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                                 }
                             });
 
+                            _documentScanMeta[doc] = new WordScanOutcomeMetadata
+                            {
+                                IsEcoActive = _lastEcoActive,
+                                ScannedParagraphCount = pendingSnapshots.Count,
+                                HiddenZeroWidthCount = selectionHiddenZwsp
+                            };
                             _documentQualityCache.Remove(doc);
                             ScanCompleted?.Invoke(doc, GetCachedIssues(doc));
                         }
@@ -2696,10 +2706,12 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     int maxQualityTextChars = budgets.IsEcoActive ? 120_000 : 380_000;
                     var plainTextBuilder = new StringBuilder(Math.Min(maxQualityTextChars, count * 64));
                     int collectedCapRemaining = maxIssueCap;
+                    int totalHiddenZwsp = 0;
 
                     for (int i = 0; i < count; i++)
                     {
                         var snap = snapshots[i];
+                        totalHiddenZwsp += MyanmarZwspToolkit.CountZeroWidthChars(snap.RawText);
                         var rawIssues = issuesPerParagraph[i] ?? new List<ProofingIssue>(0);
                         List<ProofingIssue> issues;
                         if (rawIssues.Count > collectedCapRemaining)
@@ -2759,7 +2771,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         WasIssueCapReached = wasIssueCapReached,
                         WasCancelled = false,
                         ScannedParagraphCount = count,
-                        TotalDocumentChars = totalDocChars
+                        TotalDocumentChars = totalDocChars,
+                        HiddenZeroWidthCount = totalHiddenZwsp
                     };
 
                     SafeBeginInvokeOnSta(() =>

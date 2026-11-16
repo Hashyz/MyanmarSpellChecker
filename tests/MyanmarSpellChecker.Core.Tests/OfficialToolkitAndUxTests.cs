@@ -1847,5 +1847,103 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.Contains("RequestSetEcoMode", excelPane);
             Assert.Contains("Scanning Spreadsheet Cells", excelPaneTab);
         }
+
+        [Fact]
+        public void V55_HostSmartZwspEngine_WordBoundaryWrap_ExcelStrictVlookup_AndToolkitGate()
+        {
+            var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
+            var trie = repo.LoadIntoTrie("MM-GOV-THATPON-SQLCIPHER-2026!");
+            var engine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // 1. Word Host-Smart ZWSP Rules:
+            //    (a) Broken syllable (consonant + ZWSP + medial/vowel -> dotted circle) MUST be flagged
+            var brokenIssues = engine.CheckText("က\u200Bြီးမားသော လုပ်ငန်းဖြစ်သည်။");
+            Assert.Contains(brokenIssues, x => x.OriginalText.Contains("က\u200Bြီး") && !x.RequiresReviewBeforeBatchFix);
+
+            //    (b) Mid-word ZWSP splitting a dictionary word or detaching a bound particle MUST be flagged as High-Certainty
+            var midWordIssues = engine.CheckText("မှတ်ပုံ\u200Bတင် စာရင်းကို စစ်ဆေးသည်။");
+            Assert.Contains(midWordIssues, x =>
+                x.OriginalText == "မှတ်ပုံ\u200Bတင်" &&
+                !x.RequiresReviewBeforeBatchFix &&
+                x.Suggestions.Any(s => s.Replacement == "မှတ်ပုံတင်"));
+
+            var orphanParticleIssues = engine.CheckText("စာအုပ်\u200Bကို ဖတ်ရှုသည်။");
+            Assert.Contains(orphanParticleIssues, x =>
+                x.OriginalText == "စာအုပ်\u200Bကို" &&
+                !x.RequiresReviewBeforeBatchFix &&
+                x.Suggestions.Any(s => s.Replacement == "စာအုပ်ကို"));
+
+            //    (c) Intentional clean word/phrase-boundary ZWSP in Word tables/justified text MUST be allowed (0 false positives!)
+            Assert.Empty(engine.CheckText("ဝန်ကြီးဌာန\u200Bဆောင်ရွက်ချက်များ တိုးတက်သည်။"));
+            Assert.Empty(engine.CheckText("မှတ်ပုံတင်ထားခြင်း\u200Bအတွက် ကျေးဇူးတင်ပါသည်။"));
+
+            // 2. Excel Strict VLOOKUP / PivotTable ZWSP Protection:
+            //    Flags trailing ZWSP ("ရန်ကုန်\u200B"), boundary ZWSP ("ဝန်ကြီးဌာန\u200Bဆောင်ရွက်ချက်"), and web-pasted ZWSP,
+            //    while keeping =VLOOKUP(...) formula cells 100% untouched!
+            object?[,] valBlock = new object?[4, 1];
+            object?[,] fmlBlock = new object?[4, 1];
+            valBlock[0, 0] = "ရန်ကုန်\u200B";
+            fmlBlock[0, 0] = "ရန်ကုန်\u200B";
+            valBlock[1, 0] = "ဝန်ကြီးဌာန\u200Bဆောင်ရွက်ချက်";
+            fmlBlock[1, 0] = "ဝန်ကြီးဌာန\u200Bဆောင်ရွက်ချက်";
+            valBlock[2, 0] = "လူ\u200Bသား\u200Bများ\u200Bသည်\u200B";
+            fmlBlock[2, 0] = "လူ\u200Bသား\u200Bများ\u200Bသည်\u200B";
+            valBlock[3, 0] = "ရန်ကုန်\u200B";
+            fmlBlock[3, 0] = "=VLOOKUP(A1,B1:C10,2,FALSE)";
+
+            var excelCellIssues = MyanmarSpellChecker.Core.Spreadsheet.SpreadsheetProofingHelper.ScanBlockValues(
+                engine, "Test.xlsx", "Sheet1", 1, 1, 4, 1, valBlock, fmlBlock, blockHasFormula: null);
+
+            Assert.Equal(3, excelCellIssues.Count);
+            Assert.All(excelCellIssues, ci => Assert.False(ci.Issue.RequiresReviewBeforeBatchFix));
+            Assert.Contains(excelCellIssues, ci => ci.Row == 1 && ci.Issue.Suggestions[0].Replacement == "ရန်ကုန်");
+            Assert.Contains(excelCellIssues, ci => ci.Row == 2 && ci.Issue.Suggestions[0].Replacement == "ဝန်ကြီးဌာနဆောင်ရွက်ချက်");
+            Assert.Contains(excelCellIssues, ci => ci.Row == 3 && ci.Issue.Suggestions[0].Replacement == "လူသားများသည်");
+            Assert.DoesNotContain(excelCellIssues, ci => ci.Row == 4); // Formula cell untouched!
+
+            //    TransformBlockStripAllZwsp also strips ZWSP from English/ID lookup keys ("EMP-102\u200B") while skipping formulas
+            valBlock[0, 0] = "EMP-102\u200B";
+            fmlBlock[0, 0] = "EMP-102\u200B";
+            var stripOps = MyanmarSpellChecker.Core.Spreadsheet.SpreadsheetProofingHelper.TransformBlockStripAllZwsp(
+                "Test.xlsx", "Sheet1", 1, 1, 4, 1, valBlock, fmlBlock, blockHasFormula: null);
+            Assert.Equal(3, stripOps.Count);
+            Assert.Contains(stripOps, op => op.Row == 1 && op.UpdatedText == "EMP-102");
+            Assert.DoesNotContain(stripOps, op => op.Row == 4);
+
+            // 3. Toolkit Smart Word-Wrap ZWSP + Strip Round-Trip + Quality Analyzer Diagnostics:
+            string wrapped = MyanmarZwspToolkit.InsertSmartWordBoundaryZwsp(
+                "ဝန်ကြီးဌာနဆောင်ရွက်ချက်များ တိုးတက်သည်။",
+                trie,
+                out int insertedWrap,
+                out _);
+            Assert.True(insertedWrap >= 1);
+            Assert.Contains("ဝန်ကြီးဌာန\u200Bဆောင်ရွက်ချက်", wrapped);
+            // Bound plural particle 'များ' and verb marker 'သည်' must NEVER be detached by smart word-wrap!
+            Assert.DoesNotContain("\u200Bများ", wrapped);
+            Assert.DoesNotContain("\u200Bသည်", wrapped);
+            Assert.Empty(engine.CheckText(wrapped));
+
+            DocumentQualityReport qReport = DocumentQualityAnalyzer.Analyze(wrapped + " မှတ်ပုံ\u200Bတင်", null, engine);
+            Assert.True(qReport.HiddenZeroWidthCount >= 2);
+            Assert.Equal(1, qReport.BadZeroWidthCount);
+            Assert.True(qReport.CleanBoundaryZeroWidthCount >= 1);
+
+            string strippedClean = MyanmarZwspToolkit.StripAllZeroWidthCharacters(wrapped, out int removedWrap);
+            Assert.Equal(insertedWrap, removedWrap);
+            Assert.Equal("ဝန်ကြီးဌာနဆောင်ရွက်ချက်များ တိုးတက်သည်။", strippedClean);
+
+            // 4. Word & Excel UI Banner + Toolkit Studio Wiring Gate
+            string repoRoot = TestPaths.RepoRoot;
+            string wordProofTab = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "ProofingTaskPaneControl.ProofingTab.cs"));
+            string wordToolkitTab = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "ProofingTaskPaneControl.ToolkitTab.cs"));
+            string excelProofTab = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "ExcelProofingTaskPaneControl.ProofingTab.cs"));
+            string excelToolkitTab = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "ExcelProofingTaskPaneControl.ToolkitTab.cs"));
+
+            Assert.Contains("BuildHiddenZwspBannerCard", wordProofTab);
+            Assert.Contains("RequestStripAllZwsp", wordToolkitTab);
+            Assert.Contains("RequestInsertSmartWordWrapZwsp", wordToolkitTab);
+            Assert.Contains("BuildExcelHiddenZwspBannerCard", excelProofTab);
+            Assert.Contains("BuildExcelZwspStudioCard", excelToolkitTab);
+        }
     }
 }

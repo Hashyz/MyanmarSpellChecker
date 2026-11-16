@@ -2224,6 +2224,23 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                         "✓ ပြင်ဆင်ရန် ပုဒ်ဖြတ်ပုဒ်ရပ် (၊ / ။) သို့မဟုတ် ZWSP အမှား မတွေ့ရှိပါ။"));
         }
 
+        public ExcelToolkitOutcome StripAllZwspInScope(bool selectionOnly)
+        {
+            return ExecuteBlockToolkitTransform(
+                selectionOnly,
+                UiLocalizer.Pick("Strip All Hidden ZWSP (Protect VLOOKUP / PivotTables)", "မမြင်ရသော ZWSP အားလုံး ဖယ်ရှားမှု (VLOOKUP / PivotTable ကာကွယ်စနစ်)"),
+                (wbName, ws, sheetName, baseR, baseC, rows, cols, val2, fml, hasFml) =>
+                    SpreadsheetProofingHelper.TransformBlockStripAllZwsp(
+                        wbName, sheetName, baseR, baseC, rows, cols, val2, fml, hasFml),
+                (cells, changes) => cells > 0
+                    ? UiLocalizer.Pick(
+                        $"✓ Stripped ({changes:N0}) hidden ZWSP/zero-width char(s) across ({cells:N0}) text cell(s) — VLOOKUP, XLOOKUP & PivotTables are 100% safe (↶ Undo available).",
+                        $"✓ စာသားအကွက် ({cells:N0}) ကွက်အတွင်းမှ မမြင်ရသော ZWSP ({changes:N0}) လုံးကို ဖယ်ရှားသန့်စင်ပြီးပါပြီ — VLOOKUP နှင့် PivotTable များ ၁၀၀% မှန်ကန်ပါပြီ (↶ ပြန်ဆုတ်နိုင်သည်)။")
+                    : UiLocalizer.Pick(
+                        "✓ Zero hidden ZWSP characters found — all scanned cells are already VLOOKUP & PivotTable safe.",
+                        "✓ မမြင်ရသော ZWSP လုံးဝမရှိပါ — VLOOKUP နှင့် PivotTable အတွက် ၁၀၀% သန့်စင်ပြီး ဖြစ်ပါသည်။"));
+        }
+
         public DocumentQualityReport BuildActiveWorkbookQualityReport(bool forceRefresh = false)
         {
             string wbKey = GetActiveWorkbookKey();
@@ -3148,7 +3165,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                     object? val2 = sub.Value2;
                     if (val2 is string scalarStr)
                     {
-                        if (SpreadsheetProofingHelper.ContainsMyanmarScript(scalarStr))
+                        if (SpreadsheetProofingHelper.ContainsMyanmarScript(scalarStr) || MyanmarZwspToolkit.ContainsAnyZeroWidthChar(scalarStr))
                             sb.AppendLine(scalarStr);
                     }
                     else if (val2 is object?[,] arr)
@@ -3159,7 +3176,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
                         {
                             for (int c = 0; c < cols; c++)
                             {
-                                if (arr[rLb + r, cLb + c] is string s && SpreadsheetProofingHelper.ContainsMyanmarScript(s))
+                                if (arr[rLb + r, cLb + c] is string s &&
+                                    (SpreadsheetProofingHelper.ContainsMyanmarScript(s) || MyanmarZwspToolkit.ContainsAnyZeroWidthChar(s)))
                                 {
                                     sb.AppendLine(s);
                                 }

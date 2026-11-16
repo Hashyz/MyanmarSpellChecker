@@ -439,10 +439,18 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 _loadPreviousCard = null;
                 _loadMoreCard = null;
 
-                int cardWidth = GetTargetCardWidth(reserveScrollbarForMultipleCards: active.Count >= 3);
+                int hiddenZwspCount = (!_isDockedChecklistMode && !_isScanning)
+                    ? (_lastScanOutcome?.HiddenZeroWidthCount ?? 0)
+                    : 0;
+
+                int cardWidth = GetTargetCardWidth(reserveScrollbarForMultipleCards: active.Count >= 3 || hiddenZwspCount >= 3);
                 if (active.Count == 0)
                 {
                     _visibleWindowStart = 0;
+                    if (hiddenZwspCount >= 3)
+                    {
+                        _cardsPanel.Controls.Add(BuildHiddenZwspBannerCard(cardWidth, hiddenZwspCount));
+                    }
                     Control emptyCard = BuildEmptyStateCard(cardWidth);
                     _cardsPanel.Controls.Add(emptyCard);
                     _lastAppliedCardWidth = cardWidth;
@@ -456,7 +464,11 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                     _visibleWindowStart = Math.Max(0, ((active.Count - 1) / batchSize) * batchSize);
                 }
 
-                var batchControls = new List<Control>(Math.Min(MaxMountedWordCards + 3, active.Count + 3));
+                var batchControls = new List<Control>(Math.Min(MaxMountedWordCards + 4, active.Count + 4));
+                if (hiddenZwspCount >= 3)
+                {
+                    batchControls.Add(BuildHiddenZwspBannerCard(cardWidth, hiddenZwspCount));
+                }
                 if (_currentStyleMode == ProofingStyleMode.FormalOfficial && _currentFilter != IssueFilterMode.ContextOnly)
                 {
                     int colloqStyleCount = _allItems.Count(x => !x.IsResolved && x.Issue.IssueType == ProofingIssueType.OfficialStyleGrammarError);
@@ -623,6 +635,42 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             btnSwitch.Click += (s, e) => ChangeStyleMode(ProofingStyleMode.GeneralStandard);
             card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             card.Controls.Add(btnSwitch, 0, 1);
+            return card;
+        }
+
+        private Control BuildHiddenZwspBannerCard(int cardWidth, int hiddenZwspCount)
+        {
+            int innerWrap = Math.Max(180, cardWidth - 32);
+            var card = CreateStyledCardContainer(cardWidth, Color.FromArgb(180, 114, 8), isSelectableItem: null);
+            var lblInfo = new Label
+            {
+                Text = UiLocalizer.Pick(
+                    $"✨ {hiddenZwspCount:N0} Hidden Zero-Width Space (ZWSP) characters detected (often from Web / Facebook / Telegram paste) — can break Ctrl+F word search.",
+                    $"✨ မမြင်ရသော Zero-Width Space (ZWSP) အလုံး ({hiddenZwspCount:N0}) တွေ့ရှိရပါသည် (Web / Facebook / Telegram မှ ကူးယူရာ၌ ပါလာတတ်ပြီး Ctrl+F ရှာဖွေမှုကို အနှောင့်အယှက်ပေးနိုင်သည်)။"),
+                Font = _fontSmallBold,
+                ForeColor = Color.FromArgb(113, 63, 18),
+                BackColor = Color.FromArgb(254, 249, 195),
+                AutoSize = true,
+                MaximumSize = new Size(innerWrap, 0),
+                Tag = WrapTag,
+                Dock = DockStyle.Fill,
+                Padding = new Padding(7, 5, 7, 5),
+                Margin = new Padding(0, 0, 0, 6)
+            };
+            card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            card.Controls.Add(lblInfo, 0, 0);
+
+            var btnStripAll = CreatePillButton(
+                UiLocalizer.Pick(
+                    $"✨ Strip All {hiddenZwspCount:N0} Hidden ZWSP Now (1-Click Clean)",
+                    $"✨ မမြင်ရသော ZWSP ({hiddenZwspCount:N0}) လုံးလုံး ချက်ချင်းဖယ်ရှားမည်"),
+                Color.FromArgb(18, 118, 62),
+                Color.White,
+                Color.FromArgb(14, 98, 50),
+                _fontSmallBold);
+            btnStripAll.Click += (s, e) => RequestStripAllZwsp?.Invoke(false);
+            card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            card.Controls.Add(btnStripAll, 0, 1);
             return card;
         }
 

@@ -8,6 +8,7 @@ using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
 using MyanmarSpellChecker.Core.Spreadsheet;
+using MyanmarSpellChecker.Core.Typography;
 
 namespace MyanmarSpellChecker.ExcelAddIn.UI
 {
@@ -601,7 +602,15 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     _visibleWindowStart = Math.Max(0, ((filtered.Count - 1) / batchSize) * batchSize);
                 }
 
-                var batchControls = new List<Control>(Math.Min(MaxMountedExcelCards + 3, filtered.Count + 3));
+                var batchControls = new List<Control>(Math.Min(MaxMountedExcelCards + 4, filtered.Count + 4));
+                if (!_isDockedChecklistMode && !_isScanning)
+                {
+                    int zwspCellIssues = filtered.Count(i => MyanmarZwspToolkit.ContainsAnyZeroWidthChar(i.Issue.OriginalText));
+                    if (zwspCellIssues >= 2)
+                    {
+                        batchControls.Add(BuildExcelHiddenZwspBannerCard(cardWidth, innerWrap, zwspCellIssues));
+                    }
+                }
                 if (_visibleWindowStart > 0)
                 {
                     var prevCard = CreateStyledCardContainer(cardWidth, Color.FromArgb(16, 108, 56));
@@ -705,6 +714,43 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 EndCardsBatchUpdate();
             }
+        }
+
+        private Control BuildExcelHiddenZwspBannerCard(int cardWidth, int innerWrap, int zwspCellIssues)
+        {
+            var card = CreateStyledCardContainer(cardWidth, Color.FromArgb(180, 114, 8));
+            int r = 0;
+
+            var lblInfo = new Label
+            {
+                Text = UiLocalizer.Pick(
+                    $"✨ {zwspCellIssues:N0} cell issue(s) contain hidden Zero-Width Space (ZWSP) characters — silently breaks VLOOKUP, XLOOKUP, SUMIF & PivotTable grouping!",
+                    $"✨ အကွက် ({zwspCellIssues:N0}) နေရာ၌ မမြင်ရသော ZWSP ပါဝင်နေပါသည် — VLOOKUP, XLOOKUP, SUMIF နှင့် PivotTable တွက်ချက်မှုများကို အမှားဖြစ်စေပါသည်!"),
+                Font = _fontSmallBold,
+                ForeColor = Color.FromArgb(113, 63, 18),
+                BackColor = Color.FromArgb(254, 249, 195),
+                AutoSize = true,
+                MaximumSize = new Size(innerWrap, 0),
+                Tag = WrapTag,
+                Dock = DockStyle.Fill,
+                Padding = new Padding(7, 5, 7, 5),
+                Margin = new Padding(0, 0, 0, 6)
+            };
+            card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            card.Controls.Add(lblInfo, 0, r++);
+
+            var btnStrip = CreatePillButton(
+                UiLocalizer.Pick(
+                    "✨ Strip All Hidden ZWSP Across Sheet (Protect VLOOKUP)",
+                    "✨ ဇယားတစ်ခုလုံးရှိ မမြင်ရသော ZWSP အားလုံး ချက်ချင်းဖယ်ရှားမည်"),
+                Color.FromArgb(16, 118, 62),
+                Color.White,
+                Color.FromArgb(14, 98, 50),
+                _fontSmallBold);
+            btnStrip.Click += (s, e) => RequestStripAllZwsp?.Invoke(false);
+            card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            card.Controls.Add(btnStrip, 0, r++);
+            return card;
         }
 
         private Control? TryBuildRepeatedIssuesBatchFixCard(

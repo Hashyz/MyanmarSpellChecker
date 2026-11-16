@@ -1256,12 +1256,14 @@ namespace MyanmarSpellChecker.Core.Nlp
                     AddIssueIfNonOverlapping(issues, voIssue);
                 }
 
-                // Preserve isolated mid-word zero-width corruption warning (<= 2 zero-width chars in sentence)
-                // when the word itself had no spelling/meaning error, while avoiding false underlines on clean words
-                // across web/Facebook/PDF pasted paragraphs that inject U+200B between every syllable (>= 3 occurrences).
-                if (invisibleFormatCount > 0 && invisibleFormatCount <= 2)
+                // Host-smart Word ZWSP check:
+                // - Always flag broken-syllable dotted-circle ZWSP even in heavily ZWSP-laced paragraphs (> 2 ZWSPs).
+                // - When <= 2 ZWSPs appear in a paragraph, flag mid-word & orphan-particle ZWSPs (protecting Ctrl+F)
+                //   while allowing clean phrase/word-boundary ZWSPs (e.g. မှတ်ပုံတင်ထားခြင်း[ZWSP]အတွက်).
+                if (invisibleFormatCount > 0)
                 {
-                    foreach (var zwIssue in OfficialStyleGrammarEngine.FindZeroWidthWordCorruptions(workingText))
+                    bool brokenSylOnly = invisibleFormatCount > 2;
+                    foreach (var zwIssue in OfficialStyleGrammarEngine.FindZeroWidthWordCorruptions(workingText, _trie, brokenSylOnly))
                     {
                         if (!IsIgnoredInSession(zwIssue.OriginalText) && !IsOverlappingAny(issues, zwIssue.StartIndex, zwIssue.Length))
                         {

@@ -27,6 +27,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             // 2. Formula-Safe Batch Cell Converter Card
             _cardsPanel.Controls.Add(BuildBatchCellToolkitCard(cardWidth, innerWrap));
 
+            // 2A. ZWSP & VLOOKUP / PivotTable Formula-Integrity Studio Card
+            _cardsPanel.Controls.Add(BuildExcelZwspStudioCard(cardWidth, innerWrap));
+
             // 3. Kyat Lakh Accounting Converter Card (Excel Budget / Voucher Favorite!)
             _cardsPanel.Controls.Add(BuildKyatLakhConverterCard(cardWidth, innerWrap));
 
@@ -276,6 +279,68 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             btnPunct.Click += (s, e) => RequestFormatPunctuation?.Invoke(_toolkitSelectionOnly);
             card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             card.Controls.Add(btnPunct, 0, r++);
+
+            return card;
+        }
+
+        private Control BuildExcelZwspStudioCard(int cardWidth, int innerWrap)
+        {
+            DocumentQualityReport rep = _latestQualityReport ?? new DocumentQualityReport();
+            Color accent = rep.HiddenZeroWidthCount > 0
+                ? Color.FromArgb(180, 114, 8)
+                : Color.FromArgb(16, 124, 65);
+
+            var card = CreateStyledCardContainer(cardWidth, accent);
+            int r = 0;
+
+            card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            card.Controls.Add(new Label
+            {
+                Text = UiLocalizer.Pick(
+                    "ZWSP Cleaner — Protect VLOOKUP, XLOOKUP & PivotTables",
+                    "မမြင်ရသော ZWSP သန့်စင်စက် — VLOOKUP နှင့် PivotTable ကာကွယ်စနစ်"),
+                Font = _fontBodyBold,
+                ForeColor = Color.FromArgb(16, 68, 48),
+                AutoSize = true,
+                MaximumSize = new Size(innerWrap, 0),
+                Tag = WrapTag,
+                Margin = new Padding(0, 0, 0, 4)
+            }, 0, r++);
+
+            string statusText = rep.HiddenZeroWidthCount == 0
+                ? UiLocalizer.Pick(
+                    "✓ Hidden ZWSP Status: 0 found — all text cells match cleanly in VLOOKUP / PivotTables.",
+                    "✓ မမြင်ရသော ZWSP အခြေအနေ — (၀) လုံး (VLOOKUP နှင့် PivotTable အတွက် ၁၀၀% သန့်စင်သည်)။")
+                : UiLocalizer.Pick(
+                    $"⚠ Hidden ZWSP Detected: {rep.HiddenZeroWidthCount:N0} char(s) — can cause silent #N/A in VLOOKUP/XLOOKUP & duplicate PivotTable rows!",
+                    $"⚠ မမြင်ရသော ZWSP တွေ့ရှိချက် — ({rep.HiddenZeroWidthCount:N0}) လုံး (VLOOKUP #N/A အမှားနှင့် PivotTable စာရင်းထပ်ခြင်း ဖြစ်စေနိုင်သည်)!");
+
+            card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            card.Controls.Add(new Label
+            {
+                Text = statusText,
+                Font = _fontSmallBold,
+                ForeColor = rep.HiddenZeroWidthCount > 0 ? Color.FromArgb(113, 63, 18) : Color.FromArgb(16, 98, 52),
+                BackColor = rep.HiddenZeroWidthCount > 0 ? Color.FromArgb(254, 249, 195) : Color.FromArgb(234, 248, 240),
+                AutoSize = true,
+                MaximumSize = new Size(innerWrap, 0),
+                Tag = WrapTag,
+                Dock = DockStyle.Fill,
+                Padding = new Padding(6, 4, 6, 4),
+                Margin = new Padding(0, 0, 0, 6)
+            }, 0, r++);
+
+            var btnStripZwsp = CreateActionButton(
+                UiLocalizer.Pick(
+                    "✨ Strip All Hidden ZWSP (Fix VLOOKUP / PivotTables)",
+                    "✨ မမြင်ရသော ZWSP အားလုံး ဖယ်ရှားမည် (VLOOKUP / PivotTable ကာကွယ်ရန်)"),
+                Color.FromArgb(16, 118, 62),
+                Color.White,
+                Color.FromArgb(14, 98, 50),
+                _fontSmallBold);
+            btnStripZwsp.Click += (s, e) => RequestStripAllZwsp?.Invoke(_toolkitSelectionOnly);
+            card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            card.Controls.Add(btnStripZwsp, 0, r++);
 
             return card;
         }

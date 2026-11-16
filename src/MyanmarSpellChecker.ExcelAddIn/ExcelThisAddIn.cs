@@ -1156,6 +1156,16 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 ExcelToolkitOutcome res;
                 try { res = _scannerToolkit.FormatPunctuationInScope(selectionOnly); }
                 finally { ctrl.SetScanningState(false); }
+                ctrl.UpdateQualityReport(null);
+                ctrl.ShowToastBanner(res.UserMessage, res.Success);
+            };
+            ctrl.RequestStripAllZwsp += selectionOnly =>
+            {
+                if (_scannerToolkit == null) return;
+                ExcelToolkitOutcome res;
+                try { res = _scannerToolkit.StripAllZwspInScope(selectionOnly); }
+                finally { ctrl.SetScanningState(false); }
+                ctrl.UpdateQualityReport(null);
                 ctrl.ShowToastBanner(res.UserMessage, res.Success);
             };
             ctrl.RequestRefreshQualityReport += () =>

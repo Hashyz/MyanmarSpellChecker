@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Windows.Forms;
+using MyanmarSpellChecker.Core.Dictionary;
 using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
@@ -789,6 +790,302 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 if (startedUndo && undo != null) { try { undo.EndCustomRecord(); } catch { } }
                 try { app.ScreenUpdating = prevScreenUpdating; } catch { }
             }
+        }
+
+        public ToolkitActionSummary StripAllZeroWidthInDocument(
+            Word.Application app,
+            Word.Document? doc,
+            bool selectionOnly = false,
+            Action<int, string>? onProgress = null,
+            Func<bool>? isCancelled = null)
+        {
+            if (app == null || doc == null)
+            {
+                return new ToolkitActionSummary
+                {
+                    Success = false,
+                    UserMessage = UiLocalizer.Pick("No active Word document found.", "လက်ရှိဖွင့်ထားသော Word စာတမ်း မတွေ့ရှိပါ။")
+                };
+            }
+
+            Word.UndoRecord? undo = null;
+            bool startedUndo = false;
+            bool prevScreenUpdating = true;
+            int totalRemoved = 0;
+            int paragraphsCleaned = 0;
+
+            try
+            {
+                try { prevScreenUpdating = app.ScreenUpdating; app.ScreenUpdating = false; } catch { }
+                try
+                {
+                    undo = app.UndoRecord;
+                    if (undo != null && !undo.IsRecordingCustomRecord)
+                    {
+                        undo.StartCustomRecord(UiLocalizer.Pick("Strip All Hidden ZWSP Characters", "မမြင်ရသော ZWSP အားလုံး ဖယ်ရှားသန့်စင်ခြင်း"));
+                        startedUndo = true;
+                    }
+                }
+                catch { }
+
+                IEnumerable<Word.Range> scopes = (selectionOnly && app.Selection?.Range != null && app.Selection.Range.Start != app.Selection.Range.End)
+                    ? new[] { app.Selection.Range.Duplicate }
+                    : EnumerateDocumentStories(doc);
+
+                var pumpWatch = Stopwatch.StartNew();
+                foreach (Word.Range scope in scopes)
+                {
+                    if (isCancelled != null && isCancelled())
+                        break;
+
+                    string scopeText;
+                    try { scopeText = scope.Text ?? string.Empty; } catch { continue; }
+                    if (string.IsNullOrEmpty(scopeText) || !MyanmarZwspToolkit.ContainsAnyZeroWidthChar(scopeText))
+                        continue;
+
+                    var paraRanges = new List<Word.Range>(128);
+                    try
+                    {
+                        foreach (Word.Paragraph para in scope.Paragraphs)
+                        {
+                            try
+                            {
+                                Word.Range? pr = para.Range;
+                                if (pr != null) paraRanges.Add(pr);
+                            }
+                            catch { }
+                        }
+                    }
+                    catch { continue; }
+
+                    int pCount = paraRanges.Count;
+                    for (int idx = 0; idx < pCount; idx++)
+                    {
+                        if (isCancelled != null && isCancelled())
+                            break;
+
+                        if (pumpWatch.ElapsedMilliseconds >= 110)
+                        {
+                            pumpWatch.Restart();
+                            onProgress?.Invoke(((idx + 1) * 95) / Math.Max(1, pCount), UiLocalizer.Pick($"⏳ Stripping hidden ZWSP... {idx + 1:N0}/{pCount:N0}", $"⏳ မမြင်ရသော ZWSP ဖယ်ရှားနေသည်... {idx + 1:N0}/{pCount:N0}"));
+                            Application.DoEvents();
+                        }
+
+                        Word.Range pRange = paraRanges[idx];
+                        string rawWithMarkers;
+                        try { rawWithMarkers = pRange.Text ?? string.Empty; } catch { continue; }
+                        if (!MyanmarZwspToolkit.ContainsAnyZeroWidthChar(rawWithMarkers))
+                            continue;
+
+                        string raw = TrimTrailingMarkersString(rawWithMarkers);
+                        if (string.IsNullOrEmpty(raw) || !MyanmarZwspToolkit.ContainsAnyZeroWidthChar(raw))
+                            continue;
+
+                        int segRemoved = 0;
+                        bool applied = TryTransformParagraphSegmentsSafely(
+                            pRange,
+                            rawWithMarkers,
+                            seg =>
+                            {
+                                if (!MyanmarZwspToolkit.ContainsAnyZeroWidthChar(seg))
+                                    return (false, seg);
+
+                                string cln = MyanmarZwspToolkit.StripAllZeroWidthCharacters(seg, out int rem);
+                                segRemoved += rem;
+                                return (rem > 0 && !string.Equals(cln, seg, StringComparison.Ordinal), cln);
+                            });
+
+                        if (applied && segRemoved > 0)
+                        {
+                            totalRemoved += segRemoved;
+                            paragraphsCleaned++;
+                        }
+                    }
+                }
+
+                return new ToolkitActionSummary
+                {
+                    Success = true,
+                    ChangedCount = totalRemoved,
+                    UserMessage = totalRemoved > 0
+                        ? UiLocalizer.Pick(
+                            $"✓ Stripped {totalRemoved:N0} hidden ZWSP/zero-width character(s) across {paragraphsCleaned:N0} paragraph(s) — Ctrl+F search is 100% clean (Ctrl+Z to undo).",
+                            $"✓ စာပိုဒ် ({paragraphsCleaned:N0}) ခုအတွင်းမှ မမြင်ရသော ZWSP ({totalRemoved:N0}) လုံးကို ဖယ်ရှားသန့်စင်ပြီးပါပြီ — Ctrl+F ရှာဖွေမှု ၁၀၀% မှန်ကန်ပါပြီ (Ctrl+Z ဖြင့် ပြန်ပြင်နိုင်သည်)။")
+                        : UiLocalizer.Pick(
+                            "✓ Zero hidden ZWSP characters found — document is already 100% pure for Ctrl+F search.",
+                            "✓ မမြင်ရသော ZWSP လုံးဝမရှိပါ — Ctrl+F ရှာဖွေရန် ၁၀၀% သန့်စင်ပြီး ဖြစ်ပါသည်။")
+                };
+            }
+            catch (Exception ex)
+            {
+                return new ToolkitActionSummary
+                {
+                    Success = false,
+                    UserMessage = UiLocalizer.Pick($"⚠ ZWSP cleanup error: {ex.Message}", $"⚠ ZWSP သန့်စင်စဉ် အမှားဖြစ်ပေါ်သည်: {ex.Message}")
+                };
+            }
+            finally
+            {
+                if (startedUndo && undo != null) { try { undo.EndCustomRecord(); } catch { } }
+                try { app.ScreenUpdating = prevScreenUpdating; } catch { }
+            }
+        }
+
+        public ToolkitActionSummary InsertSmartWordWrapZwspInDocument(
+            Word.Application app,
+            Word.Document? doc,
+            MyanmarTrie? trie,
+            bool selectionOnly = false,
+            Action<int, string>? onProgress = null,
+            Func<bool>? isCancelled = null)
+        {
+            if (app == null || doc == null)
+            {
+                return new ToolkitActionSummary
+                {
+                    Success = false,
+                    UserMessage = UiLocalizer.Pick("No active Word document found.", "လက်ရှိဖွင့်ထားသော Word စာတမ်း မတွေ့ရှိပါ။")
+                };
+            }
+
+            Word.UndoRecord? undo = null;
+            bool startedUndo = false;
+            bool prevScreenUpdating = true;
+            int totalInserted = 0;
+            int totalCleaned = 0;
+            int paragraphsFormatted = 0;
+
+            try
+            {
+                try { prevScreenUpdating = app.ScreenUpdating; app.ScreenUpdating = false; } catch { }
+                try
+                {
+                    undo = app.UndoRecord;
+                    if (undo != null && !undo.IsRecordingCustomRecord)
+                    {
+                        undo.StartCustomRecord(UiLocalizer.Pick("Insert Smart Word-Wrap ZWSP", "စာကြောင်းဆင်းညီညာစေရန် စကားလုံးကြား ZWSP ထည့်သွင်းခြင်း"));
+                        startedUndo = true;
+                    }
+                }
+                catch { }
+
+                IEnumerable<Word.Range> scopes = (selectionOnly && app.Selection?.Range != null && app.Selection.Range.Start != app.Selection.Range.End)
+                    ? new[] { app.Selection.Range.Duplicate }
+                    : EnumerateDocumentStories(doc);
+
+                var pumpWatch = Stopwatch.StartNew();
+                foreach (Word.Range scope in scopes)
+                {
+                    if (isCancelled != null && isCancelled())
+                        break;
+
+                    string scopeText;
+                    try { scopeText = scope.Text ?? string.Empty; } catch { continue; }
+                    if (string.IsNullOrEmpty(scopeText) || (!ContainsMyanmarCodepointFast(scopeText) && !MyanmarZwspToolkit.ContainsAnyZeroWidthChar(scopeText)))
+                        continue;
+
+                    var paraRanges = new List<Word.Range>(128);
+                    try
+                    {
+                        foreach (Word.Paragraph para in scope.Paragraphs)
+                        {
+                            try
+                            {
+                                Word.Range? pr = para.Range;
+                                if (pr != null) paraRanges.Add(pr);
+                            }
+                            catch { }
+                        }
+                    }
+                    catch { continue; }
+
+                    int pCount = paraRanges.Count;
+                    for (int idx = 0; idx < pCount; idx++)
+                    {
+                        if (isCancelled != null && isCancelled())
+                            break;
+
+                        if (pumpWatch.ElapsedMilliseconds >= 110)
+                        {
+                            pumpWatch.Restart();
+                            onProgress?.Invoke(((idx + 1) * 95) / Math.Max(1, pCount), UiLocalizer.Pick($"⏳ Applying smart word-wrap ZWSP... {idx + 1:N0}/{pCount:N0}", $"⏳ စကားလုံးကြား ZWSP ထည့်သွင်းနေသည်... {idx + 1:N0}/{pCount:N0}"));
+                            Application.DoEvents();
+                        }
+
+                        Word.Range pRange = paraRanges[idx];
+                        string rawWithMarkers;
+                        try { rawWithMarkers = pRange.Text ?? string.Empty; } catch { continue; }
+                        string raw = TrimTrailingMarkersString(rawWithMarkers);
+                        if (string.IsNullOrEmpty(raw) || (!ContainsMyanmarCodepointFast(raw) && !MyanmarZwspToolkit.ContainsAnyZeroWidthChar(raw)))
+                            continue;
+
+                        string preview = MyanmarZwspToolkit.InsertSmartWordBoundaryZwsp(raw, trie, out int previewIns, out int previewCln);
+                        if (string.Equals(preview, raw, StringComparison.Ordinal))
+                            continue;
+
+                        int segIns = 0;
+                        int segCln = 0;
+                        bool applied = TryTransformParagraphSegmentsSafely(
+                            pRange,
+                            rawWithMarkers,
+                            seg =>
+                            {
+                                if (!ContainsMyanmarCodepointFast(seg) && !MyanmarZwspToolkit.ContainsAnyZeroWidthChar(seg))
+                                    return (false, seg);
+
+                                string formatted = MyanmarZwspToolkit.InsertSmartWordBoundaryZwsp(seg, trie, out int ins, out int cln);
+                                segIns += ins;
+                                segCln += cln;
+                                return (!string.Equals(formatted, seg, StringComparison.Ordinal), formatted);
+                            });
+
+                        if (applied)
+                        {
+                            totalInserted += segIns;
+                            totalCleaned += segCln;
+                            paragraphsFormatted++;
+                        }
+                    }
+                }
+
+                int totalOps = totalInserted + totalCleaned;
+                return new ToolkitActionSummary
+                {
+                    Success = true,
+                    ChangedCount = totalOps,
+                    UserMessage = totalOps > 0
+                        ? UiLocalizer.Pick(
+                            $"✓ Inserted {totalInserted:N0} smart word-boundary ZWSP wrap point(s) across {paragraphsFormatted:N0} paragraph(s) (words & particles stay unbroken; Ctrl+Z to undo).",
+                            $"✓ စာပိုဒ် ({paragraphsFormatted:N0}) ခုတွင် စကားလုံးမပြတ်စေဘဲ စာကြောင်းဆင်းညီညာစေသော ZWSP ({totalInserted:N0}) နေရာ ထည့်သွင်းပြီးပါပြီ (Ctrl+Z ဖြင့် ပြန်ပြင်နိုင်သည်)။")
+                        : UiLocalizer.Pick(
+                            "✓ Paragraphs already have clean word-wrap boundaries (or no multi-word Myanmar runs needed wrapping).",
+                            "✓ စကားလုံးကြား စာကြောင်းဆင်း ZWSP များ သန့်စင်မှန်ကန်ပြီး ဖြစ်ပါသည်။")
+                };
+            }
+            catch (Exception ex)
+            {
+                return new ToolkitActionSummary
+                {
+                    Success = false,
+                    UserMessage = UiLocalizer.Pick($"⚠ Smart word-wrap error: {ex.Message}", $"⚠ စကားလုံးကြား ZWSP ထည့်သွင်းစဉ် အမှားဖြစ်ပေါ်သည်: {ex.Message}")
+                };
+            }
+            finally
+            {
+                if (startedUndo && undo != null) { try { undo.EndCustomRecord(); } catch { } }
+                try { app.ScreenUpdating = prevScreenUpdating; } catch { }
+            }
+        }
+
+        private static bool ContainsMyanmarCodepointFast(string text)
+        {
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (c >= '\u1000' && c <= '\u109F')
+                    return true;
+            }
+            return false;
         }
 
         public ToolkitActionSummary FormatOfficialPunctuationInDocument(

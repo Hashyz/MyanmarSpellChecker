@@ -411,7 +411,7 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                                 loopState.Stop();
                                 return;
                             }
-                            var eval = engine.CheckText(unseenList[idx], cacheParagraph: false);
+                            var eval = EvaluateSpreadsheetCellWithStrictZwsp(engine, unseenList[idx]);
                             computed[idx] = eval.Count == 0 ? sharedEmptyIssues : eval;
                         });
 
@@ -466,7 +466,7 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                             }
                             nlpEvaluations++;
                             EcoPerformanceGovernor.MaybeMicroYield(nlpEvaluations, microYieldCadence);
-                            var eval = engine.CheckText(cellText, cacheParagraph: false);
+                            var eval = EvaluateSpreadsheetCellWithStrictZwsp(engine, cellText);
                             cellIssues = eval.Count == 0 ? sharedEmptyIssues : eval;
                             if (memo.Count < maxMemoEntries)
                             {
@@ -478,7 +478,7 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                     {
                         nlpEvaluations++;
                         EcoPerformanceGovernor.MaybeMicroYield(nlpEvaluations, microYieldCadence);
-                        cellIssues = engine.CheckText(cellText, cacheParagraph: false);
+                        cellIssues = EvaluateSpreadsheetCellWithStrictZwsp(engine, cellText);
                     }
 
                     consistencyAccumulator?.ObserveCell(sheetName ?? string.Empty, sheetRow, sheetCol, cellText, cellIssues);
@@ -1020,9 +1020,165 @@ namespace MyanmarSpellChecker.Core.Spreadsheet
                         return (text, 0, null, null);
 
                     string cleaned = MyanmarTypographyFormatter.FormatPunctuationAndCleanInvisible(text, out int pFixes, out int zwFixes);
-                    int total = pFixes + zwFixes + (string.Equals(cleaned, text, StringComparison.Ordinal) ? 0 : 1);
+                    cleaned = MyanmarZwspToolkit.StripAllZeroWidthCharacters(cleaned, out int extraZwFixes);
+                    int total = pFixes + zwFixes + extraZwFixes + (string.Equals(cleaned, text, StringComparison.Ordinal) ? 0 : 1);
                     return (cleaned, total, null, null);
                 });
+        }
+
+        /// <summary>
+        /// Strips 100% of invisible zero-width characters (<c>U+200B</c>, <c>U+200C</c>, <c>U+200D</c>, <c>U+FEFF</c>, <c>U+2060</c>)
+        /// across all non-formula text cells (including Burmese, English, and ID codes) so <c>VLOOKUP</c>, <c>XLOOKUP</c>,
+        /// <c>SUMIF</c>, <c>COUNTIF</c>, and <c>PivotTables</c> match 100% reliably.
+        /// </summary>
+        public static List<CellWriteOperation> TransformBlockStripAllZwsp(
+            string workbookName,
+            string sheetName,
+            int baseRowOneBased,
+            int baseColOneBased,
+            int rowCount,
+            int colCount,
+            object? rawValue2Block,
+            object? rawFormulaBlock,
+            bool? blockHasFormula)
+        {
+            return TransformTextCellsCore(
+                workbookName,
+                sheetName,
+                baseRowOneBased,
+                baseColOneBased,
+                rowCount,
+                colCount,
+                rawValue2Block,
+                rawFormulaBlock,
+                blockHasFormula,
+                (r, c, text) =>
+                {
+                    if (!MyanmarZwspToolkit.ContainsAnyZeroWidthChar(text))
+                        return (text, 0, null, null);
+
+                    string cleaned = MyanmarZwspToolkit.StripAllZeroWidthCharacters(text, out int removed);
+                    return (cleaned, Math.Max(removed, string.Equals(cleaned, text, StringComparison.Ordinal) ? 0 : 1), null, null);
+                });
+        }
+
+        /// <summary>
+        /// Evaluates a spreadsheet cell with strict zero-ZWSP hygiene: in addition to full spelling/grammar checks,
+        /// flags ANY uncovered invisible zero-width character (leading, trailing, phrase-boundary, or multi-syllable web paste)
+        /// because invisible <c>ZWSP</c> silently breaks Excel <c>VLOOKUP</c>, <c>XLOOKUP</c>, <c>SUMIF</c>, and <c>PivotTables</c>.
+        /// </summary>
+        public static List<ProofingIssue> EvaluateSpreadsheetCellWithStrictZwsp(MyanmarProofingEngine engine, string cellText)
+        {
+            var list = engine.CheckText(cellText, cacheParagraph: false);
+            if (!MyanmarZwspToolkit.ContainsAnyZeroWidthChar(cellText))
+                return list;
+
+            bool HasOverlap(int start, int length)
+            {
+                int end = start + length;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var ex = list[i];
+                    if (start < ex.StartIndex + ex.Length && end > ex.StartIndex)
+                        return true;
+                }
+                return false;
+            }
+
+            // Count uncovered zero-width characters
+            int uncoveredZw = 0;
+            for (int i = 0; i < cellText.Length; i++)
+            {
+                if (MyanmarZwspToolkit.IsZeroWidthChar(cellText[i]) && !HasOverlap(i, 1))
+                    uncoveredZw++;
+            }
+
+            if (uncoveredZw == 0)
+                return list;
+
+            // If >= 3 uncovered ZWSPs exist and no overlapping issues exist, emit 1 clean cell-level High-Certainty fix
+            if (uncoveredZw >= 3 && list.Count == 0)
+            {
+                string cleanAll = MyanmarZwspToolkit.StripAllZeroWidthCharacters(cellText, out _);
+                list.Add(new ProofingIssue
+                {
+                    StartIndex = 0,
+                    Length = cellText.Length,
+                    OriginalText = cellText,
+                    IssueType = ProofingIssueType.LookalikeCharacterError,
+                    RequiresReviewBeforeBatchFix = false,
+                    Message = $"Excel အကွက်အတွင်း မမြင်ရသော Zero-Width Space (ZWSP) ({uncoveredZw}) လုံး ပါဝင်နေပါသည် — VLOOKUP / SUMIF / PivotTable မလွဲမှားစေရန် ဖယ်ရှားသန့်စင်ပါ။",
+                    GrammaticalReasoning = "Excel ဇယားကွက်များတွင် မမြင်ရသော Zero-Width Space (U+200B / U+FEFF) ပါဝင်နေပါက မျက်စိဖြင့် တူညီသော်လည်း VLOOKUP, XLOOKUP, COUNTIF, SUMIF နှင့် Filter/PivotTable တို့တွင် စာသားမတူညီဟု ယူဆပြီး တွက်ချက်မှု လွဲမှားတတ်ပါသည်။",
+                    AuthoritativeSource = "Excel Formula & Data Integrity Standard (Zero-ZWSP Cell Hygiene)",
+                    Suggestions = new List<SuggestionCandidate>
+                    {
+                        new SuggestionCandidate
+                        {
+                            Replacement = cleanAll,
+                            MeaningCue = "ZWSP အားလုံး ဖယ်ရှားမည် (VLOOKUP စိတ်ချရစေရန်)",
+                            IsOfficialThatpon = true,
+                            Score = 100.0
+                        }
+                    }
+                });
+                return list;
+            }
+
+            // Otherwise flag each non-whitespace token containing uncovered ZWSP (including leading/trailing/boundary ZWSP!)
+            int pos = 0;
+            while (pos < cellText.Length)
+            {
+                while (pos < cellText.Length && char.IsWhiteSpace(cellText[pos]) && !MyanmarZwspToolkit.IsZeroWidthChar(cellText[pos]))
+                    pos++;
+                if (pos >= cellText.Length)
+                    break;
+
+                int tokStart = pos;
+                bool hasZwInTok = false;
+                while (pos < cellText.Length && (!char.IsWhiteSpace(cellText[pos]) || MyanmarZwspToolkit.IsZeroWidthChar(cellText[pos])))
+                {
+                    if (MyanmarZwspToolkit.IsZeroWidthChar(cellText[pos]))
+                        hasZwInTok = true;
+                    pos++;
+                }
+
+                int tokLen = pos - tokStart;
+                if (hasZwInTok && tokLen > 0 && !HasOverlap(tokStart, tokLen))
+                {
+                    string rawTok = cellText.Substring(tokStart, tokLen);
+                    string cleanTok = MyanmarZwspToolkit.StripAllZeroWidthCharacters(rawTok, out _);
+                    if (!string.Equals(rawTok, cleanTok, StringComparison.Ordinal) && cleanTok.Length > 0)
+                    {
+                        list.Add(new ProofingIssue
+                        {
+                            StartIndex = tokStart,
+                            Length = tokLen,
+                            OriginalText = rawTok,
+                            IssueType = ProofingIssueType.LookalikeCharacterError,
+                            RequiresReviewBeforeBatchFix = false,
+                            Message = $"Excel အကွက်၌ မမြင်ရသော Zero-Width Space (ZWSP) ကပ်နေပါသည် — VLOOKUP / Filter မှန်ကန်စေရန် '{cleanTok}' ဟု သန့်စင်ရမည်။",
+                            GrammaticalReasoning = "စာလုံးရှေ့/နောက် သို့မဟုတ် စာလုံးအကြား၌ မမြင်ရသော U+200B (ZWSP) ကပ်နေပါက Excel VLOOKUP / XLOOKUP / COUNTIF တို့တွင် #N/A ဖြစ်စေတတ်ပါသည်။",
+                            AuthoritativeSource = "Excel Formula & Data Integrity Standard (Zero-ZWSP Cell Hygiene)",
+                            Suggestions = new List<SuggestionCandidate>
+                            {
+                                new SuggestionCandidate
+                                {
+                                    Replacement = cleanTok,
+                                    MeaningCue = "ZWSP ဖယ်ရှားသန့်စင်မည် (VLOOKUP စိတ်ချရစေရန်)",
+                                    IsOfficialThatpon = true,
+                                    Score = 100.0
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+
+            if (list.Count > 1)
+            {
+                list.Sort((a, b) => a.StartIndex.CompareTo(b.StartIndex));
+            }
+            return list;
         }
 
         private static List<CellWriteOperation> TransformTextCellsCore(

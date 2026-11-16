@@ -305,6 +305,100 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             _cardsPanel.Controls.Add(fontCard);
 
             // ------------------------------------------------------------------
+            // CARD 2A: Zero-Width Space (ZWSP) & Smart Word-Wrap Studio
+            // ------------------------------------------------------------------
+            Color zwAccent = report.BadZeroWidthCount > 0
+                ? Color.FromArgb(180, 114, 8)
+                : Color.FromArgb(18, 118, 62);
+            var zwspCard = CreateStyledCardContainer(cardWidth, zwAccent, isSelectableItem: null);
+            int zwRow = 0;
+
+            var lblZwHeader = new Label
+            {
+                Text = UiLocalizer.Pick(
+                    "2A. Zero-Width Space (ZWSP) & Word-Wrap Studio",
+                    "၂(က)။ မမြင်ရသော ZWSP သန့်စင်စက် နှင့် စကားလုံးကြား စာကြောင်းဆင်းညှိစက်"),
+                Font = _fontBodyBold,
+                ForeColor = Color.FromArgb(18, 64, 48),
+                AutoSize = true,
+                MaximumSize = new Size(innerWrap, 0),
+                Tag = WrapTag,
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0, 0, 0, 3),
+                Padding = new Padding(2, 1, 2, 1)
+            };
+            zwspCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            zwspCard.Controls.Add(lblZwHeader, 0, zwRow++);
+
+            string zwStatsText = report.HiddenZeroWidthCount == 0
+                ? UiLocalizer.Pick(
+                    "✓ Hidden ZWSP Status: 0 found (100% pure for Ctrl+F search & copy-paste to Excel).",
+                    "✓ မမြင်ရသော ZWSP အခြေအနေ — (၀) လုံး (Ctrl+F ရှာဖွေရန်နှင့် Excel သို့ ကူးထည့်ရန် ၁၀၀% သန့်စင်သည်)။")
+                : UiLocalizer.Pick(
+                    $"Hidden ZWSP Total: {report.HiddenZeroWidthCount:N0}  •  Mid-Word/Broken: {report.BadZeroWidthCount:N0}  •  Clean Wrap Boundaries: {report.CleanBoundaryZeroWidthCount:N0}",
+                    $"မမြင်ရသော ZWSP စုစုပေါင်း — {report.HiddenZeroWidthCount:N0}  •  စကားလုံးပြတ်/အမှား — {report.BadZeroWidthCount:N0}  •  စာကြောင်းဆင်းနေရာမှန် — {report.CleanBoundaryZeroWidthCount:N0}");
+
+            var lblZwStats = new Label
+            {
+                Text = zwStatsText,
+                Font = _fontSmallBold,
+                ForeColor = report.BadZeroWidthCount > 0 ? Color.FromArgb(113, 63, 18) : Color.FromArgb(18, 96, 52),
+                BackColor = report.BadZeroWidthCount > 0 ? Color.FromArgb(254, 249, 195) : Color.FromArgb(236, 250, 242),
+                AutoSize = true,
+                MaximumSize = new Size(innerWrap, 0),
+                Tag = WrapTag,
+                Dock = DockStyle.Fill,
+                Padding = new Padding(6, 4, 6, 4),
+                Margin = new Padding(0, 0, 0, 5)
+            };
+            zwspCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            zwspCard.Controls.Add(lblZwStats, 0, zwRow++);
+
+            var lblZwHint = new Label
+            {
+                Text = UiLocalizer.Pick(
+                    "Strip all ZWSP for pure Ctrl+F search & Excel export, or insert dictionary-aware ZWSP strictly between lexical words (keeping များ/သည်/ကို/၌ glued) for neat justified tables.",
+                    "Ctrl+F အတိအကျ ရှာဖွေရန် ZWSP အားလုံး ဖယ်ရှားနိုင်သည်၊ သို့မဟုတ် ဇယားကွက်နှင့် စာစီရာ၌ စကားလုံးနှင့် ဝိဘတ်များ (များ/သည်/ကို) မပြတ်စေဘဲ စကားလုံးကြား၌သာ ZWSP ထည့်သွင်းနိုင်သည်။"),
+                Font = _fontSmall,
+                ForeColor = Color.FromArgb(68, 78, 94),
+                AutoSize = true,
+                MaximumSize = new Size(innerWrap, 0),
+                Tag = WrapTag,
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0, 0, 0, 6),
+                Padding = new Padding(2, 1, 2, 1)
+            };
+            zwspCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            zwspCard.Controls.Add(lblZwHint, 0, zwRow++);
+
+            var btnStripAllZwsp = CreatePillButton(
+                UiLocalizer.Pick(
+                    "✨ Strip All ZWSP & Hidden Chars (Pure Ctrl+F)",
+                    "✨ ZWSP နှင့် မမြင်ရသောစာလုံးအားလုံး ဖယ်ရှားမည် (Ctrl+F သန့်စင်)"),
+                Color.FromArgb(18, 118, 62),
+                Color.White,
+                Color.FromArgb(14, 98, 50),
+                _fontSmallBold);
+            btnStripAllZwsp.Margin = new Padding(2, 0, 2, 5);
+            btnStripAllZwsp.Click += (s, e) => RequestStripAllZwsp?.Invoke(_toolkitSelectionOnly);
+            zwspCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            zwspCard.Controls.Add(btnStripAllZwsp, 0, zwRow++);
+
+            var btnSmartWrapZwsp = CreatePillButton(
+                UiLocalizer.Pick(
+                    "⇄ Smart Word-Wrap ZWSP (Tables & Justified Letters)",
+                    "⇄ စကားလုံးကြား စာကြောင်းဆင်း ZWSP ထည့်မည် (ဇယားနှင့် ရုံးစာညှိရန်)"),
+                Color.FromArgb(236, 245, 255),
+                Color.FromArgb(20, 74, 158),
+                Color.FromArgb(186, 212, 246),
+                _fontSmallBold);
+            btnSmartWrapZwsp.Click += (s, e) => RequestInsertSmartWordWrapZwsp?.Invoke(_toolkitSelectionOnly);
+            zwspCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            zwspCard.Controls.Add(btnSmartWrapZwsp, 0, zwRow++);
+
+            _cardsPanel.Controls.Add(zwspCard);
+
+            // ------------------------------------------------------------------
             // CARD 2B: One-Click Colloquial -> Official Ministry Prose Rewriter
             // ------------------------------------------------------------------
             var rewriteCard = CreateStyledCardContainer(cardWidth, Color.FromArgb(92, 52, 168), isSelectableItem: null);

@@ -281,6 +281,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         public event Action<bool, bool>? RequestFormatNumerals;
         public event Action<bool>? RequestRewriteToOfficialStyle;
         public event Action<bool>? RequestFormatPunctuation;
+        public event Action<bool>? RequestStripAllZwsp;
         public event Func<DocumentQualityReport>? RequestRefreshQualityReport;
         public event Action? RequestExportAuditWorkbook;
 

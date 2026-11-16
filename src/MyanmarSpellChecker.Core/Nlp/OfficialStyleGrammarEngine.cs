@@ -847,7 +847,10 @@ namespace MyanmarSpellChecker.Core.Nlp
         private static readonly char[] ZeroWidthOrDottedChars = { '\u200B', '\u200C', '\u200D', '\uFEFF', '\u25CC' };
         private static readonly char[] MyanmarDigitsChars = { '\u1040', '\u1041', '\u1042', '\u1043', '\u1044', '\u1045', '\u1046', '\u1047', '\u1048', '\u1049' };
 
-        internal static List<ProofingIssue> FindZeroWidthWordCorruptions(string text)
+        internal static List<ProofingIssue> FindZeroWidthWordCorruptions(
+            string text,
+            MyanmarTrie? trie = null,
+            bool brokenSyllableOnly = false)
         {
             var found = new List<ProofingIssue>();
             if (string.IsNullOrEmpty(text) || text.IndexOfAny(ZeroWidthOrDottedChars) < 0)
@@ -856,12 +859,33 @@ namespace MyanmarSpellChecker.Core.Nlp
             foreach (Match m in ZeroWidthInsideWordPattern.Matches(text))
             {
                 Group g = m.Groups["Target"];
+                bool hasDottedCircle = g.Value.IndexOf('\u25CC') >= 0;
+                if (!hasDottedCircle)
+                {
+                    bool isMidWordOrBroken = Typography.MyanmarZwspToolkit.IsMidWordOrBrokenWordZwsp(
+                        g.Value,
+                        trie,
+                        out bool isBrokenSyllable);
+
+                    if (brokenSyllableOnly)
+                    {
+                        if (!isBrokenSyllable)
+                            continue;
+                    }
+                    else if (!isMidWordOrBroken)
+                    {
+                        // Clean word/phrase boundary ZWSP (e.g. ဝန်ကြီးဌာန[ZWSP]ဆောင်ရွက်ချက် or မှတ်ပုံတင်ထားခြင်း[ZWSP]အတွက်)
+                        // used intentionally for line wrapping in Microsoft Word — do not falsely underline!
+                        continue;
+                    }
+                }
+
                 string stripped = StripZeroWidthRegex.Replace(g.Value, string.Empty);
                 string cleaned = UnicodeNormalizer.NormalizeCanonicalOrder(UnicodeNormalizer.FixLookalikeCharacters(stripped));
                 AddGrammarOrSpellingIssue(
                     found, g.Index, g.Length, g.Value, cleaned,
                     ProofingIssueType.LookalikeCharacterError,
-                    $"စာလုံးအတွင်း မမြင်ရသော ခြားနားသင်္ကေတ (Zero-Width Space) ဝင်နေပါသည် — '{cleaned}' ဟု တစ်ဆက်တည်း ရေးသားရမည်။",
+                    $"စာလုံးအတွင်း မမြင်ရသော ခြားနားသင်္ကေတ (Zero-Width Space) ဝင်နေပါသည် — ရှာဖွေမှု (Ctrl+F) မပျက်စေရန် '{cleaned}' ဟု တစ်ဆက်တည်း ရေးသားရမည်။",
                     "ယူနီကုဒ် စာလုံးပေါင်းအမှန်", "WORD", true);
             }
             return found;

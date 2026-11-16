@@ -49,6 +49,10 @@ namespace MyanmarSpellChecker.Core.Official
         public int EncodingIssueCount { get; set; }
         public int TotalIssueCount { get; set; }
 
+        public int HiddenZeroWidthCount { get; set; }
+        public int BadZeroWidthCount { get; set; }
+        public int CleanBoundaryZeroWidthCount { get; set; }
+
         public List<string> ConsistencySummaries { get; set; } = new List<string>();
         public OfficialStructureAuditResult OfficialLetterAudit { get; set; } = new OfficialStructureAuditResult();
         public List<ProofingIssue> TopIssuesSample { get; set; } = new List<ProofingIssue>();
@@ -266,9 +270,16 @@ namespace MyanmarSpellChecker.Core.Official
             report.ParagraphCount = paraCount;
             report.SentenceCount = Math.Max(sentHits, paraCount > 0 ? 1 : 0);
 
-            // 2. Myanmar Syllables & Estimated Words (zero-allocation O(N) syllable counter)
+            // 2. Myanmar Syllables, Hidden ZWSP Diagnostics & Estimated Words
             int mmSyllables = MyanmarSyllableBreaker.CountMyanmarSyllables(text);
             report.MyanmarSyllableCount = mmSyllables;
+            if (Typography.MyanmarZwspToolkit.ContainsAnyZeroWidthChar(text))
+            {
+                var zwDiag = Typography.MyanmarZwspToolkit.AnalyzeZeroWidthUsage(text, engine?.Trie);
+                report.HiddenZeroWidthCount = zwDiag.TotalZeroWidthCount;
+                report.BadZeroWidthCount = zwDiag.BadCount;
+                report.CleanBoundaryZeroWidthCount = zwDiag.CleanBoundaryCount;
+            }
             int estimatedMmWords = mmSyllables == 0 ? 0 : Math.Max(1, (int)Math.Round(mmSyllables / 2.2));
             report.WordCount = estimatedMmWords + latinWords;
 

@@ -270,6 +270,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         public event Action? RequestPasteCleanClipboard;
         public event Action<bool, bool>? RequestFormatNumerals;
         public event Action<bool>? RequestFormatPunctuation;
+        public event Action<bool>? RequestStripAllZwsp;
+        public event Action<bool>? RequestInsertSmartWordWrapZwsp;
         public event Action<OfficialTemplateKind, DateTime>? RequestInsertOfficialTemplate;
         public event Func<DocumentQualityReport>? RequestRefreshQualityReport;
         public event Action? RequestExportAuditCertificate;
