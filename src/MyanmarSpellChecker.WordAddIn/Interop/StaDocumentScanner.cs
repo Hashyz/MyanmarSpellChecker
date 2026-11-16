@@ -3044,6 +3044,11 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 }
             }
 
+            if (!job.OutcomeMetadata.WasPartialAutoScan)
+            {
+                SuppressWordBuiltInEnglishSquigglesOnPureMyanmarSpans(job);
+            }
+
             _lastParagraphTextByStart[job.Document] = job.DoneMap;
             if (job.CollectedContainers.Count > 0)
                 _storyContainersByDoc[job.Document] = job.CollectedContainers;
@@ -3051,6 +3056,105 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             _documentQualityCache[job.Document] = job.QualityReport;
             _documentScanMeta[job.Document] = job.OutcomeMetadata;
             ScanCompleted?.Invoke(job.Document, orderedBound);
+        }
+
+        private void SuppressWordBuiltInEnglishSquigglesOnPureMyanmarSpans(PendingFullUnderlineJob job)
+        {
+            try
+            {
+                bool hasAnyMyanmarMain = false;
+                bool hasAnyLatinMain = false;
+                var pureMyanmarSnaps = new List<ParagraphSnapshot>(64);
+
+                for (int i = 0; i < job.Analyzed.Count; i++)
+                {
+                    var snap = job.Analyzed[i].Snap;
+                    string txt = snap.RawText;
+                    if (string.IsNullOrWhiteSpace(txt))
+                        continue;
+
+                    ClassifyMyanmarAndLatinPresence(txt, out bool hasMyanmar, out bool hasLatin);
+                    if (snap.StorySlotId == 0)
+                    {
+                        if (hasMyanmar) hasAnyMyanmarMain = true;
+                        if (hasLatin) hasAnyLatinMain = true;
+                    }
+
+                    // Pure-Myanmar paragraph (zero Latin A-Z letters, so English spellcheck on words like 'Licencing' stays 100% active!)
+                    if (hasMyanmar && !hasLatin && pureMyanmarSnaps.Count < 96 &&
+                        !_underlineManager.HasNoProofSpanApplied(job.Document, snap.StorySlotId, snap.StartOffset, snap.EndOffset))
+                    {
+                        pureMyanmarSnaps.Add(snap);
+                    }
+                }
+
+                if (!hasAnyMyanmarMain && pureMyanmarSnaps.Count == 0)
+                    return;
+
+                // Fast Path 1: Entire main story has Myanmar text and ZERO English/Latin letters -> 1 single O(1) COM call!
+                if (hasAnyMyanmarMain && !hasAnyLatinMain)
+                {
+                    int docEnd = Math.Max(1, job.OutcomeMetadata.TotalDocumentChars);
+                    if (!_underlineManager.HasNoProofSpanApplied(job.Document, 0, 0, docEnd))
+                    {
+                        _underlineManager.ExecuteInSharedProofingBatch(job.Document, () =>
+                        {
+                            try
+                            {
+                                _underlineManager.SuppressBuiltInEnglishSquigglesOnRangeOnce(
+                                    job.Document, job.Document.Content, 0, 0, docEnd);
+                            }
+                            catch { }
+                        });
+                    }
+                    return;
+                }
+
+                // Fast Path 2: Mixed Myanmar + English document -> suppress built-in squiggles ONLY on pure-Myanmar paragraphs (bounded to 6ms)
+                if (pureMyanmarSnaps.Count > 0)
+                {
+                    var sw = Stopwatch.StartNew();
+                    _underlineManager.ExecuteInSharedProofingBatch(job.Document, () =>
+                    {
+                        for (int i = 0; i < pureMyanmarSnaps.Count; i++)
+                        {
+                            var snap = pureMyanmarSnaps[i];
+                            Word.Range? r = snap.ParagraphRange ?? TrySliceStoryRange(job, snap);
+                            if (r != null)
+                            {
+                                _underlineManager.SuppressBuiltInEnglishSquigglesOnRangeOnce(
+                                    job.Document, r, snap.StorySlotId, snap.StartOffset, snap.EndOffset);
+                            }
+                            if (sw.ElapsedMilliseconds >= 6)
+                                break;
+                        }
+                    });
+                }
+            }
+            catch
+            {
+                // Ignore transient COM locks
+            }
+        }
+
+        private static void ClassifyMyanmarAndLatinPresence(string text, out bool hasMyanmar, out bool hasLatin)
+        {
+            hasMyanmar = false;
+            hasLatin = false;
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (c >= '\u1000' && c <= '\u109F')
+                {
+                    hasMyanmar = true;
+                    if (hasLatin) return;
+                }
+                else if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))
+                {
+                    hasLatin = true;
+                    if (hasMyanmar) return;
+                }
+            }
         }
 
         private static long MakeSlotOffsetKey(int storySlotId, int startOffset) =>

@@ -137,8 +137,17 @@ namespace MyanmarSpellChecker.Core.Nlp
         private static readonly Regex CasualPhitPattern = new Regex(
             @"(?:(?<![\u1000-\u103F]|အ|မ)(?<Target>ဖစ်)(?=ပါ|သည်|တယ်|မည်|မယ်|နေ|ခဲ့|သွား|လာ|နိုင်|ကြောင်း|၍)|(?<=မ)(?<Target2>ဖစ်)(?=ဘူး|ဖူး|ဘူ|ပါ|သေး|တော့|နိုင်|ဘဲ))");
 
-        private static readonly Regex UnspacedPlaceLocativeMarPattern = new Regex(
-            @"(?<![\u1000-\u103F])(?<Target>(?<Place>ရန်ကုန်|မန္တလေး|နေပြည်တော်|ပဲခူး|မော်လမြိုင်|တောင်ကြီး|မြစ်ကြီးနား|ပုသိမ်|မုံရွာ|စစ်တွေ|ကျောက်ဆည်|ပြင်ဦးလွင်|ဆေးရုံ|ဈေး|နိုင်ငံ|မြန်မာပြည်)မာ)(?=\s+(?:နေ|ရှိ|လုပ်|တက်|အိပ်|ထိုင်|စောင့်|တွေ့|ဆုံ|ကျင်းပ|ဖွင့်))");
+        private static readonly Regex UnspacedAttachedMarPattern = new Regex(
+            @"(?<![\u1000-\u103F])(?<Stem>[\u1000-\u103F]{2,24}?)(?<Target>မာ)(?=\s+(?:နေ|ရှိ|လုပ်|တက်|အိပ်|ထိုင်|စောင့်|တွေ့|ဆုံ|ကျင်းပ|ဖွင့်|ထား|ရောက်|စား|သောက်|သွား|လာ|ပြော|ဖတ်|ရေး|ဝယ်|ရောင်း|အလုပ်လုပ်|နေထိုင်))");
+
+        private static readonly Regex UnspacedAttachedNaePattern = new Regex(
+            @"(?<![\u1000-\u103F])(?<Stem>[\u1000-\u103F]{2,24}?)(?<Target>နဲ)(?=\s+(?:အတူ|ပတ်သက်|စပ်လျဉ်း|သွား|လာ|နေ|စား|သောက်|ပြော|ဆို|လုပ်|ဆောင်ရွက်|တွေ့|ဆုံ|ရေး|ဖတ်|တွဲ|တူ))");
+
+        private static readonly Regex UnspacedAttachedTaePattern = new Regex(
+            @"(?<![\u1000-\u103F])(?<Stem>[\u1000-\u103F]{1,20}?)(?<Target>တဲ)(?=\s*(?:အခါ|အချိန်|နေရာ|အလုပ်|စကား|ကိစ္စ|လူ|သူ|ပုံစံ|နည်းလမ်း|အကြောင်း|အချက်|စာအုပ်|စာတမ်း|နေ့|နှစ်|လ))");
+
+        private static readonly Regex UnspacedAttachedYaePattern = new Regex(
+            @"(?<![\u1000-\u103F])(?<Stem>[\u1000-\u103F]{3,24}?)(?<Target>ရဲ)(?=\s+(?!(?:တပ်ဖွဲ့|စခန်း|အရာရှိ|မှူး|ဘော်|မေ|ဝံ့|ရင့်|စွမ်း|တိုက်|ကင်း|သား|ချုပ်))[\u1000-\u102A][\u1000-\u103F]{1,20})");
 
         // Non-existent 'လျှက်' (with illegal ha-hto) -> always 'လျက်' in မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း
         private static readonly Regex MisspelledLyetPattern = new Regex(
@@ -1830,24 +1839,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            if (hasMa && ContainsMm(text, mmMask, "မာ"))
-            {
-                foreach (Match m in UnspacedPlaceLocativeMarPattern.Matches(text))
-                {
-                    Group g = m.Groups["Target"];
-                    if (OverlapsExistingIssue(issues, g.Index, g.Length))
-                        continue;
-                    string place = m.Groups["Place"].Value;
-                    string correct = styleMode == ProofingStyleMode.FormalOfficial
-                        ? (place + "တွင်")
-                        : (place + "မှာ");
-                    AddGrammarOrSpellingIssue(
-                        issues, g.Index, g.Length, g.Value, correct,
-                        ProofingIssueType.SpellingError,
-                        $"တည်နေရာပြဝိဘတ်တွင် ဟထိုး ('ှ') ကျန်ခဲ့ပါသည် — '{g.Value}' အစား '{correct}' ဟု ရေးသားရမည်။",
-                        "တည်နေရာပြဝိဘတ် ('~မှာ / ~တွင်')", "N", styleMode == ProofingStyleMode.FormalOfficial);
-                }
-            }
+            ScanUnspacedAttachedParticleTypos(text, mmMask, styleMode, trie, issues);
 
             if (ContainsMm(text, mmMask, "\u101C\u103B\u103E\u1000\u103A"))
             {
@@ -5445,6 +5437,222 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
             return cut > 0 ? clause.Substring(cut) : clause;
+        }
+
+        private static bool IsKnownStemOrSuffixedWord(string stem, MyanmarTrie? trie)
+        {
+            if (string.IsNullOrEmpty(stem) || stem.Length < 2)
+                return false;
+            if (trie == null)
+                return true;
+            if (trie.ContainsExactWord(stem))
+                return true;
+
+            string[] pluralSuffixes = { "များ", "တွေ", "တို့" };
+            for (int i = 0; i < pluralSuffixes.Length; i++)
+            {
+                string sfx = pluralSuffixes[i];
+                if (stem.Length > sfx.Length + 1 && stem.EndsWith(sfx, StringComparison.Ordinal))
+                {
+                    string root = stem.Substring(0, stem.Length - sfx.Length);
+                    if (trie.ContainsExactWord(root))
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool IsKnownVerbOrAuxStem(string stem, MyanmarTrie? trie)
+        {
+            if (string.IsNullOrEmpty(stem))
+                return false;
+            string[] auxEndings = { "နေ", "ခဲ့", "ပြီး", "နိုင်", "ချင်", "တတ်", "သင့်", "ရ", "ပါ", "သွား", "လာ", "ထား", "ပေး" };
+            for (int i = 0; i < auxEndings.Length; i++)
+            {
+                string aux = auxEndings[i];
+                if (stem.Length > aux.Length && stem.EndsWith(aux, StringComparison.Ordinal))
+                {
+                    string baseVerb = stem.Substring(0, stem.Length - aux.Length);
+                    if (trie == null || trie.ContainsExactWord(baseVerb) || baseVerb.StartsWith("မ", StringComparison.Ordinal))
+                        return true;
+                }
+            }
+            if (trie != null)
+            {
+                return trie.HasPosTag(stem, "V") || trie.HasPosTag(stem, "ADJ");
+            }
+            return true;
+        }
+
+        private void ScanUnspacedAttachedParticleTypos(
+            string text,
+            ulong mmMask,
+            ProofingStyleMode styleMode,
+            MyanmarTrie? trie,
+            List<ProofingIssue> issues)
+        {
+            bool isFormal = styleMode == ProofingStyleMode.FormalOfficial;
+
+            // 1. '[Valid Noun/Place/Pronoun] + မာ' -> 'တွင် / မှာ' (FormalOfficial) or 'မှာ / တွင်' (GeneralStandard)
+            if (ContainsMm(text, mmMask, "မာ"))
+            {
+                foreach (Match m in UnspacedAttachedMarPattern.Matches(text))
+                {
+                    Group g = m.Groups["Target"];
+                    if (OverlapsExistingIssue(issues, g.Index, g.Length))
+                        continue;
+
+                    string stem = m.Groups["Stem"].Value;
+                    string fullJoined = stem + "မာ";
+                    if (trie != null && trie.ContainsExactWord(fullJoined))
+                        continue;
+                    if (!IsKnownStemOrSuffixedWord(stem, trie))
+                        continue;
+
+                    string p1 = isFormal ? "တွင်" : "မှာ";
+                    string p2 = isFormal ? "မှာ" : "တွင်";
+                    AddModeAwareAttachedParticleIssue(
+                        issues, g.Index, g.Length, g.Value, p1, p2, isFormal,
+                        $"တည်နေရာပြဝိဘတ်တွင် ဟထိုး ('ှ') ကျန်ခဲ့ပါသည် — '{p1}' ဟု ရေးသားရမည်။",
+                        isFormal ? "ရုံးသုံး/စာပေ တည်နေရာပြဝိဘတ် ('~တွင်')" : "တည်နေရာပြဝိဘတ် စာလုံးပေါင်းအမှန် ('~မှာ')",
+                        isFormal ? "အပြောစကား တည်နေရာပြဝိဘတ် ('~မှာ')" : "ရုံးသုံး/စာပေ တည်နေရာပြဝိဘတ် ('~တွင်')");
+                }
+            }
+
+            // 2. '[Valid Noun/Pronoun] + နဲ' -> 'နှင့် / နဲ့' (FormalOfficial) or 'နဲ့ / နှင့်' (GeneralStandard)
+            if (ContainsMm(text, mmMask, "နဲ"))
+            {
+                foreach (Match m in UnspacedAttachedNaePattern.Matches(text))
+                {
+                    Group g = m.Groups["Target"];
+                    if (OverlapsExistingIssue(issues, g.Index, g.Length))
+                        continue;
+
+                    string stem = m.Groups["Stem"].Value;
+                    string fullJoined = stem + "နဲ";
+                    if (stem.EndsWith("ခ", StringComparison.Ordinal) ||
+                        stem.EndsWith("မ", StringComparison.Ordinal) ||
+                        (trie != null && trie.ContainsExactWord(fullJoined)))
+                    {
+                        continue;
+                    }
+                    if (!IsKnownStemOrSuffixedWord(stem, trie))
+                        continue;
+
+                    string p1 = isFormal ? "နှင့်" : "နဲ့";
+                    string p2 = isFormal ? "နဲ့" : "နှင့်";
+                    AddModeAwareAttachedParticleIssue(
+                        issues, g.Index, g.Length, g.Value, p1, p2, isFormal,
+                        $"အတူပြ/သမ္ဗန္ဓဝိဘတ်တွင် အောက်မြစ် ('့') ကျန်ခဲ့ပါသည် — '{p1}' ဟု ရေးသားရမည်။",
+                        isFormal ? "ရုံးသုံး/စာပေ သမ္ဗန္ဓဝိဘတ် ('~နှင့်')" : "အပြောစကား သမ္ဗန္ဓဝိဘတ်အမှန် ('~နဲ့')",
+                        isFormal ? "အပြောစကား သမ္ဗန္ဓဝိဘတ်အမှန် ('~နဲ့')" : "ရုံးသုံး/စာပေ သမ္ဗန္ဓဝိဘတ် ('~နှင့်')");
+                }
+            }
+
+            // 3. '[Valid Verb/Aux] + တဲ' before Noun -> 'သည့် / တဲ့' (FormalOfficial) or 'တဲ့ / သည့်' (GeneralStandard)
+            if (ContainsMm(text, mmMask, "တဲ"))
+            {
+                foreach (Match m in UnspacedAttachedTaePattern.Matches(text))
+                {
+                    Group g = m.Groups["Target"];
+                    if (OverlapsExistingIssue(issues, g.Index, g.Length))
+                        continue;
+
+                    string stem = m.Groups["Stem"].Value;
+                    string fullJoined = stem + "တဲ";
+                    if (trie != null && trie.ContainsExactWord(fullJoined))
+                        continue;
+                    if (!IsKnownVerbOrAuxStem(stem, trie))
+                        continue;
+
+                    string p1 = isFormal ? "သည့်" : "တဲ့";
+                    string p2 = isFormal ? "တဲ့" : "သည့်";
+                    AddModeAwareAttachedParticleIssue(
+                        issues, g.Index, g.Length, g.Value, p1, p2, isFormal,
+                        $"နာမဝိသေသနပြုပစ္စည်းတွင် အောက်မြစ် ('့') ကျန်ခဲ့ပါသည် — '{p1}' ဟု ရေးသားရမည်။",
+                        isFormal ? "ရုံးသုံး/စာပေ နာမဝိသေသနပစ္စည်း ('~သည့်')" : "အပြောစကား နာမဝိသေသနပစ္စည်းအမှန် ('~တဲ့')",
+                        isFormal ? "အပြောစကား နာမဝိသေသနပစ္စည်းအမှန် ('~တဲ့')" : "ရုံးသုံး/စာပေ နာမဝိသေသနပစ္စည်း ('~သည့်')");
+                }
+            }
+
+            // 4. '[Multi-Syllable Noun / Plural] + ရဲ' before Noun -> '၏ / ရဲ့' (FormalOfficial) or 'ရဲ့ / ၏' (GeneralStandard)
+            if (ContainsMm(text, mmMask, "ရဲ"))
+            {
+                foreach (Match m in UnspacedAttachedYaePattern.Matches(text))
+                {
+                    Group g = m.Groups["Target"];
+                    if (OverlapsExistingIssue(issues, g.Index, g.Length))
+                        continue;
+
+                    string stem = m.Groups["Stem"].Value;
+                    string fullJoined = stem + "ရဲ";
+                    if (stem.EndsWith("နိုင်ငံ", StringComparison.Ordinal) ||
+                        stem.EndsWith("ပြည်နယ်", StringComparison.Ordinal) ||
+                        stem.EndsWith("မြို့နယ်", StringComparison.Ordinal) ||
+                        (trie != null && trie.ContainsExactWord(fullJoined)))
+                    {
+                        continue;
+                    }
+                    bool hasPlural = stem.EndsWith("များ", StringComparison.Ordinal) ||
+                                     stem.EndsWith("တွေ", StringComparison.Ordinal) ||
+                                     stem.EndsWith("တို့", StringComparison.Ordinal);
+                    if (!hasPlural && (trie == null || !trie.HasPosTag(stem, "N") || MyanmarSyllableBreaker.BreakIntoSyllables(stem, isPreNormalized: true).Count < 2))
+                        continue;
+
+                    string p1 = isFormal ? "၏" : "ရဲ့";
+                    string p2 = isFormal ? "ရဲ့" : "၏";
+                    AddModeAwareAttachedParticleIssue(
+                        issues, g.Index, g.Length, g.Value, p1, p2, isFormal,
+                        $"ပိုင်ဆိုင်ပြဝိဘတ်တွင် အောက်မြစ် ('့') ကျန်ခဲ့ပါသည် — '{p1}' ဟု ရေးသားရမည်။",
+                        isFormal ? "ရုံးသုံး/စာပေ ပိုင်ဆိုင်ပြဝိဘတ် ('~၏')" : "အပြောစကား ပိုင်ဆိုင်ပြဝိဘတ်အမှန် ('~ရဲ့')",
+                        isFormal ? "အပြောစကား ပိုင်ဆိုင်ပြဝိဘတ်အမှန် ('~ရဲ့')" : "ရုံးသုံး/စာပေ ပိုင်ဆိုင်ပြဝိဘတ် ('~၏')");
+                }
+            }
+        }
+
+        private static void AddModeAwareAttachedParticleIssue(
+            List<ProofingIssue> issues,
+            int index,
+            int length,
+            string raw,
+            string primary,
+            string secondary,
+            bool isFormal,
+            string message,
+            string primaryCue,
+            string secondaryCue)
+        {
+            issues.Add(new ProofingIssue
+            {
+                StartIndex = index,
+                Length = length,
+                OriginalText = raw,
+                IssueType = ProofingIssueType.SpellingError,
+                Message = message,
+                GrammaticalReasoning = $"ရှေ့နာမ်/ကြိယာပုဒ်နောက်တွင် တစ်ဆက်တည်း တွဲရိုက်ထားသော ဝိဘတ် '{raw}' စာလုံးပေါင်း ချို့ယွင်းနေသဖြင့် '{primary}' (သို့မဟုတ် '{secondary}') ဖြင့် ရေးသားရမည်။",
+                AuthoritativeSource = "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (အဆက်တွဲဝိဘတ် စာလုံးပေါင်းစံနှုန်း)",
+                Suggestions = new List<SuggestionCandidate>
+                {
+                    new SuggestionCandidate
+                    {
+                        Replacement = primary,
+                        MeaningCue = primaryCue,
+                        PosTag = "PART",
+                        IsOfficialThatpon = isFormal,
+                        SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(primary),
+                        Score = 100.0
+                    },
+                    new SuggestionCandidate
+                    {
+                        Replacement = secondary,
+                        MeaningCue = secondaryCue,
+                        PosTag = "PART",
+                        IsOfficialThatpon = !isFormal,
+                        SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(secondary),
+                        Score = 95.0
+                    }
+                }
+            });
         }
     }
 }

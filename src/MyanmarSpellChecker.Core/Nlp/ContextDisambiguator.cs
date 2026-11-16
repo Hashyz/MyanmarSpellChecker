@@ -2078,7 +2078,442 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
+            // 2c. Generalized Trie Hidden Over-Split Compound & Dropped-Tone Scanner (Two-Tier Smart Certainty)
+            ScanHiddenCompoundAndToneNearMisses(text, trie, wordTokens, existingIssues, issues);
+
+            // 2d. Accidental Particle + Verb Merge Disambiguator (MergedWordChecker — Yellow Review Needed)
+            ScanMergedParticleVerbAmbiguities(text, existingIssues, issues);
+
             return issues;
+        }
+
+        private static readonly HashSet<string> WaterAndLiquidPrefixes = CreateNormalizedSet(
+            "သောက်", "သုံး", "ချိုး", "မြစ်", "ချောင်း", "ကန်", "ပင်လယ်", "မိုး", "တွင်း", "ဆေး", "မျက်",
+            "ချွေး", "သွေး", "ပန်း", "သံပရာ", "လက်ဖက်", "ကြံ", "ထန်း", "အုန်း", "ဆား", "ရေခဲ", "စွပ်ပြုတ်", "ဟင်း"
+        );
+
+        private static readonly HashSet<string> ExcludedLeadingSingleSylForCreaky = CreateNormalizedSet(
+            "အ", "မ", "တ", "သ", "က", "စ", "ပ", "န", "လ", "သူ", "ငါ", "မင်း", "လူ", "မြေ", "ရေ", "နေ", "စာ", "သား", "မိ", "ဖ"
+        );
+
+        private static readonly Regex MergedSubjectKaSarPattern = new Regex(
+            @"(?:^|[\u104A\u104B]\s*)(?=[^\u104A\u104B\r\n]*?(?:ထမင်း|ဟင်း|မုန့်|ခေါက်ဆွဲ|အစားအစာ|အစာ|သစ်သီး|လက်ဖက်သုပ်|ဗိုက်ဝ))[^\u104A\u104B\r\n]{0,48}?(?<Subj>သူ|ကျွန်တော်|ကျွန်မ|ငါ|မင်း|ဆရာ|အမေ|အဖေ|ဧည့်သည်)(?<Target>ကစား)(?=(?:သည်|တယ်|ခဲ့|ပြီး|လိုက်|သောကြောင့်|သဖြင့်|လို့))",
+            RegexOptions.Compiled);
+
+        private static readonly Regex MergedSubjectKaPyaPattern = new Regex(
+            @"(?<![\u1000-\u103F])(?<Subj>ဆရာ|ဆရာမ|ဝန်ထမ်း|အင်ဂျင်နီယာ|ဆရာဝန်|သူ|ကျွန်တော်|ကျွန်မ)(?<Target>ကပြ)(?=(?:သည့်|သော|တဲ့)\s*(?:နည်းလမ်း|ပုံစံ|စာအုပ်|လမ်းညွှန်|အချက်))",
+            RegexOptions.Compiled);
+
+        private static void ScanMergedParticleVerbAmbiguities(
+            string text,
+            List<ProofingIssue> existingIssues,
+            List<ProofingIssue> issues)
+        {
+            if (text.IndexOf("ကစား", StringComparison.Ordinal) >= 0)
+            {
+                foreach (Match m in MergedSubjectKaSarPattern.Matches(text))
+                {
+                    Group g = m.Groups["Target"];
+                    if (OverlapsExisting(existingIssues, g.Index, g.Length) || OverlapsExisting(issues, g.Index, g.Length))
+                        continue;
+
+                    AddNonOverlapping(issues, new ProofingIssue
+                    {
+                        StartIndex = g.Index,
+                        Length = g.Length,
+                        OriginalText = g.Value,
+                        IssueType = ProofingIssueType.ContextualMeaningWarning,
+                        RequiresReviewBeforeBatchFix = true,
+                        Message = "အနက်သံသယ စိစစ်ရန် — အစားအစာ စားသုံးသည့် စကားစပ်အရ 'ကစား' (ဆော့ကစားသည်) အစား ကတ္တားဝိဘတ်နှင့် ကြိယာကို ခြား၍ 'က စား' ဟု ရည်ရွယ်ခြင်း ဖြစ်နိုင်ပါသည်။",
+                        GrammaticalReasoning = $"ရှေ့ကတ္တား '{m.Groups["Subj"].Value}' နောက်ရှိ 'က' ဝိဘတ်နှင့် 'စား' ကြိယာ ပူးကပ်သွားသဖြင့် 'ကစား' (Play) ဟူသော အခြားဝေါဟာရနှင့် ရောထွေးနေပါသည်။",
+                        AuthoritativeSource = "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (ပုဒ်အဖြတ်အတောက် နှင့် ကတ္တားဝိဘတ် 'က')",
+                        Suggestions = new List<SuggestionCandidate>
+                        {
+                            new SuggestionCandidate
+                            {
+                                Replacement = "က စား",
+                                MeaningCue = "ကတ္တားဝိဘတ် 'က' + ကြိယာ 'စား' (စားသုံးသည်)",
+                                PosTag = "V",
+                                IsOfficialThatpon = true,
+                                Score = 94.0
+                            }
+                        }
+                    });
+                }
+            }
+
+            if (text.IndexOf("ကပြ", StringComparison.Ordinal) >= 0)
+            {
+                foreach (Match m in MergedSubjectKaPyaPattern.Matches(text))
+                {
+                    Group g = m.Groups["Target"];
+                    if (OverlapsExisting(existingIssues, g.Index, g.Length) || OverlapsExisting(issues, g.Index, g.Length))
+                        continue;
+
+                    AddNonOverlapping(issues, new ProofingIssue
+                    {
+                        StartIndex = g.Index,
+                        Length = g.Length,
+                        OriginalText = g.Value,
+                        IssueType = ProofingIssueType.ContextualMeaningWarning,
+                        RequiresReviewBeforeBatchFix = true,
+                        Message = "အနက်သံသယ စိစစ်ရန် — လမ်းညွှန်ပြသသည့် စကားစပ်အရ 'ကပြ' (ဇာတ်သဘင် ကပြသည်) အစား ကတ္တားဝိဘတ်နှင့် ကြိယာကို ခြား၍ 'က ပြ' ဟု ရည်ရွယ်ခြင်း ဖြစ်နိုင်ပါသည်။",
+                        GrammaticalReasoning = $"ရှေ့ကတ္တား '{m.Groups["Subj"].Value}' နောက်ရှိ 'က' ဝိဘတ်နှင့် 'ပြ' ကြိယာ ပူးကပ်သွားသဖြင့် 'ကပြ' (ဇာတ်ကပြခြင်း) နှင့် အနက်ရောထွေးနေပါသည်။",
+                        AuthoritativeSource = "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (ပုဒ်အဖြတ်အတောက် နှင့် ကတ္တားဝိဘတ် 'က')",
+                        Suggestions = new List<SuggestionCandidate>
+                        {
+                            new SuggestionCandidate
+                            {
+                                Replacement = "က ပြ",
+                                MeaningCue = "ကတ္တားဝိဘတ် 'က' + ကြိယာ 'ပြ' (ပြသသည်)",
+                                PosTag = "V",
+                                IsOfficialThatpon = true,
+                                Score = 94.0
+                            }
+                        }
+                    });
+                }
+            }
+        }
+
+        private static void ScanHiddenCompoundAndToneNearMisses(
+            string text,
+            MyanmarTrie trie,
+            List<ClauseWordToken> wordTokens,
+            List<ProofingIssue> existingIssues,
+            List<ProofingIssue> issues)
+        {
+            int n = wordTokens.Count;
+            if (n < 2)
+                return;
+
+            for (int i = 0; i < n - 1; i++)
+            {
+                ClauseWordToken w1 = wordTokens[i];
+                if (w1.IsProtectedName ||
+                    OverlapsExisting(existingIssues, w1.StartIndex, w1.Length) ||
+                    OverlapsExisting(issues, w1.StartIndex, w1.Length))
+                {
+                    continue;
+                }
+
+                bool w1IsNominalPrefixA = w1.NormText == "အ";
+                if (!w1IsNominalPrefixA &&
+                    (ProtectedFunctionWords.Contains(w1.NormText) || GenericSyntacticParticles.Contains(w1.NormText)))
+                {
+                    continue;
+                }
+
+                // Try 3-token 'X + အ + Y' window first (e.g. 'အစည်း + အ + ဝေ -> အစည်းအဝေး', 'အချက် + အ + လတ် -> အချက်အလက်'), then 2-token 'w1 + w2'
+                for (int winTokens = 3; winTokens >= 2; winTokens--)
+                {
+                    if (i + winTokens > n)
+                        continue;
+
+                    ClauseWordToken wLast = wordTokens[i + winTokens - 1];
+                    if (winTokens == 3)
+                    {
+                        ClauseWordToken wMid = wordTokens[i + 1];
+                        if (wMid.NormText != "အ" ||
+                            w1.EndIndex != wMid.StartIndex ||
+                            wMid.EndIndex != wLast.StartIndex ||
+                            wMid.IsProtectedName ||
+                            OverlapsExisting(existingIssues, wMid.StartIndex, wMid.Length) ||
+                            OverlapsExisting(issues, wMid.StartIndex, wMid.Length))
+                        {
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        if (w1.EndIndex != wLast.StartIndex)
+                            continue;
+                    }
+
+                    if (wLast.IsProtectedName ||
+                        wLast.NormText == "အ" || wLast.NormText == "မ" || wLast.NormText == "တ" ||
+                        ProtectedFunctionWords.Contains(wLast.NormText) ||
+                        GenericSyntacticParticles.Contains(wLast.NormText) ||
+                        OverlapsExisting(existingIssues, wLast.StartIndex, wLast.Length) ||
+                        OverlapsExisting(issues, wLast.StartIndex, wLast.Length))
+                    {
+                        continue;
+                    }
+
+                    int totalSyls = w1.SyllableCount + wLast.SyllableCount + (winTokens == 3 ? 1 : 0);
+                    if (totalSyls < 2 || totalSyls > 5)
+                        continue;
+
+                    // Do not steal wLast if wLast + next glued token already forms an exact compound
+                    int nextIdx = i + winTokens;
+                    if (nextIdx < n && wLast.EndIndex == wordTokens[nextIdx].StartIndex &&
+                        trie.ContainsExactWord(wLast.NormText + wordTokens[nextIdx].NormText))
+                    {
+                        continue;
+                    }
+
+                    string leftPartNorm = winTokens == 3 ? (w1.NormText + "အ") : w1.NormText;
+                    string rightPartNorm = wLast.NormText;
+                    string combinedNorm = leftPartNorm + rightPartNorm;
+                    if (trie.ContainsExactWord(combinedNorm) ||
+                        trie.GetBigramCount(w1.NormText, rightPartNorm) > 0)
+                    {
+                        continue;
+                    }
+
+                    int spanStart = w1.StartIndex;
+                    int spanLen = wLast.EndIndex - w1.StartIndex;
+                    string rawSpan = text.Substring(spanStart, spanLen);
+
+                    // Guard rice-bran context for 'အဖွဲ'
+                    if (combinedNorm == "အဖွဲ" &&
+                        (text.IndexOf("ဆန်", StringComparison.Ordinal) >= 0 ||
+                         text.IndexOf("စပါး", StringComparison.Ordinal) >= 0 ||
+                         text.IndexOf("နွားစာ", StringComparison.Ordinal) >= 0 ||
+                         text.IndexOf("ကြက်စာ", StringComparison.Ordinal) >= 0))
+                    {
+                        continue;
+                    }
+
+                    // Guard literal water compounds for '+ ရေ'
+                    if (rightPartNorm == "ရေ" && WaterAndLiquidPrefixes.Contains(w1.NormText))
+                        continue;
+
+                    DictionaryEntry? tier1Entry = TryFindTier1DeterministicCompoundSlip(
+                        trie, w1, wLast, winTokens, totalSyls, leftPartNorm, rightPartNorm, combinedNorm);
+
+                    if (tier1Entry != null)
+                    {
+                        string cue = !string.IsNullOrWhiteSpace(tier1Entry.MeaningCue) ? tier1Entry.MeaningCue : "သတ်ပုံကျမ်းဝင် ပေါင်းစပ်ပုဒ်";
+                        AddNonOverlapping(issues, new ProofingIssue
+                        {
+                            StartIndex = spanStart,
+                            Length = spanLen,
+                            OriginalText = rawSpan,
+                            IssueType = ProofingIssueType.SpellingError,
+                            RequiresReviewBeforeBatchFix = false,
+                            Message = $"ပေါင်းစပ်ပုဒ် စာလုံးပေါင်းအမှန် — '{rawSpan}' အစား '{tier1Entry.Word}' [{cue}] ဟု ရေးသားရမည်။",
+                            GrammaticalReasoning = $"မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်းဝင် ပေါင်းစပ်ဝေါဟာရ '{tier1Entry.Word}' တွင် အသံ/အသတ် ဆင်တူချို့ယွင်းချက်ကြောင့် သီးခြားပုဒ်ငယ်များအဖြစ် ကွဲထွက်နေခြင်း ဖြစ်ပါသည်။",
+                            AuthoritativeSource = "မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း (ပေါင်းစပ်ပုဒ် စံသတ်ပုံ)",
+                            Suggestions = new List<SuggestionCandidate>
+                            {
+                                new SuggestionCandidate
+                                {
+                                    Replacement = tier1Entry.Word,
+                                    MeaningCue = cue,
+                                    PosTag = tier1Entry.PosTag,
+                                    IsOfficialThatpon = true,
+                                    SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(tier1Entry.Word),
+                                    DiagnosticDetail = OrthographicDiffExplainer.ExplainDifference(rawSpan, tier1Entry.Word),
+                                    Score = 100.0
+                                }
+                            }
+                        });
+                        i += winTokens - 1;
+                        break;
+                    }
+
+                    // Tier 2: Valid-Word Homophone Compound Ambiguity -> Yellow ContextualMeaningWarning (Review Needed ☐)
+                    if (!w1IsNominalPrefixA && totalSyls >= 2)
+                    {
+                        DictionaryEntry? tier2Entry = TryFindTier2AmbiguousCompoundHomophone(
+                            trie, wordTokens, nextIdx, w1, wLast, totalSyls, combinedNorm);
+                        if (tier2Entry != null)
+                        {
+                            string cue = !string.IsNullOrWhiteSpace(tier2Entry.MeaningCue) ? tier2Entry.MeaningCue : "သတ်ပုံကျမ်းဝင် ပေါင်းစပ်ပုဒ်";
+                            AddNonOverlapping(issues, new ProofingIssue
+                            {
+                                StartIndex = spanStart,
+                                Length = spanLen,
+                                OriginalText = rawSpan,
+                                IssueType = ProofingIssueType.ContextualMeaningWarning,
+                                RequiresReviewBeforeBatchFix = true,
+                                Message = $"အနက်သံသယ စိစစ်ရန် — '{rawSpan}' အစား ပေါင်းစပ်ဝေါဟာရ '{tier2Entry.Word}' [{cue}] ဖြစ်နိုင်ပါသည်။",
+                                GrammaticalReasoning = $"အစိတ်အပိုင်းတစ်ခုချင်းစီသည် အဘိဓာန်ဝင်စာလုံးများ ဖြစ်သော်လည်း ပေါင်းစပ်ဝေါဟာရ '{tier2Entry.Word}' နှင့် အသံထွက်တူနေသဖြင့် ရည်ရွယ်ရင်းအနက်ကို စိစစ်ရန် အကြံပြုပါသည်။",
+                                AuthoritativeSource = "မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း (အသံတူ ပေါင်းစပ်ပုဒ် စိစစ်ချက်)",
+                                Suggestions = new List<SuggestionCandidate>
+                                {
+                                    new SuggestionCandidate
+                                    {
+                                        Replacement = tier2Entry.Word,
+                                        MeaningCue = cue,
+                                        PosTag = tier2Entry.PosTag,
+                                        IsOfficialThatpon = true,
+                                        SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(tier2Entry.Word),
+                                        DiagnosticDetail = OrthographicDiffExplainer.ExplainDifference(rawSpan, tier2Entry.Word),
+                                        Score = 93.0
+                                    }
+                                }
+                            });
+                            i += winTokens - 1;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        private static DictionaryEntry? TryFindTier1DeterministicCompoundSlip(
+            MyanmarTrie trie,
+            ClauseWordToken w1,
+            ClauseWordToken wLast,
+            int winTokens,
+            int totalSyls,
+            string leftPartNorm,
+            string rightPartNorm,
+            string combinedNorm)
+        {
+            DictionaryEntry? best = null;
+
+            // 1A. Trailing dropped visarga 'း' on >=3-syllable compound (e.g. ပညာရေ -> ပညာရေး, အစည်းအဝေ -> အစည်းအဝေး)
+            //     or trailing dropped creaky '့' on 'အ + [1-syl]' (e.g. အဖွဲ -> အဖွဲ့)
+            if (rightPartNorm.IndexOf('\u1037') < 0 &&
+                rightPartNorm.IndexOf('\u1038') < 0 &&
+                !EndsWithStopCoda(rightPartNorm))
+            {
+                if (totalSyls >= 3 || (w1.SyllableCount >= 2 && rightPartNorm == "ရေ"))
+                {
+                    PickBestOfficialEntry(trie, combinedNorm + "\u1038", minFreq: 25, ref best);
+                }
+
+                if (winTokens == 2 && w1.NormText == "အ" && wLast.SyllableCount == 1)
+                {
+                    PickBestOfficialEntry(trie, combinedNorm + "\u1037", minFreq: 55, ref best);
+                }
+            }
+
+            // 1B. Leading dropped creaky dot '့' on 2-syllable indivisible Thatpon compound (e.g. ခန်မှန်း -> ခန့်မှန်း, ကန်သတ် -> ကန့်သတ်, ချိုယွင်း -> ချို့ယွင်း)
+            if (winTokens == 2 &&
+                w1.SyllableCount == 1 &&
+                wLast.SyllableCount == 1 &&
+                !ExcludedLeadingSingleSylForCreaky.Contains(w1.NormText) &&
+                w1.NormText.IndexOf('\u1037') < 0 &&
+                w1.NormText.IndexOf('\u1038') < 0 &&
+                !EndsWithStopCoda(w1.NormText))
+            {
+                PickBestOfficialEntry(trie, w1.NormText + "\u1037" + rightPartNorm, minFreq: 25, ref best);
+            }
+
+            // 1C. Homophonous killed-coda slips on final syllable (-တ် <-> -က်, -င် <-> -ဉ်, -ပ် <-> -တ်)
+            //     (e.g. အချက်အလတ် -> အချက်အလက်, လုပ်ငန်းစင် -> လုပ်ငန်းစဉ်, ဆောင်ရွက်ချတ် -> ဆောင်ရွက်ချက်)
+            int minCodaFreq = totalSyls >= 3 ? 20 : 45;
+            if (w1.NormText != "အ")
+            {
+                foreach (string rightVariant in EnumerateHomophonousCodaVariants(rightPartNorm))
+                {
+                    PickBestOfficialEntry(trie, leftPartNorm + rightVariant, minFreq: minCodaFreq, ref best);
+                }
+            }
+
+            return best;
+        }
+
+        private static DictionaryEntry? TryFindTier2AmbiguousCompoundHomophone(
+            MyanmarTrie trie,
+            List<ClauseWordToken> wordTokens,
+            int nextIdx,
+            ClauseWordToken w1,
+            ClauseWordToken wLast,
+            int totalSyls,
+            string combinedNorm)
+        {
+            int f1 = trie.GetWordFrequency(w1.NormText);
+            int f2 = trie.GetWordFrequency(wLast.NormText);
+            int minPartFreq = Math.Min(f1, f2);
+            if (minPartFreq > 30)
+                return null;
+
+            bool followedByVerbalCloser = nextIdx < wordTokens.Count &&
+                (wordTokens[nextIdx].NormText == "သည်" || wordTokens[nextIdx].NormText == "တယ်" ||
+                 wordTokens[nextIdx].NormText == "မည်" || wordTokens[nextIdx].NormText == "မယ်" ||
+                 wordTokens[nextIdx].NormText == "ပါသည်" || wordTokens[nextIdx].NormText == "ပါတယ်");
+
+            List<DictionaryEntry> homophones = trie.LookupStrictHomophones(combinedNorm);
+            DictionaryEntry? best = null;
+            for (int i = 0; i < homophones.Count; i++)
+            {
+                var cand = homophones[i];
+                if (!cand.IsOfficialThatpon || cand.Word == combinedNorm || cand.Frequency < 65)
+                    continue;
+                int cSyl = cand.SyllableCount > 0
+                    ? cand.SyllableCount
+                    : MyanmarSyllableBreaker.BreakIntoSyllables(cand.Word, isPreNormalized: true).Count;
+                if (cSyl != totalSyls)
+                    continue;
+                if (followedByVerbalCloser && string.Equals(cand.PosTag, "N", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (cand.Frequency < Math.Max(65, minPartFreq * 4))
+                    continue;
+                if (best == null || cand.Frequency > best.Frequency)
+                    best = cand;
+            }
+            return best;
+        }
+
+        private static void PickBestOfficialEntry(MyanmarTrie trie, string candidateWord, int minFreq, ref DictionaryEntry? currentBest)
+        {
+            string normCand = UnicodeNormalizer.NormalizeCanonicalOrder(candidateWord);
+            if (!trie.TryGetExactEntries(normCand, out var entries) || entries == null)
+                return;
+            for (int i = 0; i < entries.Count; i++)
+            {
+                var e = entries[i];
+                if (!e.IsOfficialThatpon || e.Frequency < minFreq)
+                    continue;
+                if (currentBest == null || e.Frequency > currentBest.Frequency)
+                    currentBest = e;
+            }
+        }
+
+        private static bool EndsWithStopCoda(string normSyl)
+        {
+            if (normSyl.Length < 2 || normSyl[normSyl.Length - 1] != '\u103A')
+                return false;
+            char c = normSyl[normSyl.Length - 2];
+            return c == '\u1000' || c == '\u1005' || c == '\u1010' || c == '\u1015';
+        }
+
+        private static IEnumerable<string> EnumerateHomophonousCodaVariants(string syl)
+        {
+            if (string.IsNullOrEmpty(syl) || syl.Length < 2)
+                yield break;
+
+            string tone = string.Empty;
+            string core = syl;
+            char lastCh = syl[syl.Length - 1];
+            if (lastCh == '\u1037' || lastCh == '\u1038')
+            {
+                tone = lastCh.ToString();
+                core = syl.Substring(0, syl.Length - 1);
+            }
+
+            if (core.Length < 2 || core[core.Length - 1] != '\u103A')
+                yield break;
+
+            char coda = core[core.Length - 2];
+            string stem = core.Substring(0, core.Length - 2);
+
+            if (coda == '\u1010') // -တ် -> -က်, -ပ်
+            {
+                yield return stem + "\u1000\u103A" + tone;
+                yield return stem + "\u1015\u103A" + tone;
+            }
+            else if (coda == '\u1000') // -က် -> -တ်
+            {
+                yield return stem + "\u1010\u103A" + tone;
+            }
+            else if (coda == '\u1015') // -ပ် -> -တ်
+            {
+                yield return stem + "\u1010\u103A" + tone;
+            }
+            else if (coda == '\u1004') // -င် -> -ဉ်
+            {
+                yield return stem + "\u1009\u103A" + tone;
+            }
+            else if (coda == '\u1009') // -ဉ် -> -င်
+            {
+                yield return stem + "\u1004\u103A" + tone;
+            }
         }
 
         private static bool HasInterveningNonSpacePunctuation(string text, ClauseWordToken left, ClauseWordToken right)

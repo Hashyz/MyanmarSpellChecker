@@ -2005,7 +2005,8 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.Contains(generalEngine.CheckText("စီမံကိန်း ခုန်ကျစရိတ် တွက်ချက်သည်။"), x => x.OriginalText == "ခုန်ကျ" && x.Suggestions[0].Replacement == "ကုန်ကျ");
             Assert.Contains(generalEngine.CheckText("ကျွန်တော် မနက်ဖြန် ဆာမေးပွဲ ဖြေရမယ်။"), x => x.OriginalText == "ဆာမေးပွဲ" && x.Suggestions[0].Replacement == "စာမေးပွဲ");
             Assert.Contains(generalEngine.CheckText("မင်းဘာလုပ်နီလဲ"), x => x.OriginalText == "နီ" && x.Suggestions[0].Replacement == "နေ");
-            Assert.Contains(generalEngine.CheckText("ရန်ကုန်မာ နေပါတယ်။"), x => x.OriginalText == "ရန်ကုန်မာ" && x.Suggestions[0].Replacement == "ရန်ကုန်မှာ");
+            Assert.Contains(generalEngine.CheckText("ရန်ကုန်မာ နေပါတယ်။"), x => x.OriginalText == "မာ" && x.Suggestions[0].Replacement == "မှာ");
+            Assert.Contains(formalEngine.CheckText("ရန်ကုန်မာ နေပါသည်။"), x => x.OriginalText == "မာ" && x.Suggestions[0].Replacement == "တွင်");
 
             Assert.Empty(generalEngine.CheckText("နေမကောင်းဘူး။"));
             Assert.Empty(generalEngine.CheckText("မအားဘူး။"));
@@ -2014,6 +2015,93 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.Empty(formalEngine.CheckText("ရေဘူးနှင့် ထမင်းဘူး ယူလာပါသည်။"));
             Assert.Empty(formalEngine.CheckText("မဖူးသည် ဘုရားဖူး သွားရောက်ပါသည်။"));
             Assert.Empty(formalEngine.CheckText("တစ်ကြိမ်မျှ မကြုံဖူးပါ။"));
+        }
+
+        [Fact]
+        public void V57_FourPillarUpgrade_GeneralizedTrieHiddenCompounds_ModeAwareAttachedParticles_AwVowelTone_AndWordSquiggleShield_Gate()
+        {
+            var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
+            var trie = repo.LoadIntoTrie("MM-GOV-THATPON-SQLCIPHER-2026!");
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+
+            // Pillar 1 & 3A: Generalized Trie Hidden Over-Split Compound & Dropped-Tone Scanner (Tier 1 Red Sure ☑)
+            var t1Cases = new (string Input, string ExpectedWrong, string ExpectedTop)[]
+            {
+                ("ပညာရေ တိုးတက်သည်။", "ပညာရေ", "ပညာရေး"),
+                ("ကျန်းမာရေ စောင့်ရှောက်မှု ပေးသည်။", "ကျန်းမာရေ", "ကျန်းမာရေး"),
+                ("အစည်းအဝေ ကျင်းပသည်။", "အစည်းအဝေ", "အစည်းအဝေး"),
+                ("ကော်မတီ အဖွဲ ဖွဲ့စည်းသည်။", "အဖွဲ", "အဖွဲ့"),
+                ("ခန်မှန်း တွက်ချက်သည်။", "ခန်မှန်း", "ခန့်မှန်း"),
+                ("ကန်သတ် ထားရှိသည်။", "ကန်သတ်", "ကန့်သတ်"),
+                ("သတင်း အချက်အလတ် စုဆောင်းသည်။", "အချက်အလတ်", "အချက်အလက်"),
+                ("ရှေ့ လုပ်ငန်းစင် ချမှတ်သည်။", "လုပ်ငန်းစင်", "လုပ်ငန်းစဉ်"),
+                ("လုပ်ငန်း ဆောင်ရွက်ချတ် တင်ပြသည်။", "ဆောင်ရွက်ချတ်", "ဆောင်ရွက်ချက်")
+            };
+            foreach (var tc in t1Cases)
+            {
+                string canonExpected = UnicodeNormalizer.NormalizeCanonicalOrder(tc.ExpectedTop);
+                var iss = formalEngine.CheckText(tc.Input);
+                Assert.True(iss.Any(x =>
+                        !x.RequiresReviewBeforeBatchFix &&
+                        x.Suggestions.Any(s => UnicodeNormalizer.NormalizeCanonicalOrder(s.Replacement).Contains(canonExpected))),
+                    $"Expected '{tc.ExpectedWrong}' -> '{tc.ExpectedTop}' in '{tc.Input}', got [{string.Join("; ", iss.Select(x => $"{x.OriginalText}=>{x.Suggestions.FirstOrDefault()?.Replacement}"))}]");
+            }
+
+            // Guard literal water & rice-bran contexts (0 false positives!)
+            Assert.Empty(formalEngine.CheckText("သောက်ရေနှင့် မြစ်ရေ သန့်ရှင်းသည်။"));
+
+            // Pillar 2A: Mode-Aware Unspaced Attached Particle Typos (Official -> formal #1; General -> spoken #1)
+            var marFormal = formalEngine.CheckText("ကုမ္ပဏီမာ အလုပ်လုပ်ပါသည်။");
+            var mf = Assert.Single(marFormal, x => x.OriginalText == "မာ");
+            Assert.Equal("တွင်", mf.Suggestions[0].Replacement);
+            Assert.Contains(mf.Suggestions, s => s.Replacement == "မှာ");
+
+            var marGeneral = generalEngine.CheckText("ကုမ္ပဏီမာ အလုပ်လုပ်ပါတယ်။");
+            var mg = Assert.Single(marGeneral, x => x.OriginalText == "မာ");
+            Assert.Equal("မှာ", mg.Suggestions[0].Replacement);
+            Assert.Contains(mg.Suggestions, s => s.Replacement == "တွင်");
+
+            var taeFormal = formalEngine.CheckText("ပြောတဲ စကားကို နားထောင်ပါသည်။");
+            Assert.Equal("သည့်", Assert.Single(taeFormal, x => x.OriginalText == "တဲ").Suggestions[0].Replacement);
+
+            var taeGeneral = generalEngine.CheckText("ပြောတဲ စကားကို နားထောင်ပါတယ်။");
+            Assert.Equal("တဲ့", Assert.Single(taeGeneral, x => x.OriginalText == "တဲ").Suggestions[0].Replacement);
+
+            var naeFormal = formalEngine.CheckText("သူငယ်ချင်းနဲ အတူ သွားပါသည်။");
+            Assert.Equal("နှင့်", Assert.Single(naeFormal, x => x.OriginalText == "နဲ").Suggestions[0].Replacement);
+
+            var naeGeneral = generalEngine.CheckText("သူငယ်ချင်းနဲ အတူ သွားပါတယ်။");
+            Assert.Equal("နဲ့", Assert.Single(naeGeneral, x => x.OriginalText == "နဲ").Suggestions[0].Replacement);
+
+            // Pillar 2B: MergedWordChecker (Yellow Review Needed ☐)
+            var mergedKaSar = formalEngine.CheckText("ထမင်းကို သူကစားသည်။");
+            var mks = Assert.Single(mergedKaSar, x => x.OriginalText == "ကစား");
+            Assert.Equal(ProofingIssueType.ContextualMeaningWarning, mks.IssueType);
+            Assert.True(mks.RequiresReviewBeforeBatchFix);
+            Assert.Equal("က စား", mks.Suggestions[0].Replacement);
+
+            var mergedKaPya = formalEngine.CheckText("ဆရာကပြသည့် နည်းလမ်းအတိုင်း ဆောင်ရွက်သည်။");
+            var mkp = Assert.Single(mergedKaPya, x => x.OriginalText == "ကပြ");
+            Assert.True(mkp.RequiresReviewBeforeBatchFix);
+            Assert.Equal("က ပြ", mkp.Suggestions[0].Replacement);
+
+            // Legitimate 'ကစား' (play) and 'ကပြ' (dance) produce ZERO false positives!
+            Assert.Empty(formalEngine.CheckText("ကလေးများ ဘောလုံး ကစားကြသည်။"));
+            Assert.Empty(formalEngine.CheckText("ဇာတ်သဘင် အဖွဲ့က ကပြဖျော်ဖြေသည်။"));
+
+            // Pillar 3B: Deterministic Aw-Vowel (-ော် <-> -ေါ်) Orthography
+            Assert.Contains(formalEngine.CheckText("ခော်ယူ မေးမြန်းသည်။"), x => x.Suggestions[0].Replacement == "ခေါ်ယူ");
+            Assert.Contains(formalEngine.CheckText("ဖေါ်ပြ ထားပါသည်။"), x => x.Suggestions[0].Replacement == "ဖော်ပြ");
+            Assert.Contains(formalEngine.CheckText("ပျေါ်ရွှင်စွာ နေထိုင်သည်။"), x => x.Suggestions[0].Replacement.Contains("ပျော်"));
+
+            // Pillar 4: Word Pure-Myanmar Built-in Fake English Red-Squiggle Shield Wiring Gate
+            string repoRoot = TestPaths.RepoRoot;
+            string scannerSrc = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "Interop", "StaDocumentScanner.cs"));
+            string underlineSrc = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "Interop", "SafeUnderlineManager.cs"));
+            Assert.Contains("SuppressWordBuiltInEnglishSquigglesOnPureMyanmarSpans", scannerSrc);
+            Assert.Contains("ClassifyMyanmarAndLatinPresence", scannerSrc);
+            Assert.Contains("SuppressBuiltInEnglishSquigglesOnRangeOnce", underlineSrc);
         }
     }
 }

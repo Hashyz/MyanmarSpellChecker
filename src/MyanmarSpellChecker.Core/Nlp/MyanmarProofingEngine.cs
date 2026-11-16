@@ -1179,9 +1179,13 @@ namespace MyanmarSpellChecker.Core.Nlp
                     for (int pIdx = 0; pIdx < postCtxIssues.Count; pIdx++)
                     {
                         var postCtxIssue = postCtxIssues[pIdx];
+                        bool isMergedParticleVerb =
+                            !string.IsNullOrEmpty(postCtxIssue.AuthoritativeSource) &&
+                            postCtxIssue.AuthoritativeSource.IndexOf("ပုဒ်အဖြတ်အတောက်", StringComparison.Ordinal) >= 0;
                         if (!IsIgnoredInSession(postCtxIssue.OriginalText) &&
-                            !OverlapsProtectedPersonName(postCtxIssue, tokens, personNameProtected) &&
-                            !ViolatesOfficialHeadwordProperSubspan(postCtxIssue, officialHeadwordSpans))
+                            (isMergedParticleVerb ||
+                             (!OverlapsProtectedPersonName(postCtxIssue, tokens, personNameProtected) &&
+                              !ViolatesOfficialHeadwordProperSubspan(postCtxIssue, officialHeadwordSpans))))
                         {
                             AddIssueIfNonOverlapping(nlpIssues, postCtxIssue);
                         }
@@ -1539,7 +1543,9 @@ namespace MyanmarSpellChecker.Core.Nlp
         {
             // Contextual 'ခုနစ်' vs 'ခုနှစ်' rules and monastic subject-verb concord rules intentionally disambiguate whole words/verb stems in context
             if (issue.OriginalText == "ခုနစ်" || issue.OriginalText == "ခုနှစ်" ||
-                (!string.IsNullOrEmpty(issue.AuthoritativeSource) && issue.AuthoritativeSource.IndexOf("သာသနာရေး", StringComparison.Ordinal) >= 0))
+                (!string.IsNullOrEmpty(issue.AuthoritativeSource) &&
+                 (issue.AuthoritativeSource.IndexOf("သာသနာရေး", StringComparison.Ordinal) >= 0 ||
+                  issue.AuthoritativeSource.IndexOf("အဆက်တွဲဝိဘတ်", StringComparison.Ordinal) >= 0)))
                 return false;
 
             return ViolatesOfficialHeadwordProperSubspan(issue, officialSpans);
@@ -4317,6 +4323,89 @@ namespace MyanmarSpellChecker.Core.Nlp
                                 });
                         }
                     }
+                }
+            }
+
+            // Tier 1d: OOV Syllable + Valid Partner Forming an Official Thatpon Compound via Dropped Tone ('ခန်မှန်း -> ခန့်မှန်း') or Coda Slip ('ဆောင်ရွက်ချတ် -> ဆောင်ရွက်ချက်')
+            if (windowLen >= 2 && windowLen <= 4 &&
+                !IsProtectedSyntacticBoundarySlice(tokens, runStart, runEnd, localOffset, windowLen, exactMultiWordBits))
+            {
+                string? oovCompoundTarget = null;
+                DictionaryEntry? oovCompoundEntry = null;
+
+                if (windowLen == 2 &&
+                    !_trie.IsStandaloneWord(firstSyl) &&
+                    firstSyl.Length >= 2 &&
+                    firstSyl.IndexOf('\u1037') < 0 &&
+                    firstSyl.IndexOf('\u1038') < 0 &&
+                    _trie.IsStandaloneWord(lastSyl))
+                {
+                    string candCreaky = UnicodeNormalizer.NormalizeCanonicalOrder(firstSyl + "\u1037" + lastSyl);
+                    if (_trie.TryGetExactEntries(candCreaky, out var ceList) && ceList != null)
+                    {
+                        for (int ci = 0; ci < ceList.Count; ci++)
+                        {
+                            if (ceList[ci].IsOfficialThatpon && ceList[ci].Frequency >= 20)
+                            {
+                                oovCompoundTarget = candCreaky;
+                                oovCompoundEntry = ceList[ci];
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (oovCompoundTarget == null &&
+                    !_trie.IsStandaloneWord(lastSyl) &&
+                    lastSyl.Length >= 2 &&
+                    lastSyl[lastSyl.Length - 1] == '\u103A')
+                {
+                    char cEnd = lastSyl[lastSyl.Length - 2];
+                    string? swappedLast = cEnd == '\u1010'
+                        ? (lastSyl.Substring(0, lastSyl.Length - 2) + "\u1000\u103A")
+                        : (cEnd == '\u1000' ? (lastSyl.Substring(0, lastSyl.Length - 2) + "\u1010\u103A") : null);
+                    if (swappedLast != null)
+                    {
+                        string prefixPart = ConcatNormalizedTokens(tokens, startIndex, windowLen - 1);
+                        string candCoda = UnicodeNormalizer.NormalizeCanonicalOrder(prefixPart + swappedLast);
+                        if (_trie.TryGetExactEntries(candCoda, out var ccList) && ccList != null)
+                        {
+                            for (int ci = 0; ci < ccList.Count; ci++)
+                            {
+                                if (ccList[ci].IsOfficialThatpon && ccList[ci].Frequency >= 20)
+                                {
+                                    oovCompoundTarget = candCoda;
+                                    oovCompoundEntry = ccList[ci];
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (oovCompoundTarget != null && oovCompoundEntry != null)
+                {
+                    var capSpan1d = GetTokenSpan(fullText, tokens, startIndex, windowLen);
+                    string capTarget1d = oovCompoundTarget;
+                    var capEntry1d = oovCompoundEntry;
+                    return LatticeEdge.DeferredIssue(
+                        windowLen,
+                        0.86 + 0.10 * windowLen,
+                        capSpan1d.RawText,
+                        () =>
+                        {
+                            var suggestions = _suggestionEngine.GetSuggestions(capTarget1d);
+                            EnsureTopSuggestionMetadata(suggestions, capSpan1d.RawText, capTarget1d, capEntry1d.MeaningCue, capEntry1d.PosTag, true);
+                            return new ProofingIssue
+                            {
+                                StartIndex = capSpan1d.StartIndex,
+                                Length = capSpan1d.Length,
+                                OriginalText = capSpan1d.RawText,
+                                IssueType = ProofingIssueType.SpellingError,
+                                Message = $"ပေါင်းစပ်ပုဒ် စာလုံးပေါင်းအမှန် — '{capSpan1d.RawText}' အစား '{capTarget1d}' ဟု ရေးသားရမည်။",
+                                Suggestions = suggestions
+                            };
+                        });
                 }
             }
 

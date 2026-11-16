@@ -293,6 +293,37 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             return HasTrackedInSpan(doc, startOffset, endOffset, storySlotId);
         }
 
+        public bool HasNoProofSpanApplied(Word.Document doc, int storySlotId, int startOffset, int endOffset)
+        {
+            long key = (((long)(storySlotId & 0xFFFF)) << 48) |
+                       (((long)((uint)startOffset & 0xFFFFFF)) << 24) |
+                       ((uint)endOffset & 0xFFFFFF);
+            return _noProofAppliedSpans.TryGetValue(doc, out var set) && set.Contains(key);
+        }
+
+        public void SuppressBuiltInEnglishSquigglesOnRangeOnce(
+            Word.Document doc,
+            Word.Range? range,
+            int storySlotId,
+            int startOffset,
+            int endOffset)
+        {
+            if (doc == null || range == null)
+                return;
+            if (!TryMarkNoProofSpanApplied(doc, storySlotId, startOffset, endOffset))
+                return;
+
+            try
+            {
+                if (range.NoProofing != 1)
+                    range.NoProofing = 1;
+            }
+            catch
+            {
+                // Ignore read-only or protected document sections
+            }
+        }
+
         private bool TryMarkNoProofSpanApplied(Word.Document doc, int storySlotId, int startOffset, int endOffset)
         {
             long key = (((long)(storySlotId & 0xFFFF)) << 48) |
