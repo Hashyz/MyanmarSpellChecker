@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Htet Yar Zar (ထက်ရာဇာ)
 // M.Sc. Part II Candidate in Geology (M.Sc. Part I Completed), Department of Geology, Kyaukse University
 // Kyaukse, Mandalay Region, Myanmar. Preserving author attribution is mandatory under GPLv3 Section 7(b) (see NOTICE).
@@ -108,7 +108,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
             };
 
             var btnExport = CreateActionButton(
-                UiLocalizer.Pick("↓ Export Audit Report", "↓ စစ်ဆေးချက် အစီရင်ခံစာ"),
+                UiLocalizer.Pick("↓ Export A4 Report (.docx)", "↓ A4 အစီရင်ခံစာ (.docx)"),
                 Color.FromArgb(183, 71, 42),
                 Color.White,
                 Color.FromArgb(150, 54, 30),

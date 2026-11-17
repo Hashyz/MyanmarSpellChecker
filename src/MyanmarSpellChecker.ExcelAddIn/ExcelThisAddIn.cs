@@ -1171,7 +1171,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
             ctrl.RequestRefreshQualityReport += () =>
                 _scannerToolkit?.BuildActiveWorkbookQualityReport(forceRefresh: true) ?? new DocumentQualityReport();
             ctrl.RequestExportAuditWorkbook += () =>
-                ExecuteExportExcelProofingReport(ProofingReportExportFormat.FriendlyExcelWorkbook);
+                ExecuteExportExcelProofingReport(ProofingReportExportFormat.PrintableA4WordDocument);
             ctrl.RequestExportProofingReport += ExecuteExportExcelProofingReport;
         }
 
@@ -1214,10 +1214,12 @@ namespace MyanmarSpellChecker.ExcelAddIn
         private ProofingAuditReportModel BuildActiveExcelProofingAuditReportModel()
         {
             string wbTitle = GetActiveExcelWorkbookTitle();
+            var orderedSheets = _scannerToolkit?.GetVisibleWorksheetNamesForActiveWorkbook() ?? new List<string>();
+            var allWorkbookIssues = _scannerToolkit != null
+                ? _scannerToolkit.EnsureEntireWorkbookScannedForAuditReport()
+                : Array.Empty<SpreadsheetCellIssue>();
+            var unresolved = allWorkbookIssues.Where(i => !i.IsResolved).ToList();
             var qReport = _scannerToolkit?.BuildActiveWorkbookQualityReport(forceRefresh: true) ?? new DocumentQualityReport();
-            var unresolved = _scannerToolkit != null
-                ? _scannerToolkit.GetCachedIssuesForActiveWorkbook().Where(i => !i.IsResolved).ToList()
-                : new List<SpreadsheetCellIssue>();
 
             var auditInputs = unresolved
                 .Select(item => new ProofingAuditItemInput(
@@ -1226,7 +1228,9 @@ namespace MyanmarSpellChecker.ExcelAddIn
                     item.Issue,
                     (item.Issue.Suggestions != null && item.Issue.Suggestions.Count > 0)
                         ? item.Issue.Suggestions[0].Replacement
-                        : string.Empty))
+                        : string.Empty,
+                    pageOrSheetLabel: item.SheetName,
+                    paragraphOrCellLabel: $"R{item.Row}C{item.Column}"))
                 .ToList();
 
             IReadOnlyList<ProofingSessionFixedRecord> sessionFixed =
@@ -1240,7 +1244,8 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 _proofingEngine?.StyleMode ?? _pendingStyleMode,
                 qReport,
                 auditInputs,
-                sessionFixed);
+                sessionFixed,
+                allOrderedSectionNames: orderedSheets.Count > 0 ? orderedSheets : null);
         }
 
         private void ExecuteExportExcelProofingReport(ProofingReportExportFormat format)
@@ -1250,9 +1255,31 @@ namespace MyanmarSpellChecker.ExcelAddIn
 
             ProofingAuditReportModel model = BuildActiveExcelProofingAuditReportModel();
             var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+            ctrl?.SetScanScope(_scannerToolkit.CurrentScope);
 
             switch (format)
             {
+                case ProofingReportExportFormat.PrintableA4WordDocument:
+                {
+                    try
+                    {
+                        string docxPath = ProofingAuditWordDocumentExporter.SavePrintableA4DocxToDisk(model);
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(docxPath)
+                        {
+                            UseShellExecute = true
+                        });
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            $"✓ Opened Printable A4 Word Audit Report (.docx — all {Math.Max(1, model.SectionBreakdowns.Count)} sheet(s) audited: {model.ConfirmedWrongCount} wrong • {model.SuspiciousReviewCount} review).",
+                            $"✓ Sheet အားလုံး ({Math.Max(1, model.SectionBreakdowns.Count)} ခု) ပါဝင်သော ပုံနှိပ်ရန်အသင့် A4 Word အစီရင်ခံစာ (.docx) ကို ဖွင့်ပေးပြီးပါပြီ။"));
+                    }
+                    catch
+                    {
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            "⚠ Could not save or open the Printable A4 Word (.docx) Audit Report.",
+                            "⚠ A4 Word (.docx) အစီရင်ခံစာ ဖွင့်ရာတွင် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"), isSuccess: false);
+                    }
+                    break;
+                }
                 case ProofingReportExportFormat.FriendlyExcelWorkbook:
                 {
                     try
@@ -1263,13 +1290,13 @@ namespace MyanmarSpellChecker.ExcelAddIn
                             UseShellExecute = true
                         });
                         ctrl?.ShowToastBanner(UiLocalizer.Pick(
-                            $"✓ Opened Friendly Excel Audit Report (.xlsx — {model.ConfirmedWrongCount} wrong • {model.SuspiciousReviewCount} review needed).",
-                            $"✓ ဖတ်ရလွယ်ကူသော Excel အစီရင်ခံစာ (.xlsx) ကို ဖွင့်ပေးပြီးပါပြီ (သေချာမှား {model.ConfirmedWrongCount} • စိစစ်ရန် {model.SuspiciousReviewCount})။"));
+                            $"✓ Opened Multi-Sheet Excel Audit Report (.xlsx — {model.ConfirmedWrongCount} wrong • {model.SuspiciousReviewCount} review needed).",
+                            $"✓ Multi-Sheet Excel အစီရင်ခံစာ (.xlsx) ကို ဖွင့်ပေးပြီးပါပြီ (သေချာမှား {model.ConfirmedWrongCount} • စိစစ်ရန် {model.SuspiciousReviewCount})။"));
                     }
                     catch
                     {
                         ctrl?.ShowToastBanner(UiLocalizer.Pick(
-                            "⚠ Could not open the Friendly Excel (.xlsx) Audit Report.",
+                            "⚠ Could not open the Excel (.xlsx) Audit Report.",
                             "⚠ Excel (.xlsx) အစီရင်ခံစာ ဖွင့်ရာတွင် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"), isSuccess: false);
                     }
                     break;
@@ -1292,6 +1319,27 @@ namespace MyanmarSpellChecker.ExcelAddIn
                         ctrl?.ShowToastBanner(UiLocalizer.Pick(
                             "⚠ Could not save or open the CSV Audit Report.",
                             "⚠ CSV အစီရင်ခံစာ သိမ်းဆည်းရာတွင် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"), isSuccess: false);
+                    }
+                    break;
+                }
+                case ProofingReportExportFormat.ExecutivePowerPointDeck:
+                {
+                    try
+                    {
+                        string pptxPath = ProofingAuditPresentationExporter.SaveExecutivePptxToDisk(model);
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(pptxPath)
+                        {
+                            UseShellExecute = true
+                        });
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            $"✓ Opened PowerPoint Executive Audit Deck (.pptx — 4 widescreen slides).",
+                            $"✓ PowerPoint အမှုဆောင် အစီရင်ခံစာ ဆလိုက်တွဲ (.pptx — ဆလိုက် ၄ ချပ်) ကို ဖွင့်ပေးပြီးပါပြီ။"));
+                    }
+                    catch
+                    {
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            "⚠ Could not save or open the PowerPoint (.pptx) Executive Summary.",
+                            "⚠ PowerPoint (.pptx) ဆလိုက်တွဲ ဖွင့်ရာတွင် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"), isSuccess: false);
                     }
                     break;
                 }
@@ -2420,7 +2468,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
         {
             AddInDiagnostics.SafeExecute("OnRibbonExportAuditReport", () =>
             {
-                ExecuteExportExcelProofingReport(ProofingReportExportFormat.FriendlyExcelWorkbook);
+                ExecuteExportExcelProofingReport(ProofingReportExportFormat.PrintableA4WordDocument);
             });
         }
 

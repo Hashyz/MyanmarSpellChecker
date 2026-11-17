@@ -746,28 +746,36 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             _btnExportReport.Click += (s, e) =>
             {
                 _proofingReportMenu.Items.Clear();
-                var miXlsx = new ToolStripMenuItem(UiLocalizer.Pick(
-                    "▤ Friendly Excel Report (.xlsx — Recommended)",
-                    "▤ ဖတ်ရလွယ်ကူသော Excel အစီရင်ခံစာ (.xlsx — အကြံပြု)")) { Font = _fontSmallBold };
-                miXlsx.Click += (_, __) => RequestExportProofingReport?.Invoke(ProofingReportExportFormat.FriendlyExcelWorkbook);
-                _proofingReportMenu.Items.Add(miXlsx);
+                var miDocx = new ToolStripMenuItem(UiLocalizer.Pick(
+                    "▤ Printable A4 Word Report (.docx — Recommended)",
+                    "▤ ပုံနှိပ်ရန်အသင့် A4 Word အစီရင်ခံစာ (.docx — အကြံပြု)")) { Font = _fontSmallBold };
+                miDocx.Click += (_, __) => RequestExportProofingReport?.Invoke(ProofingReportExportFormat.PrintableA4WordDocument);
+                _proofingReportMenu.Items.Add(miDocx);
 
                 _proofingReportMenu.Items.Add(
-                    UiLocalizer.Pick("▤ Friendly CSV Report (.csv UTF-8)", "▤ CSV ဇယားဖိုင် အစီရင်ခံစာ (.csv)"),
+                    UiLocalizer.Pick("▤ Multi-Sheet Excel Report (.xlsx)", "▤ Multi-Sheet Excel အစီရင်ခံစာ (.xlsx)"),
+                    null,
+                    (_, __) => RequestExportProofingReport?.Invoke(ProofingReportExportFormat.FriendlyExcelWorkbook));
+
+                _proofingReportMenu.Items.Add(
+                    UiLocalizer.Pick("▤ UTF-8 CSV Spreadsheet (.csv)", "▤ UTF-8 CSV ဇယားဖိုင် (.csv)"),
                     null,
                     (_, __) => RequestExportProofingReport?.Invoke(ProofingReportExportFormat.FriendlyCsvSpreadsheet));
 
+                _proofingReportMenu.Items.Add(
+                    UiLocalizer.Pick("▤ PowerPoint Executive Summary (.pptx)", "▤ PowerPoint အမှုဆောင် ဆလိုက်တွဲ (.pptx)"),
+                    null,
+                    (_, __) => RequestExportProofingReport?.Invoke(ProofingReportExportFormat.ExecutivePowerPointDeck));
+
                 _proofingReportMenu.Items.Add(new ToolStripSeparator());
 
                 _proofingReportMenu.Items.Add(
-                    UiLocalizer.Pick("▤ Word Audit Report (Landscape .docx)", "▤ Word အလျားလိုက် အစီရင်ခံစာ (.docx)"),
-                    null,
-                    (_, __) => RequestExportProofingReport?.Invoke(ProofingReportExportFormat.NativeOfficeDocument));
-                _proofingReportMenu.Items.Add(
-                    UiLocalizer.Pick("◈ Print-Ready HTML / Save PDF", "◈ HTML / PDF ပုံနှိပ်အစီရင်ခံစာ"),
+                    UiLocalizer.Pick("◈ Interactive HTML / Save as PDF", "◈ HTML / PDF ပုံနှိပ်အစီရင်ခံစာ"),
                     null,
                     (_, __) => RequestExportProofingReport?.Invoke(ProofingReportExportFormat.InteractiveHtmlAndPdf));
+
                 _proofingReportMenu.Items.Add(new ToolStripSeparator());
+
                 _proofingReportMenu.Items.Add(
                     UiLocalizer.Pick("⎘ Copy Summary to Clipboard", "⎘ အနှစ်ချုပ် Clipboard ကူးယူမည်"),
                     null,

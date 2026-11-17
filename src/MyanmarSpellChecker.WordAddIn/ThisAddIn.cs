@@ -1675,6 +1675,25 @@ namespace MyanmarSpellChecker.WordAddIn
                 }
             }
 
+            var orderedPages = new List<string>();
+            if (sourceDoc != null)
+            {
+                try
+                {
+                    int pageCount = sourceDoc.ActiveWindow?.Panes != null && sourceDoc.ActiveWindow.Panes.Count >= 1
+                        ? sourceDoc.ActiveWindow.Panes[1].Pages.Count
+                        : 0;
+                    if (pageCount >= 1 && pageCount <= 500)
+                    {
+                        for (int p = 1; p <= pageCount; p++)
+                        {
+                            orderedPages.Add(UiLocalizer.Pick($"Page {p}", $"စာမျက်နှာ {p}"));
+                        }
+                    }
+                }
+                catch { }
+            }
+
             DocumentQualityReport qReport = DocumentQualityAnalyzer.Analyze(plain, rawUnresolvedIssues, _proofingEngine);
             return ProofingAuditReportBuilder.Build(
                 docTitle,
@@ -1682,12 +1701,13 @@ namespace MyanmarSpellChecker.WordAddIn
                 _proofingEngine?.StyleMode ?? _pendingStyleMode,
                 qReport,
                 auditInputs,
-                sessionFixed);
+                sessionFixed,
+                allOrderedSectionNames: orderedPages.Count > 0 ? orderedPages : null);
         }
 
         private void ExecuteExportAuditCertificate()
         {
-            ExecuteExportWordProofingReport(ProofingReportExportFormat.FriendlyExcelWorkbook);
+            ExecuteExportWordProofingReport(ProofingReportExportFormat.PrintableA4WordDocument);
         }
 
         private void ExecuteExportWordProofingReport(ProofingReportExportFormat format)
@@ -1706,6 +1726,27 @@ namespace MyanmarSpellChecker.WordAddIn
 
             switch (format)
             {
+                case ProofingReportExportFormat.PrintableA4WordDocument:
+                {
+                    try
+                    {
+                        string docxPath = ProofingAuditWordDocumentExporter.SavePrintableA4DocxToDisk(model);
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(docxPath)
+                        {
+                            UseShellExecute = true
+                        });
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            $"✓ Opened Printable A4 Word Audit Report (.docx — {model.ConfirmedWrongCount} wrong • {model.SuspiciousReviewCount} review).",
+                            $"✓ ပုံနှိပ်ရန်အသင့် A4 Word အစီရင်ခံစာ (.docx) ကို ဖွင့်ပေးပြီးပါပြီ (သေချာမှား {model.ConfirmedWrongCount} • စိစစ်ရန် {model.SuspiciousReviewCount})။"));
+                    }
+                    catch
+                    {
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            "⚠ Could not save or open the Printable A4 Word (.docx) Audit Report.",
+                            "⚠ A4 Word (.docx) အစီရင်ခံစာ ဖွင့်ရာတွင် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"), isSuccess: false);
+                    }
+                    break;
+                }
                 case ProofingReportExportFormat.FriendlyExcelWorkbook:
                 {
                     try
@@ -1716,8 +1757,8 @@ namespace MyanmarSpellChecker.WordAddIn
                             UseShellExecute = true
                         });
                         ctrl?.ShowToastBanner(UiLocalizer.Pick(
-                            $"✓ Opened Friendly Excel Audit Report (.xlsx — {model.ConfirmedWrongCount} wrong • {model.SuspiciousReviewCount} review needed).",
-                            $"✓ ဖတ်ရလွယ်ကူသော Excel အစီရင်ခံစာ (.xlsx) ကို ဖွင့်ပေးပြီးပါပြီ (သေချာမှား {model.ConfirmedWrongCount} • စိစစ်ရန် {model.SuspiciousReviewCount})။"));
+                            $"✓ Opened Multi-Sheet Excel Audit Report (.xlsx — {model.ConfirmedWrongCount} wrong • {model.SuspiciousReviewCount} review needed).",
+                            $"✓ Multi-Sheet Excel အစီရင်ခံစာ (.xlsx) ကို ဖွင့်ပေးပြီးပါပြီ (သေချာမှား {model.ConfirmedWrongCount} • စိစစ်ရန် {model.SuspiciousReviewCount})။"));
                     }
                     catch
                     {
@@ -1745,6 +1786,27 @@ namespace MyanmarSpellChecker.WordAddIn
                         ctrl?.ShowToastBanner(UiLocalizer.Pick(
                             "⚠ Could not save or open the CSV Audit Report.",
                             "⚠ CSV အစီရင်ခံစာ သိမ်းဆည်းရာတွင် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"), isSuccess: false);
+                    }
+                    break;
+                }
+                case ProofingReportExportFormat.ExecutivePowerPointDeck:
+                {
+                    try
+                    {
+                        string pptxPath = ProofingAuditPresentationExporter.SaveExecutivePptxToDisk(model);
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(pptxPath)
+                        {
+                            UseShellExecute = true
+                        });
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            $"✓ Opened PowerPoint Executive Audit Deck (.pptx — 4 widescreen slides).",
+                            $"✓ PowerPoint အမှုဆောင် အစီရင်ခံစာ ဆလိုက်တွဲ (.pptx — ဆလိုက် ၄ ချပ်) ကို ဖွင့်ပေးပြီးပါပြီ။"));
+                    }
+                    catch
+                    {
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            "⚠ Could not save or open the PowerPoint (.pptx) Executive Summary.",
+                            "⚠ PowerPoint (.pptx) ဆလိုက်တွဲ ဖွင့်ရာတွင် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"), isSuccess: false);
                     }
                     break;
                 }

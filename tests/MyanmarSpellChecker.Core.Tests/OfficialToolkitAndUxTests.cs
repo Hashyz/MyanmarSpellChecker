@@ -3195,5 +3195,286 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.DoesNotContain("\"Active Sheet\"", pptPaneText, StringComparison.Ordinal);
             Assert.DoesNotContain("\"Workbook\"", pptPaneText, StringComparison.Ordinal);
         }
+
+        [Fact]
+        public void V69_PrintableA4WordAndFourFormatMultiSheetAuditSuite_Gate()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "MSC_V69_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                // 1. Multi-Sheet Workbook Audit Model (4 sheets including 0-issue clean "Sheet2_Clean")
+                var orderedSheets = new[] { "Sheet1_Summary", "Sheet2_Clean", "Sheet3_Budget", "Sheet4_Notes" };
+                var inputs = new List<ProofingAuditItemInput>
+                {
+                    new ProofingAuditItemInput(
+                        "Sheet1_Summary!B4",
+                        "မြန်မာနိုင်ငံတော်ဗဟိုဘဏ် ဥက္ကဌ တက်ရောက်သည်။",
+                        new ProofingIssue
+                        {
+                            OriginalText = "ဥက္ကဌ",
+                            IssueType = ProofingIssueType.SpellingError,
+                            RequiresReviewBeforeBatchFix = false,
+                            Message = "MLC official stacked consonant spelling requires ဋ္ဌ.",
+                            Suggestions = new List<SuggestionCandidate>
+                            {
+                                new SuggestionCandidate { Replacement = "ဥက္ကဋ္ဌ", Score = 99 }
+                            }
+                        },
+                        "ဥက္ကဋ္ဌ",
+                        pageOrSheetLabel: "Sheet1_Summary",
+                        paragraphOrCellLabel: "B4"),
+                    new ProofingAuditItemInput(
+                        "Sheet3_Budget!D12",
+                        "အတိုးနှုန်း လျော့ချ ရေးကို ကြေငြာ မည်။",
+                        new ProofingIssue
+                        {
+                            OriginalText = "ကြေငြာ",
+                            IssueType = ProofingIssueType.SpellingError,
+                            RequiresReviewBeforeBatchFix = false,
+                            Message = "Use official ကြေညာ.",
+                            Suggestions = new List<SuggestionCandidate>
+                            {
+                                new SuggestionCandidate { Replacement = "ကြေညာ", Score = 98 }
+                            }
+                        },
+                        "ကြေညာ",
+                        pageOrSheetLabel: "Sheet3_Budget",
+                        paragraphOrCellLabel: "D12"),
+                    new ProofingAuditItemInput(
+                        "Sheet4_Notes!A7",
+                        "ဆရာကပြသည့် နည်းလမ်းအတိုင်း ဆောင်ရွက်သည်။",
+                        new ProofingIssue
+                        {
+                            OriginalText = "ကပြ",
+                            IssueType = ProofingIssueType.ContextualMeaningWarning,
+                            RequiresReviewBeforeBatchFix = true,
+                            Message = "Check whether subject marker က + verb ပြ should be spaced.",
+                            Suggestions = new List<SuggestionCandidate>
+                            {
+                                new SuggestionCandidate { Replacement = "က ပြ", Score = 88 }
+                            }
+                        },
+                        "က ပြ",
+                        pageOrSheetLabel: "Sheet4_Notes",
+                        paragraphOrCellLabel: "A7")
+                };
+
+                var fixedRecords = new List<ProofingSessionFixedRecord>
+                {
+                    new ProofingSessionFixedRecord("Sheet1_Summary!C2", "ပညာရေ", "ပညာရေး", new DateTime(2026, 11, 17, 19, 30, 0))
+                };
+
+                var quality = new DocumentQualityReport
+                {
+                    WordCount = 420,
+                    MyanmarSyllableCount = 960,
+                    ParagraphCount = 48,
+                    SentenceCount = 32,
+                    OverallScore = 92,
+                    GradeCode = "A",
+                    UnicodePurityPercent = 100.0,
+                    FormalRegisterPercent = 96.5
+                };
+
+                ProofingAuditReportModel model = ProofingAuditReportBuilder.Build(
+                    "Ministry_MultiSheet_Audit_2026.xlsx",
+                    "Microsoft Excel",
+                    ProofingStyleMode.FormalOfficial,
+                    quality,
+                    inputs,
+                    fixedRecords,
+                    new DateTime(2026, 11, 17, 19, 45, 0),
+                    orderedSheets);
+
+                Assert.Equal(4, model.SectionBreakdowns.Count);
+                var cleanSec = Assert.Single(model.SectionBreakdowns, s => s.SectionName == "Sheet2_Clean");
+                Assert.Equal(0, cleanSec.TotalIssues);
+                Assert.Equal(2, model.ConfirmedWrongCount);
+                Assert.Equal(1, model.SuspiciousReviewCount);
+                Assert.Equal(1, model.SessionFixedCount);
+
+                // 2A. Printable ISO A4 Portrait Word (.docx) Export & Strict OpenXML Validation
+                string docxPath = ProofingAuditWordDocumentExporter.SavePrintableA4DocxToDisk(model, tempDir);
+                Assert.True(File.Exists(docxPath));
+                using (var docxFs = File.OpenRead(docxPath))
+                using (var docxZip = new System.IO.Compression.ZipArchive(docxFs, System.IO.Compression.ZipArchiveMode.Read))
+                {
+                    foreach (var entry in docxZip.Entries)
+                    {
+                        if (entry.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase) ||
+                            entry.FullName.EndsWith(".rels", StringComparison.OrdinalIgnoreCase))
+                        {
+                            using (var s = entry.Open())
+                            {
+                                var xdoc = System.Xml.Linq.XDocument.Load(s);
+                                Assert.NotNull(xdoc.Root);
+                            }
+                        }
+                    }
+
+                    string docXml = ReadZipEntryUtf8(docxZip, "word/document.xml");
+                    string settingsXml = ReadZipEntryUtf8(docxZip, "word/settings.xml");
+                    string footerXml = ReadZipEntryUtf8(docxZip, "word/footer1.xml");
+
+                    Assert.Contains("w:w=\"11906\"", docXml, StringComparison.Ordinal);
+                    Assert.Contains("w:h=\"16838\"", docXml, StringComparison.Ordinal);
+                    Assert.Contains("<w:tblHeader", docXml, StringComparison.Ordinal);
+                    Assert.Contains("<w:cantSplit", docXml, StringComparison.Ordinal);
+                    Assert.Contains("<w:noProof/>", docXml, StringComparison.Ordinal);
+                    Assert.Contains("Sheet2_Clean", docXml, StringComparison.Ordinal);
+                    Assert.Contains("ဥက္ကဋ္ဌ", docXml, StringComparison.Ordinal);
+                    Assert.Contains("☐", docXml, StringComparison.Ordinal);
+                    Assert.Contains("<w:hideSpellingErrors/>", settingsXml, StringComparison.Ordinal);
+                    Assert.Contains("PAGE", footerXml, StringComparison.Ordinal);
+                    Assert.Contains("NUMPAGES", footerXml, StringComparison.Ordinal);
+                }
+
+                // 2B. Multi-Sheet Excel (.xlsx) Export & OpenXML Validation
+                string xlsxPath = ProofingAuditSpreadsheetExporter.SaveFriendlyXlsxToDisk(model, tempDir);
+                Assert.True(File.Exists(xlsxPath));
+                using (var xlsxFs = File.OpenRead(xlsxPath))
+                using (var xlsxZip = new System.IO.Compression.ZipArchive(xlsxFs, System.IO.Compression.ZipArchiveMode.Read))
+                {
+                    foreach (var entry in xlsxZip.Entries)
+                    {
+                        if (entry.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase) ||
+                            entry.FullName.EndsWith(".rels", StringComparison.OrdinalIgnoreCase))
+                        {
+                            using (var s = entry.Open())
+                            {
+                                Assert.NotNull(System.Xml.Linq.XDocument.Load(s).Root);
+                            }
+                        }
+                    }
+                    string sheet2Xml = ReadZipEntryUtf8(xlsxZip, "xl/worksheets/sheet2.xml");
+                    Assert.Contains("Sheet2_Clean", sheet2Xml, StringComparison.Ordinal);
+                }
+
+                // 2C. UTF-8 CSV (.csv) Export Validation
+                string csvPath = ProofingAuditReportBuilder.SaveFriendlyCsvToDisk(model, tempDir);
+                Assert.True(File.Exists(csvPath));
+                byte[] csvBytes = File.ReadAllBytes(csvPath);
+                Assert.True(csvBytes.Length > 3 && csvBytes[0] == 0xEF && csvBytes[1] == 0xBB && csvBytes[2] == 0xBF);
+                string csvText = File.ReadAllText(csvPath);
+                Assert.Contains("Sheet2_Clean", csvText, StringComparison.Ordinal);
+
+                // 2D. 16:9 Executive Summary PowerPoint (.pptx) Export & OpenXML Validation
+                string pptxPath = ProofingAuditPresentationExporter.SaveExecutivePptxToDisk(model, tempDir);
+                Assert.True(File.Exists(pptxPath));
+                using (var pptxFs = File.OpenRead(pptxPath))
+                using (var pptxZip = new System.IO.Compression.ZipArchive(pptxFs, System.IO.Compression.ZipArchiveMode.Read))
+                {
+                    foreach (var entry in pptxZip.Entries)
+                    {
+                        if (entry.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase) ||
+                            entry.FullName.EndsWith(".rels", StringComparison.OrdinalIgnoreCase))
+                        {
+                            using (var s = entry.Open())
+                            {
+                                Assert.NotNull(System.Xml.Linq.XDocument.Load(s).Root);
+                            }
+                        }
+                    }
+                    string presXml = ReadZipEntryUtf8(pptxZip, "ppt/presentation.xml");
+                    string slide2Xml = ReadZipEntryUtf8(pptxZip, "ppt/slides/slide2.xml");
+                    Assert.Contains("cx=\"12192000\"", presXml, StringComparison.Ordinal);
+                    Assert.Contains("cy=\"6858000\"", presXml, StringComparison.Ordinal);
+                    Assert.Contains("noProof=\"1\"", slide2Xml, StringComparison.Ordinal);
+                    Assert.Contains("Sheet2_Clean", slide2Xml, StringComparison.Ordinal);
+                }
+
+                // 3. Smart Auto-Scaling Paper-Saver Mode (> 250 items: 620 unresolved items across 85 unique word patterns)
+                var massiveInputs = new List<ProofingAuditItemInput>(620);
+                for (int i = 0; i < 620; i++)
+                {
+                    int groupId = (i % 85) + 1;
+                    string wrongToken = $"မှားပုံစံ_{groupId:D3}";
+                    string fixToken = $"အမှန်ပုံစံ_{groupId:D3}";
+                    massiveInputs.Add(new ProofingAuditItemInput(
+                        $"Sheet{(i % 6) + 1}!A{i + 2}",
+                        $"စမ်းသပ်စာကြောင်း {wrongToken} ပါဝင်သည်။",
+                        new ProofingIssue
+                        {
+                            OriginalText = wrongToken,
+                            IssueType = ProofingIssueType.SpellingError,
+                            RequiresReviewBeforeBatchFix = (i % 5 == 0),
+                            Message = "Smart scaling test rule.",
+                            Suggestions = new List<SuggestionCandidate>
+                            {
+                                new SuggestionCandidate { Replacement = fixToken, Score = 95 }
+                            }
+                        },
+                        fixToken,
+                        pageOrSheetLabel: $"Sheet{(i % 6) + 1}",
+                        paragraphOrCellLabel: $"A{i + 2}"));
+                }
+
+                ProofingAuditReportModel massiveModel = ProofingAuditReportBuilder.Build(
+                    "Massive_620_Workbook.xlsx",
+                    "Microsoft Excel",
+                    ProofingStyleMode.FormalOfficial,
+                    quality,
+                    massiveInputs);
+
+                Assert.Equal(85, massiveModel.TotalUniqueGroupsCount);
+                Assert.Equal(85, massiveModel.AllRepeatedGroups.Count);
+
+                byte[] massiveDocxBytes = ProofingAuditWordDocumentExporter.BuildPrintableA4DocxBytes(massiveModel, compactRowCap: 250);
+                using (var ms = new MemoryStream(massiveDocxBytes))
+                using (var z = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Read))
+                {
+                    string bigDocXml = ReadZipEntryUtf8(z, "word/document.xml");
+                    var parsed = System.Xml.Linq.XDocument.Parse(bigDocXml);
+                    Assert.NotNull(parsed.Root);
+
+                    // Every single one of the 85 unique error patterns MUST be present on paper!
+                    for (int g = 1; g <= 85; g++)
+                    {
+                        Assert.Contains($"အမှန်ပုံစံ_{g:D3}", bigDocXml, StringComparison.Ordinal);
+                    }
+
+                    int trCount = parsed.Descendants(System.Xml.Linq.XName.Get("tr", "http://schemas.openxmlformats.org/wordprocessingml/2006/main")).Count();
+                    Assert.True(trCount < 450, $"Expected Smart Paper-Saver Mode to cap total table rows < 450 for 620 issues, got {trCount}.");
+                }
+
+                // 4. Unified 4-Format Menu Wiring + Zero UTF-16 Surrogates Across All 3 Office Add-Ins
+                string[] menuFiles =
+                {
+                    Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "ProofingTaskPaneControl.cs"),
+                    Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "FixAllPreviewDialog.cs"),
+                    Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "ExcelProofingTaskPaneControl.cs"),
+                    Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "FixAllPreviewDialog.cs"),
+                    Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.PowerPointAddIn", "UI", "PowerPointProofingTaskPaneControl.cs"),
+                    Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.PowerPointAddIn", "UI", "FixAllPreviewDialog.cs")
+                };
+
+                foreach (string mf in menuFiles)
+                {
+                    string content = File.ReadAllText(mf);
+                    Assert.Contains("PrintableA4WordDocument", content, StringComparison.Ordinal);
+                    Assert.Contains("FriendlyExcelWorkbook", content, StringComparison.Ordinal);
+                    Assert.Contains("FriendlyCsvSpreadsheet", content, StringComparison.Ordinal);
+                    Assert.Contains("ExecutivePowerPointDeck", content, StringComparison.Ordinal);
+                    Assert.False(content.Any(char.IsSurrogate), $"Found UTF-16 surrogate character in {Path.GetFileName(mf)}");
+                }
+            }
+            finally
+            {
+                try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); } catch { }
+            }
+        }
+
+        private static string ReadZipEntryUtf8(System.IO.Compression.ZipArchive zip, string entryName)
+        {
+            var entry = zip.GetEntry(entryName);
+            Assert.NotNull(entry);
+            using (var s = entry!.Open())
+            using (var sr = new StreamReader(s, System.Text.Encoding.UTF8))
+            {
+                return sr.ReadToEnd();
+            }
+        }
     }
 }

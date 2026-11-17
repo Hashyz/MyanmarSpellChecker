@@ -290,6 +290,144 @@ namespace MyanmarSpellChecker.ExcelAddIn.Interop
             return Array.Empty<SpreadsheetCellIssue>();
         }
 
+        public List<string> GetVisibleWorksheetNamesForActiveWorkbook()
+        {
+            var names = new List<string>();
+            if (!IsExcelReadyForInterop(_excelApp))
+                return names;
+
+            try
+            {
+                Excel.Workbook? wb = _excelApp.ActiveWorkbook;
+                if (wb == null)
+                    return names;
+
+                foreach (object rawSheet in wb.Worksheets)
+                {
+                    if (rawSheet is Excel.Worksheet ws)
+                    {
+                        bool visible = true;
+                        try { visible = ws.Visible == Excel.XlSheetVisibility.xlSheetVisible; } catch { }
+                        if (!visible)
+                            continue;
+
+                        string sName = SafeGetSheetName(ws);
+                        if (!string.IsNullOrWhiteSpace(sName))
+                            names.Add(sName);
+                    }
+                }
+            }
+            catch { }
+
+            return names;
+        }
+
+        public IReadOnlyList<SpreadsheetCellIssue> EnsureEntireWorkbookScannedForAuditReport()
+        {
+            if (_disposed || !IsExcelReadyForInterop(_excelApp))
+                return GetCachedIssuesForActiveWorkbook();
+
+            Excel.Workbook? wb = null;
+            try { wb = _excelApp.ActiveWorkbook; } catch { }
+            if (wb == null)
+                return Array.Empty<SpreadsheetCellIssue>();
+
+            string wbName = SafeGetWorkbookName(wb);
+            if (CurrentScope == SpreadsheetScanScope.EntireWorkbook &&
+                _scanMetaByWorkbook.TryGetValue(wbName, out var meta) &&
+                !meta.WasPartialAutoScan &&
+                !meta.WasCancelled &&
+                _issuesByWorkbook.TryGetValue(wbName, out var existingFull))
+            {
+                return existingFull;
+            }
+
+            var resolvedKeys = new HashSet<string>(StringComparer.Ordinal);
+            if (_issuesByWorkbook.TryGetValue(wbName, out var priorList))
+            {
+                foreach (var old in priorList)
+                {
+                    if (old.IsResolved)
+                    {
+                        resolvedKeys.Add($"{old.SheetName}|{old.Row}|{old.Column}|{old.Issue.StartIndex}|{old.Issue.OriginalText}");
+                    }
+                }
+            }
+
+            CancelActiveAsyncPipeline();
+            CurrentScope = SpreadsheetScanScope.EntireWorkbook;
+
+            var collected = new List<SpreadsheetCellIssue>();
+            var sharedMemo = new Dictionary<string, IReadOnlyList<ProofingIssue>>(StringComparer.Ordinal);
+            var consistencyAcc = new DocumentConsistencyAccumulator(_engine.StyleMode, _engine.Trie);
+            int cellBudget = 500_000;
+            long totalCells = 0;
+
+            try
+            {
+                foreach (object rawSheet in wb.Worksheets)
+                {
+                    if (cellBudget <= 0)
+                        break;
+
+                    if (rawSheet is Excel.Worksheet ws)
+                    {
+                        bool visible = true;
+                        try { visible = ws.Visible == Excel.XlSheetVisibility.xlSheetVisible; } catch { }
+                        if (!visible)
+                            continue;
+
+                        Excel.Range? used = SafeGetUsedRange(ws);
+                        if (used == null)
+                            continue;
+
+                        long cnt = SafeGetCountLarge(used);
+                        if (cnt <= 0)
+                            continue;
+                        totalCells += cnt;
+
+                        ScanWorksheetRangeReadOnly(wbName, ws, used, sharedMemo, collected, ref cellBudget, consistencyAcc);
+                    }
+                }
+
+                var consIssues = consistencyAcc.BuildSpreadsheetConsistencyIssues(wbName, 48);
+                if (consIssues.Count > 0)
+                    collected.AddRange(consIssues);
+
+                if (resolvedKeys.Count > 0)
+                {
+                    foreach (var item in collected)
+                    {
+                        if (resolvedKeys.Contains($"{item.SheetName}|{item.Row}|{item.Column}|{item.Issue.StartIndex}|{item.Issue.OriginalText}"))
+                            item.IsResolved = true;
+                    }
+                }
+
+                if (collected.Count > 1)
+                    collected.Sort(CompareIssuesByLocation);
+
+                _issuesByWorkbook[wbName] = collected;
+                _qualityByWorkbook.Remove(wbName);
+                _scanMetaByWorkbook[wbName] = new ExcelScanOutcomeMetadata
+                {
+                    IsEcoActive = _lastEcoActive,
+                    WasPartialAutoScan = false,
+                    WasCancelled = false,
+                    ScannedCellCount = totalCells,
+                    TotalScopeCells = totalCells
+                };
+
+                ScanCompleted?.Invoke(collected);
+                NotifyVisualUnderlinesInvalidated();
+                return collected;
+            }
+            catch (Exception ex)
+            {
+                AddInDiagnostics.LogException("EnsureEntireWorkbookScannedForAuditReport", ex);
+                return GetCachedIssuesForActiveWorkbook();
+            }
+        }
+
         public ExcelScanOutcomeMetadata? GetLastScanMetadataForActiveWorkbook()
         {
             string wbKey = GetActiveWorkbookKey();

@@ -396,6 +396,39 @@ namespace MyanmarSpellChecker.Core.Official
                 UiLocalizer.Pick("Logged in Tab 3 (3_Session_Fixed)", "Tab 3 တွင် အသေးစိတ်ကြည့်ရှုနိုင်သည်"),
                 StyleKpiGreen);
 
+            if (model.SectionBreakdowns != null && model.SectionBreakdowns.Count > 0)
+            {
+                rNo++;
+                rows.Add((rNo++, 25.0, new[]
+                {
+                    new CellSpec("#", StyleTableHeader),
+                    new CellSpec(UiLocalizer.Pick("Sheet / Slide / Page", "Sheet / ဆလိုက် / စာမျက်နှာ"), StyleTableHeader),
+                    new CellSpec(UiLocalizer.Pick("Confirmed Wrong", "သေချာအမှား"), StyleTableHeader),
+                    new CellSpec(UiLocalizer.Pick("Review Needed", "စိစစ်ရန်"), StyleTableHeader),
+                    new CellSpec(UiLocalizer.Pick("Total", "စုစုပေါင်း"), StyleTableHeader),
+                    new CellSpec(UiLocalizer.Pick("Status", "အခြေအနေ"), StyleTableHeader)
+                }));
+                for (int s = 0; s < model.SectionBreakdowns.Count; s++)
+                {
+                    var sec = model.SectionBreakdowns[s];
+                    int secStStyle = sec.ConfirmedWrongCount > 0
+                        ? StyleStatusWrongRed
+                        : (sec.SuspiciousReviewCount > 0 ? StyleStatusReviewYellow : StyleKpiGreen);
+                    string secBadge = sec.TotalIssues == 0
+                        ? UiLocalizer.Pick("✓ Clean (0 issues)", "✓ အမှားကင်း (0)")
+                        : UiLocalizer.Pick($"{sec.TotalIssues} finding(s)", $"တွေ့ရှိချက် {sec.TotalIssues} ခု");
+                    rows.Add((rNo++, 22.0, new[]
+                    {
+                        new CellSpec((s + 1).ToString(CultureInfo.InvariantCulture), StyleCellCenterBold),
+                        new CellSpec(sec.SectionName, StyleNormalWrap),
+                        new CellSpec(sec.ConfirmedWrongCount.ToString(CultureInfo.InvariantCulture), sec.ConfirmedWrongCount > 0 ? StyleWordWrongRed : StyleCellCenterBold),
+                        new CellSpec(sec.SuspiciousReviewCount.ToString(CultureInfo.InvariantCulture), sec.SuspiciousReviewCount > 0 ? StyleWordReviewYellow : StyleCellCenterBold),
+                        new CellSpec(sec.TotalIssues.ToString(CultureInfo.InvariantCulture), StyleCellCenterBold),
+                        new CellSpec(secBadge, secStStyle)
+                    }));
+                }
+            }
+
             rNo++;
             int repHeaderRow = rNo;
             rows.Add((rNo++, 26.0, new[]

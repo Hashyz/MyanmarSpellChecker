@@ -146,7 +146,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             };
 
             var btnExportCert = CreatePillButton(
-                UiLocalizer.Pick("✦ Export Audit Report (Word)", "✦ အစီရင်ခံစာ ထုတ်မည် (Word)"),
+                UiLocalizer.Pick("✦ Export Audit Report (A4 .docx)", "✦ A4 အစီရင်ခံစာ ထုတ်မည် (.docx)"),
                 Color.FromArgb(22, 78, 166), Color.White, Color.FromArgb(18, 66, 145), _fontSmallBold);
             btnExportCert.Click += (s, e) => RequestExportAuditCertificate?.Invoke();
 

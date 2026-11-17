@@ -21,7 +21,17 @@ namespace MyanmarSpellChecker.Core.Official
         FriendlyCsvSpreadsheet = 1,
         NativeOfficeDocument = 2,
         InteractiveHtmlAndPdf = 3,
-        CopySummaryToClipboard = 4
+        CopySummaryToClipboard = 4,
+        PrintableA4WordDocument = 5,
+        ExecutivePowerPointDeck = 6
+    }
+
+    public sealed class ProofingAuditSectionBreakdown
+    {
+        public string SectionName { get; set; } = string.Empty;
+        public int ConfirmedWrongCount { get; set; }
+        public int SuspiciousReviewCount { get; set; }
+        public int TotalIssues => ConfirmedWrongCount + SuspiciousReviewCount;
     }
 
     public sealed class ProofingAuditItemInput
@@ -165,7 +175,10 @@ namespace MyanmarSpellChecker.Core.Official
         public List<ProofingSessionFixedRecord> SessionFixedRecords { get; set; } = new List<ProofingSessionFixedRecord>();
 
         // Section A & Section B Tables
+        public int TotalUniqueGroupsCount { get; set; }
+        public List<ProofingAuditSectionBreakdown> SectionBreakdowns { get; set; } = new List<ProofingAuditSectionBreakdown>();
         public List<ProofingRepeatedWordGroup> TopRepeatedGroups { get; set; } = new List<ProofingRepeatedWordGroup>();
+        public List<ProofingRepeatedWordGroup> AllRepeatedGroups { get; set; } = new List<ProofingRepeatedWordGroup>();
         public List<ProofingAuditItemRow> AllItemsInDocumentOrder { get; set; } = new List<ProofingAuditItemRow>();
         public List<ProofingAuditItemRow> ConfirmedWrongItems { get; set; } = new List<ProofingAuditItemRow>();
         public List<ProofingAuditItemRow> SuspiciousReviewItems { get; set; } = new List<ProofingAuditItemRow>();
@@ -186,7 +199,8 @@ namespace MyanmarSpellChecker.Core.Official
             DocumentQualityReport? qualityReport,
             IReadOnlyList<ProofingAuditItemInput>? unresolvedInputs,
             IReadOnlyList<ProofingSessionFixedRecord>? sessionFixedRecords = null,
-            DateTime? nowOverride = null)
+            DateTime? nowOverride = null,
+            IReadOnlyList<string>? allOrderedSectionNames = null)
         {
             DateTime now = nowOverride ?? DateTime.Now;
             MyanmarDateInfo mmDate = MyanmarTraditionalCalendar.FromGregorian(now);
@@ -375,10 +389,11 @@ namespace MyanmarSpellChecker.Core.Official
             model.SuspiciousRatePercent = Math.Min(100.0, Math.Round((model.SuspiciousReviewCount * 100.0) / denomWords, 2));
             model.CleanAccuracyPercent = Math.Max(0.0, Math.Round(100.0 - model.ConfirmedWrongRatePercent - model.SuspiciousRatePercent, 2));
 
-            model.TopRepeatedGroups = groupBuckets
+            model.TotalUniqueGroupsCount = groupBuckets.Count;
+            var allSortedGroups = groupBuckets
                 .OrderByDescending(kv => kv.Value.Count)
                 .ThenByDescending(kv => kv.Value.Confirmed)
-                .Take(30)
+                .Take(500)
                 .Select(kv =>
                 {
                     var g = kv.Value;
@@ -406,6 +421,56 @@ namespace MyanmarSpellChecker.Core.Official
                 })
                 .ToList();
 
+            model.AllRepeatedGroups = allSortedGroups;
+            model.TopRepeatedGroups = allSortedGroups.Take(30).ToList();
+
+            // Build Per-Sheet / Per-Slide / Per-Page Breakdown across ALL sections (including clean 0-issue sheets/slides!)
+            var secMap = new Dictionary<string, ProofingAuditSectionBreakdown>(StringComparer.OrdinalIgnoreCase);
+            var secOrder = new List<string>();
+            if (allOrderedSectionNames != null)
+            {
+                for (int s = 0; s < allOrderedSectionNames.Count; s++)
+                {
+                    string secName = (allOrderedSectionNames[s] ?? string.Empty).Trim();
+                    if (secName.Length > 0 && !secMap.ContainsKey(secName))
+                    {
+                        var bd = new ProofingAuditSectionBreakdown { SectionName = secName };
+                        secMap[secName] = bd;
+                        secOrder.Add(secName);
+                    }
+                }
+            }
+
+            for (int i = 0; i < model.AllItemsInDocumentOrder.Count; i++)
+            {
+                var r = model.AllItemsInDocumentOrder[i];
+                string secKey = !string.IsNullOrWhiteSpace(r.PageOrSheetLabel)
+                    ? r.PageOrSheetLabel.Trim()
+                    : UiLocalizer.Pick("Main Content", "ပင်မစာသား");
+                if (!secMap.TryGetValue(secKey, out var bd))
+                {
+                    bd = new ProofingAuditSectionBreakdown { SectionName = secKey };
+                    secMap[secKey] = bd;
+                    secOrder.Add(secKey);
+                }
+                if (r.IsConfirmedWrong)
+                    bd.ConfirmedWrongCount++;
+                else
+                    bd.SuspiciousReviewCount++;
+            }
+
+            if (secOrder.Count == 0)
+            {
+                string fallbackSec = UiLocalizer.Pick("Full Document", "စာတမ်းတစ်ခုလုံး");
+                secMap[fallbackSec] = new ProofingAuditSectionBreakdown { SectionName = fallbackSec };
+                secOrder.Add(fallbackSec);
+            }
+
+            for (int s = 0; s < secOrder.Count; s++)
+            {
+                model.SectionBreakdowns.Add(secMap[secOrder[s]]);
+            }
+
             return model;
         }
 
@@ -425,6 +490,29 @@ namespace MyanmarSpellChecker.Core.Official
             string loc = (item.LocationLabel ?? string.Empty).Trim();
             if (loc.Length == 0)
                 return;
+
+            // PowerPoint pattern: "Slide 2 - Table [R2,C3]" or "ဆလိုက် 2 - Title 1" or "Master:Theme - #9"
+            int dashIdx = loc.IndexOf(" - ", StringComparison.Ordinal);
+            if (dashIdx > 0 && dashIdx < loc.Length - 3 &&
+                (loc.StartsWith("Slide ", StringComparison.OrdinalIgnoreCase) ||
+                 loc.StartsWith("ဆလိုက် ", StringComparison.Ordinal) ||
+                 loc.StartsWith("Master:", StringComparison.OrdinalIgnoreCase) ||
+                 loc.StartsWith("Layout:", StringComparison.OrdinalIgnoreCase) ||
+                 loc.StartsWith("မူရင်းပုံစံ", StringComparison.Ordinal)))
+            {
+                pageOrSheet = loc.Substring(0, dashIdx).Trim();
+                paraOrCell = loc.Substring(dashIdx + 3).Trim();
+                int lineCount = 1;
+                string snap = item.ContextSnippet ?? string.Empty;
+                int limit = Math.Min(snap.Length, Math.Max(0, item.Issue?.StartIndex ?? 0));
+                for (int i = 0; i < limit; i++)
+                {
+                    if (snap[i] == '\n' || snap[i] == '\r' || snap[i] == '\v')
+                        lineCount++;
+                }
+                lineLbl = UiLocalizer.Pick($"Line {lineCount}", $"လိုင်း {lineCount}");
+                return;
+            }
 
             // Excel pattern: "Sheet1!C14"
             int bangIdx = loc.IndexOf('!');
@@ -571,6 +659,30 @@ namespace MyanmarSpellChecker.Core.Official
                 Csv($"Review Needed: {model.SuspiciousReviewCount}"),
                 Csv($"Fixed in Session: {model.SessionFixedCount}")));
             sb.AppendLine();
+
+            if (model.SectionBreakdowns.Count > 0)
+            {
+                sb.AppendLine(string.Join(",",
+                    Csv(UiLocalizer.Pick("Sheet / Slide / Page Breakdown", "Sheet / ဆလိုက် / စာမျက်နှာအလိုက် အနှစ်ချုပ်")),
+                    Csv(UiLocalizer.Pick("Confirmed Wrong", "သေချာအမှား")),
+                    Csv(UiLocalizer.Pick("Review Needed", "စိစစ်ရန်")),
+                    Csv(UiLocalizer.Pick("Total Findings", "စုစုပေါင်း")),
+                    Csv(UiLocalizer.Pick("Status", "အခြေအနေ"))));
+                for (int s = 0; s < model.SectionBreakdowns.Count; s++)
+                {
+                    var sec = model.SectionBreakdowns[s];
+                    string st = sec.TotalIssues == 0
+                        ? UiLocalizer.Pick("✓ Clean", "✓ အမှားကင်း")
+                        : UiLocalizer.Pick("Needs Review/Fix", "စိစစ်ပြင်ဆင်ရန်");
+                    sb.AppendLine(string.Join(",",
+                        Csv(sec.SectionName),
+                        sec.ConfirmedWrongCount.ToString(CultureInfo.InvariantCulture),
+                        sec.SuspiciousReviewCount.ToString(CultureInfo.InvariantCulture),
+                        sec.TotalIssues.ToString(CultureInfo.InvariantCulture),
+                        Csv(st)));
+                }
+                sb.AppendLine();
+            }
 
             // Main Unified Document-Order Table
             sb.AppendLine(string.Join(",",

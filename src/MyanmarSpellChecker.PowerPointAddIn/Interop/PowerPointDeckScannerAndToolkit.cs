@@ -229,6 +229,70 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
             return Array.Empty<PresentationSlideIssue>();
         }
 
+        public List<string> GetAllSlideDisplayNamesForActivePresentation()
+        {
+            var names = new List<string>();
+            if (!IsPowerPointReadyForInterop(_pptApp))
+                return names;
+
+            try
+            {
+                PowerPoint.Presentation pres = _pptApp.ActivePresentation;
+                int count = pres?.Slides != null ? pres.Slides.Count : 0;
+                bool en = UiLocalizer.IsEnglish;
+                for (int i = 1; i <= count; i++)
+                {
+                    names.Add(en
+                        ? $"Slide {i.ToString(CultureInfo.InvariantCulture)}"
+                        : $"ဆလိုက် {i.ToString(CultureInfo.InvariantCulture)}");
+                }
+            }
+            catch { }
+
+            return names;
+        }
+
+        public IReadOnlyList<PresentationSlideIssue> EnsureEntirePresentationScannedForAuditReport()
+        {
+            if (_disposed || IsSlideShowRunning || !IsPowerPointReadyForInterop(_pptApp))
+                return GetCachedIssuesForActivePresentation();
+
+            string presKey = GetActivePresentationKey();
+            if (string.IsNullOrEmpty(presKey))
+                return Array.Empty<PresentationSlideIssue>();
+
+            if (CurrentScope == PresentationScanScope.EntirePresentation &&
+                _scanMetaByPresentation.TryGetValue(presKey, out var meta) &&
+                !meta.WasCancelled &&
+                _issuesByPresentation.TryGetValue(presKey, out var existingFull))
+            {
+                return existingFull;
+            }
+
+            var resolvedKeys = new HashSet<string>(StringComparer.Ordinal);
+            if (_issuesByPresentation.TryGetValue(presKey, out var priorList))
+            {
+                foreach (var old in priorList)
+                {
+                    if (old.IsResolved)
+                    {
+                        resolvedKeys.Add($"{old.Target.BuildTargetKey()}|{old.Issue.StartIndex}|{old.Issue.OriginalText}");
+                    }
+                }
+            }
+
+            var scanned = RunScan(PresentationScanScope.EntirePresentation, userInitiated: false);
+            if (resolvedKeys.Count > 0)
+            {
+                foreach (var item in scanned)
+                {
+                    if (resolvedKeys.Contains($"{item.Target.BuildTargetKey()}|{item.Issue.StartIndex}|{item.Issue.OriginalText}"))
+                        item.IsResolved = true;
+                }
+            }
+            return scanned;
+        }
+
         public DocumentQualityReport? GetCachedQualityForActivePresentation()
         {
             string key = GetActivePresentationKey();

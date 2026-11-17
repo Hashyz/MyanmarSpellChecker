@@ -447,23 +447,27 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
             _btnReportMenu.Click += (s, e) =>
             {
                 _reportMenu.Items.Clear();
-                var miXlsx = new ToolStripMenuItem(UiLocalizer.Pick(
-                    "▤ Friendly Excel Report (.xlsx — Recommended)",
-                    "▤ ဖတ်ရလွယ်ကူသော Excel အစီရင်ခံစာ (.xlsx — အကြံပြု)")) { Font = _fontBodyBold };
-                miXlsx.Click += (_, __) => _callbacks.OnExportReport?.Invoke(ProofingReportExportFormat.FriendlyExcelWorkbook);
-                _reportMenu.Items.Add(miXlsx);
+                var miDocx = new ToolStripMenuItem(UiLocalizer.Pick(
+                    "▤ Printable A4 Word Report (.docx — Recommended)",
+                    "▤ ပုံနှိပ်ရန်အသင့် A4 Word အစီရင်ခံစာ (.docx — အကြံပြု)")) { Font = _fontBodyBold };
+                miDocx.Click += (_, __) => _callbacks.OnExportReport?.Invoke(ProofingReportExportFormat.PrintableA4WordDocument);
+                _reportMenu.Items.Add(miDocx);
 
                 _reportMenu.Items.Add(
-                    UiLocalizer.Pick("▤ Friendly CSV Report (.csv UTF-8)", "▤ CSV ဇယားဖိုင် အစီရင်ခံစာ (.csv)"),
+                    UiLocalizer.Pick("▤ Multi-Sheet Excel Report (.xlsx)", "▤ Multi-Sheet Excel အစီရင်ခံစာ (.xlsx)"),
+                    null,
+                    (_, __) => _callbacks.OnExportReport?.Invoke(ProofingReportExportFormat.FriendlyExcelWorkbook));
+                _reportMenu.Items.Add(
+                    UiLocalizer.Pick("▤ UTF-8 CSV Spreadsheet (.csv)", "▤ UTF-8 CSV ဇယားဖိုင် (.csv)"),
                     null,
                     (_, __) => _callbacks.OnExportReport?.Invoke(ProofingReportExportFormat.FriendlyCsvSpreadsheet));
+                _reportMenu.Items.Add(
+                    UiLocalizer.Pick("▤ PowerPoint Executive Summary (.pptx)", "▤ PowerPoint အမှုဆောင် ဆလိုက်တွဲ (.pptx)"),
+                    null,
+                    (_, __) => _callbacks.OnExportReport?.Invoke(ProofingReportExportFormat.ExecutivePowerPointDeck));
                 _reportMenu.Items.Add(new ToolStripSeparator());
                 _reportMenu.Items.Add(
-                    UiLocalizer.Pick("▤ Open 4-Sheet Audit Workbook in Excel", "▤ Excel အတွင်း Sheet ၄ ခုပါ Workbook ဖွင့်မည်"),
-                    null,
-                    (_, __) => _callbacks.OnExportReport?.Invoke(ProofingReportExportFormat.NativeOfficeDocument));
-                _reportMenu.Items.Add(
-                    UiLocalizer.Pick("◈ Print-Ready HTML / Save PDF", "◈ HTML / PDF ပုံနှိပ်အစီရင်ခံစာ"),
+                    UiLocalizer.Pick("◈ Interactive HTML / Save as PDF", "◈ HTML / PDF ပုံနှိပ်အစီရင်ခံစာ"),
                     null,
                     (_, __) => _callbacks.OnExportReport?.Invoke(ProofingReportExportFormat.InteractiveHtmlAndPdf));
                 _reportMenu.Items.Add(new ToolStripSeparator());

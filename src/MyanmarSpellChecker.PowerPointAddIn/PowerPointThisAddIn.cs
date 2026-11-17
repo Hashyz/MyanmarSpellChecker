@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Htet Yar Zar (ထက်ရာဇာ)
 // M.Sc. Part II Candidate in Geology (M.Sc. Part I Completed), Department of Geology, Kyaukse University
 // Kyaukse, Mandalay Region, Myanmar. Preserving author attribution is mandatory under GPLv3 Section 7(b) (see NOTICE).
@@ -1204,7 +1204,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             ctrl.RequestRefreshQualityReport += () =>
                 _scannerToolkit?.BuildActivePresentationQualityReport(forceRefresh: true) ?? new DocumentQualityReport();
             ctrl.RequestExportAuditWorkbook += () =>
-                ExecuteExportPowerPointProofingReport(ProofingReportExportFormat.FriendlyExcelWorkbook);
+                ExecuteExportPowerPointProofingReport(ProofingReportExportFormat.PrintableA4WordDocument);
             ctrl.RequestExportProofingReport += ExecuteExportPowerPointProofingReport;
         }
 
@@ -1245,19 +1245,34 @@ namespace MyanmarSpellChecker.PowerPointAddIn
         private ProofingAuditReportModel BuildActivePresentationProofingAuditReportModel()
         {
             string presTitle = GetActivePresentationTitle();
+            var orderedSlides = _scannerToolkit?.GetAllSlideDisplayNamesForActivePresentation() ?? new List<string>();
+            var allDeckIssues = _scannerToolkit != null
+                ? _scannerToolkit.EnsureEntirePresentationScannedForAuditReport()
+                : Array.Empty<PresentationSlideIssue>();
+            var unresolved = allDeckIssues.Where(i => !i.IsResolved).ToList();
             var qReport = _scannerToolkit?.BuildActivePresentationQualityReport(forceRefresh: true) ?? new DocumentQualityReport();
-            var unresolved = _scannerToolkit != null
-                ? _scannerToolkit.GetCachedIssuesForActivePresentation().Where(i => !i.IsResolved).ToList()
-                : new List<PresentationSlideIssue>();
 
+            bool en = UiLocalizer.IsEnglish;
             var auditInputs = unresolved
-                .Select(item => new ProofingAuditItemInput(
-                    item.DisplayLocation,
-                    item.SnapshotText,
-                    item.Issue,
-                    (item.Issue.Suggestions != null && item.Issue.Suggestions.Count > 0)
-                        ? item.Issue.Suggestions[0].Replacement
-                        : string.Empty))
+                .Select(item =>
+                {
+                    string slideLabel = item.ContainerKind == PresentationContainerKind.SlideMasterShape
+                        ? (string.IsNullOrWhiteSpace(item.Target.MasterOrLayoutName)
+                            ? (en ? "Master" : "မူရင်းပုံစံ")
+                            : item.Target.MasterOrLayoutName)
+                        : (en
+                            ? $"Slide {item.SlideNumber}"
+                            : $"ဆလိုက် {item.SlideNumber}");
+                    return new ProofingAuditItemInput(
+                        item.DisplayLocation,
+                        item.SnapshotText,
+                        item.Issue,
+                        (item.Issue.Suggestions != null && item.Issue.Suggestions.Count > 0)
+                            ? item.Issue.Suggestions[0].Replacement
+                            : string.Empty,
+                        pageOrSheetLabel: slideLabel,
+                        paragraphOrCellLabel: item.Target.ShapeName);
+                })
                 .ToList();
 
             IReadOnlyList<ProofingSessionFixedRecord> sessionFixed =
@@ -1271,7 +1286,8 @@ namespace MyanmarSpellChecker.PowerPointAddIn
                 _proofingEngine?.StyleMode ?? _pendingStyleMode,
                 qReport,
                 auditInputs,
-                sessionFixed);
+                sessionFixed,
+                allOrderedSectionNames: orderedSlides.Count > 0 ? orderedSlides : null);
         }
 
         private void ExecuteExportPowerPointProofingReport(ProofingReportExportFormat format)
@@ -1281,11 +1297,33 @@ namespace MyanmarSpellChecker.PowerPointAddIn
 
             ProofingAuditReportModel model = BuildActivePresentationProofingAuditReportModel();
             var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+            ctrl?.SetScanScope(_scannerToolkit.CurrentScope);
 
             switch (format)
             {
-                case ProofingReportExportFormat.FriendlyExcelWorkbook:
+                case ProofingReportExportFormat.PrintableA4WordDocument:
                 case ProofingReportExportFormat.NativeOfficeDocument:
+                {
+                    try
+                    {
+                        string docxPath = ProofingAuditWordDocumentExporter.SavePrintableA4DocxToDisk(model);
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(docxPath)
+                        {
+                            UseShellExecute = true
+                        });
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            $"✓ Opened Printable A4 Word Audit Report (.docx — all {Math.Max(1, model.SectionBreakdowns.Count)} slide(s) audited: {model.ConfirmedWrongCount} wrong • {model.SuspiciousReviewCount} review).",
+                            $"✓ ဆလိုက်အားလုံး ({Math.Max(1, model.SectionBreakdowns.Count)} ချပ်) ပါဝင်သော ပုံနှိပ်ရန်အသင့် A4 Word အစီရင်ခံစာ (.docx) ကို ဖွင့်ပေးပြီးပါပြီ။"));
+                    }
+                    catch
+                    {
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            "⚠ Could not save or open the Printable A4 Word (.docx) Audit Report.",
+                            "⚠ A4 Word (.docx) အစီရင်ခံစာ ဖွင့်ရာတွင် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"), isSuccess: false);
+                    }
+                    break;
+                }
+                case ProofingReportExportFormat.FriendlyExcelWorkbook:
                 {
                     try
                     {
@@ -1295,13 +1333,13 @@ namespace MyanmarSpellChecker.PowerPointAddIn
                             UseShellExecute = true
                         });
                         ctrl?.ShowToastBanner(UiLocalizer.Pick(
-                            $"✓ Opened Friendly Excel Audit Report (.xlsx — {model.ConfirmedWrongCount} wrong • {model.SuspiciousReviewCount} review needed).",
-                            $"✓ ဖတ်ရလွယ်ကူသော Excel အစီရင်ခံစာ (.xlsx) ကို ဖွင့်ပေးပြီးပါပြီ (သေချာမှား {model.ConfirmedWrongCount} • စိစစ်ရန် {model.SuspiciousReviewCount})။"));
+                            $"✓ Opened Multi-Sheet Excel Audit Report (.xlsx — {model.ConfirmedWrongCount} wrong • {model.SuspiciousReviewCount} review needed).",
+                            $"✓ Multi-Sheet Excel အစီရင်ခံစာ (.xlsx) ကို ဖွင့်ပေးပြီးပါပြီ (သေချာမှား {model.ConfirmedWrongCount} • စိစစ်ရန် {model.SuspiciousReviewCount})။"));
                     }
                     catch
                     {
                         ctrl?.ShowToastBanner(UiLocalizer.Pick(
-                            "⚠ Could not open the Friendly Excel (.xlsx) Audit Report.",
+                            "⚠ Could not open the Excel (.xlsx) Audit Report.",
                             "⚠ Excel (.xlsx) အစီရင်ခံစာ ဖွင့်ရာတွင် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"), isSuccess: false);
                     }
                     break;
@@ -1324,6 +1362,27 @@ namespace MyanmarSpellChecker.PowerPointAddIn
                         ctrl?.ShowToastBanner(UiLocalizer.Pick(
                             "⚠ Could not save or open the CSV Audit Report.",
                             "⚠ CSV အစီရင်ခံစာ သိမ်းဆည်းရာတွင် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"), isSuccess: false);
+                    }
+                    break;
+                }
+                case ProofingReportExportFormat.ExecutivePowerPointDeck:
+                {
+                    try
+                    {
+                        string pptxPath = ProofingAuditPresentationExporter.SaveExecutivePptxToDisk(model);
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(pptxPath)
+                        {
+                            UseShellExecute = true
+                        });
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            $"✓ Opened PowerPoint Executive Audit Deck (.pptx — 4 widescreen slides).",
+                            $"✓ PowerPoint အမှုဆောင် အစီရင်ခံစာ ဆလိုက်တွဲ (.pptx — ဆလိုက် ၄ ချပ်) ကို ဖွင့်ပေးပြီးပါပြီ။"));
+                    }
+                    catch
+                    {
+                        ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                            "⚠ Could not save or open the PowerPoint (.pptx) Executive Summary.",
+                            "⚠ PowerPoint (.pptx) ဆလိုက်တွဲ ဖွင့်ရာတွင် အခက်အခဲ ဖြစ်ပေါ်ပါသည်။"), isSuccess: false);
                     }
                     break;
                 }
@@ -2469,7 +2528,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
         {
             AddInDiagnostics.SafeExecute("OnRibbonExportAuditReport", () =>
             {
-                ExecuteExportPowerPointProofingReport(ProofingReportExportFormat.FriendlyExcelWorkbook);
+                ExecuteExportPowerPointProofingReport(ProofingReportExportFormat.PrintableA4WordDocument);
             });
         }
 

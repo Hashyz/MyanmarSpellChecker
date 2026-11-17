@@ -103,7 +103,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             };
 
             var btnExport = CreateActionButton(
-                UiLocalizer.Pick("↓ Export Audit Excel", "↓ အစီရင်ခံစာ Excel ထုတ်မည်"),
+                UiLocalizer.Pick("↓ Export A4 Report (.docx)", "↓ A4 အစီရင်ခံစာ (.docx)"),
                 Color.FromArgb(16, 124, 65),
                 Color.White,
                 Color.FromArgb(14, 102, 53),
