@@ -10,7 +10,7 @@
     <Package InstallerVersion="500"
              Compressed="yes"
              InstallScope="perMachine"
-             Description="100% Offline Myanmar (Burmese) Spell and Grammar Checker Add-in for Microsoft Word" />
+             Description="100% Offline Myanmar (Burmese) Spell and Grammar Checker Suite for Microsoft Word, Excel, and PowerPoint" />
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of Myanmar Spell Checker is already installed." />
     <MediaTemplate EmbedCab="yes" />
@@ -26,24 +26,46 @@
     </Directory>
 
     <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
-      <!-- Self-Contained 2-DLL Pure .NET Framework 4.8 Architecture (Zero 3rd-party unsigned DLLs) -->
+      <!-- Self-Contained 3-in-1 Office Suite Pure .NET Framework 4.8 Architecture (Zero 3rd-party unsigned DLLs) -->
       <Component Id="Cmp_AddInBinaries" Guid="3D11A9C0-4F22-4B78-9A11-88C2D4E5F601" Win64="yes">
-        <File Id="File_CoreDll" Source="..\src\MyanmarSpellChecker.WordAddIn\bin\Release\net48\MyanmarSpellChecker.Core.dll" KeyPath="yes" />
-        <File Id="File_AddInDll" Source="..\src\MyanmarSpellChecker.WordAddIn\bin\Release\net48\MyanmarSpellChecker.WordAddIn.dll" />
+        <File Id="File_CoreDll" Source="..\src\MyanmarSpellChecker.PowerPointAddIn\bin\Release\net48\MyanmarSpellChecker.Core.dll" KeyPath="yes" />
+        <File Id="File_WordAddInDll" Source="..\src\MyanmarSpellChecker.WordAddIn\bin\Release\net48\MyanmarSpellChecker.WordAddIn.dll" />
+        <File Id="File_ExcelAddInDll" Source="..\src\MyanmarSpellChecker.ExcelAddIn\bin\Release\net48\MyanmarSpellChecker.ExcelAddIn.dll" />
+        <File Id="File_PowerPointAddInDll" Source="..\src\MyanmarSpellChecker.PowerPointAddIn\bin\Release\net48\MyanmarSpellChecker.PowerPointAddIn.dll" />
 
-        <!-- Register for 64-bit MS Word -->
+        <!-- Register for 64-bit MS Word, Excel & PowerPoint -->
         <RegistryKey Root="HKLM" Key="Software\Microsoft\Office\Word\Addins\MyanmarSpellChecker.WordAddIn">
           <RegistryValue Type="string" Name="FriendlyName" Value="မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း စစ်ဆေးရေး" />
-          <RegistryValue Type="string" Name="Description" Value="Myanmar Official Offline Spell &amp; Grammar Checker (B2G Edition)" />
+          <RegistryValue Type="string" Name="Description" Value="Myanmar Official Offline Spell &amp; Grammar Checker (Word)" />
+          <RegistryValue Type="integer" Name="LoadBehavior" Value="3" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Microsoft\Office\Excel\Addins\MyanmarSpellChecker.ExcelAddIn">
+          <RegistryValue Type="string" Name="FriendlyName" Value="မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း စစ်ဆေးရေး (Excel)" />
+          <RegistryValue Type="string" Name="Description" Value="Myanmar Official Offline Formula-Safe Spell &amp; Grammar Checker (Excel)" />
+          <RegistryValue Type="integer" Name="LoadBehavior" Value="3" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn">
+          <RegistryValue Type="string" Name="FriendlyName" Value="မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း စစ်ဆေးရေး (PowerPoint)" />
+          <RegistryValue Type="string" Name="Description" Value="Myanmar Official Offline Zero-Mutation Spell &amp; Grammar Checker (PowerPoint)" />
           <RegistryValue Type="integer" Name="LoadBehavior" Value="3" />
         </RegistryKey>
       </Component>
 
-      <!-- Register for 32-bit MS Word on 64-bit Windows (WOW6432Node) -->
+      <!-- Register for 32-bit MS Word, Excel & PowerPoint on 64-bit Windows (WOW6432Node) -->
       <Component Id="Cmp_Office32Registry" Guid="7E22B8D1-5A33-4C89-8B22-99D3E5F6A702" Win64="no">
         <RegistryKey Root="HKLM" Key="Software\Microsoft\Office\Word\Addins\MyanmarSpellChecker.WordAddIn">
           <RegistryValue Type="string" Name="FriendlyName" Value="မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း စစ်ဆေးရေး" />
-          <RegistryValue Type="string" Name="Description" Value="Myanmar Official Offline Spell &amp; Grammar Checker (B2G Edition)" />
+          <RegistryValue Type="string" Name="Description" Value="Myanmar Official Offline Spell &amp; Grammar Checker (Word)" />
+          <RegistryValue Type="integer" Name="LoadBehavior" Value="3" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Microsoft\Office\Excel\Addins\MyanmarSpellChecker.ExcelAddIn">
+          <RegistryValue Type="string" Name="FriendlyName" Value="မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း စစ်ဆေးရေး (Excel)" />
+          <RegistryValue Type="string" Name="Description" Value="Myanmar Official Offline Formula-Safe Spell &amp; Grammar Checker (Excel)" />
+          <RegistryValue Type="integer" Name="LoadBehavior" Value="3" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn">
+          <RegistryValue Type="string" Name="FriendlyName" Value="မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း စစ်ဆေးရေး (PowerPoint)" />
+          <RegistryValue Type="string" Name="Description" Value="Myanmar Official Offline Zero-Mutation Spell &amp; Grammar Checker (PowerPoint)" />
           <RegistryValue Type="integer" Name="LoadBehavior" Value="3" />
         </RegistryKey>
       </Component>
@@ -56,7 +78,7 @@
       </Component>
     </ComponentGroup>
 
-    <Feature Id="ProductFeature" Title="Myanmar Spell Checker Word Add-in" Level="1">
+    <Feature Id="ProductFeature" Title="Myanmar Spell Checker Office Suite (Word + Excel + PowerPoint)" Level="1">
       <ComponentGroupRef Id="ProductComponents" />
       <ComponentGroupRef Id="DataComponents" />
     </Feature>

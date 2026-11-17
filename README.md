@@ -1,11 +1,11 @@
-# မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း — Enterprise Offline Myanmar Proofing, Grammar & Dictionary Suite for Microsoft Word & Excel
+# မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း — Enterprise Offline Myanmar Proofing, Grammar & Dictionary Suite for Microsoft Word, Excel & PowerPoint
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3%20%2B%20Section%207b%20Attribution-blue.svg)](./LICENSE)
-[![Platform](https://img.shields.io/badge/Office-Microsoft%20Word%20%26%20Excel-107C41.svg)](#how-to-install--use-the-plugin-word--excel-user-guide)
+[![Platform](https://img.shields.io/badge/Office-Word%20%7C%20Excel%20%7C%20PowerPoint-107C41.svg)](#how-to-install--use-the-plugin-word-excel--powerpoint-user-guide)
 [![Runtime](https://img.shields.io/badge/.NET%20Framework-4.8%20(100%25%20Offline)-512BD4.svg)](#)
 [![Author](https://img.shields.io/badge/Author-Htet%20Yar%20Zar%20(%E1%80%91%E1%80%80%E1%80%BA%E1%80%9B%E1%80%AC%E1%80%87%E1%80%AC)-0B57D0.svg)](./NOTICE)
 
-100% Offline, Air-Gapped **Microsoft Word + Microsoft Excel** Desktop COM Add-in Suite (`.NET Framework 4.8`, `AnyCPU`) engineered for Government Ministries (`B2G`), Universities, Enterprises, Publishers, Accountants, and General Writers.
+100% Offline, Air-Gapped **Microsoft Word + Microsoft Excel + Microsoft PowerPoint** Unified 3-in-1 Desktop COM Add-in Suite (`.NET Framework 4.8`, `AnyCPU`) engineered for Government Ministries (`B2G`), Universities, Enterprises, Publishers, Accountants, Educators, and Presenters.
 
 Built on the complete 462-page **"မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း"** (Myanmar Language Commission), **"မြန်မာအဘိဓာန်"**, **57,064+ Bilingual English ⇄ Myanmar Lexicon (`အင်္ဂလိပ် ⇄ မြန်မာ အဘိဓာန်`)**, **25,000+ Offline Encyclopedia (`စွယ်စုံဗဟုသုတကျမ်း`)**, **MLIS/MOI Union Statutory Laws**, **MIMU v9.7 / GAD Multi-Tier Gazetteer**, **"ရုံးသုံးမြန်မာစာ"**, and **8 Specialized Academic, Government & Enterprise Domains** (including **Geology & Earth Sciences / ဘူမိဗေဒနှင့် မြေကမ္ဘာသိပ္ပံ**, **Public Administration & Civil Service**, and **Higher Education & Universities**).
 
@@ -32,24 +32,24 @@ This project is open-source software licensed under the **[GNU General Public Li
 
 ---
 
-## How to Install & Use the Plugin (Word & Excel User Guide)
+## How to Install & Use the Plugin (Word, Excel & PowerPoint User Guide)
 
 ### System Requirements
 - **OS:** Windows 10 or Windows 11 (64-bit or 32-bit)
-- **Microsoft Office:** Microsoft Word & Microsoft Excel **2016 / 2019 / 2021 / Office 365** (Desktop Edition)
+- **Microsoft Office:** Microsoft Word, Microsoft Excel & Microsoft PowerPoint **2016 / 2019 / 2021 / Office 365** (Desktop Edition)
 - **Runtime:** `.NET Framework 4.8` (already pre-installed on Windows 10/11 — **no `.NET SDK` required** for installation; `.NET SDK` is only needed if editing/recompiling C# source code)
 - **Recommended Font:** **Pyidaungsu** Unicode Font (for crisp Myanmar rendering)
 
 ---
 
-### Step 1 — Install & Register the Add-in (Word + Excel)
+### Step 1 — Install & Register the Unified 3-in-1 Suite (Word + Excel + PowerPoint)
 
 #### Option A — 1-Click Friendly Setup (Recommended for All Users — Zero `.NET SDK` / Zero Admin Needed)
-1. **Download or Clone:** Click **`Code ➔ Download ZIP`** on GitHub *(or download `MyanmarSpellChecker-EasySetup-Word-Excel.zip`)* and **Right-click the `.zip` file ➔ `Extract All...`** into a normal folder first.
-2. **Close Microsoft Word and Microsoft Excel** (save any open documents first).
+1. **Download or Clone:** Click **`Code ➔ Download ZIP`** on GitHub *(or download `MyanmarSpellChecker-EasySetup-OfficeSuite.zip`)* and **Right-click the `.zip` file ➔ `Extract All...`** into a normal folder first.
+2. **Close Microsoft Word, Excel, and PowerPoint** (save any open documents first).
 3. **Double-click `Install-MyanmarSpellChecker.bat`** inside the extracted folder *(or **`Install-EasyUser.bat`** inside the standalone Release ZIP — **no PowerShell commands, no `.NET SDK`, and no Administrator password required!**)*.
-4. A friendly confirmation popup (`✓ Installed successfully!`) will appear once the **15.06 MB (`95,225` spellcheck headwords + `57,064` Bilingual `EN ⇄ MM` entries + `25,001` Encyclopedia articles = `181,497` compiled entries)** offline dictionary and both Word + Excel Add-ins are installed into `%LocalAppData%\MyanmarSpellChecker\app`.
-5. **Open Microsoft Word or Microsoft Excel** — you will see the **`Myanmar Proofing`** Ribbon tab and the **4-Tab Myanmar Spell Checker Task Pane** docked on the right!
+4. A friendly confirmation popup (`✓ Installed successfully!`) will appear once the **15.06 MB (`95,225` spellcheck headwords + `57,064` Bilingual `EN ⇄ MM` entries + `25,001` Encyclopedia articles = `181,497` compiled entries)** offline dictionary and all three **Word + Excel + PowerPoint** Add-ins are installed into `%LocalAppData%\MyanmarSpellChecker\app`.
+5. **Open Microsoft Word, Excel, or PowerPoint** — you will see the **`Myanmar Proofing`** Ribbon tab and the **4-Tab Myanmar Spell Checker Task Pane** docked on the right!
    - **Default UI Language is English (`🌐 EN`)** — click **`🌐 EN` ⇄ `🌐 မြန်မာ`** in the Task Pane header (or **`UI: English ➔ မြန်မာ`** on the Ribbon) anytime to switch the entire interface live between **English** and **Myanmar (`မြန်မာ`)** without restarting Word or Excel!
 
 #### Option B — Developer CLI Setup (From `git clone`)
@@ -127,8 +127,22 @@ The Excel Add-in provides **100% Non-Destructive Screen-Only Wavy Underlines, Wo
 
 ---
 
-### Step 4 — Uninstalling or Updating
-- **1-Click Friendly Uninstall:** Close Word & Excel and double-click **`Uninstall-MyanmarSpellChecker.bat`** (or `Uninstall-EasyUser.bat`).
+### Step 4 — How to Use in Microsoft PowerPoint (`မြန်မာစာ စစ်ဆေးရေး` Tab)
+
+1. **Deep Multi-Container Slide & Notes Scanning:**
+   - Checks **Slide TextBoxes, Titles, Subtitles, Bullet Placeholders, Slide Tables (`[Row, Col]`), Recursively Nested Grouped Shapes (`GroupItems`), and Speaker Notes** — plus an optional **`Include Masters`** toggle for Slide Masters & Custom Layouts!
+   - **Live Active-Slide Auto-Scan (`450 ms` idle debounce) + 1-Click `All Slides` Deck Scan** with cross-slide variant consistency harmonization (e.g., `ကော်မတီ` vs. `ကော်မီတီ` across slides).
+2. **100% Zero-Formatting-Mutation Wavy Overlay & Slide Show (`F5`) Shield:**
+   - Draws crisp Red, Blue, and Amber wavy squiggles on a click-through Win32 transparent overlay via `TextRange` screen bounds — **never modifying `.pptx` font colors, underlines, themes, or animations**.
+   - **Automatically suspends** scanning, overlays, and popups whenever **Slide Show (`F5` / Presenter View)** starts so live presentations run at 100% native frame rate with zero popups!
+3. **Surgical Character-Span Fixes & Presentation Toolkit (`ကိရိယာ`):**
+   - Applies replacements via 1-based `TextRange.Characters(start + 1, len).Text` in descending offset order wrapped in `StartNewUndoEntry()` + **30-step Presentation Undo** so bold, font size, RGB colors, hyperlinks, and slide animations stay 100% intact.
+   - Includes **Legacy `WinInnwa / Zawgyi ➔ Pyidaungsu Unicode`**, **1-Click `Unify All Myanmar Slide Runs ➔ Pyidaungsu`** (preserving English brand Latin fonts), and **Slide Title & Bullet Smart-ZWSP Line-Wrap Studio** so Burmese titles never break mid-syllable!
+
+---
+
+### Step 5 — Uninstalling or Updating
+- **1-Click Friendly Uninstall:** Close Word, Excel & PowerPoint and double-click **`Uninstall-MyanmarSpellChecker.bat`** (or `Uninstall-EasyUser.bat`).
 - **Developer CLI Uninstall:**
   ```powershell
   powershell -NoProfile -ExecutionPolicy Bypass -File .\installer\Register-DevAddIn.ps1 -Unregister
@@ -176,6 +190,7 @@ SpellChecker/
 │   ├── MyanmarSpellChecker.Core/                  # Pure .NET 4.8 Proofing, NLP, Spreadsheet Engine, Official Suite & Security
 │   ├── MyanmarSpellChecker.WordAddIn/             # Microsoft Word COM Add-in
 │   ├── MyanmarSpellChecker.ExcelAddIn/            # Microsoft Excel Formula-Safe COM Add-in
+│   ├── MyanmarSpellChecker.PowerPointAddIn/       # Microsoft PowerPoint Zero-Mutation Slide & Notes COM Add-in
 │   └── MyanmarSpellChecker.AdminTools/            # CLI for Lexicon Distillation, DB Encryption & Offline License Signing
 ├── installer/
 │   ├── Build-MasterLexicon.ps1                    # Rebuilds data/mlc_thatpon_master.json (and mlc_thatpon.db) from data/sources/

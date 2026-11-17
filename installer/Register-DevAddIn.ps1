@@ -72,11 +72,21 @@ $excelAddInDll = Resolve-NewestAddInDll @(
     ([System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.ExcelAddIn\bin\Debug\net48\MyanmarSpellChecker.ExcelAddIn.dll"))
 )
 
+$pptAddInDll = Resolve-NewestAddInDll @(
+    ([System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.PowerPointAddIn\bin\Release\net48\MyanmarSpellChecker.PowerPointAddIn.dll")),
+    ([System.IO.Path]::Combine($repoRoot, "artifacts\release-package\MyanmarSpellChecker.PowerPointAddIn.dll")),
+    ([System.IO.Path]::Combine($repoRoot, "artifacts\staged-powerpoint\MyanmarSpellChecker.PowerPointAddIn.dll")),
+    ([System.IO.Path]::Combine($prebuiltDir, "MyanmarSpellChecker.PowerPointAddIn.dll")),
+    ([System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.PowerPointAddIn\bin\Debug\net48\MyanmarSpellChecker.PowerPointAddIn.dll"))
+)
+
 $wordAddInKey  = "HKCU:\Software\Microsoft\Office\Word\Addins\MyanmarSpellChecker.WordAddIn"
 $excelAddInKey = "HKCU:\Software\Microsoft\Office\Excel\Addins\MyanmarSpellChecker.ExcelAddIn"
+$pptAddInKey   = "HKCU:\Software\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn"
 
 $wordAsmFullName  = "MyanmarSpellChecker.WordAddIn, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null"
 $excelAsmFullName = "MyanmarSpellChecker.ExcelAddIn, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null"
+$pptAsmFullName   = "MyanmarSpellChecker.PowerPointAddIn, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null"
 
 $comClasses = @(
     @{
@@ -110,22 +120,39 @@ $comClasses = @(
         AsmFullName = $excelAsmFullName
         DllPath     = $excelAddInDll
         IsControl   = $true
+    },
+    @{
+        ProgId      = "MyanmarSpellChecker.PowerPointAddIn"
+        Clsid       = "{A7C5E964-8F33-4D9B-BE12-9D34A7F16C55}"
+        TypeName    = "MyanmarSpellChecker.PowerPointAddIn.PowerPointThisAddIn"
+        AsmFullName = $pptAsmFullName
+        DllPath     = $pptAddInDll
+        IsControl   = $false
+    },
+    @{
+        ProgId      = "MyanmarSpellChecker.PowerPointTaskPaneControl"
+        Clsid       = "{D5C4E963-BF3A-4A4C-AE77-3F9DA01E4F66}"
+        TypeName    = "MyanmarSpellChecker.PowerPointAddIn.UI.PowerPointProofingTaskPaneControl"
+        AsmFullName = $pptAsmFullName
+        DllPath     = $pptAddInDll
+        IsControl   = $true
     }
 )
 
 if ($Unregister) {
-    Write-Host "[*] Unregistering MyanmarSpellChecker (Word + Excel) from HKCU..." -ForegroundColor Yellow
+    Write-Host "[*] Unregistering MyanmarSpellChecker (Word + Excel + PowerPoint) from HKCU..." -ForegroundColor Yellow
     foreach ($c in $comClasses) {
         Remove-Item -Path "HKCU:\Software\Classes\$($c.ProgId)" -Recurse -Force -ErrorAction SilentlyContinue
         Remove-Item -Path "HKCU:\Software\Classes\CLSID\$($c.Clsid)" -Recurse -Force -ErrorAction SilentlyContinue
     }
     Remove-Item -Path $wordAddInKey  -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -Path $excelAddInKey -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path $pptAddInKey   -Recurse -Force -ErrorAction SilentlyContinue
     $localAppAppDir = [System.IO.Path]::Combine($env:LOCALAPPDATA, "MyanmarSpellChecker\app")
     if ([System.IO.Directory]::Exists($localAppAppDir)) {
         try { [System.IO.Directory]::Delete($localAppAppDir, $true) } catch { }
     }
-    Write-Host "[+] Unregistered Word + Excel Add-ins successfully." -ForegroundColor Green
+    Write-Host "[+] Unregistered Word + Excel + PowerPoint Add-ins successfully." -ForegroundColor Green
     exit 0
 }
 
@@ -135,9 +162,11 @@ if (-not $wordAddInDll -or -not [System.IO.File]::Exists($wordAddInDll)) {
 if (-not $excelAddInDll -or -not [System.IO.File]::Exists($excelAddInDll)) {
     throw "ExcelAddIn DLL not found. Run 'dotnet build -c Release' first."
 }
+if (-not $pptAddInDll -or -not [System.IO.File]::Exists($pptAddInDll)) {
+    throw "PowerPointAddIn DLL not found. Run 'dotnet build -c Release' first."
+}
 
-# Copy freshest FULL (>= 5 MB, 89,500+ headwords) mlc_thatpon.db into Word bin, Excel bin, artifacts\, and %LocalAppData%\MyanmarSpellChecker
-# Uses explicit FileInfo list so single-item result on a fresh git clone NEVER unrolls to a [string] scalar!
+# Copy freshest FULL mlc_thatpon.db into Word bin, Excel bin, PowerPoint bin, artifacts\, and %LocalAppData%\MyanmarSpellChecker
 $dataDb           = [System.IO.Path]::Combine($repoRoot, "data\mlc_thatpon.db")
 $releasePkgDb     = [System.IO.Path]::Combine($repoRoot, "artifacts\release-package\mlc_thatpon.db")
 $legacyArtifactDb = [System.IO.Path]::Combine($repoRoot, "artifacts\mlc_thatpon.db")
@@ -155,8 +184,10 @@ $targetDirs = @(
     ([System.IO.Path]::GetDirectoryName($legacyArtifactDb)),
     ([System.IO.Path]::GetDirectoryName($wordAddInDll)),
     ([System.IO.Path]::GetDirectoryName($excelAddInDll)),
+    ([System.IO.Path]::GetDirectoryName($pptAddInDll)),
     ([System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.WordAddIn\bin\Release\net48")),
-    ([System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.ExcelAddIn\bin\Release\net48"))
+    ([System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.ExcelAddIn\bin\Release\net48")),
+    ([System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.PowerPointAddIn\bin\Release\net48"))
 )
 
 foreach ($dir in $targetDirs) {
@@ -176,12 +207,13 @@ $localAppSubDir = [System.IO.Path]::Combine($localAppDir, "app")
 if ([System.IO.Directory]::Exists($localAppSubDir)) {
     try { [System.IO.File]::Copy($srcFull, [System.IO.Path]::Combine($localAppSubDir, "mlc_thatpon.db"), $true) } catch { }
     try {
-        $coreDllLocal = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($excelAddInDll), "MyanmarSpellChecker.Core.dll")
+        $coreDllLocal = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($pptAddInDll), "MyanmarSpellChecker.Core.dll")
         if ([System.IO.File]::Exists($coreDllLocal)) {
             [System.IO.File]::Copy($coreDllLocal, [System.IO.Path]::Combine($localAppSubDir, "MyanmarSpellChecker.Core.dll"), $true)
         }
-        [System.IO.File]::Copy($wordAddInDll,  [System.IO.Path]::Combine($localAppSubDir, "MyanmarSpellChecker.WordAddIn.dll"),  $true)
-        [System.IO.File]::Copy($excelAddInDll, [System.IO.Path]::Combine($localAppSubDir, "MyanmarSpellChecker.ExcelAddIn.dll"), $true)
+        [System.IO.File]::Copy($wordAddInDll,  [System.IO.Path]::Combine($localAppSubDir, "MyanmarSpellChecker.WordAddIn.dll"),       $true)
+        [System.IO.File]::Copy($excelAddInDll, [System.IO.Path]::Combine($localAppSubDir, "MyanmarSpellChecker.ExcelAddIn.dll"),      $true)
+        [System.IO.File]::Copy($pptAddInDll,   [System.IO.Path]::Combine($localAppSubDir, "MyanmarSpellChecker.PowerPointAddIn.dll"), $true)
     } catch { }
 }
 
@@ -194,22 +226,24 @@ $progFilesDir = [System.IO.Path]::Combine($env:ProgramFiles, "MyanmarSpellChecke
 if ([System.IO.Directory]::Exists($progFilesDir)) {
     try {
         [System.IO.File]::Copy($srcFull, [System.IO.Path]::Combine($progFilesDir, "mlc_thatpon.db"), $true)
-        $coreDll = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($excelAddInDll), "MyanmarSpellChecker.Core.dll")
+        $coreDll = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($pptAddInDll), "MyanmarSpellChecker.Core.dll")
         if ([System.IO.File]::Exists($coreDll)) {
             [System.IO.File]::Copy($coreDll, [System.IO.Path]::Combine($progFilesDir, "MyanmarSpellChecker.Core.dll"), $true)
         }
-        [System.IO.File]::Copy($wordAddInDll,  [System.IO.Path]::Combine($progFilesDir, "MyanmarSpellChecker.WordAddIn.dll"),  $true)
-        [System.IO.File]::Copy($excelAddInDll, [System.IO.Path]::Combine($progFilesDir, "MyanmarSpellChecker.ExcelAddIn.dll"), $true)
+        [System.IO.File]::Copy($wordAddInDll,  [System.IO.Path]::Combine($progFilesDir, "MyanmarSpellChecker.WordAddIn.dll"),       $true)
+        [System.IO.File]::Copy($excelAddInDll, [System.IO.Path]::Combine($progFilesDir, "MyanmarSpellChecker.ExcelAddIn.dll"),      $true)
+        [System.IO.File]::Copy($pptAddInDll,   [System.IO.Path]::Combine($progFilesDir, "MyanmarSpellChecker.PowerPointAddIn.dll"), $true)
     } catch { }
 }
 
-Write-Host "[*] Registering COM classes (Word + Excel) in HKCU:\Software\Classes (Both 64-bit & 32-bit RegistryViews)..." -ForegroundColor Cyan
+Write-Host "[*] Registering COM classes (Word + Excel + PowerPoint) in HKCU:\Software\Classes (Both 64-bit & 32-bit RegistryViews)..." -ForegroundColor Cyan
 
 $views = @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)
 foreach ($view in $views) {
     $hkcuBase = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $view)
     try {
         foreach ($c in $comClasses) {
+            if (-not $c.DllPath -or -not [System.IO.File]::Exists($c.DllPath)) { continue }
             $codeBaseUri = ([System.Uri]::new($c.DllPath)).AbsoluteUri.Replace("%20", " ")
 
             $progKey = $hkcuBase.CreateSubKey("Software\Classes\$($c.ProgId)")
@@ -259,8 +293,8 @@ foreach ($view in $views) {
     }
 }
 
-# Clear any Word or Excel Resiliency / DisabledItems blocks
-foreach ($appName in @("Word", "Excel")) {
+# Clear any Word, Excel, or PowerPoint Resiliency / DisabledItems blocks
+foreach ($appName in @("Word", "Excel", "PowerPoint")) {
     foreach ($ver in @("16.0", "15.0", "14.0")) {
         foreach ($sub in @("DisabledItems", "CrashingAddinList")) {
             $rKey = "HKCU:\Software\Microsoft\Office\$ver\$appName\Resiliency\$sub"
@@ -318,3 +352,11 @@ Register-OfficeHostAddIn `
     -FriendlyName "Myanmar Official Spell & Grammar Checker (Excel)" `
     -Desc "100% Offline Formula-Safe Myanmar Spell & Grammar Checker for Excel" `
     -DllPath $excelAddInDll
+
+Register-OfficeHostAddIn `
+    -HostName "PowerPoint" `
+    -HkcuAddInKey $pptAddInKey `
+    -HklmAddInKey "HKLM:\Software\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn" `
+    -FriendlyName "Myanmar Official Spell & Grammar Checker (PowerPoint)" `
+    -Desc "100% Offline Zero-Mutation Myanmar Spell & Grammar Checker for PowerPoint" `
+    -DllPath $pptAddInDll

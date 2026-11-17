@@ -8,6 +8,7 @@ using MyanmarSpellChecker.Core.Dictionary;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
+using MyanmarSpellChecker.Core.Presentation;
 using MyanmarSpellChecker.Core.Security;
 using MyanmarSpellChecker.Core.Tests.Infrastructure;
 using MyanmarSpellChecker.Core.Typography;
@@ -2968,6 +2969,223 @@ namespace MyanmarSpellChecker.Core.Tests
             sw.Stop();
             double meanUncachedMs = sw.Elapsed.TotalMilliseconds / v66ChampionshipCases.Length;
             Assert.True(meanUncachedMs < 35.0, $"Expected fast < 35 ms mean uncached multi-error sentence latency, got {meanUncachedMs:F2} ms.");
+        }
+
+        [Fact]
+        public void V67_PowerPointThreeInOneSuite_ScannerToolkitUndoAndZeroMutationGate()
+        {
+            var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
+            var trie = repo.LoadIntoTrie("MM-GOV-THATPON-SQLCIPHER-2026!");
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // 1. Multi-Container PowerPoint Deck Simulation:
+            //    Slide Shape (\v soft line break!) + Slide Table Cell + Nested GroupItem Shape + Speaker Notes + Slide Master + Cross-Slide Consistency
+            var targets = new List<PresentationTextTarget>
+            {
+                new PresentationTextTarget
+                {
+                    PresentationName = "MinistryBriefing2026.pptx",
+                    SlideId = 256,
+                    SlideNumber = 1,
+                    SlideTitle = "နှစ်ပတ်လည် အစီရင်ခံစာ",
+                    ContainerKind = PresentationContainerKind.SlideShape,
+                    ShapeId = 2,
+                    ShapeName = "Title 1",
+                    // Intentional \v (U+000B Shift+Enter soft break) to prove exact 1-to-1 character offset alignment!
+                    TextSnapshot = "ပညာရေ ဝန်ကြီး ဌာန\vအစည်း အဝေးတွင် ကော်မတီ ဥက္ကဌ တက်ရောက်သည်။",
+                    PrimaryFontName = "Pyidaungsu"
+                },
+                new PresentationTextTarget
+                {
+                    PresentationName = "MinistryBriefing2026.pptx",
+                    SlideId = 257,
+                    SlideNumber = 2,
+                    SlideTitle = "ဘတ်ဂျက်ဇယား",
+                    ContainerKind = PresentationContainerKind.TableCell,
+                    ShapeId = 5,
+                    ShapeName = "Table 1",
+                    TableRow = 2,
+                    TableColumn = 3,
+                    TextSnapshot = "လုပ်ငန်းများ ဆောင်ရွတ်ပီးပီ ဖြစ်ကြောင်း ကော်မတီထံ တင်ပြသည်။",
+                    PrimaryFontName = "Pyidaungsu"
+                },
+                new PresentationTextTarget
+                {
+                    PresentationName = "MinistryBriefing2026.pptx",
+                    SlideId = 257,
+                    SlideNumber = 2,
+                    SlideTitle = "ဘတ်ဂျက်ဇယား",
+                    ContainerKind = PresentationContainerKind.GroupItemShape,
+                    ShapeId = 19,
+                    ShapeName = "Callout Box",
+                    GroupPathIds = new[] { 12, 17 },
+                    // Uses minority dual-valid variant ကော်မီတီ vs majority ကော်မတီ (2x on Slides 1 & 2) -> Cross-Slide Consistency check!
+                    TextSnapshot = "ကော်မီတီ အဖွဲ့ဝင်များက စနစ် တကျ စိစစ်သည်။",
+                    PrimaryFontName = "Pyidaungsu"
+                },
+                new PresentationTextTarget
+                {
+                    PresentationName = "MinistryBriefing2026.pptx",
+                    SlideId = 257,
+                    SlideNumber = 2,
+                    SlideTitle = "ဘတ်ဂျက်ဇယား",
+                    ContainerKind = PresentationContainerKind.SpeakerNotes,
+                    ShapeId = 3,
+                    ShapeName = "Notes Placeholder 2",
+                    TextSnapshot = "ဟောပြောချက်မှတ်စု — အတိုးနှုန်း လျော့ချ ရေးကို ကြေငြာ မည်။",
+                    PrimaryFontName = "Pyidaungsu"
+                },
+                new PresentationTextTarget
+                {
+                    PresentationName = "MinistryBriefing2026.pptx",
+                    SlideId = 0,
+                    SlideNumber = 0,
+                    ContainerKind = PresentationContainerKind.SlideMasterShape,
+                    MasterOrLayoutName = "Master:OfficialTheme",
+                    ShapeId = 9,
+                    ShapeName = "Footer WinInnwa",
+                    TextSnapshot = "EdkifiHawmf",
+                    PrimaryFontName = "WinInnwa"
+                }
+            };
+
+            PresentationScanResult scan = PresentationProofingHelper.ScanTargets(formalEngine, targets, includeCrossSlideConsistency: true);
+            Assert.Equal(2, scan.ScannedSlideCount);
+            Assert.Equal(5, scan.ScannedContainerCount);
+            Assert.NotEmpty(scan.Issues);
+
+            // Verify every container type produced accurately located issues, including \v-aligned Slide 1 Title, Table [R2,C3], Group, Notes, Master WinInnwa, and Cross-Slide Consistency!
+            Assert.Contains(scan.Issues, i => i.ContainerKind == PresentationContainerKind.SlideShape && i.Issue.OriginalText == "ဥက္ကဌ");
+            Assert.Contains(scan.Issues, i => i.ContainerKind == PresentationContainerKind.TableCell && i.TableRow == 2 && i.TableColumn == 3);
+            Assert.Contains(scan.Issues, i => i.ContainerKind == PresentationContainerKind.GroupItemShape && i.Target.GroupPathIds.Length == 2);
+            Assert.Contains(scan.Issues, i => i.ContainerKind == PresentationContainerKind.SpeakerNotes && i.Issue.OriginalText == "ကြေငြာ");
+            Assert.Contains(scan.Issues, i => i.ContainerKind == PresentationContainerKind.SlideMasterShape && i.Issue.Suggestions[0].Replacement == "နိုင်ငံတော်");
+            Assert.Contains(scan.Issues, i => i.Issue.AuthoritativeSource == "Presentation Cross-Slide Consistency Check" && i.Issue.OriginalText == "ကော်မီတီ");
+
+            // 2. Verify 1-to-1 \v Soft-Break Offset Alignment & Descending Span Replacement on Slide 1 Title
+            var slide1Issues = scan.Issues.Where(i => i.SlideId == 256 && i.ShapeId == 2).ToList();
+            Assert.True(slide1Issues.Count >= 4);
+            var approvedSlide1 = slide1Issues.ToDictionary(i => i, i => i.Issue.Suggestions[0].Replacement);
+            List<SlideTextWriteOperation> batchOps = PresentationProofingHelper.PlanBatchIssueFixes(approvedSlide1);
+            var s1Op = Assert.Single(batchOps);
+            // Must be sorted in strictly DESCENDING StartZeroBased order so 1-based TextRange.Characters edits never shift earlier spans!
+            for (int k = 1; k < s1Op.DescendingSpanEdits.Count; k++)
+            {
+                Assert.True(s1Op.DescendingSpanEdits[k - 1].StartZeroBased > s1Op.DescendingSpanEdits[k].StartZeroBased);
+            }
+            Assert.Equal(
+                UnicodeNormalizer.NormalizeCanonicalOrder("ပညာရေး ဝန်ကြီးဌာန\vအစည်းအဝေးတွင် ကော်မတီ ဥက္ကဋ္ဌ တက်ရောက်သည်။"),
+                UnicodeNormalizer.NormalizeCanonicalOrder(s1Op.UpdatedText));
+
+            // 3. Verify Incremental Sibling Offset Shifting + Bounded 30-Batch PresentationUndoManager
+            string noteRaw = targets[3].TextSnapshot;
+            var noteIssues = scan.Issues.Where(i => i.ContainerKind == PresentationContainerKind.SpeakerNotes).OrderBy(i => i.Issue.StartIndex).ToList();
+            Assert.Equal(2, noteIssues.Count); // လျော့ချ -> လျှော့ချ (+1 char delta!), ကြေငြာ -> ကြေညာ
+            int origSecondStart = noteIssues[1].Issue.StartIndex;
+            string firstFix = noteIssues[0].Issue.Suggestions[0].Replacement; // လျှော့ချ
+            string afterFirstNote = noteRaw.Substring(0, noteIssues[0].Issue.StartIndex) +
+                                    firstFix +
+                                    noteRaw.Substring(noteIssues[0].Issue.StartIndex + noteIssues[0].Issue.Length);
+            PresentationProofingHelper.ShiftSiblingIssueOffsetsAfterEdit(
+                scan.Issues,
+                targets[3],
+                noteIssues[0].Issue.StartIndex,
+                noteIssues[0].Issue.Length,
+                firstFix.Length,
+                afterFirstNote);
+            Assert.True(noteIssues[0].IsResolved);
+            Assert.False(noteIssues[1].IsResolved);
+            Assert.Equal(origSecondStart + (firstFix.Length - noteIssues[0].Issue.Length), noteIssues[1].Issue.StartIndex);
+            Assert.Equal("ကြေငြာ", afterFirstNote.Substring(noteIssues[1].Issue.StartIndex, noteIssues[1].Issue.Length));
+
+            var undoMgr = new PresentationUndoManager(maxBatches: 30);
+            for (int b = 1; b <= 35; b++)
+            {
+                undoMgr.PushOperations($"Batch #{b}", batchOps);
+            }
+            Assert.Equal(30, undoMgr.UndoCount);
+            Assert.Equal("Batch #35", undoMgr.LatestDescription);
+            var popped = undoMgr.PopUndoBatch();
+            Assert.NotNull(popped);
+            Assert.Equal("Batch #35", popped!.Description);
+            Assert.Equal(29, undoMgr.UndoCount);
+
+            // 4. Verify Presentation Toolkit Planners (Legacy WinInnwa -> Pyidaungsu, Smart Slide ZWSP, Official Typography, Numerals)
+            var legacyOps = PresentationProofingHelper.PlanLegacyFontToPyidaungsu(new[] { targets[4] });
+            var legOp = Assert.Single(legacyOps);
+            Assert.Equal("နိုင်ငံတော်", legOp.UpdatedText);
+            Assert.Equal("Pyidaungsu", legOp.TargetFontName);
+
+            var zwspTargets = new[]
+            {
+                new PresentationTextTarget
+                {
+                    PresentationName = "Deck.pptx",
+                    SlideId = 300,
+                    SlideNumber = 3,
+                    ContainerKind = PresentationContainerKind.SlideShape,
+                    ShapeId = 4,
+                    TextSnapshot = "ပြည်ထောင်စုသမ္မတမြန်မာနိုင်ငံတော် ပညာရေးဝန်ကြီးဌာန"
+                }
+            };
+            var zwspInjectOps = PresentationProofingHelper.PlanSmartSlideZwsp(zwspTargets, trie, stripAllInsteadOfInject: false, out int zwAdded);
+            Assert.NotEmpty(zwspInjectOps);
+            Assert.True(zwAdded > 0);
+            Assert.Contains('\u200B', zwspInjectOps[0].UpdatedText);
+
+            var zwspStripOps = PresentationProofingHelper.PlanSmartSlideZwsp(
+                new[] { zwspTargets[0].CloneWithText(zwspInjectOps[0].UpdatedText) },
+                trie,
+                stripAllInsteadOfInject: true,
+                out int zwRemoved);
+            Assert.NotEmpty(zwspStripOps);
+            Assert.True(zwRemoved > 0);
+            Assert.DoesNotContain('\u200B', zwspStripOps[0].UpdatedText);
+
+            var numTargets = new[]
+            {
+                new PresentationTextTarget
+                {
+                    PresentationName = "Deck.pptx",
+                    SlideId = 301,
+                    SlideNumber = 4,
+                    ContainerKind = PresentationContainerKind.SlideShape,
+                    ShapeId = 8,
+                    TextSnapshot = "၂၀၂၆ ခုနှစ် စီမံကိန်း 125 ခု  ၊အောင်မြင်စွာ ဆောင်ရွက်ခဲ့သည်  ။"
+                }
+            };
+            var typoOps = PresentationProofingHelper.PlanOfficialSlideTypography(numTargets, convertDigitsToMyanmar: true, out int typoChanges);
+            Assert.NotEmpty(typoOps);
+            Assert.True(typoChanges > 0);
+            Assert.Contains("၁၂၅", typoOps[0].UpdatedText);
+            Assert.Contains("ခု၊ အောင်မြင်စွာ", typoOps[0].UpdatedText);
+            Assert.EndsWith("ခဲ့သည်။", typoOps[0].UpdatedText);
+
+            // 5. Verify 100% Zero-Formatting-Mutation Architecture in PowerPointAddIn C# Sources + Unified 3-in-1 Installer Scripts
+            string pptSrcDir = Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.PowerPointAddIn");
+            Assert.True(Directory.Exists(pptSrcDir));
+            Assert.True(File.Exists(Path.Combine(pptSrcDir, "PowerPointThisAddIn.cs")));
+            Assert.True(File.Exists(Path.Combine(pptSrcDir, "UI", "PowerPointWavyUnderlineOverlay.cs")));
+            Assert.True(File.Exists(Path.Combine(pptSrcDir, "Interop", "PowerPointDeckScannerAndToolkit.cs")));
+
+            foreach (string csFile in Directory.GetFiles(pptSrcDir, "*.cs", SearchOption.AllDirectories))
+            {
+                if (csFile.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar) ||
+                    csFile.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar))
+                {
+                    continue;
+                }
+                string src = File.ReadAllText(csFile);
+                // PowerPointAddIn must NEVER mutate Font.Underline or Font.Color to draw error squiggles!
+                Assert.DoesNotContain(".Font.Underline =", src, StringComparison.Ordinal);
+                Assert.DoesNotContain(".Font.Color.RGB =", src, StringComparison.Ordinal);
+            }
+
+            string pptAddInText = File.ReadAllText(Path.Combine(pptSrcDir, "PowerPointThisAddIn.cs"));
+            Assert.Contains("SlideShowBegin", pptAddInText, StringComparison.Ordinal);
+            Assert.Contains("SlideShowEnd", pptAddInText, StringComparison.Ordinal);
+            Assert.Contains("MyanmarSpellChecker.PowerPointAddIn", pptAddInText, StringComparison.Ordinal);
+            Assert.Contains("MyanmarSpellChecker.PowerPointTaskPaneControl", pptAddInText, StringComparison.Ordinal);
         }
     }
 }

@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Windows.Forms
 
-$TitleText = "Myanmar Official Spell Checker - Setup (Word + Excel)"
+$TitleText = "Myanmar Official Spell Checker - Setup (Word + Excel + PowerPoint)"
 
 function Show-UserInfo([string]$Message, [System.Windows.Forms.MessageBoxIcon]$Icon = [System.Windows.Forms.MessageBoxIcon]::Information) {
     Write-Host $Message
@@ -68,8 +68,10 @@ function Resolve-FullDictionaryDb([string[]]$CandidatePaths) {
 
 $wordAddInKey  = "HKCU:\Software\Microsoft\Office\Word\Addins\MyanmarSpellChecker.WordAddIn"
 $excelAddInKey = "HKCU:\Software\Microsoft\Office\Excel\Addins\MyanmarSpellChecker.ExcelAddIn"
+$pptAddInKey   = "HKCU:\Software\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn"
 $wordAsmFullName  = "MyanmarSpellChecker.WordAddIn, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null"
 $excelAsmFullName = "MyanmarSpellChecker.ExcelAddIn, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null"
+$pptAsmFullName   = "MyanmarSpellChecker.PowerPointAddIn, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null"
 
 $localRootDir  = [System.IO.Path]::Combine($env:LOCALAPPDATA, "MyanmarSpellChecker")
 $appInstallDir = [System.IO.Path]::Combine($localRootDir, "app")
@@ -106,17 +108,33 @@ $comClasses = @(
         AsmFullName = $excelAsmFullName
         DllName     = "MyanmarSpellChecker.ExcelAddIn.dll"
         IsControl   = $true
+    },
+    @{
+        ProgId      = "MyanmarSpellChecker.PowerPointAddIn"
+        Clsid       = "{A7C5E964-8F33-4D9B-BE12-9D34A7F16C55}"
+        TypeName    = "MyanmarSpellChecker.PowerPointAddIn.PowerPointThisAddIn"
+        AsmFullName = $pptAsmFullName
+        DllName     = "MyanmarSpellChecker.PowerPointAddIn.dll"
+        IsControl   = $false
+    },
+    @{
+        ProgId      = "MyanmarSpellChecker.PowerPointTaskPaneControl"
+        Clsid       = "{D5C4E963-BF3A-4A4C-AE77-3F9DA01E4F66}"
+        TypeName    = "MyanmarSpellChecker.PowerPointAddIn.UI.PowerPointProofingTaskPaneControl"
+        AsmFullName = $pptAsmFullName
+        DllName     = "MyanmarSpellChecker.PowerPointAddIn.dll"
+        IsControl   = $true
     }
 )
 
-# 1. Check if Word or Excel is open (never force-close user documents!)
+# 1. Check if Word, Excel, or PowerPoint is open (never force-close user documents!)
 if (-not $ValidateOnly) {
     while ($true) {
-        $runningOffice = @(Get-Process -Name "WINWORD", "EXCEL" -ErrorAction SilentlyContinue)
+        $runningOffice = @(Get-Process -Name "WINWORD", "EXCEL", "POWERPNT" -ErrorAction SilentlyContinue)
         if ($runningOffice.Count -eq 0 -or $Silent) {
             break
         }
-        $promptMsg = "Microsoft Word or Excel is currently open.`r`n`r`nPlease save your work, close Microsoft Word & Excel, and click 'Retry'.`r`n`r`n(ကျေးဇူးပြု၍ လက်ရှိဖိုင်များကို Save လုပ်၍ Word နှင့် Excel ကို ခေတ္တပိတ်ပြီး 'Retry' ကို နှိပ်ပါ။)"
+        $promptMsg = "Microsoft Word, Excel, or PowerPoint is currently open.`r`n`r`nPlease save your work, close Word, Excel & PowerPoint, and click 'Retry'.`r`n`r`n(ကျေးဇူးပြု၍ လက်ရှိဖိုင်များကို Save လုပ်၍ Word၊ Excel နှင့် PowerPoint ကို ခေတ္တပိတ်ပြီး 'Retry' ကို နှိပ်ပါ။)"
         $choice = [System.Windows.Forms.MessageBox]::Show(
             $promptMsg,
             $TitleText,
@@ -130,7 +148,7 @@ if (-not $ValidateOnly) {
 
 # 2. Handle Uninstall
 if ($Uninstall) {
-    Write-Host "[*] Removing MyanmarSpellChecker (Word + Excel) from Current User..." -ForegroundColor Yellow
+    Write-Host "[*] Removing MyanmarSpellChecker (Word + Excel + PowerPoint) from Current User..." -ForegroundColor Yellow
     $views = @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)
     foreach ($view in $views) {
         $hkcuBase = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $view)
@@ -141,6 +159,7 @@ if ($Uninstall) {
             }
             $hkcuBase.DeleteSubKeyTree("Software\Microsoft\Office\Word\Addins\MyanmarSpellChecker.WordAddIn", $false)
             $hkcuBase.DeleteSubKeyTree("Software\Microsoft\Office\Excel\Addins\MyanmarSpellChecker.ExcelAddIn", $false)
+            $hkcuBase.DeleteSubKeyTree("Software\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn", $false)
         } finally {
             $hkcuBase.Dispose()
         }
@@ -148,7 +167,7 @@ if ($Uninstall) {
     if ([System.IO.Directory]::Exists($appInstallDir)) {
         try { [System.IO.Directory]::Delete($appInstallDir, $true) } catch { }
     }
-    Show-UserInfo "✓ Successfully uninstalled Myanmar Spell Checker Add-in from Microsoft Word and Excel.`r`n(မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း Add-in ကို အောင်မြင်စွာ ဖြုတ်သိမ်းပြီးပါပြီ။)"
+    Show-UserInfo "✓ Successfully uninstalled Myanmar Spell Checker Add-in from Microsoft Word, Excel, and PowerPoint.`r`n(မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း Add-in ကို အောင်မြင်စွာ ဖြုတ်သိမ်းပြီးပါပြီ။)"
     exit 0
 }
 
@@ -163,7 +182,7 @@ try {
         throw "You are running the installer directly from inside an unextracted .ZIP archive.`r`n`r`nPlease right-click the .ZIP file, select 'Extract All...', and run Setup from the extracted folder.`r`n(ကျေးဇူးပြု၍ ZIP ဖိုင်ပေါ်တွင် Right-click နှိပ်ပြီး 'Extract All...' ဖြင့် အရင်ဖြည်ပြီးမှ ပြန်သွင်းပေးပါ။)"
     }
 
-    # Unblock downloaded files (removes Windows Zone.Identifier Mark-of-the-Web from ZIP downloads; -LiteralPath handles [1] brackets!)
+    # Unblock downloaded files
     if (-not $ValidateOnly) {
         try {
             foreach ($f in [System.IO.Directory]::GetFiles($scriptDir)) {
@@ -184,22 +203,30 @@ try {
 
     $wordDllSource  = $null
     $excelDllSource = $null
+    $pptDllSource   = $null
     $coreDllSource  = $null
     $cerSource      = $null
 
     if ($standaloneMode) {
         $wordDllSource  = [System.IO.Path]::Combine($scriptDir, "MyanmarSpellChecker.WordAddIn.dll")
         $excelDllSource = [System.IO.Path]::Combine($scriptDir, "MyanmarSpellChecker.ExcelAddIn.dll")
+        $pptStandalone  = [System.IO.Path]::Combine($scriptDir, "MyanmarSpellChecker.PowerPointAddIn.dll")
+        if ([System.IO.File]::Exists($pptStandalone)) {
+            $pptDllSource = $pptStandalone
+        }
         $coreDllSource  = [System.IO.Path]::Combine($scriptDir, "MyanmarSpellChecker.Core.dll")
         $cerSource      = [System.IO.Path]::Combine($scriptDir, "MyanmarSpellChecker-EnterpriseCA.cer")
     } else {
         $slnPath      = [System.IO.Path]::Combine($repoRoot, "MyanmarSpellChecker.sln")
         $relWord      = [System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.WordAddIn\bin\Release\net48\MyanmarSpellChecker.WordAddIn.dll")
         $relExcl      = [System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.ExcelAddIn\bin\Release\net48\MyanmarSpellChecker.ExcelAddIn.dll")
+        $relPpt       = [System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.PowerPointAddIn\bin\Release\net48\MyanmarSpellChecker.PowerPointAddIn.dll")
         $pkgWord      = [System.IO.Path]::Combine($repoRoot, "artifacts\release-package\MyanmarSpellChecker.WordAddIn.dll")
         $pkgExcl      = [System.IO.Path]::Combine($repoRoot, "artifacts\release-package\MyanmarSpellChecker.ExcelAddIn.dll")
+        $pkgPpt       = [System.IO.Path]::Combine($repoRoot, "artifacts\release-package\MyanmarSpellChecker.PowerPointAddIn.dll")
         $prebuiltWord = [System.IO.Path]::Combine($prebuiltDir, "MyanmarSpellChecker.WordAddIn.dll")
         $prebuiltExcl = [System.IO.Path]::Combine($prebuiltDir, "MyanmarSpellChecker.ExcelAddIn.dll")
+        $prebuiltPpt  = [System.IO.Path]::Combine($prebuiltDir, "MyanmarSpellChecker.PowerPointAddIn.dll")
 
         $hasAnyPrebuilt = ([System.IO.File]::Exists($relWord) -and [System.IO.File]::Exists($relExcl)) -or
                           ([System.IO.File]::Exists($pkgWord) -and [System.IO.File]::Exists($pkgExcl)) -or
@@ -208,12 +235,12 @@ try {
         if (-not $hasAnyPrebuilt) {
             $dotnetCmd = Get-Command dotnet -ErrorAction SilentlyContinue
             if (-not $dotnetCmd) {
-                throw "Pre-built Add-in files were not found, and .NET SDK is not installed on this PC.`r`nPlease re-download the complete repository or 'MyanmarSpellChecker-EasySetup-Word-Excel.zip' (no .NET SDK needed!)."
+                throw "Pre-built Add-in files were not found, and .NET SDK is not installed on this PC.`r`nPlease re-download the complete repository or 'MyanmarSpellChecker-EasySetup-OfficeSuite.zip' (no .NET SDK needed!)."
             }
             Write-Host "[1/3] Compiling Release binaries with dotnet build..." -ForegroundColor Cyan
             & dotnet build $slnPath -c Release /p:DebugType=none /p:DebugSymbols=false
             if ($LASTEXITCODE -ne 0) {
-                throw "dotnet build failed. Please close Word and Excel and try again."
+                throw "dotnet build failed. Please close Word, Excel, and PowerPoint and try again."
             }
         }
 
@@ -231,11 +258,19 @@ try {
             $prebuiltExcl,
             ([System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.ExcelAddIn\bin\Debug\net48\MyanmarSpellChecker.ExcelAddIn.dll"))
         )
+        $pptDllSource = Resolve-BestDll @(
+            $relPpt,
+            $pkgPpt,
+            ([System.IO.Path]::Combine($repoRoot, "artifacts\staged-powerpoint\MyanmarSpellChecker.PowerPointAddIn.dll")),
+            $prebuiltPpt,
+            ([System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.PowerPointAddIn\bin\Debug\net48\MyanmarSpellChecker.PowerPointAddIn.dll"))
+        )
 
         if (-not $wordDllSource -or -not $excelDllSource) {
             throw "Compiled WordAddIn / ExcelAddIn DLLs could not be found."
         }
-        $coreDllSource = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($excelDllSource), "MyanmarSpellChecker.Core.dll")
+        $coreDirHost = if ($pptDllSource) { $pptDllSource } else { $excelDllSource }
+        $coreDllSource = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($coreDirHost), "MyanmarSpellChecker.Core.dll")
 
         $cerCandidates = @(
             ([System.IO.Path]::Combine($repoRoot, "artifacts\release-package\MyanmarSpellChecker-EnterpriseCA.cer")),
@@ -250,8 +285,7 @@ try {
         }
     }
 
-    # 4. Locate Full 12.44 MB Myanmar Dictionary Database (89,500+ headwords / 118,600+ entries)
-    # Tier 1: Prefer database bundled directly inside this installer / repository folder
+    # 4. Locate Full Myanmar Dictionary Database (mlc_thatpon.db >= 5 MB)
     $dbSource = Resolve-FullDictionaryDb @(
         ([System.IO.Path]::Combine($scriptDir, "mlc_thatpon.db")),
         ([System.IO.Path]::Combine($scriptDir, "data\mlc_thatpon.db")),
@@ -260,10 +294,10 @@ try {
         ([System.IO.Path]::Combine($repoRoot, "artifacts\release-package\mlc_thatpon.db")),
         ([System.IO.Path]::Combine($repoRoot, "artifacts\mlc_thatpon.db")),
         ([System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.WordAddIn\bin\Release\net48\mlc_thatpon.db")),
-        ([System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.ExcelAddIn\bin\Release\net48\mlc_thatpon.db"))
+        ([System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.ExcelAddIn\bin\Release\net48\mlc_thatpon.db")),
+        ([System.IO.Path]::Combine($repoRoot, "src\MyanmarSpellChecker.PowerPointAddIn\bin\Release\net48\mlc_thatpon.db"))
     )
 
-    # Tier 2: Fallback to an existing full >= 5 MB installation on this PC only if bundled DB was moved/omitted
     if (-not $dbSource) {
         $dbSource = Resolve-FullDictionaryDb @(
             ([System.IO.Path]::Combine($appInstallDir, "mlc_thatpon.db")),
@@ -273,7 +307,6 @@ try {
         )
     }
 
-    # Auto-compile from data\sources if DB was deleted/incomplete and .NET SDK is present
     if (-not $dbSource) {
         $lexiconBuilder = [System.IO.Path]::Combine($scriptDir, "Build-MasterLexicon.ps1")
         $sourcesDir     = [System.IO.Path]::Combine($repoRoot, "data\sources")
@@ -285,7 +318,6 @@ try {
         }
     }
 
-    # Interactive fallback: let user browse for mlc_thatpon.db if they moved the script out of its folder
     if (-not $dbSource -and -not $Silent -and -not $ValidateOnly) {
         $dlg = New-Object System.Windows.Forms.OpenFileDialog
         $dlg.Title  = "Select mlc_thatpon.db (Full Myanmar Dictionary Database >= 12 MB)"
@@ -302,20 +334,24 @@ try {
 
     if ($ValidateOnly) {
         $validDbBytes = [System.IO.FileInfo]::new($dbSource).Length
-        Write-Host "VALIDATE_OK|Core=$coreDllSource|Word=$wordDllSource|Excel=$excelDllSource|Db=$dbSource|DbBytes=$validDbBytes"
+        $pptLabel = if ($pptDllSource) { $pptDllSource } else { "NONE" }
+        Write-Host "VALIDATE_OK|Core=$coreDllSource|Word=$wordDllSource|Excel=$excelDllSource|PowerPoint=$pptLabel|Db=$dbSource|DbBytes=$validDbBytes"
         exit 0
     }
 
-    # 5. Copy binaries & full 89,500+ word dictionary into permanent per-user %LocalAppData%\MyanmarSpellChecker\app
-    Write-Host "[2/3] Installing Add-in files & 89,500+ word Offline Dictionary to $appInstallDir..." -ForegroundColor Cyan
+    # 5. Copy binaries & full dictionary into permanent per-user %LocalAppData%\MyanmarSpellChecker\app
+    Write-Host "[2/3] Installing Add-in files & Offline Dictionary to $appInstallDir..." -ForegroundColor Cyan
     [void][System.IO.Directory]::CreateDirectory($localRootDir)
     [void][System.IO.Directory]::CreateDirectory($appInstallDir)
 
     [System.IO.File]::Copy($coreDllSource,  [System.IO.Path]::Combine($appInstallDir, "MyanmarSpellChecker.Core.dll"),     $true)
     [System.IO.File]::Copy($wordDllSource,  [System.IO.Path]::Combine($appInstallDir, "MyanmarSpellChecker.WordAddIn.dll"),  $true)
     [System.IO.File]::Copy($excelDllSource, [System.IO.Path]::Combine($appInstallDir, "MyanmarSpellChecker.ExcelAddIn.dll"), $true)
-    [System.IO.File]::Copy($dbSource,       [System.IO.Path]::Combine($appInstallDir, "mlc_thatpon.db"),                     $true)
-    [System.IO.File]::Copy($dbSource,       [System.IO.Path]::Combine($localRootDir,  "mlc_thatpon.db"),                     $true)
+    if ($pptDllSource -and [System.IO.File]::Exists($pptDllSource)) {
+        [System.IO.File]::Copy($pptDllSource, [System.IO.Path]::Combine($appInstallDir, "MyanmarSpellChecker.PowerPointAddIn.dll"), $true)
+    }
+    [System.IO.File]::Copy($dbSource, [System.IO.Path]::Combine($appInstallDir, "mlc_thatpon.db"), $true)
+    [System.IO.File]::Copy($dbSource, [System.IO.Path]::Combine($localRootDir,  "mlc_thatpon.db"), $true)
 
     try {
         foreach ($f in [System.IO.Directory]::GetFiles($appInstallDir)) {
@@ -330,14 +366,15 @@ try {
         } catch { }
     }
 
-    # 6. Register Word + Excel COM Add-ins in HKCU (Zero Admin Privileges Required!)
-    Write-Host "[3/3] Registering Microsoft Word & Microsoft Excel Add-ins (64-bit & 32-bit)..." -ForegroundColor Cyan
+    # 6. Register Word + Excel + PowerPoint COM Add-ins in HKCU (Zero Admin Privileges Required!)
+    Write-Host "[3/3] Registering Microsoft Word, Excel & PowerPoint Add-ins (64-bit & 32-bit)..." -ForegroundColor Cyan
     $views = @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)
     foreach ($view in $views) {
         $hkcuBase = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $view)
         try {
             foreach ($c in $comClasses) {
                 $installedDll = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($appInstallDir, $c.DllName))
+                if (-not [System.IO.File]::Exists($installedDll)) { continue }
                 $codeBaseUri  = ([System.Uri]::new($installedDll)).AbsoluteUri.Replace("%20", " ")
 
                 $progKey = $hkcuBase.CreateSubKey("Software\Classes\$($c.ProgId)")
@@ -396,14 +433,20 @@ try {
     Set-ItemProperty -Path $excelAddInKey -Name "Description"  -Value "100% Offline Formula-Safe Myanmar Spell and Grammar Checker (Excel)" -Type String
     Set-ItemProperty -Path $excelAddInKey -Name "LoadBehavior" -Value 3 -Type DWord
 
+    if ($pptDllSource -and [System.IO.File]::Exists([System.IO.Path]::Combine($appInstallDir, "MyanmarSpellChecker.PowerPointAddIn.dll"))) {
+        New-Item -Path $pptAddInKey -Force | Out-Null
+        Set-ItemProperty -Path $pptAddInKey -Name "FriendlyName" -Value "Myanmar Official Spell Checker (PowerPoint)" -Type String
+        Set-ItemProperty -Path $pptAddInKey -Name "Description"  -Value "100% Offline Zero-Mutation Myanmar Spell and Grammar Checker (PowerPoint)" -Type String
+        Set-ItemProperty -Path $pptAddInKey -Name "LoadBehavior" -Value 3 -Type DWord
+    }
+
     foreach ($ver in @("16.0", "15.0", "14.0")) {
-        foreach ($appName in @("Word", "Excel")) {
+        foreach ($appName in @("Word", "Excel", "PowerPoint")) {
             Remove-Item -Path "HKCU:\Software\Microsoft\Office\$ver\$appName\Resiliency\DisabledItems" -Recurse -Force -ErrorAction SilentlyContinue
             Remove-Item -Path "HKCU:\Software\Microsoft\Office\$ver\$appName\Resiliency\CrashingAddinList" -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 
-    # Suppress Office's built-in "MISSING PROOFING TOOLS: Proofing is not available for Burmese." yellow banner
     $langResKey = "HKCU:\Software\Microsoft\Office\16.0\Common\LanguageResources"
     if (Test-Path $langResKey) {
         try {
@@ -417,13 +460,13 @@ try {
     }
 
     $dbMb = [Math]::Round(([System.IO.FileInfo]::new([System.IO.Path]::Combine($appInstallDir, "mlc_thatpon.db")).Length / 1MB), 2)
-    $doneMsg = "✓ Myanmar Official Spell Checker & Offline Dictionary (Word + Excel) installed successfully!`r`n`r`n" +
-               "• Ready in both Microsoft Word and Microsoft Excel`r`n" +
-               "• Default UI Language: English (switchable anytime via 🌐 EN ⇄ မြန်မာ)`r`n" +
+    $doneMsg = "✓ Myanmar Official Spell Checker & Offline Dictionary (Word + Excel + PowerPoint) installed successfully!`r`n`r`n" +
+               "• Ready in Microsoft Word, Microsoft Excel, and Microsoft PowerPoint`r`n" +
+               "• Default UI Language: English (switchable anytime via [A/က EN ⇄ မြန်မာ])`r`n" +
                "• Offline Dictionary Database: $dbMb MB (118,600+ verified lexicon & encyclopedia entries)`r`n" +
                "• Installed Location: $appInstallDir`r`n`r`n" +
-               "You can now open Microsoft Word or Excel to start using the add-in.`r`n" +
-               "(ယခု Microsoft Word သို့မဟုတ် Excel ကို ဖွင့်၍ စတင်အသုံးပြုနိုင်ပါပြီ။)"
+               "You can now open Microsoft Word, Excel, or PowerPoint to start using the add-in.`r`n" +
+               "(ယခု Microsoft Word၊ Excel သို့မဟုတ် PowerPoint ကို ဖွင့်၍ စတင်အသုံးပြုနိုင်ပါပြီ။)"
     Show-UserInfo $doneMsg
     exit 0
 }

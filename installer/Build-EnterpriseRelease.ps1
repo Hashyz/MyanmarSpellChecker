@@ -8,15 +8,16 @@ $artifactsDir = Join-Path $repoRoot "artifacts"
 $releasePkgDir = Join-Path $artifactsDir "release-package"
 
 Write-Host "========================================================================" -ForegroundColor Cyan
-Write-Host " Building MyanmarSpellChecker B2G Enterprise Suite (Word + Excel)" -ForegroundColor Cyan
+Write-Host " Building MyanmarSpellChecker B2G Enterprise Suite (Word + Excel + PowerPoint)" -ForegroundColor Cyan
 Write-Host "========================================================================" -ForegroundColor Cyan
 
 # 1. Build Solution in Release Mode (AnyCPU, .NET Framework 4.8)
-Write-Host "[1/5] Compiling Release binaries (Core + WordAddIn + ExcelAddIn)..." -ForegroundColor Cyan
+Write-Host "[1/5] Compiling Release binaries (Core + WordAddIn + ExcelAddIn + PowerPointAddIn)..." -ForegroundColor Cyan
 New-Item -ItemType Directory -Path $releasePkgDir -Force | Out-Null
 
 $wordReleaseBinDir  = Join-Path $repoRoot "src\MyanmarSpellChecker.WordAddIn\bin\Release\net48"
 $excelReleaseBinDir = Join-Path $repoRoot "src\MyanmarSpellChecker.ExcelAddIn\bin\Release\net48"
+$pptReleaseBinDir   = Join-Path $repoRoot "src\MyanmarSpellChecker.PowerPointAddIn\bin\Release\net48"
 
 function Test-FileLocked([string]$PathToTest) {
     if (-not (Test-Path $PathToTest)) { return $false }
@@ -31,12 +32,14 @@ function Test-FileLocked([string]$PathToTest) {
 
 $wordBinLocked  = Test-FileLocked (Join-Path $wordReleaseBinDir "MyanmarSpellChecker.Core.dll")
 $excelBinLocked = Test-FileLocked (Join-Path $excelReleaseBinDir "MyanmarSpellChecker.Core.dll")
+$pptBinLocked   = Test-FileLocked (Join-Path $pptReleaseBinDir "MyanmarSpellChecker.Core.dll")
 
-if (-not $wordBinLocked -and -not $excelBinLocked) {
+if (-not $wordBinLocked -and -not $excelBinLocked -and -not $pptBinLocked) {
     & dotnet build (Join-Path $repoRoot "MyanmarSpellChecker.sln") -c Release /p:DebugType=none /p:DebugSymbols=false /p:CopyRetryCount=1
     if ($LASTEXITCODE -ne 0) { throw "dotnet build failed." }
     $wordBuildOutDir  = $wordReleaseBinDir
     $excelBuildOutDir = $excelReleaseBinDir
+    $pptBuildOutDir   = $pptReleaseBinDir
 } else {
     Write-Host "    [Note] Active Office process detected; building unlocked Release outputs cleanly..." -ForegroundColor Yellow
     & dotnet build (Join-Path $repoRoot "tests\MyanmarSpellChecker.Core.Tests\MyanmarSpellChecker.Core.Tests.csproj") -c Release
@@ -67,6 +70,19 @@ if (-not $wordBinLocked -and -not $excelBinLocked) {
         if ($LASTEXITCODE -ne 0) { throw "ExcelAddIn fallback build failed." }
         $excelBuildOutDir = $excelFallbackDir
     }
+
+    if (-not $pptBinLocked) {
+        & dotnet build (Join-Path $repoRoot "src\MyanmarSpellChecker.PowerPointAddIn\MyanmarSpellChecker.PowerPointAddIn.csproj") -c Release /p:DebugType=none /p:DebugSymbols=false /p:CopyRetryCount=1
+        if ($LASTEXITCODE -ne 0) { throw "PowerPointAddIn build failed." }
+        $pptBuildOutDir = $pptReleaseBinDir
+    } else {
+        $pkgPptLocked = (Test-FileLocked (Join-Path $releasePkgDir "MyanmarSpellChecker.PowerPointAddIn.dll")) -or (Test-FileLocked (Join-Path $releasePkgDir "MyanmarSpellChecker.Core.dll"))
+        $pptFallbackDir = if (-not $pkgPptLocked) { $releasePkgDir } else { Join-Path $artifactsDir "staged-powerpoint" }
+        New-Item -ItemType Directory -Path $pptFallbackDir -Force | Out-Null
+        & dotnet build (Join-Path $repoRoot "src\MyanmarSpellChecker.PowerPointAddIn\MyanmarSpellChecker.PowerPointAddIn.csproj") -c Release -o $pptFallbackDir /p:DebugType=none /p:DebugSymbols=false /p:CopyRetryCount=1
+        if ($LASTEXITCODE -ne 0) { throw "PowerPointAddIn fallback build failed." }
+        $pptBuildOutDir = $pptFallbackDir
+    }
 }
 
 # Locate or create B2G Enterprise Code-Signing Certificate
@@ -85,12 +101,14 @@ if (-not $cert) {
         -NotAfter (Get-Date).AddYears(5)
 }
 
-# Sign Core, WordAddIn, and ExcelAddIn in build dirs and copy to release-package
+# Sign Core, WordAddIn, ExcelAddIn, and PowerPointAddIn in build dirs and copy to release-package
 $signTargets = @(
     @{ Dir = $wordBuildOutDir;  Dll = "MyanmarSpellChecker.Core.dll" },
     @{ Dir = $wordBuildOutDir;  Dll = "MyanmarSpellChecker.WordAddIn.dll" },
     @{ Dir = $excelBuildOutDir; Dll = "MyanmarSpellChecker.Core.dll" },
-    @{ Dir = $excelBuildOutDir; Dll = "MyanmarSpellChecker.ExcelAddIn.dll" }
+    @{ Dir = $excelBuildOutDir; Dll = "MyanmarSpellChecker.ExcelAddIn.dll" },
+    @{ Dir = $pptBuildOutDir;   Dll = "MyanmarSpellChecker.Core.dll" },
+    @{ Dir = $pptBuildOutDir;   Dll = "MyanmarSpellChecker.PowerPointAddIn.dll" }
 )
 
 foreach ($t in $signTargets) {
@@ -118,7 +136,13 @@ $sampleCsvPath  = Join-Path $repoRoot "data\mlc_thatpon_sample_import.csv"
 $outDbPath      = Join-Path $releasePkgDir "mlc_thatpon.db"
 $password       = "MM-GOV-THATPON-SQLCIPHER-2026!"
 
-$coreLoadDir = if (-not (Test-FileLocked (Join-Path $excelBuildOutDir "MyanmarSpellChecker.Core.dll"))) { $excelBuildOutDir } else { $wordBuildOutDir }
+$coreLoadDir = if (-not (Test-FileLocked (Join-Path $pptBuildOutDir "MyanmarSpellChecker.Core.dll"))) {
+    $pptBuildOutDir
+} elseif (-not (Test-FileLocked (Join-Path $excelBuildOutDir "MyanmarSpellChecker.Core.dll"))) {
+    $excelBuildOutDir
+} else {
+    $wordBuildOutDir
+}
 $coreAsm  = [System.Reflection.Assembly]::LoadFrom((Join-Path $coreLoadDir "MyanmarSpellChecker.Core.dll"))
 $repoType = $coreAsm.GetType("MyanmarSpellChecker.Core.Dictionary.EncryptedDictionaryRepository")
 $seedType = $coreAsm.GetType("MyanmarSpellChecker.Core.Dictionary.SeedDictionaryProvider")
@@ -166,7 +190,7 @@ foreach ($legalFile in @("LICENSE", "NOTICE", "CITATION.cff")) {
     }
 }
 
-foreach ($binDir in @($wordReleaseBinDir, $excelReleaseBinDir)) {
+foreach ($binDir in @($wordReleaseBinDir, $excelReleaseBinDir, $pptReleaseBinDir)) {
     if (Test-Path $binDir) {
         try { Copy-Item $outDbPath (Join-Path $binDir "mlc_thatpon.db") -Force -ErrorAction Stop } catch { }
         if (Test-Path (Join-Path $releasePkgDir "license.lic")) {
@@ -175,7 +199,7 @@ foreach ($binDir in @($wordReleaseBinDir, $excelReleaseBinDir)) {
     }
 }
 
-foreach ($dll in @("MyanmarSpellChecker.Core.dll", "MyanmarSpellChecker.WordAddIn.dll", "MyanmarSpellChecker.ExcelAddIn.dll")) {
+foreach ($dll in @("MyanmarSpellChecker.Core.dll", "MyanmarSpellChecker.WordAddIn.dll", "MyanmarSpellChecker.ExcelAddIn.dll", "MyanmarSpellChecker.PowerPointAddIn.dll")) {
     $dllPath = Join-Path $releasePkgDir $dll
     if ((Test-Path $dllPath) -and -not (Test-FileLocked $dllPath)) {
         try {
@@ -185,14 +209,14 @@ foreach ($dll in @("MyanmarSpellChecker.Core.dll", "MyanmarSpellChecker.WordAddI
     }
 }
 
-# 4. Generate Silent GPO Deployment Script (Install-MinistryGPO.cmd) for BOTH Word AND Excel!
-Write-Host "[4/5] Generating Unified Word + Excel Silent Active Directory GPO Deployment Script..." -ForegroundColor Cyan
+# 4. Generate Silent GPO Deployment Script (Install-MinistryGPO.cmd) for Word + Excel + PowerPoint!
+Write-Host "[4/5] Generating Unified Word + Excel + PowerPoint Silent Active Directory GPO Deployment Script..." -ForegroundColor Cyan
 
 $installCmd = @'
 @echo off
 REM ============================================================================
 REM Silent Active Directory GPO Deployment Script (Runs as SYSTEM / Admin)
-REM Target: C:\Program Files\MyanmarSpellChecker (Microsoft Word + Microsoft Excel)
+REM Target: C:\Program Files\MyanmarSpellChecker (Word + Excel + PowerPoint)
 REM ============================================================================
 setlocal
 set "INSTALL_DIR=%ProgramFiles%\MyanmarSpellChecker"
@@ -205,22 +229,25 @@ REM 1. Trust Enterprise Publisher Certificate in LocalMachine Root & TrustedPubl
 certutil -addstore -f "Root" "%~dp0MyanmarSpellChecker-EnterpriseCA.cer" >nul 2>&1
 certutil -addstore -f "TrustedPublisher" "%~dp0MyanmarSpellChecker-EnterpriseCA.cer" >nul 2>&1
 
-REM 2. Copy Signed Binaries (Core + WordAddIn + ExcelAddIn) & Encrypted Dictionary
+REM 2. Copy Signed Binaries (Core + WordAddIn + ExcelAddIn + PowerPointAddIn) & Encrypted Dictionary
 copy /Y "%~dp0MyanmarSpellChecker.Core.dll" "%INSTALL_DIR%\" >nul
 copy /Y "%~dp0MyanmarSpellChecker.WordAddIn.dll" "%INSTALL_DIR%\" >nul
 copy /Y "%~dp0MyanmarSpellChecker.ExcelAddIn.dll" "%INSTALL_DIR%\" >nul
+copy /Y "%~dp0MyanmarSpellChecker.PowerPointAddIn.dll" "%INSTALL_DIR%\" >nul
 copy /Y "%~dp0mlc_thatpon.db" "%INSTALL_DIR%\" >nul
 copy /Y "%~dp0mlc_thatpon.db" "%DATA_DIR%\" >nul
 if exist "%~dp0license.lic" copy /Y "%~dp0license.lic" "%DATA_DIR%\" >nul
 
-REM 3. Register COM Add-ins (Word + Excel) for both 64-bit and 32-bit MS Office
+REM 3. Register COM Add-ins (Word + Excel + PowerPoint) for both 64-bit and 32-bit MS Office
 if exist "%SystemRoot%\Microsoft.NET\Framework64\v4.0.30319\RegAsm.exe" (
     "%SystemRoot%\Microsoft.NET\Framework64\v4.0.30319\RegAsm.exe" /codebase "%INSTALL_DIR%\MyanmarSpellChecker.WordAddIn.dll" /silent
     "%SystemRoot%\Microsoft.NET\Framework64\v4.0.30319\RegAsm.exe" /codebase "%INSTALL_DIR%\MyanmarSpellChecker.ExcelAddIn.dll" /silent
+    "%SystemRoot%\Microsoft.NET\Framework64\v4.0.30319\RegAsm.exe" /codebase "%INSTALL_DIR%\MyanmarSpellChecker.PowerPointAddIn.dll" /silent
 )
 if exist "%SystemRoot%\Microsoft.NET\Framework\v4.0.30319\RegAsm.exe" (
     "%SystemRoot%\Microsoft.NET\Framework\v4.0.30319\RegAsm.exe" /codebase "%INSTALL_DIR%\MyanmarSpellChecker.WordAddIn.dll" /silent
     "%SystemRoot%\Microsoft.NET\Framework\v4.0.30319\RegAsm.exe" /codebase "%INSTALL_DIR%\MyanmarSpellChecker.ExcelAddIn.dll" /silent
+    "%SystemRoot%\Microsoft.NET\Framework\v4.0.30319\RegAsm.exe" /codebase "%INSTALL_DIR%\MyanmarSpellChecker.PowerPointAddIn.dll" /silent
 )
 
 REM 4. Register Office Word Addins Registry Keys (64-bit & 32-bit WOW6432Node)
@@ -243,6 +270,16 @@ reg add "HKLM\Software\WOW6432Node\Microsoft\Office\Excel\Addins\MyanmarSpellChe
 reg add "HKLM\Software\WOW6432Node\Microsoft\Office\Excel\Addins\MyanmarSpellChecker.ExcelAddIn" /v "LoadBehavior" /t REG_DWORD /d 3 /f >nul
 reg delete "HKCU\Software\Microsoft\Office\Excel\Addins\MyanmarSpellChecker.ExcelAddIn" /f >nul 2>&1
 
+REM 6. Register Office PowerPoint Addins Registry Keys (64-bit & 32-bit WOW6432Node)
+reg add "HKLM\Software\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn" /v "FriendlyName" /t REG_SZ /d "Myanmar Official Spell Checker (PowerPoint)" /f >nul
+reg add "HKLM\Software\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn" /v "Description" /t REG_SZ /d "100% Offline Zero-Mutation Myanmar Spell and Grammar Checker (PowerPoint)" /f >nul
+reg add "HKLM\Software\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn" /v "LoadBehavior" /t REG_DWORD /d 3 /f >nul
+
+reg add "HKLM\Software\WOW6432Node\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn" /v "FriendlyName" /t REG_SZ /d "Myanmar Official Spell Checker (PowerPoint)" /f >nul
+reg add "HKLM\Software\WOW6432Node\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn" /v "Description" /t REG_SZ /d "100% Offline Zero-Mutation Myanmar Spell and Grammar Checker (PowerPoint)" /f >nul
+reg add "HKLM\Software\WOW6432Node\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn" /v "LoadBehavior" /t REG_DWORD /d 3 /f >nul
+reg delete "HKCU\Software\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn" /f >nul 2>&1
+
 exit /b 0
 '@
 
@@ -258,7 +295,7 @@ $easyBat = @'
 @echo off
 REM ============================================================================
 REM 1-Click Friendly Setup (No Admin, No Git, No .NET SDK Needed!)
-REM Double-click this file to install for Microsoft Word & Microsoft Excel
+REM Double-click this file to install for Microsoft Word, Excel & PowerPoint
 REM ============================================================================
 setlocal
 
@@ -284,15 +321,17 @@ exit /b %ERRORLEVEL%
 '@
 Set-Content -Path (Join-Path $releasePkgDir "Uninstall-EasyUser.bat") -Value $easyUninstBat -Encoding ASCII
 
-# Sync signed pre-built AnyCPU binaries (~1.07 MB) into installer\prebuilt so fresh git clone / GitHub ZIP works on PCs without .NET SDK!
+# Sync signed pre-built AnyCPU binaries into installer\prebuilt so fresh git clone / GitHub ZIP works on PCs without .NET SDK!
 $prebuiltDir = Join-Path $PSScriptRoot "prebuilt"
 New-Item -ItemType Directory -Path $prebuiltDir -Force | Out-Null
-$unlockedCoreSrc = Join-Path $excelBuildOutDir "MyanmarSpellChecker.Core.dll"
+$unlockedCoreSrc = Join-Path $pptBuildOutDir "MyanmarSpellChecker.Core.dll"
+if (-not (Test-Path $unlockedCoreSrc)) { $unlockedCoreSrc = Join-Path $excelBuildOutDir "MyanmarSpellChecker.Core.dll" }
 if (-not (Test-Path $unlockedCoreSrc)) { $unlockedCoreSrc = Join-Path $wordBuildOutDir "MyanmarSpellChecker.Core.dll" }
 foreach ($pbPair in @(
     @{ Src = $unlockedCoreSrc; Dst = (Join-Path $prebuiltDir "MyanmarSpellChecker.Core.dll") },
     @{ Src = (Join-Path $wordBuildOutDir "MyanmarSpellChecker.WordAddIn.dll"); Dst = (Join-Path $prebuiltDir "MyanmarSpellChecker.WordAddIn.dll") },
     @{ Src = (Join-Path $excelBuildOutDir "MyanmarSpellChecker.ExcelAddIn.dll"); Dst = (Join-Path $prebuiltDir "MyanmarSpellChecker.ExcelAddIn.dll") },
+    @{ Src = (Join-Path $pptBuildOutDir "MyanmarSpellChecker.PowerPointAddIn.dll"); Dst = (Join-Path $prebuiltDir "MyanmarSpellChecker.PowerPointAddIn.dll") },
     @{ Src = $cerPath; Dst = (Join-Path $prebuiltDir "MyanmarSpellChecker-EnterpriseCA.cer") }
 )) {
     try {
@@ -302,14 +341,16 @@ foreach ($pbPair in @(
     }
 }
 
-# Build lock-safe standalone EasySetup .zip archive even if MS Word or Excel is currently open!
-$zipOutPath = Join-Path $artifactsDir "MyanmarSpellChecker-EasySetup-Word-Excel.zip"
-$zipStaging = Join-Path $artifactsDir "zip-staging"
+# Build lock-safe standalone EasySetup .zip archive even if MS Word, Excel, or PowerPoint is currently open!
+$zipOutPath   = Join-Path $artifactsDir "MyanmarSpellChecker-EasySetup-OfficeSuite.zip"
+$legacyZipOut = Join-Path $artifactsDir "MyanmarSpellChecker-EasySetup-Word-Excel.zip"
+$zipStaging   = Join-Path $artifactsDir "zip-staging"
 if (Test-Path $zipStaging) { Remove-Item -Path $zipStaging -Recurse -Force -ErrorAction SilentlyContinue }
 New-Item -ItemType Directory -Path $zipStaging -Force | Out-Null
 [System.IO.File]::Copy($unlockedCoreSrc, (Join-Path $zipStaging "MyanmarSpellChecker.Core.dll"), $true)
 [System.IO.File]::Copy((Join-Path $wordBuildOutDir "MyanmarSpellChecker.WordAddIn.dll"), (Join-Path $zipStaging "MyanmarSpellChecker.WordAddIn.dll"), $true)
 [System.IO.File]::Copy((Join-Path $excelBuildOutDir "MyanmarSpellChecker.ExcelAddIn.dll"), (Join-Path $zipStaging "MyanmarSpellChecker.ExcelAddIn.dll"), $true)
+[System.IO.File]::Copy((Join-Path $pptBuildOutDir "MyanmarSpellChecker.PowerPointAddIn.dll"), (Join-Path $zipStaging "MyanmarSpellChecker.PowerPointAddIn.dll"), $true)
 [System.IO.File]::Copy($outDbPath, (Join-Path $zipStaging "mlc_thatpon.db"), $true)
 [System.IO.File]::Copy($cerPath, (Join-Path $zipStaging "MyanmarSpellChecker-EnterpriseCA.cer"), $true)
 foreach ($extra in @("Easy-Setup.ps1", "Install-EasyUser.bat", "Uninstall-EasyUser.bat", "Install-MinistryGPO.cmd", "LICENSE", "NOTICE", "CITATION.cff")) {
@@ -318,9 +359,10 @@ foreach ($extra in @("Easy-Setup.ps1", "Install-EasyUser.bat", "Uninstall-EasyUs
 }
 if (Test-Path $zipOutPath) { Remove-Item -Path $zipOutPath -Force }
 Compress-Archive -Path (Join-Path $zipStaging "*") -DestinationPath $zipOutPath -CompressionLevel Optimal -Force
+Copy-Item $zipOutPath $legacyZipOut -Force
 Remove-Item -Path $zipStaging -Recurse -Force -ErrorAction SilentlyContinue
 
-Write-Host "[5/5] Unified Office Suite Release Package & Standalone ZIP Ready:" -ForegroundColor Green
+Write-Host "[5/5] Unified 3-in-1 Office Suite Release Package & Standalone ZIP Ready:" -ForegroundColor Green
 Write-Host "      Package Dir : $releasePkgDir" -ForegroundColor Green
 Write-Host "      Prebuilt Dir: $prebuiltDir" -ForegroundColor Green
 Write-Host "      EasySetup   : $zipOutPath ($([Math]::Round((Get-Item $zipOutPath).Length / 1MB, 2)) MB)" -ForegroundColor Green

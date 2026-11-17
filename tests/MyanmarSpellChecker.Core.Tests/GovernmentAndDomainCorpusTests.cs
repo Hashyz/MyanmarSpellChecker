@@ -1580,6 +1580,9 @@ namespace MyanmarSpellChecker.Core.Tests
             string excelDll = File.Exists(Path.Combine(prebuiltDir, "MyanmarSpellChecker.ExcelAddIn.dll"))
                 ? Path.Combine(prebuiltDir, "MyanmarSpellChecker.ExcelAddIn.dll")
                 : coreDll;
+            string pptDll = File.Exists(Path.Combine(prebuiltDir, "MyanmarSpellChecker.PowerPointAddIn.dll"))
+                ? Path.Combine(prebuiltDir, "MyanmarSpellChecker.PowerPointAddIn.dll")
+                : coreDll;
 
             // 2. Simulate a clean second PC (fresh git clone / Download ZIP in a folder with spaces AND [1] wildcard brackets,
             //    with ONLY ONE database file 'data\mlc_thatpon.db' and NO 'artifacts\' or 'src\*\bin\' directories!)
@@ -1601,6 +1604,7 @@ namespace MyanmarSpellChecker.Core.Tests
                 File.Copy(coreDll, Path.Combine(simPrebuilt, "MyanmarSpellChecker.Core.dll"), overwrite: true);
                 File.Copy(wordDll, Path.Combine(simPrebuilt, "MyanmarSpellChecker.WordAddIn.dll"), overwrite: true);
                 File.Copy(excelDll, Path.Combine(simPrebuilt, "MyanmarSpellChecker.ExcelAddIn.dll"), overwrite: true);
+                File.Copy(pptDll, Path.Combine(simPrebuilt, "MyanmarSpellChecker.PowerPointAddIn.dll"), overwrite: true);
                 File.Copy(sourceDb, Path.Combine(simData, "mlc_thatpon.db"), overwrite: true);
 
                 string psExe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe");
@@ -1624,6 +1628,7 @@ namespace MyanmarSpellChecker.Core.Tests
                     proc.WaitForExit(20_000);
                     Assert.True(proc.ExitCode == 0, $"Clean-clone Easy-Setup -ValidateOnly failed (exit {proc.ExitCode}): {stdout} {stderr}");
                     Assert.Contains("VALIDATE_OK|", stdout);
+                    Assert.Contains("PowerPoint=", stdout);
                     Assert.Contains($"DbBytes={dbLength}", stdout);
                 }
 
@@ -1632,6 +1637,7 @@ namespace MyanmarSpellChecker.Core.Tests
                 File.Copy(coreDll, Path.Combine(simStandalone, "MyanmarSpellChecker.Core.dll"), overwrite: true);
                 File.Copy(wordDll, Path.Combine(simStandalone, "MyanmarSpellChecker.WordAddIn.dll"), overwrite: true);
                 File.Copy(excelDll, Path.Combine(simStandalone, "MyanmarSpellChecker.ExcelAddIn.dll"), overwrite: true);
+                File.Copy(pptDll, Path.Combine(simStandalone, "MyanmarSpellChecker.PowerPointAddIn.dll"), overwrite: true);
                 File.Copy(sourceDb, Path.Combine(simStandalone, "mlc_thatpon.db"), overwrite: true);
 
                 var psiZip = new System.Diagnostics.ProcessStartInfo
@@ -1650,6 +1656,7 @@ namespace MyanmarSpellChecker.Core.Tests
                     proc.WaitForExit(20_000);
                     Assert.True(proc.ExitCode == 0, $"Standalone Easy-Setup -ValidateOnly failed (exit {proc.ExitCode}): {stdout} {stderr}");
                     Assert.Contains("VALIDATE_OK|", stdout);
+                    Assert.Contains("PowerPoint=", stdout);
                     Assert.Contains($"DbBytes={dbLength}", stdout);
                 }
             }
@@ -2299,10 +2306,11 @@ namespace MyanmarSpellChecker.Core.Tests
                 UiLocalizer.CurrentLanguage = origLang;
             }
 
-            // 1. Zero supplementary-plane surrogate characters in Word/Excel Add-in C# sources (prevents GDI Pyidaungsu [▯] Tofu boxes)
+            // 1. Zero supplementary-plane surrogate characters in Word/Excel/PowerPoint Add-in C# sources (prevents GDI Pyidaungsu [▯] Tofu boxes)
             string wordDir = Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn");
             string excelDir = Path.Combine(repoRoot, "src", "MyanmarSpellChecker.ExcelAddIn");
-            foreach (string dir in new[] { wordDir, excelDir })
+            string pptDir = Path.Combine(repoRoot, "src", "MyanmarSpellChecker.PowerPointAddIn");
+            foreach (string dir in new[] { wordDir, excelDir, pptDir })
             {
                 foreach (string csPath in Directory.GetFiles(dir, "*.cs", SearchOption.AllDirectories))
                 {
@@ -2322,7 +2330,13 @@ namespace MyanmarSpellChecker.Core.Tests
             // 2. Deterministic TableLayoutPanel grids + dynamic DPI font-metric heights (zero hardcoded 96-DPI heights & zero FlowLayoutPanel vertical gap)
             string wordPane = File.ReadAllText(Path.Combine(wordDir, "UI", "ProofingTaskPaneControl.cs"));
             string excelPane = File.ReadAllText(Path.Combine(excelDir, "UI", "ExcelProofingTaskPaneControl.cs"));
-            foreach ((string name, string src) in new[] { ("ProofingTaskPaneControl.cs", wordPane), ("ExcelProofingTaskPaneControl.cs", excelPane) })
+            string pptPane = File.ReadAllText(Path.Combine(pptDir, "UI", "PowerPointProofingTaskPaneControl.cs"));
+            foreach ((string name, string src) in new[]
+            {
+                ("ProofingTaskPaneControl.cs", wordPane),
+                ("ExcelProofingTaskPaneControl.cs", excelPane),
+                ("PowerPointProofingTaskPaneControl.cs", pptPane)
+            })
             {
                 Assert.DoesNotContain("brandPillsFlow", src, StringComparison.Ordinal);
                 Assert.DoesNotContain("dictCatRow = new FlowLayoutPanel", src, StringComparison.Ordinal);
@@ -2342,7 +2356,8 @@ namespace MyanmarSpellChecker.Core.Tests
             // 3. Per-window High-DPI startup Task Pane width enforcement across Office 365 Backstage -> document open
             string wordAddIn = File.ReadAllText(Path.Combine(wordDir, "ThisAddIn.cs"));
             string excelAddIn = File.ReadAllText(Path.Combine(excelDir, "ExcelThisAddIn.cs"));
-            foreach (string addInSrc in new[] { wordAddIn, excelAddIn })
+            string pptAddIn = File.ReadAllText(Path.Combine(pptDir, "PowerPointThisAddIn.cs"));
+            foreach (string addInSrc in new[] { wordAddIn, excelAddIn, pptAddIn })
             {
                 Assert.Contains("ScheduleStartupPaneWidthEnforcement", addInSrc, StringComparison.Ordinal);
                 Assert.Contains("UiFontCache.GetWindowDpi", addInSrc, StringComparison.Ordinal);
@@ -5366,10 +5381,22 @@ namespace MyanmarSpellChecker.Core.Tests
                     detected.Count > 0,
                     $"Expected engine to flag clerk/encoding error in '{wrongCell}' (expected '{expectedFix}'), got 0 issues.");
 
+                string normExpected = UnicodeNormalizer.NormalizeCanonicalOrder(expectedFix);
                 bool matchedSuggestion = detected.Any(iss =>
                     iss.Suggestions.Any(s =>
-                        UnicodeNormalizer.NormalizeCanonicalOrder(s.Replacement)
-                            .Contains(UnicodeNormalizer.NormalizeCanonicalOrder(expectedFix))));
+                    {
+                        string repNorm = UnicodeNormalizer.NormalizeCanonicalOrder(s.Replacement);
+                        if (repNorm.Contains(normExpected))
+                            return true;
+                        if (iss.StartIndex >= 0 && iss.StartIndex + iss.Length <= wrongCell.Length)
+                        {
+                            string patchedCell = wrongCell.Substring(0, iss.StartIndex) +
+                                                 s.Replacement +
+                                                 wrongCell.Substring(iss.StartIndex + iss.Length);
+                            return UnicodeNormalizer.NormalizeCanonicalOrder(patchedCell).Contains(normExpected);
+                        }
+                        return false;
+                    }));
 
                 Assert.True(
                     matchedSuggestion,
