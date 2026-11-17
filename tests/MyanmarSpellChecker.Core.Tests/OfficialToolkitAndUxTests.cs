@@ -2787,5 +2787,97 @@ namespace MyanmarSpellChecker.Core.Tests
                     UnicodeNormalizer.NormalizeCanonicalOrder(patched));
             }
         }
+
+        [Fact]
+        public void V65B_GovPortalB2GAuditShields_AndMultiCorpusPrecisionRecall_Gate()
+        {
+            string dbPath = TestPaths.EncryptedDbPath;
+            Assert.True(File.Exists(dbPath), "Compiled mlc_thatpon.db must exist.");
+
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            MyanmarTrie trie = repo.LoadIntoTrie(AntiTamperGuard.ReconstructProtectedFallbackKey());
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // 1. All 14 Live .gov.mm B2G Portal & Gazette Clean Controls + Literary/Pali/Foreign Coda Controls MUST emit ZERO false positives
+            (MyanmarProofingEngine Engine, string CleanInput)[] govCleanControls =
+            {
+                (formalEngine, "အိန္ဒိယနိုင်ငံ၊ ချင်းနိုင်မြို့ (Chennai) ၏ အရှေ့တောင်ဘက် ရေမိုင် ၂၄၀ ခန့်အကွာ၌ မုန်တိုင်းငယ် ဗဟိုပြုနေသည်။"),
+                (formalEngine, "ခရိုင်ကော်လိတ္တော်အရာရှိက မြေငှားဂရန် လျှောက်ထားမှုများကို ဥပဒေနှင့်အညီ စိစစ်ဆောင်ရွက်ပေးသည်။"),
+                (formalEngine, "နယ်စပ်ကုန်သွယ်ရေးစခန်းတွင် ကားခ (ကုန်ကျစ်) နှင့် (ကုန်ပွ) နှုန်းထားများကို စနစ်တကျ သတ်မှတ်ထားသည်။"),
+                (formalEngine, "ဈေးများအတွင်း အသားငါးများ၌ ရေထိုးခြင်း၊ လေထိုးခြင်းနှင့် ဆိုးဆေးသုံးစွဲခြင်း မပြုလုပ်ရန် စစ်ဆေးသည်။"),
+                (formalEngine, "ပြည်သူများအားလုံး ကိုယ်စိတ်နှစ်ဖြာ ကျန်းမာချမ်းသာကြပါစေကြောင်း ဆုမွန်ကောင်း မေတ္တာ ပို့သအပ်ပါသည်။"),
+                (formalEngine, "စုဒ္ဒသမ တိပိဋကဓရ တိပိဋကကောဝိဒ ရွေးချယ်ရေးစာမေးပွဲကြီးကို နေပြည်တော်၌ ကျင်းပသည်။"),
+                (formalEngine, "သဒ္ဓမ္မနန္ဒပရိယတ္တိစာသင်တိုက် ဆရာတော်ကြီးအား လှူဖွယ်ဝတ္ထုပစ္စည်းများ ဆက်ကပ်လှူဒါန်းသည်။"),
+                (formalEngine, "အခြေခံ သေနတ်ပစ်ခတ်ပုံကအစ စနစ်တကျ လေ့ကျင့်သင်ကြားပေးလျက်ရှိသည်။"),
+                (formalEngine, "ကမ္ဘာအေးဘုရားလမ်းမပေါ်ရှိ မြန်မာပလာဇာရှေ့ ယာဉ်ကြောရှင်းလင်းရေး ဆောင်ရွက်ထားသည်။"),
+                (formalEngine, "ဒီဂျစ်တယ်လ်တီထွင်ဆန်းသစ်မှုနှင့် အယ်ဂိုရီသမ် နည်းပညာဆိုင်ရာ ဆွေးနွေးပွဲသို့ တက်ရောက်သည်။"),
+                (formalEngine, "(40th ACMF Capital Market Regulators Conference ... ဆက်ဖတ်ရန်"),
+                (formalEngine, "“(၂၃) ကြိမ်မြောက် အာရှနှင့် ပစိဖိတ်ဒေသဆိုင်ရာ အာမခံညီလာခံ ... ဆက်ဖတ်ရန်"),
+                (formalEngine, "“ဒေးဒေး” ကယားရိုးရာအထည်များ ထုတ်လုပ်ဖြန့်ဖြူးရေးလုပ်ငန်း ပြခန်းကို ကြည့်ရှုအားပေးသည်။"),
+                (formalEngine, "ပြည်ထောင်စုနေ့ အခမ်းအနားတွင် တိုင်းကြီး၊ တိုင်းနေ၊ တိုင်းလိ ရိုးရာယဉ်ကျေးမှုအဖွဲ့များက ကပြဖျော်ဖြေကြသည်။"),
+                (generalEngine, "ရောင်ဝ် နှင့် မာရထာအင်ပါယာ သမိုင်းအကြောင်း လေ့လာဖတ်ရှုသည်။")
+            };
+
+            foreach (var (eng, clean) in govCleanControls)
+            {
+                var fp = eng.CheckText(clean);
+                Assert.True(fp.Count == 0, $"Gov B2G clean control falsely flagged '{clean}': {string.Join(", ", fp.Select(x => x.OriginalText + "->" + (x.Suggestions.FirstOrDefault()?.Replacement ?? "")))}");
+            }
+
+            // 2. Authentic .gov.mm Multi-Error Gazette Sentences & V65 Case-Role / Collocation Repairs in 1 Pass
+            (MyanmarProofingEngine Engine, string RawInput, int ExpectedIssues, string ExpectedCleanOutput)[] govAndV65Cases =
+            {
+                (
+                    formalEngine,
+                    "ချေးငွေသက်သေခံလက်မှတ်လုပ်ငန်း ကြီးကြပ်ရေးကော်မရှင်မှ ရန်ကုန်စတော့အိပ်ချိန်းရှိ အစုရှယ် ယာ ရောင်းဝယ်မှုများကို တပြေးညီ ကြီးကြပ်ဆောင်ရွက်လျှက်ရှိသည်။",
+                    4,
+                    "ချေးငွေသက်သေခံလက်မှတ်လုပ်ငန်း ကြီးကြပ်ရေးကော်မရှင်မှ ရန်ကုန်စတော့အိတ်ချိန်းရှိ အစုရှယ်ယာ ရောင်းဝယ်မှုများကို တစ်ပြေးညီ ကြီးကြပ်ဆောင်ရွက်လျက်ရှိသည်။"
+                ),
+                (
+                    formalEngine,
+                    "မြန်မာနိုင်ငံတော်ဗဟိုဘဏ် ဥက္ကဌ ဦးဆောင်သော အစည်း အဝေးတွင် အတိုးနှုန်း လျော့ချ ရေးမူဝါဒကို ကြေငြာ ခဲ့သည်။",
+                    4,
+                    "မြန်မာနိုင်ငံတော်ဗဟိုဘဏ် ဥက္ကဋ္ဌ ဦးဆောင်သော အစည်းအဝေးတွင် အတိုးနှုန်း လျှော့ချ ရေးမူဝါဒကို ကြေညာ ခဲ့သည်။"
+                ),
+                (
+                    formalEngine,
+                    "ရင်းနှီးမြုပ်နှံမှုနှင့် နိုင်ငံခြားစီးပွားဆက်သွယ်ရေး ဝန်ကြီး ဌာနက ဥပဒေ ပြဌာန်းချက်များနှင့်အညီ ခွင့်မူချက် ထုတ်ပေးသည်။",
+                    4,
+                    "ရင်းနှီးမြှုပ်နှံမှုနှင့် နိုင်ငံခြားစီးပွားဆက်သွယ်ရေး ဝန်ကြီးဌာနက ဥပဒေ ပြဋ္ဌာန်းချက်များနှင့်အညီ ခွင့်ပြုချက် ထုတ်ပေးသည်။"
+                ),
+                (
+                    formalEngine,
+                    "မြို့တော်စည်ပင်သာယာရေးကော်မတီက အဆောက်အဦး အသစ်များနှင့် လူသွား စင်္ကြန် များကို ကွင်းဆင်းကြည့်ရှု့ စစ်ဆေးခဲ့သည်။",
+                    3,
+                    "မြို့တော်စည်ပင်သာယာရေးကော်မတီက အဆောက်အဦ အသစ်များနှင့် လူသွား စင်္ကြံ များကို ကွင်းဆင်းကြည့်ရှု စစ်ဆေးခဲ့သည်။"
+                ),
+                (
+                    generalEngine,
+                    "စိုက်ပျိုးရေးကို မြန်မာ့စီးပွားရေးအတွက် အရေးပါပြီး ခုနှစ်နှစ်အရွယ် ကလေးတွေလဲရှိပါတယ်။",
+                    3,
+                    "စိုက်ပျိုးရေးဟာ မြန်မာ့စီးပွားရေးအတွက် အရေးပါပြီး ခုနစ်နှစ်အရွယ် ကလေးတွေလည်းရှိပါတယ်။"
+                )
+            };
+
+            foreach (var (eng, raw, expectedCount, expectedClean) in govAndV65Cases)
+            {
+                var issues = eng.CheckText(raw);
+                Assert.Equal(expectedCount, issues.Count);
+
+                string patched = raw;
+                foreach (var iss in issues.OrderByDescending(i => i.StartIndex))
+                {
+                    Assert.NotEmpty(iss.Suggestions);
+                    patched = patched.Substring(0, iss.StartIndex) +
+                              iss.Suggestions[0].Replacement +
+                              patched.Substring(iss.StartIndex + iss.Length);
+                }
+
+                Assert.Equal(
+                    UnicodeNormalizer.NormalizeCanonicalOrder(expectedClean),
+                    UnicodeNormalizer.NormalizeCanonicalOrder(patched));
+            }
+        }
     }
 }

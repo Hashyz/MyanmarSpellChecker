@@ -12,11 +12,13 @@ using MyanmarSpellChecker.Core.Spreadsheet;
 namespace MyanmarSpellChecker.AdminTools.Benchmark
 {
     /// <summary>
-    /// Built-in offline Progressive (Easy -> Medium -> Hard -> Hardest -> Nightmare -> Grandmaster Multi-Error Torture)
+    /// Built-in offline Progressive (Easy -> Medium -> Hard -> Hardest -> Nightmare -> Grandmaster -> Abyssal Mythic -> Official Gov Portal B2G)
     /// Accuracy, Clean-FPR, Suggestion-MRR, Full-Sentence Multi-Fix Rate, Latency &amp; Office Throughput Benchmark Suite.
     /// Run via:
     ///   <c>MyanmarSpellChecker.AdminTools.exe benchmark [optionalDbPath]</c>
     ///   <c>MyanmarSpellChecker.AdminTools.exe benchmark --hardest [optionalDbPath]</c>
+    ///   <c>MyanmarSpellChecker.AdminTools.exe benchmark --abyssal [optionalDbPath]</c>
+    ///   <c>MyanmarSpellChecker.AdminTools.exe benchmark --gov [optionalDbPath]</c>
     /// </summary>
     internal static class ProofingBenchmarkRunner
     {
@@ -29,7 +31,8 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             Hardest = 4,
             Nightmare = 5,
             GrandmasterTorture = 6,
-            AbyssalMythic = 7
+            AbyssalMythic = 7,
+            GovernmentB2G = 8
         }
 
         private readonly struct ExpectedErrorSpan
@@ -118,13 +121,19 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
 
         public static int Run(string[] args)
         {
-            bool abyssalOnly = args.Any(a =>
+            bool govOnly = args.Any(a =>
+                string.Equals(a, "--gov", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(a, "gov", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(a, "--government", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(a, "government", StringComparison.OrdinalIgnoreCase));
+
+            bool abyssalOnly = !govOnly && args.Any(a =>
                 string.Equals(a, "--abyssal", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "abyssal", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "--extreme", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "extreme", StringComparison.OrdinalIgnoreCase));
 
-            bool hardestOnly = !abyssalOnly && args.Any(a =>
+            bool hardestOnly = !govOnly && !abyssalOnly && args.Any(a =>
                 string.Equals(a, "--hardest", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "hardest", StringComparison.OrdinalIgnoreCase));
 
@@ -133,6 +142,8 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                 !string.Equals(a, "hardest", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(a, "abyssal", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(a, "extreme", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(a, "gov", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(a, "government", StringComparison.OrdinalIgnoreCase) &&
                 File.Exists(a));
 
             string dbPath = explicitDbArg
@@ -162,31 +173,38 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             }
 
             List<BenchmarkCase> fullSuite = BuildCleanRoomProgressiveSuite();
-            List<BenchmarkCase> suite = abyssalOnly
+            List<BenchmarkCase> suite = govOnly
                 ? fullSuite.Where(c =>
                     c.Difficulty == BenchmarkDifficulty.CleanControl ||
-                    c.Difficulty >= BenchmarkDifficulty.GrandmasterTorture).ToList()
-                : hardestOnly
+                    c.Difficulty == BenchmarkDifficulty.GovernmentB2G).ToList()
+                : abyssalOnly
                     ? fullSuite.Where(c =>
                         c.Difficulty == BenchmarkDifficulty.CleanControl ||
-                        c.Difficulty >= BenchmarkDifficulty.Hardest).ToList()
-                    : fullSuite;
+                        c.Difficulty >= BenchmarkDifficulty.GrandmasterTorture).ToList()
+                    : hardestOnly
+                        ? fullSuite.Where(c =>
+                            c.Difficulty == BenchmarkDifficulty.CleanControl ||
+                            c.Difficulty >= BenchmarkDifficulty.Hardest).ToList()
+                        : fullSuite;
 
             var latenciesMs = new List<double>(suite.Count);
-            var tierOrder = abyssalOnly
-                ? new[] { BenchmarkDifficulty.GrandmasterTorture, BenchmarkDifficulty.AbyssalMythic }
-                : hardestOnly
-                    ? new[] { BenchmarkDifficulty.Hardest, BenchmarkDifficulty.Nightmare, BenchmarkDifficulty.GrandmasterTorture, BenchmarkDifficulty.AbyssalMythic }
-                    : new[]
-                    {
-                        BenchmarkDifficulty.Easy,
-                        BenchmarkDifficulty.Medium,
-                        BenchmarkDifficulty.Hard,
-                        BenchmarkDifficulty.Hardest,
-                        BenchmarkDifficulty.Nightmare,
-                        BenchmarkDifficulty.GrandmasterTorture,
-                        BenchmarkDifficulty.AbyssalMythic
-                    };
+            var tierOrder = govOnly
+                ? new[] { BenchmarkDifficulty.GovernmentB2G }
+                : abyssalOnly
+                    ? new[] { BenchmarkDifficulty.GrandmasterTorture, BenchmarkDifficulty.AbyssalMythic, BenchmarkDifficulty.GovernmentB2G }
+                    : hardestOnly
+                        ? new[] { BenchmarkDifficulty.Hardest, BenchmarkDifficulty.Nightmare, BenchmarkDifficulty.GrandmasterTorture, BenchmarkDifficulty.AbyssalMythic, BenchmarkDifficulty.GovernmentB2G }
+                        : new[]
+                        {
+                            BenchmarkDifficulty.Easy,
+                            BenchmarkDifficulty.Medium,
+                            BenchmarkDifficulty.Hard,
+                            BenchmarkDifficulty.Hardest,
+                            BenchmarkDifficulty.Nightmare,
+                            BenchmarkDifficulty.GrandmasterTorture,
+                            BenchmarkDifficulty.AbyssalMythic,
+                            BenchmarkDifficulty.GovernmentB2G
+                        };
 
             var tierStats = new Dictionary<BenchmarkDifficulty, TierAccumulator>();
             foreach (var td in tierOrder)
@@ -369,11 +387,13 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             double cellsPerSec = (rows * cols) / Math.Max(0.001, swExcel.Elapsed.TotalSeconds);
 
             long memBytes = GC.GetTotalMemory(forceFullCollection: false);
-            string modeBanner = abyssalOnly
-                ? "ABYSSAL MYTHIC TORTURE MODE (--abyssal: Grandmaster 3-4x + Abyssal Mythic 5-6x Simultaneous Torture)"
-                : hardestOnly
-                    ? "ULTRA-HARDEST STRESS MODE (--hardest: Hardest -> Nightmare -> Grandmaster -> Abyssal Mythic Torture)"
-                    : "FULL PROGRESSIVE SUITE (Easy -> Medium -> Hard -> Hardest -> Nightmare -> Grandmaster -> Abyssal Mythic)";
+            string modeBanner = govOnly
+                ? "OFFICIAL B2G GOVERNMENT PORTAL & GAZETTE MODE (--gov: Live .gov.mm Ministry & Gazette Suite)"
+                : abyssalOnly
+                    ? "ABYSSAL MYTHIC & GOV B2G TORTURE MODE (--abyssal: Grandmaster + Abyssal Mythic + Gov B2G)"
+                    : hardestOnly
+                        ? "ULTRA-HARDEST STRESS MODE (--hardest: Hardest -> Nightmare -> Grandmaster -> Abyssal -> Gov B2G)"
+                        : "FULL PROGRESSIVE SUITE (Easy -> Medium -> Hard -> Hardest -> Nightmare -> Grandmaster -> Abyssal -> Gov B2G)";
 
             Console.WriteLine();
             Console.WriteLine("================================================================================================");
@@ -401,6 +421,11 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                 double abPct = (double)abAcc.PerfectMultiFixSentences / abAcc.Sentences * 100.0;
                 Console.WriteLine($" Abyssal 5-6x Errors-In-1-Pass    | {abAcc.PerfectMultiFixSentences,2}/{abAcc.Sentences,2} sentences ({abPct:F1}%) solved 100% simultaneously");
             }
+            if (tierStats.TryGetValue(BenchmarkDifficulty.GovernmentB2G, out var govAcc) && govAcc.Sentences > 0)
+            {
+                double govPct = (double)govAcc.PerfectMultiFixSentences / govAcc.Sentences * 100.0;
+                Console.WriteLine($" Gov Portal B2G Multi-Fix 1-Pass  | {govAcc.PerfectMultiFixSentences,2}/{govAcc.Sentences,2} sentences ({govPct:F1}%) solved 100% simultaneously");
+            }
             Console.WriteLine("------------------------------------------------------------------------------------------------");
             Console.WriteLine($" Overall Precision     : {precision * 100.0:F2}%  (TP={tp}, FP={fp}, FN={fn})");
             Console.WriteLine($" Overall Recall        : {recall * 100.0:F2}%");
@@ -425,6 +450,7 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             BenchmarkDifficulty.Nightmare => "Tier 5: Nightmare (Deep Trap)",
             BenchmarkDifficulty.GrandmasterTorture => "Tier 6: Grandmaster (3-4x Err)",
             BenchmarkDifficulty.AbyssalMythic => "Tier 7: Abyssal Mythic (5-6x)",
+            BenchmarkDifficulty.GovernmentB2G => "Tier 8: Gov Portal B2G (.gov.mm)",
             _ => "Tier 0: Clean Controls"
         };
 
@@ -543,6 +569,35 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                     "အားကစားကွင်းအတွင်း လူငယ်များ တက်ကြွစွာ လေ့ကျင့်နေကြသည်ကို တွေ့မြင်ရသည်။"),
                 new BenchmarkCase("mythic_evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
                     "သီချင်းသံစဉ်များနှင့် ရိုးရာအကများကို ပွဲတော်ညတွင် ပျော်ရွှင်စွာ ကြည့်ရှုကြသည်။"),
+                // 14 Live .gov.mm B2G Portal & Gazette Clean Controls (MOEZALA, YCDC, Commerce, SECM, MRTV, MOI, MSME, MOEA):
+                new BenchmarkCase("gov_moezala", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "အိန္ဒိယနိုင်ငံ၊ ချင်းနိုင်မြို့ (Chennai) ၏ အရှေ့တောင်ဘက် ရေမိုင် ၂၄၀ ခန့်အကွာ၌ မုန်တိုင်းငယ် ဗဟိုပြုနေသည်။"),
+                new BenchmarkCase("gov_ycdc", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ခရိုင်ကော်လိတ္တော်အရာရှိက မြေငှားဂရန် လျှောက်ထားမှုများကို ဥပဒေနှင့်အညီ စိစစ်ဆောင်ရွက်ပေးသည်။"),
+                new BenchmarkCase("gov_commerce", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "နယ်စပ်ကုန်သွယ်ရေးစခန်းတွင် ကားခ (ကုန်ကျစ်) နှင့် (ကုန်ပွ) နှုန်းထားများကို စနစ်တကျ သတ်မှတ်ထားသည်။"),
+                new BenchmarkCase("gov_ycdc_vet", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ဈေးများအတွင်း အသားငါးများ၌ ရေထိုးခြင်း၊ လေထိုးခြင်းနှင့် ဆိုးဆေးသုံးစွဲခြင်း မပြုလုပ်ရန် စစ်ဆေးသည်။"),
+                new BenchmarkCase("gov_mrtv", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ပြည်သူများအားလုံး ကိုယ်စိတ်နှစ်ဖြာ ကျန်းမာချမ်းသာကြပါစေကြောင်း ဆုမွန်ကောင်း မေတ္တာ ပို့သအပ်ပါသည်။"),
+                new BenchmarkCase("gov_mora_pali", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "စုဒ္ဒသမ တိပိဋကဓရ တိပိဋကကောဝိဒ ရွေးချယ်ရေးစာမေးပွဲကြီးကို နေပြည်တော်၌ ကျင်းပသည်။"),
+                new BenchmarkCase("gov_mora_monastery", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "သဒ္ဓမ္မနန္ဒပရိယတ္တိစာသင်တိုက် ဆရာတော်ကြီးအား လှူဖွယ်ဝတ္ထုပစ္စည်းများ ဆက်ကပ်လှူဒါန်းသည်။"),
+                new BenchmarkCase("gov_moi", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "အခြေခံ သေနတ်ပစ်ခတ်ပုံကအစ စနစ်တကျ လေ့ကျင့်သင်ကြားပေးလျက်ရှိသည်။"),
+                new BenchmarkCase("gov_ycdc_plaza", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ကမ္ဘာအေးဘုရားလမ်းမပေါ်ရှိ မြန်မာပလာဇာရှေ့ ယာဉ်ကြောရှင်းလင်းရေး ဆောင်ရွက်ထားသည်။"),
+                new BenchmarkCase("gov_secm_fintech", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ဒီဂျစ်တယ်လ်တီထွင်ဆန်းသစ်မှုနှင့် အယ်ဂိုရီသမ် နည်းပညာဆိုင်ရာ ဆွေးနွေးပွဲသို့ တက်ရောက်သည်။"),
+                new BenchmarkCase("gov_secm_teaser", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "(40th ACMF Capital Market Regulators Conference ... ဆက်ဖတ်ရန်"),
+                new BenchmarkCase("gov_mminsurance_teaser", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "“(၂၃) ကြိမ်မြောက် အာရှနှင့် ပစိဖိတ်ဒေသဆိုင်ရာ အာမခံညီလာခံ ... ဆက်ဖတ်ရန်"),
+                new BenchmarkCase("gov_msme_brand", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "“ဒေးဒေး” ကယားရိုးရာအထည်များ ထုတ်လုပ်ဖြန့်ဖြူးရေးလုပ်ငန်း ပြခန်းကို ကြည့်ရှုအားပေးသည်။"),
+                new BenchmarkCase("gov_moea_ethnic", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ပြည်ထောင်စုနေ့ အခမ်းအနားတွင် တိုင်းကြီး၊ တိုင်းနေ၊ တိုင်းလိ ရိုးရာယဉ်ကျေးမှုအဖွဲ့များက ကပြဖျော်ဖြေကြသည်။"),
 
                 // =========================================================================================
                 // TIER 1: EASY — Character, Encoding, Punctuation & UTN #11 Syllable Fundamentals (20 Cases)
@@ -976,7 +1031,122 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                     ("ကေျာင်း", "ကျောင်း"),
                     ("အချက်အလတ်", "အချက်အလက်"),
                     ("ပေးပို့ခဲ့သည် ဗဟိုရုံးချုပ်သို့", "ဗဟိုရုံးချုပ်သို့ ပေးပို့ခဲ့သည်"),
-                    (".", "။"))
+                    (".", "။")),
+
+                // =========================================================================================
+                // TIER 8: OFFICIAL B2G GOVERNMENT PORTAL & GAZETTE (.gov.mm Authentic Ministry Suite — 20 Cases)
+                // =========================================================================================
+                new BenchmarkCase("gov_secm", BenchmarkDifficulty.GovernmentB2G, ProofingStyleMode.FormalOfficial,
+                    "ချေးငွေသက်သေခံလက်မှတ်လုပ်ငန်း ကြီးကြပ်ရေးကော်မရှင်မှ ရန်ကုန်စတော့အိပ်ချိန်းရှိ အစုရှယ် ယာ ရောင်းဝယ်မှုများကို တပြေးညီ ကြီးကြပ်ဆောင်ရွက်လျှက်ရှိသည်။",
+                    ("စတော့အိပ်ချိန်း", "စတော့အိတ်ချိန်း"),
+                    ("ရှယ် ယာ", "ရှယ်ယာ"),
+                    ("တပြေးညီ", "တစ်ပြေးညီ"),
+                    ("လျှက်", "လျက်")),
+                new BenchmarkCase("gov_cbm", BenchmarkDifficulty.GovernmentB2G, ProofingStyleMode.FormalOfficial,
+                    "မြန်မာနိုင်ငံတော်ဗဟိုဘဏ် ဥက္ကဌ ဦးဆောင်သော အစည်း အဝေးတွင် အတိုးနှုန်း လျော့ချ ရေးမူဝါဒကို ကြေငြာ ခဲ့သည်။",
+                    ("ဥက္ကဌ", "ဥက္ကဋ္ဌ"),
+                    ("အစည်း အဝေး", "အစည်းအဝေး"),
+                    ("လျော့ချ", "လျှော့ချ"),
+                    ("ကြေငြာ", "ကြေညာ")),
+                new BenchmarkCase("gov_moezala", BenchmarkDifficulty.GovernmentB2G, ProofingStyleMode.FormalOfficial,
+                    "မိုးလေဝသနှင့် ဇလဗေဒညွှန်ကြားမှု ဦးစီး ဌာန၏ ထုတ်ပြန်ချက်အရ မိုးရွာသွန်ခြင်းကြောင့် ရေကြီးနစ်မြှုပ်မှု အန်တရာယ် သတိပြုရမည်။",
+                    ("ဦးစီး ဌာန", "ဦးစီးဌာန"),
+                    ("ရွာသွန်ခြင်း", "ရွာသွန်းခြင်း"),
+                    ("နစ်မြှုပ်", "နစ်မြုပ်"),
+                    ("အန်တရာယ်", "အန္တရာယ်")),
+                new BenchmarkCase("gov_mifer", BenchmarkDifficulty.GovernmentB2G, ProofingStyleMode.FormalOfficial,
+                    "ရင်းနှီးမြုပ်နှံမှုနှင့် နိုင်ငံခြားစီးပွားဆက်သွယ်ရေး ဝန်ကြီး ဌာနက ဥပဒေ ပြဌာန်းချက်များနှင့်အညီ ခွင့်မူချက် ထုတ်ပေးသည်။",
+                    ("ရင်းနှီးမြုပ်နှံ", "ရင်းနှီးမြှုပ်နှံ"),
+                    ("ဝန်ကြီး ဌာန", "ဝန်ကြီးဌာန"),
+                    ("ပြဌာန်း", "ပြဋ္ဌာန်း"),
+                    ("ခွင့်မူချက်", "ခွင့်ပြုချက်")),
+                new BenchmarkCase("gov_ird", BenchmarkDifficulty.GovernmentB2G, ProofingStyleMode.FormalOfficial,
+                    "ပြည်တွင်းအခွန်များဦးစီးဌာနသို့ အခွန်ဆောင်း ရမည့် လုပ်ငန်းရှင်များသည် စာရင်းအချက်အလတ်များကို စနစ် တကျ တင်သွင်းရမည်။",
+                    ("အခွန်ဆောင်း", "အခွန်ဆောင်"),
+                    ("အချက်အလတ်", "အချက်အလက်"),
+                    ("စနစ် တကျ", "စနစ်တကျ")),
+                new BenchmarkCase("gov_customs", BenchmarkDifficulty.GovernmentB2G, ProofingStyleMode.FormalOfficial,
+                    "အကောက်ခွန်ဦးစီးဌာနမှ ကုန်သွယ်မှု ကွန်ယက် အတွင်း တရားမဝင် ပစ္စည်းများကို စစ်ဆေးဖမ်းစီ၍ အရေးယူခွင်ပြုထားသည်။",
+                    ("ကွန်ယက်", "ကွန်ရက်"),
+                    ("ဖမ်းစီ", "ဖမ်းဆီး"),
+                    ("ခွင်", "ခွင့်")),
+                new BenchmarkCase("gov_ycdc", BenchmarkDifficulty.GovernmentB2G, ProofingStyleMode.FormalOfficial,
+                    "မြို့တော်စည်ပင်သာယာရေးကော်မတီက အဆောက်အဦး အသစ်များနှင့် လူသွား စင်္ကြန် များကို ကွင်းဆင်းကြည့်ရှု့ စစ်ဆေးခဲ့သည်။",
+                    ("အဆောက်အဦး", "အဆောက်အဦ"),
+                    ("စင်္ကြန်", "စင်္ကြံ"),
+                    ("ကြည့်ရှု့", "ကြည့်ရှု")),
+                new BenchmarkCase("gov_fda", BenchmarkDifficulty.GovernmentB2G, ProofingStyleMode.FormalOfficial,
+                    "အစားအသောက်နှင့် ဆေးဝါးကွပ်ကဲရေးဦးစီးဌာနက သက်တမးလွန် ဆေးဝါးများနှင့် အာမကံဝန်ဆောင်မှု မပါသော ကုန်ပစ္စည်းများကို စိစစ်လျှက်ရှိသည်။",
+                    ("သက်တမး", "သက်တမ်း"),
+                    ("အာမကံ", "အာမခံ"),
+                    ("လျှက်", "လျက်")),
+                new BenchmarkCase("gov_supremecourt", BenchmarkDifficulty.GovernmentB2G, ProofingStyleMode.FormalOfficial,
+                    "ပြည်ထောင်စုတရားလွှတ်တော်ချုပ်က ပစ်မှုဆိုင်ရာ ဥပဒေ ပြဌာန်းချက်များနှင့်အညီ အမှုတွဲ စာရွက် စာတမ်းများကို ပေးပို့ခဲ့သည် တိုင်းဒေသကြီးရုံးများသို့.",
+                    ("ပစ်မှု", "ပြစ်မှု"),
+                    ("ပြဌာန်း", "ပြဋ္ဌာန်း"),
+                    ("စာရွက် စာတမ်း", "စာရွက်စာတမ်း"),
+                    ("ပေးပို့ခဲ့သည် တိုင်းဒေသကြီးရုံးများသို့", "တိုင်းဒေသကြီးရုံးများသို့ ပေးပို့ခဲ့သည်"),
+                    (".", "။")),
+                new BenchmarkCase("gov_msme", BenchmarkDifficulty.GovernmentB2G, ProofingStyleMode.FormalOfficial,
+                    "အသေးစား၊ အငယ်စားနှင့် အလတ်စား စီးပွားရေလုပ်ငန်းများ ဖွံ့ဖြိုးတိုးထက် စေရန် ချေးငွေ အထောက် အကူ ပေးအပ်သည်။",
+                    ("ရေ", "ရေး"),
+                    ("ဖွံ့ဖြိုးတိုးထက်", "ဖွံ့ဖြိုးတိုးတက်"),
+                    ("အထောက် အကူ", "အထောက်အကူ")),
+                new BenchmarkCase("gov_moali", BenchmarkDifficulty.GovernmentB2G, ProofingStyleMode.FormalOfficial,
+                    "စိုက်ပျိုးရေး၊ မွေးမြူရေးနှင့် ဆည်မြောင်းဝန်ကြီးဌာနက ကျေးလက် အိမ်ယာ စီမံကိန်းနှင့် တိရိစ္ဆာန် မွေးမြူရေးလုပ်ငန်းများကို ကူညီပံ့ပိုးလျှက်ရှိသည်။",
+                    ("အိမ်ယာ", "အိမ်ရာ"),
+                    ("တိရိစ္ဆာန်", "တိရစ္ဆာန်"),
+                    ("လျှက်", "လျက်")),
+                new BenchmarkCase("gov_moe", BenchmarkDifficulty.GovernmentB2G, ProofingStyleMode.FormalOfficial,
+                    "ပညာရေ ဝန်ကြီးဌာနသည် ကျောင်းသားများအတွက် သင်ခဏ်းစာ အသစ်များနှင့် စာပေပို့ချမူ စနစ်ကို အကောင်ထည်ဖော် ဆောင်ရွက်သည်။",
+                    ("ပညာရေ", "ပညာရေး"),
+                    ("သင်ခဏ်းစာ", "သင်ခန်းစာ"),
+                    ("ပို့ချမူ", "ပို့ချမှု"),
+                    ("အကောင်ထည်ဖော်", "အကောင်အထည်ဖော်")),
+                new BenchmarkCase("gov_moi", BenchmarkDifficulty.GovernmentB2G, ProofingStyleMode.FormalOfficial,
+                    "ပြန်ကြားရေးဝန်ကြီးဌာန၏ သတင်းအချက် အလက် ထုတ်ပြန်ချက်တွင် အစိုးရ အဖွဲ့၏ ရှေ့လုပ်ငန်းစင်များကို ဖေါ်ပြထားသည်။",
+                    ("အချက် အလက်", "အချက်အလက်"),
+                    ("အစိုးရ အဖွဲ့", "အစိုးရအဖွဲ့"),
+                    ("လုပ်ငန်းစင်", "လုပ်ငန်းစဉ်"),
+                    ("ဖေါ်ပြ", "ဖော်ပြ")),
+                new BenchmarkCase("gov_mohs", BenchmarkDifficulty.GovernmentB2G, ProofingStyleMode.FormalOfficial,
+                    "ကျန်းမာရေ ဝန်ကြီးဌာနက ပြည်သူ့ဆေးရုံများတွင် ရောဂါ ကာကွယ်ထိန်းသိမ်းပေါင့်ရှောက်ရေး လုပ်ငန်းများကို တိုးမြှင့်ဆောင်ရွက်လျှက်ရှိသည်။",
+                    ("ကျန်းမာရေ", "ကျန်းမာရေး"),
+                    ("ပေါင့်", "စောင့်"),
+                    ("လျှက်", "လျက်")),
+                new BenchmarkCase("gov_mora", BenchmarkDifficulty.GovernmentB2G, ProofingStyleMode.FormalOfficial,
+                    "သာသနာရေးနှင့် ယဉ်ကျေးမှုဝန်ကြီးဌာနက ကျောင်း တိုက်များ၌ ဝိနည်း နိဿဂ္ဂိပါစိတ် ဆိုင်ရာ ဆာပေပို့ချပွဲများ ကျင်း ပသည်။",
+                    ("ကျောင်း တိုက်", "ကျောင်းတိုက်"),
+                    ("နိဿဂ္ဂိပါစိတ်", "နိဿဂ္ဂိယပါစိတ်"),
+                    ("ဆာ", "စာ"),
+                    ("ကျင်း ပ", "ကျင်းပ")),
+                new BenchmarkCase("gov_mocon", BenchmarkDifficulty.GovernmentB2G, ProofingStyleMode.FormalOfficial,
+                    "ဆောက်လုပ်ရေးဝန်ကြီးဌာနမှ မြို့ တွင်းသွား လမ်းမကြီး၏ နံဘေး တွင် ရေနုတ်မြောင်းများ ပြုပြင်တည်ဆောက်လျှက်ရှိသည်။",
+                    ("မြို့ တွင်းသွား", "မြို့တွင်းသွား"),
+                    ("နံဘေး တွင်", "နံဘေးတွင်"),
+                    ("လျှက်", "လျက်")),
+                new BenchmarkCase("gov_mminsurance", BenchmarkDifficulty.GovernmentB2G, ProofingStyleMode.FormalOfficial,
+                    "မြန်မာ့အာမခံလုပ်ငန်းမှ ပြည်သူများအနေဖြင့် အာမခံက ရွေးချယ်နိုင် ပြီး ငွေပေးချေမူ စနစ်ဖြင့် အလွယ် တကူ ပေးသွင်းနိုင်သည်။",
+                    ("က", "ကို"),
+                    ("ငွေပေးချေမူ", "ငွေပေးချေမှု"),
+                    ("အလွယ် တကူ", "အလွယ်တကူ")),
+                new BenchmarkCase("gov_molip", BenchmarkDifficulty.GovernmentB2G, ProofingStyleMode.FormalOfficial,
+                    "အလုပ်သမားညွှန်ကြားရေးဦးစီးဌာနက ပွန်ထမ်းများ၏ အကျိုး ခံစားခွင့် များကို အမြတ်မထုတ်ပဲ ဥပဒေနှင့်အညီ စိစစ်ပေးသည်။",
+                    ("ပွန်ထမ်း", "ဝန်ထမ်း"),
+                    ("အကျိုး ခံစားခွင့်", "အကျိုးခံစားခွင့်"),
+                    ("ပဲ", "ဘဲ")),
+                new BenchmarkCase("gov_monrec", BenchmarkDifficulty.GovernmentB2G, ProofingStyleMode.FormalOfficial,
+                    "သယံဇာတနှင့် သဘာဝပတ် ဝန်းကျင် ထိန်းသိမ်းရေးဝန်ကြီးဌာနက သစ်တောပြုန်းတီးမှု လျော်ကြစေသည့် စီမံကန်းများကို ဆောင်ရွက်သည်။",
+                    ("ပတ် ဝန်းကျင်", "ပတ်ဝန်းကျင်"),
+                    ("လျော်ကြ", "လျော့ကျ"),
+                    ("စီမံကန်း", "စီမံကိန်း")),
+                new BenchmarkCase("gov_gazette_boss", BenchmarkDifficulty.GovernmentB2G, ProofingStyleMode.FormalOfficial,
+                    "ပြည်ထောင်စုအစိုးရ အဖွဲ့၏ အမိန့်ကြော်ငြာစာအရ ကော်မရှင် ဥက္ကဌ သည် ၂၀၂၆ ခုနစ် ဘဏ္ဍာရေးနှစ် အစီ အစဉ်များကို အတည်ပြု ကြေငြာ ခဲ့သည်။",
+                    ("အစိုးရ အဖွဲ့", "အစိုးရအဖွဲ့"),
+                    ("ဥက္ကဌ", "ဥက္ကဋ္ဌ"),
+                    ("ခုနစ်", "ခုနှစ်"),
+                    ("အစီ အစဉ်", "အစီအစဉ်"),
+                    ("ကြေငြာ", "ကြေညာ"))
             };
         }
     }

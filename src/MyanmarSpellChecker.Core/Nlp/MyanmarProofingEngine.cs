@@ -222,7 +222,7 @@ namespace MyanmarSpellChecker.Core.Nlp
         // Excludes bare low-tone '-ိုလ်' (ဂြိုလ်, သီဟိုလ်, မြင်းမိုလ်) and '-ာဒ် / -ာဘ်' (လာဒ်, ဆုလာဒ်, ရလာဒ်) so native silent-coda & Pali-coda typos are caught!
         private static readonly System.Text.RegularExpressions.Regex ForeignOrPaliKilledCodaRegex =
             new System.Text.RegularExpressions.Regex(
-                @"(?:(?<!\u102D\u102F)\u101C\u103A|(?:[\u102B\u102C\u102E\u1030\u1031\u1032][\u1037\u1038]*)\u101B\u103A|(?<![\u102B\u102C])[\u1012\u1018]\u103A|[\u101E\u1017\u1016\u1002\u1001\u1007\u100B\u100C\u100D]\u103A|\u1001\u103B\u103A|\u101B\u103E\u103A|(?:[\u102B\u102C\u1031\u102E\u1030\u1032][\u1037\u1038]*|[\u1000\u1010\u1014\u1019\u1018\u1015]\u103A[\u1037\u1038]*)\u1005\u103A)[\u1037\u1038]*$",
+                @"(?:(?<!\u102D\u102F)\u101C\u103A|(?<!\u101E\u1031\u102C)\u101D\u103A|(?:[\u102B\u102C\u102E\u1030\u1031\u1032][\u1037\u1038]*)\u101B\u103A|(?<![\u102B\u102C])[\u1012\u1018]\u103A|[\u101E\u1017\u1016\u1002\u1001\u1007\u100B\u100C\u100D]\u103A|\u1001\u103B\u103A|\u101B\u103E\u103A|(?:[\u102B\u102C\u1031\u102E\u1030\u1032][\u1037\u1038]*|[\u1000\u1010\u1014\u1019\u1018\u1015]\u103A[\u1037\u1038]*)\u1005\u103A)[\u1037\u1038]*$",
                 System.Text.RegularExpressions.RegexOptions.Compiled);
 
         private static bool IsForeignOrPaliKilledCoda(string normSyl)
@@ -236,6 +236,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 case '\u103B':
                 case '\u103E':
                 case '\u101C':
+                case '\u101D':
                 case '\u101B':
                 case '\u1012':
                 case '\u1018':
@@ -2483,6 +2484,152 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
+            // V65 B2G Government Portal, Quoted Brand Name, Empire & Foreign Toponym Protection:
+            //   (a) Short quoted MSME/brand/enterprise names '“...”' (1..4 contiguous Myanmar syllables with zero internal spaces, lookalikes, or WrongFormRules, e.g. '“ဒေးဒေး” ကယားရိုးရာအထည်များ')
+            //   (b) '[1..4 contiguous syllables] + အင်ပါယာ' (e.g. 'မာရထာအင်ပါယာ', 'အော်တိုမန်အင်ပါယာ')
+            //   (c) Verified B2G legal/ethnic/foreign toponym spans ('ကော်လိတ္တော်' Collector, 'တိုင်းလိ' Tai Lue, 'ချင်းနိုင်မြို့' Chennai, 'ဘိုပါးမြို့' Bhopal, 'ထျန်းကျင်းမြို့' Tianjin, 'ဘာဂက်မြို့', 'ဝူရှန်တောင်', 'ရေပျံတောင်')
+            for (int q = 0; q < tokCount; q++)
+            {
+                if (tokens[q].Kind == TokenKind.MyanmarSyllable)
+                {
+                    string s0 = tokens[q].NormalizedText;
+                    // 'ကော်လိတ္တော်' (Land Revenue & Stamp Act Collector)
+                    if (s0 == "ကော်" && q + 2 < tokCount &&
+                        tokens[q + 1].Kind == TokenKind.MyanmarSyllable && tokens[q + 1].NormalizedText == "လိတ္" &&
+                        tokens[q + 2].Kind == TokenKind.MyanmarSyllable && tokens[q + 2].NormalizedText == "တော်")
+                    {
+                        mask[q] = mask[q + 1] = mask[q + 2] = true;
+                    }
+                    else if (s0 == "ကော်" && q + 1 < tokCount &&
+                             tokens[q + 1].Kind == TokenKind.MyanmarSyllable &&
+                             tokens[q + 1].NormalizedText.StartsWith("လိ", StringComparison.Ordinal) &&
+                             q + 2 < tokCount && tokens[q + 2].Kind == TokenKind.MyanmarSyllable &&
+                             (tokens[q + 2].NormalizedText == "တ္တော်" || tokens[q + 2].NormalizedText == "တော်"))
+                    {
+                        mask[q] = mask[q + 1] = mask[q + 2] = true;
+                    }
+
+                    // 'တိုင်းလိ' (Tai Lue / Tai Li ethnic group on moea.gov.mm) and 'အယ်ဂိုရီသမ်' (Algorithm on secm.gov.mm)
+                    if (s0 == "တိုင်း" && q + 1 < tokCount &&
+                        tokens[q + 1].Kind == TokenKind.MyanmarSyllable &&
+                        tokens[q + 1].NormalizedText == "လိ" &&
+                        tokens[q].StartIndex + tokens[q].Length == tokens[q + 1].StartIndex)
+                    {
+                        mask[q] = mask[q + 1] = true;
+                    }
+                    else if (s0 == "အယ်" && q + 3 < tokCount &&
+                             tokens[q + 1].Kind == TokenKind.MyanmarSyllable && tokens[q + 1].NormalizedText == "ဂို" &&
+                             tokens[q + 2].Kind == TokenKind.MyanmarSyllable && tokens[q + 2].NormalizedText == "ရီ" &&
+                             tokens[q + 3].Kind == TokenKind.MyanmarSyllable && tokens[q + 3].NormalizedText == "သမ်")
+                    {
+                        mask[q] = mask[q + 1] = mask[q + 2] = mask[q + 3] = true;
+                    }
+
+                    // Foreign/regional toponyms before 'မြို့' or 'တောင်'
+                    if (q + 2 < tokCount &&
+                        tokens[q + 1].Kind == TokenKind.MyanmarSyllable &&
+                        tokens[q + 2].Kind == TokenKind.MyanmarSyllable &&
+                        tokens[q].StartIndex + tokens[q].Length == tokens[q + 1].StartIndex &&
+                        tokens[q + 1].StartIndex + tokens[q + 1].Length == tokens[q + 2].StartIndex)
+                    {
+                        string s1 = tokens[q + 1].NormalizedText;
+                        string s2 = tokens[q + 2].NormalizedText;
+                        if ((s2 == "မြို့" &&
+                             ((s0 == "ချင်း" && s1 == "နိုင်") ||
+                              (s0 == "ဘို" && s1 == "ပါး") ||
+                              (s0 == "ထျန်း" && s1 == "ကျင်း") ||
+                              (s0 == "ဘာ" && s1 == "ဂက်"))) ||
+                            (s2 == "တောင်" &&
+                             ((s0 == "ဝူ" && s1 == "ရှန်") ||
+                              (s0 == "ရေ" && s1 == "ပျံ"))))
+                        {
+                            mask[q] = mask[q + 1] = true;
+                        }
+                    }
+
+                    // '[1..4 contiguous syllables] + အင်ပါယာ' (e.g. 'မာရထာအင်ပါယာ')
+                    if (s0 == "အင်" && q + 2 < tokCount &&
+                        tokens[q + 1].Kind == TokenKind.MyanmarSyllable && tokens[q + 1].NormalizedText == "ပါ" &&
+                        tokens[q + 2].Kind == TokenKind.MyanmarSyllable && tokens[q + 2].NormalizedText == "ယာ" &&
+                        tokens[q].StartIndex + tokens[q].Length == tokens[q + 1].StartIndex &&
+                        tokens[q + 1].StartIndex + tokens[q + 1].Length == tokens[q + 2].StartIndex)
+                    {
+                        int empStart = q;
+                        while (empStart > 0 && q - empStart < 4 &&
+                               tokens[empStart - 1].Kind == TokenKind.MyanmarSyllable &&
+                               tokens[empStart - 1].StartIndex + tokens[empStart - 1].Length == tokens[empStart].StartIndex &&
+                               !GrammaticalParticles.Contains(tokens[empStart - 1].NormalizedText) &&
+                               !ColloquialParticles.Contains(tokens[empStart - 1].NormalizedText))
+                        {
+                            empStart--;
+                        }
+                        if (empStart < q)
+                        {
+                            bool hasRule = false;
+                            for (int a = empStart; a < q && !hasRule; a++)
+                            {
+                                for (int b = a + 1; b <= q; b++)
+                                {
+                                    if (_trie.TryGetWrongFormRule(GetTokenSpan(fullText, tokens, a, b - a).NormalizedText, out _))
+                                    {
+                                        hasRule = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!hasRule)
+                            {
+                                for (int k = empStart; k < q; k++)
+                                    mask[k] = true;
+                            }
+                        }
+                    }
+
+                    // Short quoted brand/enterprise names '“...”' (1..4 contiguous syllables containing at least one OOV/non-standalone syllable or reduplicated brand syllable)
+                    if (tokens[q].StartIndex > 0 && fullText[tokens[q].StartIndex - 1] == '\u201C')
+                    {
+                        int qe = q + 1;
+                        while (qe < tokCount && qe - q <= 4 &&
+                               tokens[qe].Kind == TokenKind.MyanmarSyllable &&
+                               tokens[qe - 1].StartIndex + tokens[qe - 1].Length == tokens[qe].StartIndex)
+                        {
+                            qe++;
+                        }
+                        int spanSyls = qe - q;
+                        int endChar = tokens[qe - 1].StartIndex + tokens[qe - 1].Length;
+                        if (spanSyls >= 1 && spanSyls <= 4 && endChar < fullText.Length && fullText[endChar] == '\u201D')
+                        {
+                            bool brandClean = true;
+                            bool hasBrandOov = false;
+                            for (int a = q; a < qe && brandClean; a++)
+                            {
+                                if (UnicodeNormalizer.HasLookalikeError(tokens[a].Text, out _, out _))
+                                {
+                                    brandClean = false;
+                                    break;
+                                }
+                                if (!_trie.IsStandaloneWord(tokens[a].NormalizedText))
+                                    hasBrandOov = true;
+                                for (int b = a + 1; b <= qe; b++)
+                                {
+                                    if (_trie.TryGetWrongFormRule(GetTokenSpan(fullText, tokens, a, b - a).NormalizedText, out _))
+                                    {
+                                        brandClean = false;
+                                        break;
+                                    }
+                                }
+                            }
+                            string wholeQuoted = GetTokenSpan(fullText, tokens, q, spanSyls).NormalizedText;
+                            if (brandClean && hasBrandOov && !HasEstablishedNonProperEntry(wholeQuoted))
+                            {
+                                for (int k = q; k < qe; k++)
+                                    mask[k] = true;
+                            }
+                        }
+                    }
+                }
+            }
+
             // Whole-Chunk Exact-Headword Atomicity Guard:
             // Never split a standalone / whole-chunk exact multi-syllable Trie headword (e.g. 'လှာကဒေါင်ကျေးရွာ', 'ဒေါက်တာဘဒ္ဒန္တဉာဏိဿရ')
             // into partially [masked] + [unmasked] halves.
@@ -3746,6 +3893,85 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
+            // 27. Literary copula '[Word] + ပေ + တည်း' (e.g. 'အကျိုးပေတည်း' != 'အကျိုးပေး')
+            if (lastSyl == "ပေ" && tokIdx + windowLen < runEnd &&
+                tokens[tokIdx + windowLen].NormalizedText == "တည်း")
+            {
+                return true;
+            }
+
+            // 28. Causative transitive 'ရေ၌နှစ် + လော့/စေ/သွင်း' ("submerge in water", e.g. 'ရေ၌နှစ်လော့' != intransitive 'ရေ၌နစ်')
+            if (windowLen == 3 && firstSyl == "ရေ" && tokens[tokIdx + 1].NormalizedText == "၌" && lastSyl == "နှစ်" &&
+                tokIdx + 3 < runEnd &&
+                (tokens[tokIdx + 3].NormalizedText == "လော့" || tokens[tokIdx + 3].NormalizedText == "စေ" || tokens[tokIdx + 3].NormalizedText == "သွင်း"))
+            {
+                return true;
+            }
+
+            // 29. Accepted modern IT & commercial loanwords ('အယ်ဂိုရီသမ်' Algorithm, 'ဒီဂျစ်တယ်လ်' Digital, 'မြန်မာပလာဇာ' Plaza, 'စတားဝါး / စူပါစတား' Star)
+            if ((windowLen >= 3 && firstSyl == "အယ်" && tokens[tokIdx + 1].NormalizedText == "ဂို") ||
+                (firstSyl == "ဂျစ်" && tokIdx > runStart && (tokens[tokIdx - 1].NormalizedText == "ဒီ" || tokens[tokIdx - 1].NormalizedText == "ဒစ်")) ||
+                (windowLen == 3 && firstSyl == "မာ" && tokens[tokIdx + 1].NormalizedText == "ပ" && lastSyl == "လာ" &&
+                 tokIdx > runStart && tokens[tokIdx - 1].NormalizedText == "မြန်" &&
+                 tokIdx + 3 < runEnd && tokens[tokIdx + 3].NormalizedText == "ဇာ") ||
+                (windowLen == 2 && firstSyl == "စ" && lastSyl == "တား" &&
+                 ((tokIdx + 2 < runEnd && tokens[tokIdx + 2].NormalizedText == "ဝါး") ||
+                  (tokIdx >= runStart + 2 && tokens[tokIdx - 2].NormalizedText == "စူ" && tokens[tokIdx - 1].NormalizedText == "ပါ"))))
+            {
+                return true;
+            }
+
+            // 30. Inclusive scope construction '[Noun/NominalizedVerb] + ကအစ' ("starting from / including even ~", e.g. 'သေနတ်ပစ်ခတ်ပုံကအစ' != 'ခအစ')
+            if (windowLen == 3 && firstSyl == "က" && tokens[tokIdx + 1].NormalizedText == "အ" && lastSyl == "စ" && tokIdx > runStart)
+            {
+                return true;
+            }
+
+            // 31. Formal B2G ceremonial humble auxiliary '[Verb] + အပ်ပါသည်/၏' (e.g. 'မေတ္တာ ပို့သအပ်ပါသည်' != 'အသက်ပါ')
+            if (windowLen == 3 && tokens[tokIdx + 1].NormalizedText == "အပ်" && lastSyl == "ပါ" &&
+                _trie.IsStandaloneWord(firstSyl))
+            {
+                return true;
+            }
+
+            // 32. Ministry of Commerce freight classification 'ကုန်ကျစ်' ("compact/dense cargo", paired with 'ကုန်ပွ', != 'ကုန်ကျ')
+            if (windowLen == 2 && firstSyl == "ကုန်" && lastSyl == "ကျစ်")
+            {
+                return true;
+            }
+
+            // 33. Abhidhamma / Pali jhana compounds ending in '-ဈာန်' (e.g. 'ဝိဝေကဇဈာန်' != 'ကစ')
+            if (tokens[runEnd - 1].NormalizedText == "ဈာန်" && runEnd - runStart >= 3)
+            {
+                return true;
+            }
+
+            // 34. Outskirts + paddy-field seam '[ရွာ/မြို့/အိမ်] + ပြင် + လယ်[တော/ကွင်း/ယာ]' (e.g. 'ရွာပြင်လယ်တောထဲ' != 'ပင်လယ်')
+            if (windowLen == 2 && firstSyl == "ပြင်" && lastSyl == "လယ်" &&
+                ((tokIdx > runStart && (tokens[tokIdx - 1].NormalizedText == "ရွာ" || tokens[tokIdx - 1].NormalizedText == "မြို့" || tokens[tokIdx - 1].NormalizedText == "အိမ်")) ||
+                 (tokIdx + 2 < runEnd && (tokens[tokIdx + 2].NormalizedText == "တော" || tokens[tokIdx + 2].NormalizedText == "ကွင်း" || tokens[tokIdx + 2].NormalizedText == "ယာ"))))
+            {
+                return true;
+            }
+
+            // 35. Passive narrative clause-linker 'အ + [Verb] + ခံရာ' (e.g. 'ပြန်သွားအရွေးခံရာ' != 'ခံရ')
+            if (windowLen == 2 && firstSyl == "ခံ" && lastSyl == "ရာ" && tokIdx >= runStart + 2 &&
+                (tokens[tokIdx - 2].NormalizedText == "အ" ||
+                 (tokIdx >= runStart + 3 && tokens[tokIdx - 3].NormalizedText == "အ")))
+            {
+                return true;
+            }
+
+            // 36. Veterinary/municipal literal 'ရေ + ထိုး + ခြင်း/မှု/ပိုက်' ("injecting/spraying water", e.g. 'ရေထိုးခြင်း၊ လေထိုးခြင်း' != 'ရေးထိုး')
+            if (windowLen == 2 && firstSyl == "ရေ" && lastSyl == "ထိုး" &&
+                tokIdx + 2 < runEnd &&
+                (tokens[tokIdx + 2].NormalizedText == "ခြင်း" ||
+                 tokens[tokIdx + 2].NormalizedText == "မှု" ||
+                 tokens[tokIdx + 2].NormalizedText == "ပိုက်"))
+            {
+                return true;
+            }
+
             return false;
         }
 
@@ -4116,7 +4342,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             // Valid Pali pat-sint / Kinzi / Great-Sa syllable (e.g. က္ကံ, ဗ္ဗ, ဂ္ဂီ, န္ဒ, င်္ခ, ဋ္ဌာ, ဿု), classical Pali Gatha word / citation stem (e.g. ဓမ္မေန, ပဉ္စိ။), foreign transliteration coda/run (ကားလ်, မတ်ခ်လီး, ဒိုလားရက်စ်, နော်မန် သာဂတ်၊ မေရီကလိဗ်, ဘွန်ထိုက်ချို), hyphenated backchannel interjection (အမ်-ဟမ်), or Shan/Kayah 'လွိုင်' mountain/village prefix (လွိုင်နမ်းဖ)
             if ((_trie.IsValidSingleSyllable(normSyl) && (normSyl.IndexOf('\u1039') >= 0 || normSyl.IndexOf('\u103F') >= 0)) ||
                 IsForeignOrPaliKilledCoda(normSyl) ||
-                (!_trie.TryGetWrongFormRule(normSyl, out _) && _trie.IsValidSingleSyllable(normSyl) && RunHasForeignKilledCoda(tokens, runStart, runEnd)) ||
+                (!_trie.TryGetWrongFormRule(normSyl, out _) && _trie.IsValidSingleSyllable(normSyl) && RunHasForeignKilledCoda(tokens, tokIdx, runStart, runEnd)) ||
                 (normSyl == "ဘွန်" && runEnd - runStart >= 3) ||
                 IsInCommaCoordinatedForeignNameList(fullText, tokens, tokIdx) ||
                 IsHyphenatedRhymingInterjection(fullText, token) ||
@@ -4141,11 +4367,11 @@ namespace MyanmarSpellChecker.Core.Nlp
             return LatticeEdge.UnrecognizedSingleSyllable(tokIdx, rawSyl, 2.65);
         }
 
-        private static bool RunHasForeignKilledCoda(List<SyllableToken> tokens, int runStart, int runEnd)
+        private static bool RunHasForeignKilledCoda(List<SyllableToken> tokens, int tokIdx, int runStart, int runEnd)
         {
-            if (runEnd - runStart > 7)
-                return false;
-            for (int r = runStart; r < runEnd; r++)
+            int lo = Math.Max(runStart, tokIdx - 4);
+            int hi = Math.Min(runEnd, tokIdx + 5);
+            for (int r = lo; r < hi; r++)
             {
                 string s = tokens[r].NormalizedText;
                 if (IsForeignOrPaliKilledCoda(s))
@@ -4823,9 +5049,18 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // Comparative particle 'ထက်' after classifier, ablative 'က/မှ', or valid standalone word (e.g. '(၆)လထက်', 'မူလကထက်', 'ယခင်ကထက်')
+            // Exempts '[PureVerb] + ထက် + [နေ/လာ]' verbal aspect slips (e.g. 'ပေါ်ထက်နေတယ် -> ပေါ်ထွက်နေတယ်')!
             if (lastSyl == "ထက်")
             {
-                if (windowLen == 2 &&
+                bool isVerbalAspectAfterHtet =
+                    windowLen == 2 &&
+                    IsPureVerbSyllable(firstSyl) &&
+                    startIndex + 2 < tokens.Count &&
+                    tokens[startIndex + 2].Kind == TokenKind.MyanmarSyllable &&
+                    (tokens[startIndex + 2].NormalizedText == "နေ" || tokens[startIndex + 2].NormalizedText == "လာ");
+
+                if (!isVerbalAspectAfterHtet &&
+                    windowLen == 2 &&
                     (NumeralClassifiers.Contains(firstSyl) ||
                      firstSyl == "က" ||
                      firstSyl == "မှ" ||
@@ -5213,6 +5448,14 @@ namespace MyanmarSpellChecker.Core.Nlp
                 // Interrogative 'ဘယ်သူ + [Verb]' (e.g. 'ဘယ်သူမှန်လဲ' != 'ဘယ်သူမှ')
                 if (firstSyl == "ဘယ်" && midSyl == "သူ" && lastSyl != "မှ" &&
                     _trie.IsStandaloneWord(lastSyl) && _trie.GetWordFrequency(lastSyl) >= 2)
+                {
+                    return null;
+                }
+
+                // Municipal & medical 'ရေထိုးခြင်း / လေထိုးခြင်း / ဆေးထိုးခြင်း' ("injecting water/air/medicine", e.g. ycdc.gov.mm != 'ရေးထိုးခြင်း')
+                if ((firstSyl == "ရေ" || firstSyl == "လေ" || firstSyl == "ဆေး") &&
+                    midSyl == "ထိုး" &&
+                    (lastSyl == "ခြင်း" || lastSyl == "မှု"))
                 {
                     return null;
                 }
@@ -6078,6 +6321,16 @@ namespace MyanmarSpellChecker.Core.Nlp
                     bool isHighFreqToneDrop = dist <= 0.23 && e.Frequency >= 45;
                     if (!isOfficialClose && !isHighFreqToneDrop)
                         return;
+                }
+
+                // Never simultaneously mutate BOTH syllables of an L=2 span into a non-official word unless they are true homophones (prevents ethnic/foreign names like 'မဂမ်' -> 'မန်ကန်')
+                if (windowLen == 2 &&
+                    !e.IsOfficialThatpon &&
+                    !w.StartsWith(firstSyl, StringComparison.Ordinal) &&
+                    !w.EndsWith(lastSyl, StringComparison.Ordinal) &&
+                    !AreTrueBurmeseHomophones(spanNormalized, w))
+                {
+                    return;
                 }
 
                 if (IsBetterCandidate(e, dist, bestFuzzy, localBestDist))
