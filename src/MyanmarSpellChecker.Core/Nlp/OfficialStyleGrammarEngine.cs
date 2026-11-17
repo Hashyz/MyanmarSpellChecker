@@ -215,10 +215,10 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         private static readonly (string[] Triggers, Regex Pattern, string CorrectClassifier, string CategoryLabel)[] ClassifierAgreementRules =
         {
-            // Footwear / paired items -> ရံ
+            // Footwear / paired items -> ရံ (typo-resilient across head-noun stop-coda slips like 'ဖိနဘ် နှစ်ယောက်')
             (
-                new[] { "ဖိနပ်", "ခြေအိတ်", "လက်အိတ်", "နားကပ်" },
-                new Regex(@"(?:ဖိနပ်|ခြေအိတ်|လက်အိတ်|နားကပ်)\s*(?<Num>" + MyanmarNumeralCore + @")\s*(?<Wrong>ယောက်|ဦး|ကောင်|စီး|ခု|လုံး|အုပ်|ချပ်)(?![\u102B-\u103E]|[\u1000-\u1021]\u103A)"),
+                new[] { "ဖိနပ်", "ဖိနဘ်", "ဖိနတ်", "ဖိနက်", "ခြေအိတ်", "လက်အိတ်", "နားကပ်" },
+                new Regex(@"(?:ဖိန[ပဘဗတက]်|ခြေအိတ်|လက်အိတ်|နားကပ်)\s*(?<Num>" + MyanmarNumeralCore + @")\s*(?<Wrong>ယောက်|ဦး|ကောင်|စီး|ခု|လုံး|အုပ်|ချပ်)(?![\u102B-\u103E]|[\u1000-\u1021]\u103A)"),
                 "ရံ", "အစုံလိုက်ဝတ်ဆင်ရသော ပစ္စည်းပြ မျိုးပြပစ္စည်း ('~ရံ')"
             ),
             // Land vehicles -> စီး (guards 'ဇာတ်ကား / ပန်းချီကား / စကား' so only actual vehicles match!)
@@ -493,7 +493,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         // 4h. Broken Space-Split Mandatory Compounds (e.g. 'စာ ကြည့်တိုက်' -> 'စာကြည့်တိုက်', 'အစည်း အဝေး' -> 'အစည်းအဝေး', 'နေ့အထိမ်း အမှတ်ဂုဏ်ပြု' -> 'အထိမ်းအမှတ်')
         private static readonly Regex CuratedBrokenCompoundPattern = new Regex(
-            @"(?:(?<![\u1000-\u103F])(?<Left>စာ|ဝန်|လေ|အိမ်|ဘယ်|ဘာ|ကိုယ်|လက်|ဒီအ|ထိုနေ|ဆရာ|ကား|ရေ|မြို့|ရုံး|မီး|စိ|လှေ|ရှေ့)|(?<![\u1000-\u103F]အ)(?<Left>လုပ်)|(?<Left>သိပ္ပံ|အဖွဲ့|ဘာသာ|ရဟန်း|ရောဂါ|မြေဆီ|အုပ်|မြန်မာ|စုစု|အစည်း|အခမ်း|အစီ|အခြေ|အတွေ့|အခွင့်|အချက်|အဆောက်|အထိမ်း|အလုပ်|အစား|အဝတ်|အရောင်း|အပေး|အဆက်|အကောင်|အသိ|လုပ်ရိုး|ကျောင်း|ကျောင်းအုပ်|ဆေးရုံ|မိန်း|ယောက်ျား|သတင်း|မော်တော်|ကွန်ပျူ|တယ်လီ|စာသင်|တက္က|အစိုး|ဥပ|ကျန်းမာ|စီးပွား|စိုက်ပျိုး|မွေးမြူ|ပညာ|လူမှု|ပို့ဆောင်|ရေကြောင်း|ဝန်ကြီး|ဦးစီး|အိမ်ခြံ|နိုင်ငံ|ဆောင်ရွက်|လူနာတင်|မီးသတ်|တပ်မ|ကိုယ်စား|ပလတ်|တရား|လုပ်ငန်း|အိမ်မှု|ရုပ်ရှင်|စာစီ))[ \t]+(?<Right>ကြည့်တိုက်|ပညာ|အစည်း|ထောင်|ငန်း|သံဃာ|ပုံးပျံ|ဝေဒနာ|လွှာ|ချုပ်ရေးမှူး|ချုပ်ရေး|နိုင်ငံ|တော်သား|ပေါင်း|အဝေး|အနား|အစဉ်|အနေ|အကြုံ|အရေး|အလမ်း|အလက်|အအုံ|အမှတ်|အကိုင်|အသောက်|အစား|အဝယ်|အယူ|အသွယ်|အထည်|လုပ်စဉ်|သား|သူ|ထမ်း|သမား|ချိန်|အုပ်|ကြီး|ဝန်|လမ်း|ချိုး|နယ်|ခန်း|ကလေး|လေး|စာ|ယာဉ်|တာ|ဖုန်း|ကျောင်း|သိုလ်|ရ|ဒေ|ရေး|ပို့ဆောင်ရေး|ဌာန|မြေ|ခြား|မှတ်|ချက်|တိုင်း|ရာ|ကား|လို|လို့|တော်|စားလှယ်|လှယ်|စတစ်|ဥပဒေ|ခွင်|စစ်|ကိစ္စ|ရုံ|ဆိပ်|စာရိုက်|မှောက်)(?=\s|$|[\u104A\u104B]|ကို|အား|မှ|သို့|နှင့်|နှင့်|နဲ့|သည်|၏|၌|တွင်|က|မှာ|များ|တွေ|အတွက်|အကြောင်း|ဆိုင်ရာ|ဖြင့်|သဖြင့်|ကြောင့်|အပြင်|ရရှိ|ဖြတ်စ|ကဏ္ဍ|ရေးရာ|အုပ်ချုပ်|လုပ်ငန်း|တစ်ခု|လွတ်|အတိုင်း|ပြီး|အနီး)",
+            @"(?:(?<![\u1000-\u103F])(?<Left>စာ|ဝန်|လေ|အိမ်|ဘယ်|ဘာ|ကိုယ်|လက်|ဒီအ|ထိုနေ|ဆရာ|ကား|ရေ|မြို့|ရုံး|မီး|စိ|လှေ|ရှေ့)|(?<![\u1000-\u103F]အ)(?<Left>လုပ်)|(?<Left>သိပ္ပံ|အဖွဲ့|ဘာသာ|ရဟန်း|ရောဂါ|မြေဆီ|အုပ်|မြန်မာ|စုစု|အစည်း|အခမ်း|အစီ|အခြေ|အတွေ့|အခွင့်|အချက်|အဆောက်|အထိမ်း|အလုပ်|အစား|အဝတ်|အရောင်း|အပေး|အဆက်|အကောင်|အသိ|လုပ်ရိုး|ကျောင်း|ကျောင်းအုပ်|ဆေးရုံ|မိန်း|ယောက်ျား|သတင်း|မော်တော်|ကွန်ပျူ|တယ်လီ|စာသင်|တက္က|အစိုး|ဥပ|ကျန်းမာ|စီးပွား|စိုက်ပျိုး|မွေးမြူ|ပညာ|လူမှု|ပို့ဆောင်|ရေကြောင်း|ဝန်ကြီး|ဦးစီး|အိမ်ခြံ|နိုင်ငံ|ဆောင်ရွက်|လူနာတင်|မီးသတ်|တပ်မ|ကိုယ်စား|ပလတ်|တရား|လုပ်ငန်း|အိမ်မှု|ရုပ်ရှင်|စာစီ))[ \t]+(?<Right>ကြည့်တိုက်|ပညာ|အစည်း|ထောင်|ငန်း|သံဃာ|ပုံးပျံ|ဝေဒနာ|လွှာ|ချုပ်ရေးမှူး|ချုပ်ရေး|နိုင်ငံ|တော်သား|ပေါင်း|အဝေး|အနား|အစဉ်|အနေ|အကြုံ|အရေး|အလမ်း|အလက်|အအုံ|အမှတ်|အကိုင်|အသောက်|အစား|အဝယ်|အယူ|အသွယ်|အထည်|လုပ်စဉ်|သား|သူ|ထမ်း|သမား|ချိန်|အုပ်|ကြီး|ဝန်|လမ်း|ချိုး|နယ်|ခန်း|ကလေး|လေး|စာ|ယာဉ်|တာ|ဖုန်း|ကျောင်း|သိုလ်|ရ|ဒေ|ရေး|ပို့ဆောင်ရေး|ဌာန|မြေ|ခြား|မှတ်|ချက်|တိုင်း|ရာ|ကား|လို|လို့|တော်|စားလှယ်|လှယ်|စတစ်|ဥပဒေ|ခွင်|စစ်|ကိစ္စ|ရုံ|ဆိပ်|စာရိုက်|မှောက်)(?=\s|$|[\u104A\u104B]|ကို|အား|မှ|သို့|နှင့်|နှင့်|နဲ့|သည်|၏|ရဲ့|၌|တွင်|က|မှာ|ဟာ|များ|တွေ|အနှံ့|အတွက်|အကြောင်း|ဆိုင်ရာ|ဖြင့်|သဖြင့်|ကြောင့်|အပြင်|ရရှိ|ဖြတ်စ|ကဏ္ဍ|ရေးရာ|အုပ်ချုပ်|လုပ်ငန်း|တစ်ခု|လွတ်|အတိုင်း|ပြီး|အနီး)",
             RegexOptions.Compiled);
 
         private static readonly Regex ThreePartBrokenCompoundPattern = new Regex(
@@ -501,11 +501,11 @@ namespace MyanmarSpellChecker.Core.Nlp
             RegexOptions.Compiled);
 
         private static readonly Regex BoundSuffixBrokenSpacePattern = new Regex(
-            @"(?:(?<Left>[\u1000-\u103F]{2,14})[ \t]+(?<Right>တော်မူ(?=၍|သည်|၏|ပါ|သော|သည့်|သည့်))|(?<Left>[\u1000-\u103F]+ပေ)[ \t]+(?<Right>မဲ့|မယ့်|မယ့်)|(?<Left>[\u1000-\u103F]+ခဲ့)[ \t]+(?<Right>ရ(?=တယ်|သည်|ပါ))|(?<Left>[\u1000-\u103F]{1,12})[ \t]+(?<Right>မှာလား)|(?<Left>မခွဲ)[ \t]+(?<Right>ခြားဘဲ)|(?<Left>မြောက်|တောင်|အရှေ့|အနောက်)[ \t]+(?<Right>ပိုင်း(?=ရှိ|တွင်|၌|မှာ))|(?<![\u1000-\u103F])(?<Left>ပျော်ရွှင်|အောင်မြင်|တိုးတက်|ပြောင်းလဲ|ဆောင်ရွက်|ပူးပေါင်း|လှုပ်ရှား|အသတ်ခံရ|ထိခိုက်|ဆုံးရှုံး|ဝေဖန်|စမ်းသပ်|နှိပ်စက်|ထောက်ပံ့|ကူညီ|စောင့်ရှောက်)[ \t]+(?<Right>မှု)(?=တွေ|များ|ကို|က|သည်|ဟာ|နှင့်|နှင့်|နဲ့|ကြောင့်|ကြောင့်|[\s\u104A\u104B]|$)|(?<Left>[\u1000-\u103F]{3,14}မှု)[ \t]+(?<Right>များ|တွေ)(?=[\s\u104A\u104B]|$|က|ကို|သည်)|(?<![\u1000-\u103F])(?<Left>သူ့|ငါ့|ကိုယ့်|ကိုယ့်|ကျွန်တော့်|ကျွန်တော့်)[ \t]+(?<Right>ကို|အား|ရဲ့|၏)(?=[\s\u104A\u104B]|$)|(?<Left>အနား)[ \t]+(?<Right>ယူ(?=အပန်းဖြေ|ချင်|နိုင်|ပါ|သည်|တယ်))|(?<Left>အဆင်)[ \t]+(?<Right>ပြေ(?=သလို|ပါ|တယ်|သည်|အောင်))|(?<Left>မတင်)[ \t]+(?<Right>မီ)(?![\u1000-\u103F])|(?<Left>မယှဉ်သာ)[ \t]+(?<Right>လောက်အောင်)|(?<Left>သဘောကျလဲ)[ \t]+(?<Right>ဆိုတာ)|(?<Left>ဝေးရာသွား)[ \t]+(?<Right>နေသလို)|(?<Left>ပင်တို့)[ \t]+(?<Right>သည်လည်းကောင်း)|(?<Left>ပီတိသု)[ \t]+(?<Right>ခဈာန်)|(?<Left>သီလ)[ \t]+(?<Right>စောင့်ထိန်း)|(?<Left>ပြန်လည်)[ \t]+(?<Right>ပြုပြင်တာ))",
+            @"(?:(?<Left>[\u1000-\u103F]{2,14})[ \t]+(?<Right>တော်မူ(?=၍|သည်|၏|ပါ|သော|သည့်|သည့်))|(?<Left>[\u1000-\u103F]+ပေ)[ \t]+(?<Right>မဲ့|မယ့်|မယ့်)|(?<Left>[\u1000-\u103F]+ခဲ့)[ \t]+(?<Right>ရ(?=တယ်|သည်|ပါ))|(?<Left>[\u1000-\u103F]{1,12})[ \t]+(?<Right>မှာလား)|(?<Left>မခွဲ)[ \t]+(?<Right>ခြားဘဲ)|(?<Left>မြောက်|တောင်|အရှေ့|အနောက်)[ \t]+(?<Right>ပိုင်း(?=ရှိ|တွင်|၌|မှာ))|(?<Left>အရှေ့|အနောက်|တောင်|မြောက်)[ \t]+(?<Right>ဘက်(?=မှာ|တွင်|၌|သို့|က))|(?<![\u1000-\u103F])(?<Left>ပျော်ရွှင်|အောင်မြင်|တိုးတက်|ပြောင်းလဲ|ဆောင်ရွက်|ပူးပေါင်း|လှုပ်ရှား|အသတ်ခံရ|ထိခိုက်|ဆုံးရှုံး|ဝေဖန်|စမ်းသပ်|နှိပ်စက်|ထောက်ပံ့|ကူညီ|စောင့်ရှောက်)[ \t]+(?<Right>မှု)(?=တွေ|များ|ကို|က|သည်|ဟာ|နှင့်|နှင့်|နဲ့|ကြောင့်|ကြောင့်|[\s\u104A\u104B]|$)|(?<Left>[\u1000-\u103F]{3,14}မှု)[ \t]+(?<Right>များ|တွေ|ကို)(?![\u102B-\u103E\u103A])|(?<![\u1000-\u103F])(?<Left>သူ့|ငါ့|ကိုယ့်|ကိုယ့်|ကျွန်တော့်|ကျွန်တော့်)[ \t]+(?<Right>ကို|အား|ရဲ့|၏|အကြောင်းကို)(?=[\s\u104A\u104B]|$)|(?<Left>အနား)[ \t]+(?<Right>ယူ(?=အပန်းဖြေ|ချင်|နိုင်|ပါ|သည်|တယ်))|(?<Left>အဆင်)[ \t]+(?<Right>ပြေ(?=သလို|ပါ|တယ်|သည်|အောင်))|(?<Left>မတင်)[ \t]+(?<Right>မီ)(?![\u102B-\u103E\u103A])|(?<Left>မယှဉ်သာ)[ \t]+(?<Right>လောက်အောင်)|(?<Left>သဘောကျလဲ)[ \t]+(?<Right>ဆိုတာ)|(?<Left>ဝေးရာသွား)[ \t]+(?<Right>နေသလို)|(?<Left>ပင်တို့)[ \t]+(?<Right>သည်လည်းကောင်း)|(?<Left>ပီတိသု)[ \t]+(?<Right>ခဈာန်)|(?<Left>သီလ)[ \t]+(?<Right>စောင့်ထိန်း|ရှိသော)|(?<Left>ပြန်လည်)[ \t]+(?<Right>ပြုပြင်တာ)|(?<Left>ပြင်ဆင်|ဖလှယ်|ဆောင်ရွက်|လုပ်ဆောင်|စားသောက်|သွားလာ)[ \t]+(?<Right>ကြ(?=တယ်|သည်|မယ်|မည်|ပါ))|(?<Left>လက်ခံ|နားလည်|ဖြေရှင်း|ပြောဆို)[ \t]+(?<Right>တတ်ဖို့)|(?<Left>(?:မျှော်ငေး|စောင့်ဆိုင်း|ထိုင်|ရပ်|နေထိုင်)နေ)[ \t]+(?<Right>သော)|(?<Left>ပြီးသွား)[ \t]+(?<Right>ရင်)|(?<Left>ဆိုက်)[ \t]+(?<Right>လာသော)|(?<Left>လုပ်ဆောင်)[ \t]+(?<Right>သည့်|သည့်)|(?<Left>သိပ်)[ \t]+(?<Right>ကောင်း(?=တယ်|သည်|ပါ))|(?<Left>နေ)[ \t]+(?<Right>ထိုင်(?=ဖို့|ရန်|ရာ|ကြ|သည်|တယ်|ပါ|မှု|ခြင်း))|(?<Left>ကျေးဇူး)[ \t]+(?<Right>တင်(?=ပါ|သည်|တယ်|ရှိ))|(?<Left>ကျင်း)[ \t]+(?<Right>ပ(?=ကြ|သည်|တယ်|ပါ|မည်|မယ်|ခဲ့))|(?<Left>ရောင်း)[ \t]+(?<Right>ချ(?=ကြ|သည်|တယ်|ပါ|မည်|မယ်|ခဲ့))|(?<Left>အရေး)[ \t]+(?<Right>ယူ(?=သည့်|သည့်|သော|ရန်|ဖို့|ခဲ့|သည်|တယ်))|(?<Left>ရင်)[ \t]+(?<Right>ဆိုင်(?=နေ|ရ|ဖို့|ရန်))|(?<Left>ရုံး)[ \t]+(?<Right>ထုတ်(?=စစ်ဆေး))|(?<Left>အချိန်)[ \t]+(?<Right>ကုန်(?=သက်သာ))|(?<![\u1000-\u103F])(?<Left>ဒီ)[ \t]+(?<Right>နှစ်(?=အတွက်|မှာ|တွင်))|(?<Left>သတင်း)[ \t]+(?<Right>အချက်အလက်)|(?<Left>နေရောင်ခြည်|လေ)[ \t]+(?<Right>စွမ်းအင်)|(?<Left>နေ့စဉ်)[ \t]+(?<Right>ဘဝ)|(?<Left>သိမ်းဆည်း)[ \t]+(?<Right>နည်း)|(?<Left>ကူညီ)[ \t]+(?<Right>ပေးခြင်း)|(?<Left>ဂီတ)[ \t]+(?<Right>သံစဉ်)|(?<Left>အသား)[ \t]+(?<Right>ဟင်းလျာ)|(?<Left>ပျော်ရွှင်)[ \t]+(?<Right>စရာ)|(?<Left>အကျိုး)[ \t]+(?<Right>ခံစားခွင့်|ခံစားခွင့်))",
             RegexOptions.Compiled);
 
         private static readonly Regex BoundStemBrokenCompoundPattern = new Regex(
-            @"(?:(?<Left>အထိမ်း)[ \t]+(?<Right>အမှတ်)|(?<Left>အစည်း)[ \t]+(?<Right>အဝေး)|(?<Left>အခမ်း)[ \t]+(?<Right>အနား)|(?<Left>အစီ)[ \t]+(?<Right>အစဉ်)|(?<Left>အဆောက်)[ \t]+(?<Right>အအုံ)|(?<Left>အချက်)[ \t]+(?<Right>အလက်)|(?<Left>ကိုယ်စား)[ \t]+(?<Right>လှယ်)|(?<Left>တက္က)[ \t]+(?<Right>သိုလ်)|(?<Left>ကွန်ပျူ)[ \t]+(?<Right>တာ)|(?<Left>ပလတ်)[ \t]+(?<Right>စတစ်)|(?<Left>မြင့်)[ \t]+(?<Right>မိုရ်))(?![\u102B-\u103E]|[\u1000-\u1021]\u103B?[\u1039\u103A])",
+            @"(?:(?<Left>အထိမ်း)[ \t]+(?<Right>အမှတ်)|(?<Left>အစည်း)[ \t]+(?<Right>အဝေး)|(?<Left>အခမ်း)[ \t]+(?<Right>အနား)|(?<Left>အစီ)[ \t]+(?<Right>အစဉ်)|(?<Left>အဆောက်)[ \t]+(?<Right>အအုံ)|(?<Left>အချက်)[ \t]+(?<Right>အလက်)|(?<Left>အကူ)[ \t]+(?<Right>အညီ)|(?<Left>အရည်)[ \t]+(?<Right>အချင်း)|(?<Left>အခက်)[ \t]+(?<Right>အခဲ)|(?<Left>အထောက်)[ \t]+(?<Right>အကူ)|(?<Left>အလွယ်)[ \t]+(?<Right>တကူ)|(?<Left>အစာ)[ \t]+(?<Right>အိမ်)|(?<Left>အသုံး)[ \t]+(?<Right>ဝင်)|(?<Left>အရေး)[ \t]+(?<Right>ကြီး)|(?<Left>ပတ်)[ \t]+(?<Right>ဝန်းကျင်)|(?<Left>စိတ်)[ \t]+(?<Right>နှလုံး)|(?<Left>မူးယစ်)[ \t]+(?<Right>ဆေးဝါး)|(?<Left>မင်္ဂလာ)[ \t]+(?<Right>ဆောင်)|(?<Left>ဆင်းရဲ)[ \t]+(?<Right>ဒုက္ခ)|(?<Left>ကျောင်း)[ \t]+(?<Right>တိုက်)|(?<Left>ကမ်း)[ \t]+(?<Right>ခြေ)|(?<Left>သဲသောင်)[ \t]+(?<Right>ပြင်)|(?<Left>စိတ်ဖိ)[ \t]+(?<Right>စီး)|(?<Left>ပေါင်)[ \t]+(?<Right>မုန့်|မုန့်)|(?<Left>နံနက်|မနက်|ညနေ|နေ့လယ်)[ \t]+(?<Right>စာ)|(?<Left>နည်း)[ \t]+(?<Right>လမ်း)|(?<Left>သမိုင်း)[ \t]+(?<Right>ကြောင်း)|(?<Left>ချက်)[ \t]+(?<Right>ပြုတ်)|(?<Left>နား)[ \t]+(?<Right>ထောင်)|(?<Left>ထိန်း)[ \t]+(?<Right>ချုပ်)|(?<Left>လက်ဖက်)[ \t]+(?<Right>သုပ်)|(?<Left>ပင်လယ်)[ \t]+(?<Right>စာ)|(?<Left>စိတ်ရှည်)[ \t]+(?<Right>သည်းခံ)|(?<Left>စာရွက်)[ \t]+(?<Right>စာတမ်း)|(?<Left>စည်း)[ \t]+(?<Right>ကမ်း)|(?<Left>လုပ်ငန်း)[ \t]+(?<Right>စဉ်)|(?<Left>တရား)[ \t]+(?<Right>စခန်း)|(?<Left>ထမင်း)[ \t]+(?<Right>ကြော်)|(?<Left>ပျော်ပျော်)[ \t]+(?<Right>ပါးပါး)|(?<Left>ခပ်လှမ်း)[ \t]+(?<Right>လှမ်း)|(?<Left>သန့်|သန့်)[ \t]+(?<Right>ရှင်း)|(?<Left>ကိုယ်စား)[ \t]+(?<Right>လှယ်)|(?<Left>တက္က)[ \t]+(?<Right>သိုလ်)|(?<Left>ကွန်ပျူ)[ \t]+(?<Right>တာ)|(?<Left>ပလတ်)[ \t]+(?<Right>စတစ်)|(?<Left>မြင့်)[ \t]+(?<Right>မိုရ်))(?![\u102B-\u103E]|[\u1000-\u1021]\u103B?[\u1039\u103A])",
             RegexOptions.Compiled);
 
         private static readonly (Regex Pattern, string Target, string Cue)[] CuratedAddressAndHistoricalBrokenCompounds =
@@ -549,7 +549,12 @@ namespace MyanmarSpellChecker.Core.Nlp
             "တပ်မတော်", "တပ်မတော်သား", "ကိုယ်စားလှယ်", "ပလတ်စတစ်", "မြင့်မိုရ်",
             "အဖွဲ့အစည်း", "ဘာသာရေး", "အိမ်ထောင်", "လုပ်ငန်း", "ရဟန်းသံဃာ", "မီးပုံးပျံ",
             "ရောဂါဝေဒနာ", "မြေဆီလွှာ", "အုပ်ချုပ်ရေး", "အုပ်ချုပ်ရေးမှူး", "မြန်မာနိုင်ငံ", "စုစုပေါင်း", "သိပ္ပံပညာ",
-            "တရားဥပဒေ", "လုပ်ငန်းခွင်", "စိစစ်", "အိမ်မှုကိစ္စ", "ရုပ်ရှင်ရုံ", "လှေဆိပ်", "စာစီစာရိုက်", "ရှေ့မှောက်"
+            "တရားဥပဒေ", "လုပ်ငန်းခွင်", "စိစစ်", "အိမ်မှုကိစ္စ", "ရုပ်ရှင်ရုံ", "လှေဆိပ်", "စာစီစာရိုက်", "ရှေ့မှောက်",
+            "အကူအညီ", "အရည်အချင်း", "အခက်အခဲ", "အထောက်အကူ", "အလွယ်တကူ", "အစာအိမ်", "အသုံးဝင်", "အရေးကြီး",
+            "ပတ်ဝန်းကျင်", "စိတ်နှလုံး", "မူးယစ်ဆေးဝါး", "မင်္ဂလာဆောင်", "ဆင်းရဲဒုက္ခ", "ကျောင်းတိုက်", "ကမ်းခြေ",
+            "သဲသောင်ပြင်", "စိတ်ဖိစီး", "ပေါင်မုန့်", "နံနက်စာ", "မနက်စာ", "ညနေစာ", "နေ့လယ်စာ", "နည်းလမ်း",
+            "သမိုင်းကြောင်း", "ချက်ပြုတ်", "နားထောင်", "ထိန်းချုပ်", "လက်ဖက်သုပ်", "ပင်လယ်စာ", "စိတ်ရှည်သည်းခံ",
+            "စာရွက်စာတမ်း", "စည်းကမ်း", "လုပ်ငန်းစဉ်", "တရားစခန်း", "ထမင်းကြော်", "ပျော်ပျော်ပါးပါး", "ခပ်လှမ်းလှမ်း", "သန့်ရှင်း"
         );
 
         private static readonly Regex SpaceSplitPairCandidateRegex = new Regex(
@@ -3612,6 +3617,21 @@ namespace MyanmarSpellChecker.Core.Nlp
                         "တစ်ဆက်တည်းရေးရမည့် နောက်ဆက်တွဲပုဒ်", "PART", true);
                 }
 
+                if (styleMode == ProofingStyleMode.FormalOfficial && ContainsMm(text, mmMask, "အစိုးရ"))
+                {
+                    foreach (Match mGov in FormalCabinetBrokenCompoundPattern.Matches(text))
+                    {
+                        if (!OverlapsExistingIssue(issues, mGov.Index, mGov.Length))
+                        {
+                            AddGrammarOrSpellingIssue(
+                                issues, mGov.Index, mGov.Length, mGov.Value, "အစိုးရအဖွဲ့",
+                                ProofingIssueType.SpellingError,
+                                $"ရုံးသုံးပေါင်းစပ်ပုဒ် '{mGov.Value}' ကို 'အစိုးရအဖွဲ့' ဟု တစ်ဆက်တည်း ရေးသားရမည်။",
+                                "ရုံးသုံးပေါင်းစပ်ပုဒ် ('အစိုးရအဖွဲ့')", "N", true);
+                        }
+                    }
+                }
+
                 for (int cIdx = 0; cIdx < CuratedAddressAndHistoricalBrokenCompounds.Length; cIdx++)
                 {
                     var (pat, targetJoined, cue) = CuratedAddressAndHistoricalBrokenCompounds[cIdx];
@@ -5946,25 +5966,37 @@ namespace MyanmarSpellChecker.Core.Nlp
             @"(?:(?<=(?:သွား|လာ|လုပ်|စား|သောက်|ပြော|ကြည့်|ဖတ်|ရေး|နေ|ဝယ်|ပေး|ယူ|တွေ့|ရောက်)[ \t]+)(?<Khae>ခဲ)(?=[ \t]*(?:တယ်|သည်|ပါ))|(?<=(?:သွား|လာ|လုပ်|စား|သောက်|ပြော|ပေး|ယူ)[ \t]+)(?<Mae>မဲ)(?=[ \t]*(?:လို့|ဟု))|(?<=(?:ဆောက်|လုပ်|သွား|လာ|စား|ပြော|ဖတ်|ရေး|ရှောင်|သင်ယူ|ကြိုးစား))(?<Pho>ဖို)(?=\s+(?:ခက်ခဲ|လွယ်ကူ|လိုအပ်|ကောင်း|သင့်|အတွက်))|(?<=(?:ရှောင်|လုပ်|စား|သွား|ပြော|သတိထား|လိုက်နာ|ထည့်ပေး))(?<Thing>သင်)(?=တယ်|သည်|ပါတယ်|ပါသည်)|(?<KyoKa>ကြိုက)(?=တယ်|သည်|ပါ)|(?<=(?:စို|ကျ|ပျက်|မော|သေ|ရှုံး|နောက်ကျ))(?<IrrealisMar>မာ)(?=ပဲ|လား|လဲ|စိုး)|(?<=[\u1000-\u103F])(?<PaTaYa>ပါတယ)(?=[\s\u104A\u104B]|$))",
             RegexOptions.Compiled);
 
+        private static readonly Regex FormalCabinetBrokenCompoundPattern = new Regex(
+            @"အစိုးရ[ \t]+အဖွဲ့(?!ဝင်|အသီးသီး|အစည်း)",
+            RegexOptions.Compiled);
+
         private static readonly Regex VerbStemMissingCreakyPhoPattern = new Regex(
-            @"(?<![\u1000-\u103F])(?<Stem>[\u1000-\u103F]{2,14}?)(?<!မီး|အုတ်|ထုံး|ပန်းပဲ)(?<Pho2>ဖို)(?=က\s|\s*(?:လိုအပ်|လိုပါ|လိုတယ်|လိုသည်|ခက်ခဲ|ခက်ထန်|လွယ်ကူ|ကောင်း|သင့်|အတွက်))",
+            @"(?<![\u1000-\u103F])(?<Stem>[\u1000-\u103F]{2,36}?)(?<!မီး|အုတ်|ထုံး|ပန်းပဲ|မီးသွေး|လူပျို)(?<Pho2>ဖို)(?=က[\s\u1000-\u1021]|နဲ့|နှင့်|နှင့်|အတွက်|ပဲ|လည်း|\s*(?:လိုအပ်|လိုအဘ်|လိုပါ|လိုတယ်|လိုသည်|ခက်ခဲ|ခက်ထန်|လွယ်ကူ|ကောင်း|သင့်|သင့်|အတွက်|တာဝန်|အထောက်အကူ|အရေးကြီး|အဓိက|ကြိုးစား|ဆောင်ရွက်|လေ့ကျင့်|လေ့ကျင့်|ညွှန်ကြား))",
+            RegexOptions.Compiled);
+
+        private static readonly Regex LexiconVerbGerundChinPattern = new Regex(
+            @"(?<![\u1000-\u103F])(?<Stem>[\u1000-\u103F]{2,32}?)(?<GerundChin2>ချင်း)(?=က[\s\u1000-\u1021]|သည်[\s\u104A\u104B]|ဟာ[\s\u1000-\u1021]|ကြောင့်|ကြောင့်|ဖြင့်|ဖြင့်|ဖြင်\s|ဖျင်\s)",
             RegexOptions.Compiled);
 
         private static readonly Regex ExtendedParticleAndMorphoSyntaxPattern = new Regex(
             @"(?:(?<!နွား|ကျွဲ|ကုလားအုတ်)(?<Bho>ဘို့)(?=\s*(?:အတွက်|လို|က\s|ပါ|ပဲ|မဟုတ်|ဖြစ်))|(?<=(?:မှု|ခြင်း|ချက်|များ|တွေ))(?<Nhae>နှဲ့)(?=[\s\u1000-\u102A])|(?<=(?:ကြ|ပါ))(?<FinalTae>တဲ)(?=\s*။)|(?<=(?:ဆေးလိပ်သောက်|အရက်သောက်|လမ်းလျှောက်|စာဖတ်|အားကစားလုပ်|အိပ်ရေးပျက်))(?<GerundChin>ချင်း)(?=က|သည်|ဟာ|ကြောင့်|ဖြင့်)|(?<=(?:ထိရောက်|သေချာ|ပွင့်လင်းမြင်သာ|အောင်မြင်|ကောင်းမွန်))(?<AttrThaw>သော)(?=\s+(?:ဖြေရှင်း|ဆောင်ရွက်|လုပ်ဆောင်|ပြောဆို|ကာကွယ်|ကူညီ|အသုံးပြု)[\u1000-\u103F]*(?:နိုင်|ရ|ခဲ့|ပါ|သည်|တယ်|မည်|မယ်))|(?<=[\u1000-\u103F]{2,20})(?<!တစ်ဦး|တစ်ယောက်|လူ|သူ|မိသားစု)(?<LocKo>ကို)(?=\s+နေထိုင်(?:ပါ)?(?<LocEnd>သည်|တယ်))|(?<=ပြင်ဆင်|ဆောင်ရွက်|ကြိုးပမ်း|ထိန်းသိမ်း)(?<ContKar>ကာ)(?=\s+ရှိ(?:ပါ)?သည်))",
             RegexOptions.Compiled);
 
-        // SOV Clause-Final Verb Restorer: detects English-calqued SVO clauses where a finite non-creaky main verb precedes postpositional NP arguments right before '။' / 'ဟု' / 'ဆိုတာ'
+        // SOV Clause-Final Verb Restorer: detects English-calqued SVO clauses where a finite non-creaky main verb precedes postpositional NP arguments right before '။' / '.' / 'ဟု' / 'ဆိုတာ'
         private static readonly Regex SovVerbInversionPattern = new Regex(
-            @"(?<=(?:က|မှ|ကို|အား|နှင့်|နှင့်|နဲ့|ဖြင့်|ဖြင့်|မှာ|တွင်|၌|စွာ|လည်း|ဘဲ|ပဲ|အစ်ကို|အစ်မ|ညီမ|သူ|ကျွန်တော်|ကျွန်မ|တဲ့|သော|သည့်|သည့်)\s+)(?<Verb>[\u1000-\u103F]{2,26}?(?:ခဲ့ကြပါသည်|ခဲ့ပါသည်|ခဲ့ကြသည်|ခဲ့သည်|ချင်ကြတယ်|စေပါတယ်|အနားယူတယ်|နားယူတယ်))\s+(?<Args>(?!(?:ဟု|ဆိုတာ|လို့|သော်လည်း|ပေမဲ့|ပေမယ့်|ပြီး|၍)(?:[\s\u104A\u104B]|$))[^\u104A\u104B""“”\r\n]{2,60}?(?:ကို|အား|သို့|ဖြင့်|ဖြင့်|တွင်|မှာ)(?:\s+(?!(?:ဟု|ဆိုတာ|လို့|သိရ|ဖော်ပြ|တွေ့ရ|ပါရှိ)(?:[\s\u104A\u104B]|$))[\u1000-\u103F]{2,20})?)(?=\s*(?:။|ဟု(?:\s|$)|ဆိုတာ(?:\s|$)))",
+            @"(?<=(?:က|မှ|ကို|အား|နှင့်|နှင့်|နဲ့|ဖြင့်|ဖြင့်|မှာ|တွင်|၌|ဖို့|ဖို|စွာ|လည်း|ဘဲ|ပဲ|အစ်ကို|အစ်မ|ညီမ|သူ|ကျွန်တော်|ကျွန်မ|တဲ့|သော|သည့်|သည့်)\s+)(?<Verb>[\u1000-\u103F]{2,26}?(?:ခဲ့ကြပါသည်|ခဲ့ပါသည်|ခဲ့ကြသည်|ခဲ့သည်|ချင်ကြတယ်|စေပါတယ်|အနားယူတယ်|နားယူတယ်))\s+(?<Args>(?!(?:ဟု|ဆိုတာ|လို့|သော်လည်း|ပေမဲ့|ပေမယ့်|ပြီး|၍)(?:[\s\u104A\u104B]|$))[^\u104A\u104B""“”.\r\n]{2,60}?(?:ကို|အား|သို့|ဖြင့်|ဖြင့်|တွင်|မှာ)(?:\s+(?!(?:ဟု|ဆိုတာ|လို့|သိရ|ဖော်ပြ|တွေ့ရ|ပါရှိ)(?:[\s\u104A\u104B]|$))[\u1000-\u103F]{2,20})?)(?=\s*(?:။|\.(?!\.|[0-9A-Za-z])|ဟု(?:\s|$)|ဆိုတာ(?:\s|$)))",
             RegexOptions.Compiled);
 
         private static readonly Regex NightmareParticleAndCaseCollisionPattern = new Regex(
-            @"(?:(?<=(?:ပေး|လုပ်|သွား|လာ|စား|သောက်|ပြော|ဆို|ကြည့်|ဖတ်|ရေး|ကူညီ|စောင့်ရှောက်|စောင့်လျှောက်|ဆောင်ရွက်|ကြိုးစား))(?<KyaPlural>ကြာ)(?=ပါ(?:တယ်|သည်|မယ်|မည်))|(?<=(?:ကြ|နေ|ခဲ့|နိုင်|တတ်))(?<PatPolite>ပတ်)(?=တယ်|သည်)|(?<=လို့)(?<YaPot>ရာ)(?=တယ်|သည်|ပါတယ်|ပါသည်)|(?<=(?:ကမ္ဘာကြီး|နိုင်ငံတော်|ပြည်သူများ|ပြည်သူတွေ|ကျောင်းသားများ|သားသမီးများ|ကျန်းမာရေး|ပညာရေး|အနာဂတ်|မိသားစု))(?<Ahtwet>အထွက်)(?=[\s\u104A\u104B])|(?<=(?:တစ်ခု|တစ်ယောက်|တစ်ဦး|တစ်ကောင်|နိုင်ငံ|အစိုးရ|မိသားစု|ကုမ္ပဏီ|ကျောင်းသား))(?<UnspacedYae>ရဲ)(?=\s+(?!(?:တပ်ဖွဲ့|စခန်း|အရာရှိ|မှူး|ဘော်|မေ|ဝံ့|ရင့်|စွမ်း|တိုက်|ကင်း|သား|ချုပ်))[\u1000-\u102A])|(?<=(?:လဲ|မလဲ|သလဲ|တယ်|မယ်|ဘူး|ပြီ))(?<QuotLo>လို)(?=\s+(?:[\u1000-\u103F]{1,18}(?:က|သည်|ဟာ)\s+)?(?:ယုံကြည်|ထင်|ပြော|မေး|ဆို|သိ|မှတ်|ခေါ်|ကြား))|(?:(?<=(?:ဖို့|စရာ))(?<KaungVis1>ကောင်)(?=တယ်|သည်|ပါတယ်|ပါသည်|သော|တဲ့)|(?<![\u1000-\u103F])မ(?<KaungVis2>ကောင်)(?=ဘူး|ပါဘူး|သေးဘူး))|(?<=(?:လာ|သွား|ဖြစ်|ရ|သိ|နားလည်|တိုးတက်|ကောင်းမွန်))(?<AungSpur>အောင်း)(?=(?:လည်း|ပဲ)?\s*(?:[\u1000-\u103F]{1,18}(?:က|သည်|ဟာ)\s+)?(?:ကူညီ|လုပ်|ဆောင်ရွက်|ကြိုးစား|ပြုလုပ်|ပေး))|(?<=(?:သူ|လူ|ကလေး|ဝန်ထမ်း|ကျောင်းသား|ပြည်သူ|မိဘ|ဆရာ))(?<TwePlural>တွေး)(?=ကို[\s\u104A\u104B])|(?:^|[\u104A\u104B]\s*|မှာ\s+|တွင်\s+)(?<SubjKo>(?:ကျွန်တော်|ကျွန်မ|ကျွန်ုပ်|သူ|ငါ|မင်း)ကို)(?=\s+[^\u104A\u104B]{2,28}?ကို\s+[^\u104A\u104B]{0,20}?(?:ကြိုက်|နှစ်သက်|ပေး|ပြော|ပြ|ပို့|ဝယ်|စား|ဖတ်))|(?<=(?:သည့်|သည့်|သော|တဲ့)\s+[\u1000-\u103F]{2,18})(?<CopKo>ကို\s+(?<CopVerb>ဖြစ်(?:ပါ)?(?:သည်|တယ်)))(?=\s*။)|(?<=\s)(?<IrrInv>မှာ(?<IrrVerb>[\u1000-\u103F]{2,14}?)(?<IrrNeg>မဟုတ်(?:ပါ)?(?:ဘူး|ချေ|ပေ)))(?=[\s\u104A\u104B]|$))",
+            @"(?:(?<=(?:ပေး|လုပ်|သွား|လာ|စား|သောက်|ပြော|ဆို|ကြည့်|ဖတ်|ရေး|ကူညီ|စောင့်ရှောက်|စောင့်လျှောက်|ဆောင်ရွက်|ကြိုးစား))(?<KyaPlural>ကြာ)(?=ပါ(?:တယ်|သည်|မယ်|မည်))|(?<=(?:ကြ|နေ|ခဲ့|နိုင်|တတ်))(?<PatPolite>ပတ်)(?=တယ်|သည်)|(?<=လို့)(?<YaPot>ရာ)(?=တယ်|သည်|ပါတယ်|ပါသည်)|(?<=(?:ကမ္ဘာကြီး|နိုင်ငံတော်|ပြည်သူများ|ပြည်သူတွေ|ကျောင်းသားများ|သားသမီးများ|ကျန်းမာရေး|ပညာရေး|အနာဂတ်|မိသားစု|အဲဒီ|ဒီ|ဤ|ထို))(?<Ahtwet>အထွက်)(?=[\s\u104A\u104B])|(?<=(?:တစ်ခု|တစ်ယောက်|တစ်ဦး|တစ်ကောင်|နိုင်ငံ|အစိုးရ|မိသားစု|ကုမ္ပဏီ|ကျောင်းသား))(?<UnspacedYae>ရဲ)(?=\s+(?!(?:တပ်ဖွဲ့|စခန်း|အရာရှိ|မှူး|ဘော်|မေ|ဝံ့|ရင့်|စွမ်း|တိုက်|ကင်း|သား|ချုပ်))[\u1000-\u102A])|(?<=(?:လဲ|မလဲ|သလဲ|တယ်|မယ်|ဘူး|ပြီ))(?<QuotLo>လို)(?=\s+(?:[\u1000-\u103F]{1,18}(?:က|သည်|ဟာ)\s+)?(?:ယုံကြည်|ထင်|ပြော|မေး|ဆို|သိ|မှတ်|ခေါ်|ကြား))|(?:(?<=(?:ဖို့|စရာ|အစားအသောက်))(?<KaungVis1>ကောင်)(?=တယ်|သည်|ပါတယ်|ပါသည်|သော|တဲ့|တွေ)|(?<![\u1000-\u103F])မ(?<KaungVis2>ကောင်)(?=ဘူး|ပါဘူး|သေးဘူး|တဲ့|သော))|(?<=(?:လာ|သွား|ဖြစ်|ရ|သိ|နားလည်|တိုးတက်|ကောင်းမွန်))(?<AungSpur>အောင်း)(?=(?:လည်း|ပဲ)?\s*(?:[\u1000-\u103F]{1,18}(?:က|သည်|ဟာ)\s+)?(?:ကူညီ|လုပ်|ဆောင်ရွက်|ကြိုးစား|ပြုလုပ်|ပေး))|(?<=(?:သူ|လူ|ကလေး|ဝန်ထမ်း|ကျောင်းသား|ပြည်သူ|မိဘ|ဆရာ))(?<TwePlural>တွေး)(?=ကို[\s\u104A\u104B])|(?:^|[\u104A\u104B]\s*|မှာ\s+|တွင်\s+)(?<SubjKo>(?:ကျွန်တော်|ကျွန်မ|ကျွန်ုပ်|သူ|ငါ|မင်း)ကို)(?=\s+[^\u104A\u104B]{2,28}?ကို\s+[^\u104A\u104B]{0,20}?(?:ကြိုက်|နှစ်သက်|ပေး|ပြော|ပြ|ပို့|ဝယ်|စား|ဖတ်))|(?<=(?:သည့်|သည့်|သော|တဲ့)\s+[\u1000-\u103F]{2,18})(?<CopKo>ကို\s+(?<CopVerb>ဖြစ်(?:ပါ)?(?:သည်|တယ်)))(?=\s*။)|(?<=\s)(?<IrrInv>မှာ(?<IrrVerb>[\u1000-\u103F]{2,14}?)(?<IrrNeg>မဟုတ်(?:ပါ)?(?:ဘူး|ချေ|ပေ)))(?=[\s\u104A\u104B]|$))",
             RegexOptions.Compiled);
 
         private static readonly Regex MyanmarSentenceFinalAsciiDotPattern = new Regex(
-            @"(?<=(?:ပါတယ်|ပါသည်|ပါမည်|ပါမယ်|ခဲ့သည်|ခဲ့တယ်|ဖြစ်သည်|ရှိသည်|ရမည်|ပါပြီ|ပါပီ|ပါတယ|တယ်|သည်|မယ်|မည်|ပြီ|ပီ|ဘူး|ဖူး))(?<Dot>\.)(?!\.|[0-9A-Za-z])(?=\s|$)",
+            @"(?<=(?:ပါတယ်|ပါသည်|ပါမည်|ပါမယ်|ခဲ့သည်|ခဲ့တယ်|ဖြစ်သည်|ရှိသည်|ရမည်|ပါပြီ|ပါပီ|ပါတယ|တယ်|သည်|မယ်|မည်|ပြီ|ပီ|ဘူး|ဖူး|များသို့|ချုပ်သို့|ရုံးသို့))(?<Dot>\.)(?!\.|[0-9A-Za-z])(?=\s|$)",
+            RegexOptions.Compiled);
+
+        private static readonly Regex V64MorphoAndCaseCollisionPattern = new Regex(
+            @"(?:(?<=(?:လွတ်လပ်|ခံစား|အရေးယူ|ဝင်ရောက်|ပြောဆို|လုပ်ပိုင်))(?<Khwin>ခွင်)(?=ပေး|ပြု|ရ|ရှိ|တောင်း|မရှိ|တွေ|များ)|(?<=(?:သင်ခန်းစာယူ|ဝယ်ယူ|စားသောက်|လုပ်ကိုင်|ကျောင်း))(?<YuPi>ပီ)(?=ရင်|\s+[\u1000-\u1021])|(?<=(?:ပူဇော်|ကန်တော့|ဆုတောင်း))(?<PuzawPyi>ပြီ)(?=\s+[\u1000-\u1021])|(?<=(?:သောက်|စား|ကြည့်|ကြည့်|နားထောင်|ဖတ်))(?<LoKaung>လို)(?=ကောင်း(?:တယ်|သည်|ပါ|ပြီး))|(?<=(?:စတင်တာ|ခွင့်မူချက်|ခွင့်ပြုချက်|အချက်|တစ်ခု))(?<TaPae>ပယ်)(?=\s*။)|(?<=(?:အိမ်စာတွေ|အလုပ်တွေ)\s+[^\u104A\u104B]{0,18}?)(?<LokeYae>လုပ်ရယ်)(?=\s*။)|(?<=(?:ရင်|စိတ်|အိမ်|ကျောင်း|အခန်း))(?<HtaeMa>ထဲမာ)(?=\s)|(?<=(?:ခရစ္စမတ်|မွေး|ဥပုသ်|လပြည့်|လပြည့်|နှစ်သစ်ကူး))(?<XmasNay>နေမှာ)|(?<=(?:အရမ်း|သိပ်|အလွန်))(?<LhaCreaky>လှ့)(?=တယ်|သည်|ပါ)|(?<KyawntawCreaky>ကျွန်တော်)(?=မှာ\s+[^\u104A\u104B]{2,35}?(?:ရှိ|စကား)|ရဲ့\s)|(?<KyawntawNoAsat>ကျွန်တော)(?=\s*အတွက်)|(?<=(?:လူမျိုးတွေ|သူတို့|ကျွန်တော်တို့|ဝန်ထမ်းတွေ|ကလေးတွေ|မိဘတွေ))(?<TweYa>ရ)(?=\s+အ[\u1000-\u103F]+ဆုံး)|(?<=(?:သွား|လာ|ပြု|လုပ်|ဝယ်|သုံး|တက်))(?<MaeThu>မယ်)(?=သူ(?:တွေ|များ))|(?<=(?:မနက်|နံနက်|နေ့လယ်|ညနေ|ည))(?<NyanayPaing>ပိုင်)(?=မှာ|တွင်|၌)|(?<=(?:ထုတ်လုပ်|စီးပွား|ပညာ|ကျန်းမာ|လူမှု))(?<YeLupan>ရေ)(?=လုပ်ငန်း|စနစ်|ကဏ္ဍ)|(?<PataeLar>ပါတယ်လား)(?=\s*[။?]|$)|(?<PasayLar>ပါစေလား)(?=\s*[။?]|$)|(?<=ခြင်း)(?<ChinnTae>တည်)(?=\s)|(?<=(?:တွေ|များ))(?<TweGa>ဂ)(?=\s)|(?<=လုပ်ငန်း)(?<LupanHtwin>ထွင်)(?=\s)|(?<=မရှိ)(?<MashiHaw>ဟော)(?=\s+[\u1000-\u103F]+လော)|(?<=ဟု\s+[\u1000-\u103F]{2,18}?)(?<HuHo>ဟို့)(?=\s+ပြော)|(?<=(?:မှာ|ပြော|သွား|စား|လုပ်|ပေး|ဝယ်|မေး|သိ))(?<DesidChin>ခြင်)(?=တယ်|သည်|ပါတယ်|ပါသည်|ဘူး)|(?<=(?:စက်|ဆပ်ပြာ|စနစ်|နည်းပညာ|သတင်း|ခြင်း|ချင်း|မှု)က\s+)(?<CausPat>[\u1000-\u103F]{2,18}?(?:တွေ|များ)က)(?=\s+မ?[\u1000-\u103F]{2,18}?စေ(?:ပါ)?(?:တယ်|သည်|ပြီး)))",
             RegexOptions.Compiled);
 
         private static readonly Regex GluedPhraseBoundarySplitPattern = new Regex(
@@ -6327,8 +6359,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            // 6b. Lexicon-backed VerbStem + 'ဖို' -> 'ဖို့' before purposive/modal predicates ('ကာကွယ်ဖိုက -> ကာကွယ်ဖို့က', 'ထိန်းသိမ်းဖို လိုအပ် -> ထိန်းသိမ်းဖို့')
-            if (trie != null && ContainsMm(text, mmMask, "ဖို"))
+            // 6b. Lexicon-backed VerbStem + 'ဖို' -> 'ဖို့' before purposive/modal predicates ('ကာကွယ်ဖိုက -> ကာကွယ်ဖို့က', 'ကျန်းမာရေးကောင်းဖို -> ဖို့')
+            if (trie != null && ContainsMm(text, mmMask, "ဖို") && HasBarePhoWithoutCreaky(text))
             {
                 foreach (Match mPho in VerbStemMissingCreakyPhoPattern.Matches(text))
                 {
@@ -6336,13 +6368,33 @@ namespace MyanmarSpellChecker.Core.Nlp
                     if (OverlapsExistingIssue(issues, gPho.Index, gPho.Length))
                         continue;
                     string normStem = UnicodeNormalizer.NormalizeCanonicalOrder(mPho.Groups["Stem"].Value);
-                    if (trie.HasPosTag(normStem, "V"))
+                    if (HasTrailingLexiconVerbOrAdj(trie, normStem, allowAdj: true))
                     {
                         AddGrammarOrSpellingIssue(
                             issues, gPho.Index, gPho.Length, gPho.Value, "ဖို့",
                             ProofingIssueType.SpellingError,
                             "ရည်ရွယ်ချက်ပြပစ္စည်းတွင် အောက်မြစ် ('့') ကျန်ခဲ့ပါသည် — 'ဖို' အစား 'ဖို့' ဟု ရေးသားရမည်။",
                             "ရည်ရွယ်ချက်ပြပစ္စည်း ('~ဖို့')", "PART", true);
+                    }
+                }
+            }
+
+            // 6b-ii. Lexicon-backed VerbStem + 'ချင်း' -> 'ခြင်း' before nominal postpositions ('ရှောင်ရှားချင်းက -> ခြင်း', 'စောင့်ရှောက်ချင်းက -> ခြင်း')
+            if (trie != null && ContainsMm(text, mmMask, "ချင်း"))
+            {
+                foreach (Match mGer in LexiconVerbGerundChinPattern.Matches(text))
+                {
+                    Group gGer = mGer.Groups["GerundChin2"];
+                    if (OverlapsExistingIssue(issues, gGer.Index, gGer.Length))
+                        continue;
+                    string normStem = UnicodeNormalizer.NormalizeCanonicalOrder(mGer.Groups["Stem"].Value);
+                    if (!IsReciprocalOrImmediateChinStem(normStem) && HasTrailingLexiconVerbOrAdj(trie, normStem, allowAdj: false))
+                    {
+                        AddGrammarOrSpellingIssue(
+                            issues, gGer.Index, gGer.Length, gGer.Value, "ခြင်း",
+                            ProofingIssueType.SpellingError,
+                            "ကြိယာမှ နာမ်ပြောင်းရာတွင် ရရစ် ('ြ') ဖြင့် 'ခြင်း' ဟု ရေးသားရမည် ('ချင်း' သည် အချင်းချင်း/တစ်ဦးချင်း၌သာ သုံးသည်)။",
+                            "ကြိယာနာမ်ပြုပစ္စည်း ('~ခြင်း')", "PART", true);
                     }
                 }
             }
@@ -6710,6 +6762,207 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
+            // 6i. V64 Bound Morphological Tone/Coda, Desiderative '-ချင်', Interrogative Hybrid & Causative Double-'က' Repairs
+            bool mayHaveV64Morpho =
+                ContainsMm(text, mmMask, "လပ်ခွင်") ||
+                ContainsMm(text, mmMask, "စားခွင်") ||
+                ContainsMm(text, mmMask, "ယူခွင်") ||
+                ContainsMm(text, mmMask, "ရောက်ခွင်") ||
+                ContainsMm(text, mmMask, "ဆိုခွင်") ||
+                ContainsMm(text, mmMask, "ပိုင်ခွင်") ||
+                ContainsMm(text, mmMask, "ယူပီ") ||
+                ContainsMm(text, mmMask, "သောက်ပီ") ||
+                ContainsMm(text, mmMask, "ကိုင်ပီ") ||
+                ContainsMm(text, mmMask, "ကျောင်းပီ") ||
+                ContainsMm(text, mmMask, "ပူဇော်ပြီ") ||
+                ContainsMm(text, mmMask, "ကန်တော့ပြီ") ||
+                ContainsMm(text, mmMask, "ဆုတောင်းပြီ") ||
+                ContainsMm(text, mmMask, "လိုကောင်း") ||
+                ContainsMm(text, mmMask, "ပယ်") ||
+                ContainsMm(text, mmMask, "လုပ်ရယ်") ||
+                ContainsMm(text, mmMask, "ထဲမာ") ||
+                ContainsMm(text, mmMask, "နေမှာ") ||
+                ContainsMm(text, mmMask, "လှ့") ||
+                ContainsMm(text, mmMask, "ကျွန်တော်မှာ") ||
+                ContainsMm(text, mmMask, "ကျွန်တော်ရဲ့") ||
+                ContainsMm(text, mmMask, "ကျွန်တော ") ||
+                ContainsMm(text, mmMask, "ကျွန်တောအ") ||
+                ContainsMm(text, mmMask, "တွေရ ") ||
+                ContainsMm(text, mmMask, "တို့ရ ") ||
+                ContainsMm(text, mmMask, "မယ်သူ") ||
+                ContainsMm(text, mmMask, "ပိုင်မှာ") ||
+                ContainsMm(text, mmMask, "ပိုင်တွင်") ||
+                ContainsMm(text, mmMask, "ပိုင်၌") ||
+                ContainsMm(text, mmMask, "ရေလုပ်") ||
+                ContainsMm(text, mmMask, "ရေစနစ်") ||
+                ContainsMm(text, mmMask, "ရေကဏ္ဍ") ||
+                ContainsMm(text, mmMask, "ပါတယ်လား") ||
+                ContainsMm(text, mmMask, "ပါစေလား") ||
+                ContainsMm(text, mmMask, "ခြင်းတည်") ||
+                ContainsMm(text, mmMask, "တွေဂ") ||
+                ContainsMm(text, mmMask, "များဂ") ||
+                ContainsMm(text, mmMask, "လုပ်ငန်းထွင်") ||
+                ContainsMm(text, mmMask, "မရှိဟော") ||
+                ContainsMm(text, mmMask, "ဟို့") ||
+                ContainsMm(text, mmMask, "ခြင်တယ်") ||
+                ContainsMm(text, mmMask, "ခြင်သည်") ||
+                ContainsMm(text, mmMask, "ခြင်ပါ") ||
+                ContainsMm(text, mmMask, "ခြင်ဘူး") ||
+                ((ContainsMm(text, mmMask, "တွေက ") || ContainsMm(text, mmMask, "များက ")) &&
+                 (ContainsMm(text, mmMask, "စေတယ်") || ContainsMm(text, mmMask, "စေသည်") || ContainsMm(text, mmMask, "စေပါ") || ContainsMm(text, mmMask, "စေပြီး")));
+
+            if (mayHaveV64Morpho)
+            {
+                foreach (Match m64 in V64MorphoAndCaseCollisionPattern.Matches(text))
+                {
+                    if (m64.Groups["Khwin"].Success && !OverlapsExistingIssue(issues, m64.Groups["Khwin"].Index, m64.Groups["Khwin"].Length))
+                    {
+                        Group g = m64.Groups["Khwin"];
+                        AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "ခွင့်", ProofingIssueType.SpellingError,
+                            "အခွင့်အရေး/ခွင့်ပြုချက်ပြ နောက်ဆက်ပုဒ်တွင် အောက်မြစ်ဖြင့် 'ခွင့်' ဟု ရေးသားရမည်။", "ခွင့်ပြုချက်ပြပုဒ် ('~ခွင့်')", "N", true);
+                    }
+                    else if (m64.Groups["YuPi"].Success && !OverlapsExistingIssue(issues, m64.Groups["YuPi"].Index, m64.Groups["YuPi"].Length))
+                    {
+                        Group g = m64.Groups["YuPi"];
+                        AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "ပြီး", ProofingIssueType.SpellingError,
+                            "ပြီးဆုံး/ဆက်စပ်ပြ ကြိယာထောက်ပစ္စည်းကို ရရစ် ဝစ္စပေါက်ဖြင့် 'ပြီး' ဟု ရေးသားရမည်။", "ကြိယာနောက်ဆက် ('~ပြီး')", "PART", true);
+                    }
+                    else if (m64.Groups["PuzawPyi"].Success && !OverlapsExistingIssue(issues, m64.Groups["PuzawPyi"].Index, m64.Groups["PuzawPyi"].Length))
+                    {
+                        Group g = m64.Groups["PuzawPyi"];
+                        AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "ပြီး", ProofingIssueType.SpellingError,
+                            "ရှေ့ကြိယာနှင့် နောက်ကြိယာ ဆက်စပ်ရာတွင် ဝစ္စပေါက်ဖြင့် 'ပြီး' ဟု ရေးသားရမည်။", "ကြိယာဆက်ပစ္စည်း ('~ပြီး')", "PART", true);
+                    }
+                    else if (m64.Groups["LoKaung"].Success && !OverlapsExistingIssue(issues, m64.Groups["LoKaung"].Index, m64.Groups["LoKaung"].Length))
+                    {
+                        Group g = m64.Groups["LoKaung"];
+                        AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "လို့", ProofingIssueType.SpellingError,
+                            "'~လို့ကောင်းသည်' ပုံစံတွင် အောက်မြစ်ဖြင့် 'လို့' ဟု ရေးသားရမည်။", "ကြိယာဆက်ပစ္စည်း ('~လို့ကောင်း')", "PART", false);
+                    }
+                    else if (m64.Groups["TaPae"].Success && !OverlapsExistingIssue(issues, m64.Groups["TaPae"].Index, m64.Groups["TaPae"].Length))
+                    {
+                        Group g = m64.Groups["TaPae"];
+                        AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "ပဲ", ProofingIssueType.SpellingError,
+                            "အလေးအနက်ပြပစ္စည်းကို နောက်ပစ်ဖြင့် 'ပဲ' ဟု ရေးသားရမည် ('ပယ်' သည် ပယ်ဖျက်သည် ကြိယာဖြစ်သည်)။", "အလေးအနက်ပြပစ္စည်း ('~ပဲ')", "PART", true);
+                    }
+                    else if (m64.Groups["LokeYae"].Success && !OverlapsExistingIssue(issues, m64.Groups["LokeYae"].Index, m64.Groups["LokeYae"].Length))
+                    {
+                        Group g = m64.Groups["LokeYae"];
+                        AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "လုပ်ရတယ်", ProofingIssueType.SpellingError,
+                            $"ကြိယာအဆုံးသတ် ချို့ယွင်းနေပါသည် — '{g.Value}' အစား 'လုပ်ရတယ်' ဟု ရေးသားရမည်။", "ကြိယာအဆုံးသတ် ('လုပ်ရတယ်')", "V", false);
+                    }
+                    else if (m64.Groups["HtaeMa"].Success && !OverlapsExistingIssue(issues, m64.Groups["HtaeMa"].Index, m64.Groups["HtaeMa"].Length))
+                    {
+                        Group g = m64.Groups["HtaeMa"];
+                        AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "ထဲမှာ", ProofingIssueType.SpellingError,
+                            "နေရာပြ နာမ်ဝိဘတ်တွင် ဟထိုးဖြင့် 'ထဲမှာ' ဟု ရေးသားရမည်။", "နေရာပြဝိဘတ် ('~ထဲမှာ')", "PART", false);
+                    }
+                    else if (m64.Groups["XmasNay"].Success && !OverlapsExistingIssue(issues, m64.Groups["XmasNay"].Index, m64.Groups["XmasNay"].Length))
+                    {
+                        Group g = m64.Groups["XmasNay"];
+                        AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "နေ့မှာ", ProofingIssueType.SpellingError,
+                            "ရက်/နေ့ရက် အနက်တွင် အောက်မြစ်ဖြင့် 'နေ့မှာ' ဟု ရေးသားရမည်။", "အချိန်ပြနာမ် ('~နေ့မှာ')", "N", false);
+                    }
+                    else if (m64.Groups["LhaCreaky"].Success && !OverlapsExistingIssue(issues, m64.Groups["LhaCreaky"].Index, m64.Groups["LhaCreaky"].Length))
+                    {
+                        Group g = m64.Groups["LhaCreaky"];
+                        AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "လှ", ProofingIssueType.SpellingError,
+                            "နာမဝိသေသန 'လှ' တွင် အောက်မြစ်မပါရပါ — 'လှ' ဟု ရေးသားရမည်။", "နာမဝိသေသန ('လှ')", "ADJ", true);
+                    }
+                else if ((m64.Groups["KyawntawCreaky"].Success || m64.Groups["KyawntawNoAsat"].Success))
+                {
+                    Group g = m64.Groups["KyawntawCreaky"].Success ? m64.Groups["KyawntawCreaky"] : m64.Groups["KyawntawNoAsat"];
+                    if (!OverlapsExistingIssue(issues, g.Index, g.Length))
+                    {
+                        AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "ကျွန်တော့်", ProofingIssueType.SpellingError,
+                            $"ဝိဘတ်ရှေ့ နာမ်စားတွင် အောက်မြစ်ဖြင့် 'ကျွန်တော့်' ဟု ရေးသားရမည်။", "နာမ်စား ('ကျွန်တော့်')", "PRON", true);
+                    }
+                }
+                else if (m64.Groups["TweYa"].Success && !OverlapsExistingIssue(issues, m64.Groups["TweYa"].Index, m64.Groups["TweYa"].Length))
+                {
+                    Group g = m64.Groups["TweYa"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "ရဲ့", ProofingIssueType.SpellingError,
+                        "ပိုင်ဆိုင်မှုပြဝိဘတ်တွင် 'ရဲ့' ဟု ရေးသားရမည်။", "ပိုင်ဆိုင်မှုပြဝိဘတ် ('~ရဲ့')", "PART", false);
+                }
+                else if (m64.Groups["MaeThu"].Success && !OverlapsExistingIssue(issues, m64.Groups["MaeThu"].Index, m64.Groups["MaeThu"].Length))
+                {
+                    Group g = m64.Groups["MaeThu"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "မယ့်", ProofingIssueType.SpellingError,
+                        "နောက်လိုက်နာမ် ('သူ') ကို အထူးပြုရာတွင် အောက်မြစ်ဖြင့် 'မယ့်' ဟု ရေးသားရမည်။", "နာမဝိသေသနပြုပစ္စည်း ('~မယ့်')", "PART", false);
+                }
+                else if (m64.Groups["NyanayPaing"].Success && !OverlapsExistingIssue(issues, m64.Groups["NyanayPaing"].Index, m64.Groups["NyanayPaing"].Length))
+                {
+                    Group g = m64.Groups["NyanayPaing"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "ပိုင်း", ProofingIssueType.SpellingError,
+                        "အချိန်အပိုင်းအခြားပြ ပစ္စည်းတွင် ဝစ္စပေါက်ဖြင့် 'ပိုင်း' ဟု ရေးသားရမည်။", "အချိန်ပိုင်းပြပုဒ် ('~ပိုင်း')", "N", true);
+                }
+                else if (m64.Groups["YeLupan"].Success && !OverlapsExistingIssue(issues, m64.Groups["YeLupan"].Index, m64.Groups["YeLupan"].Length))
+                {
+                    Group g = m64.Groups["YeLupan"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "ရေး", ProofingIssueType.SpellingError,
+                        "ကဏ္ဍ/လုပ်ငန်းအမည် ပေါင်းစပ်ပုဒ်တွင် ဝစ္စပေါက်ဖြင့် 'ရေး' ဟု ရေးသားရမည်။", "ပေါင်းစပ်နာမ်ပစ္စည်း ('~ရေး')", "PART", true);
+                }
+                else if (m64.Groups["PataeLar"].Success && !OverlapsExistingIssue(issues, m64.Groups["PataeLar"].Index, m64.Groups["PataeLar"].Length))
+                {
+                    Group g = m64.Groups["PataeLar"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "ပါသလား", ProofingIssueType.OfficialStyleGrammarError,
+                        "အမေးဝါကျအဆုံး၌ ဟုတ်မှန်ပြ 'တယ်' နှင့် 'လား' ရောထွေးနေပါသည် — 'ပါသလား' ဟု သုံးနှုန်းရမည်။", "အမေးဝါကျအဆုံးသတ် ('~ပါသလား')", "PART", true);
+                }
+                else if (m64.Groups["PasayLar"].Success && !OverlapsExistingIssue(issues, m64.Groups["PasayLar"].Index, m64.Groups["PasayLar"].Length))
+                {
+                    Group g = m64.Groups["PasayLar"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "ပါစေ", ProofingIssueType.OfficialStyleGrammarError,
+                        "ဆုတောင်းဝါကျ ('~ပါစေ') နောက်တွင် အမေးပစ္စည်း 'လား' မထည့်ရပါ — 'ပါစေ' ဟုသာ ရေးသားရမည်။", "ဆုတောင်းပစ္စည်း ('~ပါစေ')", "PART", true);
+                }
+                else if (m64.Groups["ChinnTae"].Success && !OverlapsExistingIssue(issues, m64.Groups["ChinnTae"].Index, m64.Groups["ChinnTae"].Length))
+                {
+                    Group g = m64.Groups["ChinnTae"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "သည်", ProofingIssueType.SpellingError,
+                        "ကတ္တားဝိဘတ်ကို သကြီးဖြင့် 'သည်' ဟု ရေးသားရမည်။", "ကတ္တားဝိဘတ် ('~သည်')", "PART", true);
+                }
+                else if (m64.Groups["TweGa"].Success && !OverlapsExistingIssue(issues, m64.Groups["TweGa"].Index, m64.Groups["TweGa"].Length))
+                {
+                    Group g = m64.Groups["TweGa"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "က", ProofingIssueType.SpellingError,
+                        "ကတ္တားဝိဘတ်ကို ကကြီးဖြင့် 'က' ဟု ရေးသားရမည်။", "ကတ္တားဝိဘတ် ('~က')", "PART", true);
+                }
+                else if (m64.Groups["LupanHtwin"].Success && !OverlapsExistingIssue(issues, m64.Groups["LupanHtwin"].Index, m64.Groups["LupanHtwin"].Length))
+                {
+                    Group g = m64.Groups["LupanHtwin"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "တွင်", ProofingIssueType.SpellingError,
+                        "နေရာပြ နာမ်ဝိဘတ်ကို တဝမ်းပူဖြင့် 'တွင်' ဟု ရေးသားရမည်။", "နေရာပြဝိဘတ် ('~တွင်')", "PART", true);
+                }
+                else if (m64.Groups["MashiHaw"].Success && !OverlapsExistingIssue(issues, m64.Groups["MashiHaw"].Index, m64.Groups["MashiHaw"].Length))
+                {
+                    Group g = m64.Groups["MashiHaw"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "သော", ProofingIssueType.SpellingError,
+                        "နာမဝိသေသနပြုပစ္စည်းကို သကြီးဖြင့် 'သော' ဟု ရေးသားရမည်။", "နာမဝိသေသနပြုပစ္စည်း ('~သော')", "PART", true);
+                }
+                else if (m64.Groups["HuHo"].Success && !OverlapsExistingIssue(issues, m64.Groups["HuHo"].Index, m64.Groups["HuHo"].Length))
+                {
+                    Group g = m64.Groups["HuHo"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "သို့", ProofingIssueType.SpellingError,
+                        "ရှေးရှုရာပြ နာမ်ဝိဘတ်ကို သကြီးဖြင့် 'သို့' ဟု ရေးသားရမည်။", "ရှေးရှုရာပြဝိဘတ် ('~သို့')", "PART", true);
+                }
+                else if (m64.Groups["DesidChin"].Success && !OverlapsExistingIssue(issues, m64.Groups["DesidChin"].Index, m64.Groups["DesidChin"].Length))
+                {
+                    Group g = m64.Groups["DesidChin"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "ချင်", ProofingIssueType.SpellingError,
+                        "ဆန္ဒပြ ကြိယာထောက်ပစ္စည်းကို ယပင့်ဖြင့် 'ချင်' ဟု ရေးသားရမည် ('ခြင်' သည် ပိုးခြင် ဖြစ်သည်)။", "ဆန္ဒပြ ကြိယာထောက်ပစ္စည်း ('~ချင်')", "PART", true);
+                }
+                else if (m64.Groups["CausPat"].Success && !OverlapsExistingIssue(issues, m64.Groups["CausPat"].Index, m64.Groups["CausPat"].Length))
+                {
+                    Group g = m64.Groups["CausPat"];
+                    string fixedKo = g.Value.Substring(0, g.Value.Length - 1) + "ကို";
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, fixedKo, ProofingIssueType.OfficialStyleGrammarError,
+                        $"စေခိုင်း/ဖြစ်စေကြောင်းပြ ('~စေ') ဝါကျတွင် ရှေ့၌ ကတ္တား ('~က') ပါရှိပြီးဖြစ်သဖြင့် ခံရသူပုဒ်၌ ကံဝိဘတ် '{fixedKo}' ကို သုံးနှုန်းရမည်။",
+                        $"ကံဝိဘတ် ('{fixedKo}')", "PART", true,
+                        "ပြုလုပ်စေတတ်သော ကတ္တားပုဒ် ('~က') ပါရှိပြီးဖြစ်၍ အကျိုးသက်ရောက်ခံရသော ဒုတိယနာမ်ပုဒ်တွင် ကတ္တား 'က' ထပ်မသုံးရဘဲ ကံဝိဘတ် 'ကို' သုံးရမည်။",
+                        "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (ကတ္တားဝိဘတ် နှင့် ကံဝိဘတ် စည်းမျဉ်း)");
+                }
+                }
+            }
+
             // 7. Trailing ASCII period '.' right after Myanmar sentence-final verb closer ('ရှိပါတယ်. -> ရှိပါတယ်။')
             if (text.IndexOf('.') >= 0)
             {
@@ -6726,6 +6979,73 @@ namespace MyanmarSpellChecker.Core.Nlp
                     }
                 }
             }
+        }
+
+        private static bool HasBarePhoWithoutCreaky(string text)
+        {
+            int idx = 0;
+            while ((idx = text.IndexOf("ဖို", idx, StringComparison.Ordinal)) >= 0)
+            {
+                int after = idx + 3;
+                if (after >= text.Length || (text[after] != '\u1037' && text[after] != '\u1038'))
+                    return true;
+                idx = after;
+            }
+            return false;
+        }
+
+        private static bool HasTrailingLexiconVerbOrAdj(MyanmarTrie trie, string normStem, bool allowAdj)
+        {
+            if (string.IsNullOrEmpty(normStem))
+                return false;
+            if (allowAdj &&
+                (normStem.EndsWith("ကောင်း", StringComparison.Ordinal) ||
+                 normStem.EndsWith("နိုင်", StringComparison.Ordinal) ||
+                 normStem.EndsWith("ဖြစ်", StringComparison.Ordinal) ||
+                 normStem.EndsWith("ရှိ", StringComparison.Ordinal) ||
+                 normStem.EndsWith("တတ်", StringComparison.Ordinal)))
+            {
+                return true;
+            }
+            if (trie.HasPosTag(normStem, "V") && (allowAdj || !trie.HasPosTag(normStem, "N")))
+                return true;
+            if (allowAdj && trie.HasPosTag(normStem, "ADJ"))
+                return true;
+
+            var syls = MyanmarSyllableBreaker.BreakIntoSyllables(normStem, isPreNormalized: true);
+            int maxTail = Math.Min(4, syls.Count);
+            int accumChars = 0;
+            for (int t = 1; t <= maxTail; t++)
+            {
+                accumChars += syls[syls.Count - t].Length;
+                if (accumChars <= normStem.Length)
+                {
+                    string tail = normStem.Substring(normStem.Length - accumChars);
+                    if (tail.Length >= 2)
+                    {
+                        if (trie.HasPosTag(tail, "V") && (allowAdj || !trie.HasPosTag(tail, "N")))
+                            return true;
+                        if (allowAdj && trie.HasPosTag(tail, "ADJ"))
+                            return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        private static bool IsReciprocalOrImmediateChinStem(string normStem)
+        {
+            return normStem.EndsWith("အချင်း", StringComparison.Ordinal) ||
+                   normStem.EndsWith("တစ်ဦး", StringComparison.Ordinal) ||
+                   normStem.EndsWith("တစ်ယောက်", StringComparison.Ordinal) ||
+                   normStem.EndsWith("ချက်", StringComparison.Ordinal) ||
+                   normStem.EndsWith("ရွယ်တူ", StringComparison.Ordinal) ||
+                   normStem.EndsWith("မိတ်ဆွေ", StringComparison.Ordinal) ||
+                   normStem.EndsWith("ညီအစ်ကို", StringComparison.Ordinal) ||
+                   normStem.EndsWith("သူငယ်", StringComparison.Ordinal) ||
+                   normStem.EndsWith("သီ", StringComparison.Ordinal) ||
+                   normStem.IndexOf("လျှင်", StringComparison.Ordinal) >= 0 ||
+                   normStem.IndexOf("ရင်", StringComparison.Ordinal) >= 0;
         }
     }
 }

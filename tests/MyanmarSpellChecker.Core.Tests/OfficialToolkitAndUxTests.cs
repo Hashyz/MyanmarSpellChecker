@@ -2697,5 +2697,95 @@ namespace MyanmarSpellChecker.Core.Tests
                     UnicodeNormalizer.NormalizeCanonicalOrder(patched));
             }
         }
+
+        [Fact]
+        public void V64B_AbyssalMythicMultiLayerTortureAndLexiconMorphoSyntax_Gate()
+        {
+            string dbPath = TestPaths.EncryptedDbPath;
+            Assert.True(File.Exists(dbPath), "Compiled mlc_thatpon.db must exist.");
+
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            MyanmarTrie trie = repo.LoadIntoTrie(AntiTamperGuard.ReconstructProtectedFallbackKey());
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // 1. Adversarial Mythic Evil-Twin Clean Controls (including superlative 'အ-[Adj]-ဆုံး', distributive 'တစ်-[X]-စီ', kiln 'မီးဖိုက', reciprocal 'အချင်းချင်း')
+            (MyanmarProofingEngine Engine, string CleanInput)[] mythicCleanControls =
+            {
+                (formalEngine, "ထင်းမီးဖိုက မီးခိုးများ ထွက်လာသော်လည်း အိုးထဲမှ ဟင်းရည်မှာ မွှေးပျံ့နေသည်။"),
+                (formalEngine, "အချင်းချင်း ရိုင်းပင်းကူညီခြင်းက လူမှုအသိုင်းအဝိုင်းကို စည်းလုံးစေသည်။"),
+                (formalEngine, "တောင်ခြေရှိ ကျောက်နေရာကို ဘူမိဗေဒပညာရှင်များက အသေးစိတ် စစ်ဆေးကြသည်။"),
+                (formalEngine, "ရိုးရာ ခေါက်ဆွဲပြုလုပ်ပုံ အဆင့်ဆင့်ကို သင်တန်းတွင် လက်တွေ့ပြသပေးသည်။"),
+                (formalEngine, "မြို့အထွက် လမ်းဆုံတွင် ယာဉ်ထိန်းရဲတပ်ဖွဲ့က လုံခြုံရေး စစ်ဆေးလျက်ရှိသည်။"),
+                (generalEngine, "ကျောင်းရှေ့က ကံ့ကော်ပင်ကြီးတွေက နွေဦးရာသီမှာ ပန်းရနံ့ မွှေးပျံ့စေတယ်။"),
+                (formalEngine, "အစိုးရ အဖွဲ့အသီးသီးနှင့် ညှိနှိုင်း၍ အကြော့ဆုံး လက်ရာများကို တစ်လှည့်စီ ပြသထားသည်။")
+            };
+
+            foreach (var (eng, clean) in mythicCleanControls)
+            {
+                var fp = eng.CheckText(clean);
+                Assert.True(fp.Count == 0, $"Mythic clean control falsely flagged '{clean}': {string.Join(", ", fp.Select(x => x.OriginalText + "->" + (x.Suggestions.FirstOrDefault()?.Replacement ?? "")))}");
+            }
+
+            // 2. Abyssal Mythic 5-to-6x Simultaneous Cascading Multi-Layer Reconstruction in 1 Pass!
+            (MyanmarProofingEngine Engine, string TortureInput, int ExpectedIssues, string ExpectedCleanOutput)[] abyssalSentences =
+            {
+                (
+                    formalEngine,
+                    "အစိုးရ အဖွဲ့က အခြေခံအဆောက်အဦများ တိုးတက်လာဖို့ လုအပ်သော စီမံကန်းများကို အကောင်အထည်ဖော်ဖို ညွှန်ကြားခဲ့သည် တိုင်းဒေသကြီးရုံးများသို့.",
+                    6,
+                    "အစိုးရအဖွဲ့က အခြေခံအဆောက်အဦများ တိုးတက်လာဖို့ လိုအပ်သော စီမံကိန်းများကို အကောင်အထည်ဖော်ဖို့ တိုင်းဒေသကြီးရုံးများသို့ ညွှန်ကြားခဲ့သည်။"
+                ),
+                (
+                    generalEngine,
+                    "ဒီမနက် အစ်ကိုက ဖိနဘ် နှစ်ယောက် ဝယ်ယူပီ မိသားစုအထွက် လက်ဆောင်ပေးခြင်တယ် လို့ ပြောတယ်။",
+                    5,
+                    "ဒီမနက် အစ်ကိုက ဖိနပ် နှစ်ရံ ဝယ်ယူပြီး မိသားစုအတွက် လက်ဆောင်ပေးချင်တယ် လို့ ပြောတယ်။"
+                ),
+                (
+                    generalEngine,
+                    "ပတ် ဝန်းကျင် ထိန်းသိမ်းစောင့်ရှောက်ချင်းက လူသားတွေက ဘေးကင်းလုံခြုံစေပြီး ကျန်းမာရေးကောင်းဖို အဓိကအချက်ပယ်။",
+                    5,
+                    "ပတ်ဝန်းကျင် ထိန်းသိမ်းစောင့်ရှောက်ခြင်းက လူသားတွေကို ဘေးကင်းလုံခြုံစေပြီး ကျန်းမာရေးကောင်းဖို့ အဓိကအချက်ပဲ။"
+                ),
+                (
+                    formalEngine,
+                    "ကျောင်း တိုက်များတွင် သတိပဋ္ဌာ တရားပွားများရန် အလည်အပဒ် လာရောက်သူများအား အကူ အညီ ပေးအပ်ကြောင်း ရေသားထားသည်။",
+                    5,
+                    "ကျောင်းတိုက်များတွင် သတိပဋ္ဌာန် တရားပွားများရန် အလည်အပတ် လာရောက်သူများအား အကူအညီ ပေးအပ်ကြောင်း ရေးသားထားသည်။"
+                ),
+                (
+                    formalEngine,
+                    "ပွန်ထမ်းများ၏ အရည် အချင်း ပိုမို ကျယ်ပြန်လာစေရန်နှင့် အခွန်ဆောင်းဖို့ ခွင့်မူချက် ထုတ်ပေးထားသည်။",
+                    5,
+                    "ဝန်ထမ်းများ၏ အရည်အချင်း ပိုမို ကျယ်ပြန့်လာစေရန်နှင့် အခွန်ဆောင်ဖို့ ခွင့်ပြုချက် ထုတ်ပေးထားသည်။"
+                ),
+                (
+                    formalEngine,
+                    "ယမန်နှစ်က စစ်တက္ ကသိုလ်မှ သုတေသီများသည် မှတ်ပုံ\u200Bတင် စာရင်းနှင့် ကေျာင်းသား အချက်အလတ်များကို ပေးပို့ခဲ့သည် ဗဟိုရုံးချုပ်သို့.",
+                    6,
+                    "ယမန်နှစ်က စစ်တက္ကသိုလ်မှ သုတေသီများသည် မှတ်ပုံတင် စာရင်းနှင့် ကျောင်းသား အချက်အလက်များကို ဗဟိုရုံးချုပ်သို့ ပေးပို့ခဲ့သည်။"
+                )
+            };
+
+            foreach (var (eng, raw, expectedCount, expectedClean) in abyssalSentences)
+            {
+                var issues = eng.CheckText(raw);
+                Assert.Equal(expectedCount, issues.Count);
+
+                string patched = raw;
+                foreach (var iss in issues.OrderByDescending(i => i.StartIndex))
+                {
+                    Assert.NotEmpty(iss.Suggestions);
+                    patched = patched.Substring(0, iss.StartIndex) +
+                              iss.Suggestions[0].Replacement +
+                              patched.Substring(iss.StartIndex + iss.Length);
+                }
+
+                Assert.Equal(
+                    UnicodeNormalizer.NormalizeCanonicalOrder(expectedClean),
+                    UnicodeNormalizer.NormalizeCanonicalOrder(patched));
+            }
+        }
     }
 }

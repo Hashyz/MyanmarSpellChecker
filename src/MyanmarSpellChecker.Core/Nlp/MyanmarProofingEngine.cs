@@ -3058,10 +3058,10 @@ namespace MyanmarSpellChecker.Core.Nlp
                 baseEntries != null && baseEntries.Count > 0 &&
                 (baseEntries.Any(e => e.IsOfficialThatpon) || baseEntries.Max(e => e.Frequency) >= 4))
             {
-                bool isPureVerb = _trie.HasPosTag(baseOpen, "V") &&
-                                  !_trie.HasPosTag(baseOpen, "N") &&
-                                  !_trie.HasPosTag(baseOpen, "PRON");
-                if (!isPureVerb)
+                bool isPureVerbOrAdj = (_trie.HasPosTag(baseOpen, "V") || _trie.HasPosTag(baseOpen, "ADJ")) &&
+                                       !_trie.HasPosTag(baseOpen, "N") &&
+                                       !_trie.HasPosTag(baseOpen, "PRON");
+                if (!isPureVerbOrAdj)
                     return true;
             }
 
@@ -4101,8 +4101,14 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return LatticeEdge.Clean(1, 1.45);
             }
 
-            // Induced creaky tone on 1-syllable Nouns/Pronouns (e.g. လူ့, သူ့, ငါ့, ကိုယ့်, ရွာ့)
-            if (IsValidInducedCreakyToneForm(normSyl, normSyl))
+            // Induced creaky tone on 1-syllable Nouns/Pronouns (e.g. လူ့, သူ့, ငါ့, ကိုယ့်, ရွာ့) — never right before finite verbal closer 'တယ်/သည်/ပါ' ('အရမ်းလှ့တယ်' -> 'လှ')
+            bool beforeVerbalCloser = tokIdx + 1 < tokens.Count &&
+                                      tokens[tokIdx + 1].Kind == TokenKind.MyanmarSyllable &&
+                                      (tokens[tokIdx + 1].NormalizedText == "တယ်" ||
+                                       tokens[tokIdx + 1].NormalizedText == "သည်" ||
+                                       tokens[tokIdx + 1].NormalizedText == "ပါ" ||
+                                       tokens[tokIdx + 1].NormalizedText == "ဘူး");
+            if (!beforeVerbalCloser && IsValidInducedCreakyToneForm(normSyl, normSyl))
             {
                 return LatticeEdge.Clean(1, 1.44);
             }
@@ -4561,23 +4567,53 @@ namespace MyanmarSpellChecker.Core.Nlp
                     lastSyl[lastSyl.Length - 1] == '\u103A')
                 {
                     char cEnd = lastSyl[lastSyl.Length - 2];
-                    string? swappedLast = cEnd == '\u1010'
-                        ? (lastSyl.Substring(0, lastSyl.Length - 2) + "\u1000\u103A")
-                        : (cEnd == '\u1000' ? (lastSyl.Substring(0, lastSyl.Length - 2) + "\u1010\u103A") : null);
+                    string? swappedLast = cEnd switch
+                    {
+                        '\u1010' => lastSyl.Substring(0, lastSyl.Length - 2) + "\u1000\u103A",
+                        '\u1000' => lastSyl.Substring(0, lastSyl.Length - 2) + "\u1010\u103A",
+                        '\u1012' or '\u1013' => lastSyl.Substring(0, lastSyl.Length - 2) + "\u1010\u103A",
+                        '\u1017' or '\u1018' => lastSyl.Substring(0, lastSyl.Length - 2) + "\u1015\u103A",
+                        '\u1002' or '\u1003' => lastSyl.Substring(0, lastSyl.Length - 2) + "\u1000\u103A",
+                        _ => null
+                    };
                     if (swappedLast != null)
                     {
+                        int minCodaFreq = (cEnd == '\u1010' || cEnd == '\u1000') ? 20 : 12;
                         string prefixPart = ConcatNormalizedTokens(tokens, startIndex, windowLen - 1);
                         string candCoda = UnicodeNormalizer.NormalizeCanonicalOrder(prefixPart + swappedLast);
                         if (_trie.TryGetExactEntries(candCoda, out var ccList) && ccList != null)
                         {
                             for (int ci = 0; ci < ccList.Count; ci++)
                             {
-                                if (ccList[ci].IsOfficialThatpon && ccList[ci].Frequency >= 20)
+                                if (ccList[ci].IsOfficialThatpon && ccList[ci].Frequency >= minCodaFreq)
                                 {
                                     oovCompoundTarget = candCoda;
                                     oovCompoundEntry = ccList[ci];
                                     break;
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // Truncated Pali pat-sint tail missing final '-န်' (e.g. 'သတိပဋ္ဌာ -> သတိပဋ္ဌာန်')
+                if (oovCompoundTarget == null &&
+                    windowLen >= 3 &&
+                    !_trie.IsStandaloneWord(lastSyl) &&
+                    HasNonKinziPatSint(lastSyl) &&
+                    lastSyl.IndexOf('\u103A') < 0)
+                {
+                    string candPaliNasal = UnicodeNormalizer.NormalizeCanonicalOrder(
+                        ConcatNormalizedTokens(tokens, startIndex, windowLen) + "\u1014\u103A");
+                    if (_trie.TryGetExactEntries(candPaliNasal, out var pnList) && pnList != null)
+                    {
+                        for (int pi = 0; pi < pnList.Count; pi++)
+                        {
+                            if (pnList[pi].IsOfficialThatpon && pnList[pi].Frequency >= 15)
+                            {
+                                oovCompoundTarget = candPaliNasal;
+                                oovCompoundEntry = pnList[pi];
+                                break;
                             }
                         }
                     }
@@ -4609,31 +4645,35 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
 
                 // Tier 1e: Unstacked Pali/loanword Pat-Sint Compound Folding (e.g. 'အန်ထရာယ် -> အန္တရာယ်', 'စက်ကန့် -> စက္ကန့်')
-                string spanNorm1e = ConcatNormalizedTokens(tokens, startIndex, windowLen);
-                if (SuggestionEngine.TryFoldUnstackedPatSint(spanNorm1e, _trie, out string foldedTarget1e, out var foldedEntry1e) &&
-                    foldedEntry1e != null)
+                // Never fold a standalone noun + trailing case particle ('စက်က' = machine + subj 'က' != Pali 'စက္က')!
+                if (!(windowLen == 2 && TrailingBoundaryParticles.Contains(lastSyl) && _trie.IsStandaloneWord(firstSyl)))
                 {
-                    var capSpan1e = GetTokenSpan(fullText, tokens, startIndex, windowLen);
-                    string capFolded = foldedTarget1e;
-                    var capFoldEntry = foldedEntry1e;
-                    return LatticeEdge.DeferredIssue(
-                        windowLen,
-                        0.62 + 0.06 * windowLen,
-                        capSpan1e.RawText,
-                        () =>
-                        {
-                            var suggestions = _suggestionEngine.GetSuggestions(capSpan1e.NormalizedText);
-                            EnsureTopSuggestionMetadata(suggestions, capSpan1e.RawText, capFolded, capFoldEntry.MeaningCue, capFoldEntry.PosTag, capFoldEntry.IsOfficialThatpon);
-                            return new ProofingIssue
+                    string spanNorm1e = ConcatNormalizedTokens(tokens, startIndex, windowLen);
+                    if (SuggestionEngine.TryFoldUnstackedPatSint(spanNorm1e, _trie, out string foldedTarget1e, out var foldedEntry1e) &&
+                        foldedEntry1e != null)
+                    {
+                        var capSpan1e = GetTokenSpan(fullText, tokens, startIndex, windowLen);
+                        string capFolded = foldedTarget1e;
+                        var capFoldEntry = foldedEntry1e;
+                        return LatticeEdge.DeferredIssue(
+                            windowLen,
+                            0.62 + 0.06 * windowLen,
+                            capSpan1e.RawText,
+                            () =>
                             {
-                                StartIndex = capSpan1e.StartIndex,
-                                Length = capSpan1e.Length,
-                                OriginalText = capSpan1e.RawText,
-                                IssueType = ProofingIssueType.SpellingError,
-                                Message = $"ပါဋ္ဌ်ဆင့် စာလုံးပေါင်းအမှန် — '{capSpan1e.RawText}' အစား '{capFolded}' ဟု ဆင့်ရေးရမည်။",
-                                Suggestions = suggestions
-                            };
-                        });
+                                var suggestions = _suggestionEngine.GetSuggestions(capSpan1e.NormalizedText);
+                                EnsureTopSuggestionMetadata(suggestions, capSpan1e.RawText, capFolded, capFoldEntry.MeaningCue, capFoldEntry.PosTag, capFoldEntry.IsOfficialThatpon);
+                                return new ProofingIssue
+                                {
+                                    StartIndex = capSpan1e.StartIndex,
+                                    Length = capSpan1e.Length,
+                                    OriginalText = capSpan1e.RawText,
+                                    IssueType = ProofingIssueType.SpellingError,
+                                    Message = $"ပါဋ္ဌ်ဆင့် စာလုံးပေါင်းအမှန် — '{capSpan1e.RawText}' အစား '{capFolded}' ဟု ဆင့်ရေးရမည်။",
+                                    Suggestions = suggestions
+                                };
+                            });
+                    }
                 }
 
                 if (windowLen >= 3 && HasExactSpan(exactMultiWordBits, localOffset + windowLen - 1, 1))
@@ -4648,9 +4688,14 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // Do not merge colloquial contraction 'ဖစ်' + '-မှု' into 'ပြစ်မှု' (crime), passive 'အ-[V]-ခံရ' into 'အထင်ကရ',
+            // productive distributive 'တစ်-[Root]-စီ' ('တစ်လှည့်စီ') into archaic 'တလှည့်စီ', productive superlative 'အ-[V/ADJ]-ဆုံး' ('အကြော့ဆုံး') into 'အချောဆုံး',
             // Pali pat-sint citation stems ('မောဂ်-၅၊ ၄၄၊ ပဉ္စိ။'), or historical Japanese/Sino loanword 'ဘွန်ထိုက်ချို'
             if ((windowLen == 2 && firstSyl == "ဖစ်" && lastSyl == "မှု") ||
                 (windowLen == 4 && firstSyl == "အ" && tokens[startIndex + 2].NormalizedText == "ခံ" && lastSyl == "ရ") ||
+                (windowLen == 3 && firstSyl == "တစ်" && lastSyl == "စီ" && _trie.IsStandaloneWord(tokens[startIndex + 1].NormalizedText)) ||
+                (windowLen == 3 && firstSyl == "အ" && lastSyl == "ဆုံး" &&
+                 !_trie.TryGetWrongFormRule(tokens[startIndex + 1].NormalizedText, out _) &&
+                 (_trie.HasPosTag(tokens[startIndex + 1].NormalizedText, "ADJ") || _trie.HasPosTag(tokens[startIndex + 1].NormalizedText, "V"))) ||
                 (firstSyl == "ဘွန်" && runEnd - runStart >= 3) ||
                 IsPaliPatSintCitationStem(fullText, tokens[startIndex + windowLen - 1], lastSyl))
             {
@@ -5710,7 +5755,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                             cand.Frequency >= 12 &&
                             ((AreTrueOrPalatalRhymeHomophones(rightNorm, candRight) && _trie.GetBigramCount(leftNorm, rightNorm) == 0) ||
                              (candRight == rightNorm + "\u1038" || candRight == rightNorm + "\u1037") ||
-                             (rightNorm[0] == candRight[0] && dist <= 0.30 && _trie.GetBigramCount(leftNorm, rightNorm) <= 2));
+                             (rightNorm[0] == candRight[0] && dist <= 0.30 && _trie.GetBigramCount(leftNorm, rightNorm) <= 2) ||
+                             (rightNorm[0] == candRight[0] && dist <= 0.36 && cand.Frequency >= 80 && _trie.GetBigramCount(leftNorm, rightNorm) == 0));
                         if (!allowTailRepair)
                             return false;
                     }
@@ -5896,8 +5942,16 @@ namespace MyanmarSpellChecker.Core.Nlp
                 {
                     if (bothFullStandaloneInL2)
                     {
-                        if (pureVerbPairInL2 && e.Frequency < 140)
-                            return;
+                        if (pureVerbPairInL2)
+                        {
+                            bool allowAnchoredOfficialVerbCompound =
+                                e.IsOfficialThatpon &&
+                                e.Frequency >= 30 &&
+                                zeroEmpiricalBigram &&
+                                (w.StartsWith(firstSyl, StringComparison.Ordinal) || w.EndsWith(lastSyl, StringComparison.Ordinal));
+                            if (!allowAnchoredOfficialVerbCompound && e.Frequency < 140)
+                                return;
+                        }
                         if (!(e.IsOfficialThatpon && e.Frequency >= 8) && e.Frequency < 45)
                             return;
                         allowedMaxDist = Math.Min(allowedMaxDist, 0.34);

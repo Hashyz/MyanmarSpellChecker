@@ -28,7 +28,8 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             Hard = 3,
             Hardest = 4,
             Nightmare = 5,
-            GrandmasterTorture = 6
+            GrandmasterTorture = 6,
+            AbyssalMythic = 7
         }
 
         private readonly struct ExpectedErrorSpan
@@ -117,13 +118,21 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
 
         public static int Run(string[] args)
         {
-            bool hardestOnly = args.Any(a =>
+            bool abyssalOnly = args.Any(a =>
+                string.Equals(a, "--abyssal", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(a, "abyssal", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(a, "--extreme", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(a, "extreme", StringComparison.OrdinalIgnoreCase));
+
+            bool hardestOnly = !abyssalOnly && args.Any(a =>
                 string.Equals(a, "--hardest", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "hardest", StringComparison.OrdinalIgnoreCase));
 
             string? explicitDbArg = args.Skip(1).FirstOrDefault(a =>
-                !string.Equals(a, "--hardest", StringComparison.OrdinalIgnoreCase) &&
+                !a.StartsWith("-", StringComparison.Ordinal) &&
                 !string.Equals(a, "hardest", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(a, "abyssal", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(a, "extreme", StringComparison.OrdinalIgnoreCase) &&
                 File.Exists(a));
 
             string dbPath = explicitDbArg
@@ -153,24 +162,31 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             }
 
             List<BenchmarkCase> fullSuite = BuildCleanRoomProgressiveSuite();
-            List<BenchmarkCase> suite = hardestOnly
+            List<BenchmarkCase> suite = abyssalOnly
                 ? fullSuite.Where(c =>
                     c.Difficulty == BenchmarkDifficulty.CleanControl ||
-                    c.Difficulty >= BenchmarkDifficulty.Hardest).ToList()
-                : fullSuite;
+                    c.Difficulty >= BenchmarkDifficulty.GrandmasterTorture).ToList()
+                : hardestOnly
+                    ? fullSuite.Where(c =>
+                        c.Difficulty == BenchmarkDifficulty.CleanControl ||
+                        c.Difficulty >= BenchmarkDifficulty.Hardest).ToList()
+                    : fullSuite;
 
             var latenciesMs = new List<double>(suite.Count);
-            var tierOrder = hardestOnly
-                ? new[] { BenchmarkDifficulty.Hardest, BenchmarkDifficulty.Nightmare, BenchmarkDifficulty.GrandmasterTorture }
-                : new[]
-                {
-                    BenchmarkDifficulty.Easy,
-                    BenchmarkDifficulty.Medium,
-                    BenchmarkDifficulty.Hard,
-                    BenchmarkDifficulty.Hardest,
-                    BenchmarkDifficulty.Nightmare,
-                    BenchmarkDifficulty.GrandmasterTorture
-                };
+            var tierOrder = abyssalOnly
+                ? new[] { BenchmarkDifficulty.GrandmasterTorture, BenchmarkDifficulty.AbyssalMythic }
+                : hardestOnly
+                    ? new[] { BenchmarkDifficulty.Hardest, BenchmarkDifficulty.Nightmare, BenchmarkDifficulty.GrandmasterTorture, BenchmarkDifficulty.AbyssalMythic }
+                    : new[]
+                    {
+                        BenchmarkDifficulty.Easy,
+                        BenchmarkDifficulty.Medium,
+                        BenchmarkDifficulty.Hard,
+                        BenchmarkDifficulty.Hardest,
+                        BenchmarkDifficulty.Nightmare,
+                        BenchmarkDifficulty.GrandmasterTorture,
+                        BenchmarkDifficulty.AbyssalMythic
+                    };
 
             var tierStats = new Dictionary<BenchmarkDifficulty, TierAccumulator>();
             foreach (var td in tierOrder)
@@ -353,9 +369,11 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             double cellsPerSec = (rows * cols) / Math.Max(0.001, swExcel.Elapsed.TotalSeconds);
 
             long memBytes = GC.GetTotalMemory(forceFullCollection: false);
-            string modeBanner = hardestOnly
-                ? "ULTRA-HARDEST STRESS MODE (--hardest: Hardest + Nightmare + Grandmaster Multi-Error Torture)"
-                : "FULL PROGRESSIVE SUITE (Easy -> Medium -> Hard -> Hardest -> Nightmare -> Grandmaster Torture)";
+            string modeBanner = abyssalOnly
+                ? "ABYSSAL MYTHIC TORTURE MODE (--abyssal: Grandmaster 3-4x + Abyssal Mythic 5-6x Simultaneous Torture)"
+                : hardestOnly
+                    ? "ULTRA-HARDEST STRESS MODE (--hardest: Hardest -> Nightmare -> Grandmaster -> Abyssal Mythic Torture)"
+                    : "FULL PROGRESSIVE SUITE (Easy -> Medium -> Hard -> Hardest -> Nightmare -> Grandmaster -> Abyssal Mythic)";
 
             Console.WriteLine();
             Console.WriteLine("================================================================================================");
@@ -377,6 +395,11 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             {
                 double perfectPct = (double)gmAcc.PerfectMultiFixSentences / gmAcc.Sentences * 100.0;
                 Console.WriteLine($" Grandmaster All-Errors-In-1-Pass | {gmAcc.PerfectMultiFixSentences,2}/{gmAcc.Sentences,2} sentences ({perfectPct:F1}%) solved 100% simultaneously");
+            }
+            if (tierStats.TryGetValue(BenchmarkDifficulty.AbyssalMythic, out var abAcc) && abAcc.Sentences > 0)
+            {
+                double abPct = (double)abAcc.PerfectMultiFixSentences / abAcc.Sentences * 100.0;
+                Console.WriteLine($" Abyssal 5-6x Errors-In-1-Pass    | {abAcc.PerfectMultiFixSentences,2}/{abAcc.Sentences,2} sentences ({abPct:F1}%) solved 100% simultaneously");
             }
             Console.WriteLine("------------------------------------------------------------------------------------------------");
             Console.WriteLine($" Overall Precision     : {precision * 100.0:F2}%  (TP={tp}, FP={fp}, FN={fn})");
@@ -401,6 +424,7 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             BenchmarkDifficulty.Hardest => "Tier 4: Hardest (Syntax)",
             BenchmarkDifficulty.Nightmare => "Tier 5: Nightmare (Deep Trap)",
             BenchmarkDifficulty.GrandmasterTorture => "Tier 6: Grandmaster (3-4x Err)",
+            BenchmarkDifficulty.AbyssalMythic => "Tier 7: Abyssal Mythic (5-6x)",
             _ => "Tier 0: Clean Controls"
         };
 
@@ -494,6 +518,31 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                     "အစည်းအဝေးသို့ မစ္စတာ ရောဘတ်စ် နှင့် ကိုယ်စားလှယ်အဖွဲ့ တက်ရောက်ကြသည်။"),
                 new BenchmarkCase("evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
                     "ကွင်းဆင်းစစ်ဆေးချက်အရ သက်သေအထောက်အထား အပြည့်အစုံ တွေ့ရှိရကြောင်း တင်ပြသည်။"),
+                // 12 Adversarial Mythic Evil-Twin Clean Controls for Tier 7 Abyssal Rules:
+                new BenchmarkCase("mythic_evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ထင်းမီးဖိုက မီးခိုးများ ထွက်လာသော်လည်း အိုးထဲမှ ဟင်းရည်မှာ မွှေးပျံ့နေသည်။"),
+                new BenchmarkCase("mythic_evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "အချင်းချင်း ရိုင်းပင်းကူညီခြင်းက လူမှုအသိုင်းအဝိုင်းကို စည်းလုံးစေသည်။"),
+                new BenchmarkCase("mythic_evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "တောင်ခြေရှိ ကျောက်နေရာကို ဘူမိဗေဒပညာရှင်များက အသေးစိတ် စစ်ဆေးကြသည်။"),
+                new BenchmarkCase("mythic_evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ရိုးရာ ခေါက်ဆွဲပြုလုပ်ပုံ အဆင့်ဆင့်ကို သင်တန်းတွင် လက်တွေ့ပြသပေးသည်။"),
+                new BenchmarkCase("mythic_evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "မြို့အထွက် လမ်းဆုံတွင် ယာဉ်ထိန်းရဲတပ်ဖွဲ့က လုံခြုံရေး စစ်ဆေးလျက်ရှိသည်။"),
+                new BenchmarkCase("mythic_evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.GeneralStandard,
+                    "ငယ်သူငယ်ချင်းတွေ့ရတာ ဝမ်းသာလွန်းလို့ စကားတွေ အကြာကြီး ပြောဖြစ်ကြတယ်။"),
+                new BenchmarkCase("mythic_evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.GeneralStandard,
+                    "ကျောင်းရှေ့က ကံ့ကော်ပင်ကြီးတွေက နွေဦးရာသီမှာ ပန်းရနံ့ မွှေးပျံ့စေတယ်။"),
+                new BenchmarkCase("mythic_evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.GeneralStandard,
+                    "မင်္ဂလာပါ ခင်ဗျားတို့အားလုံး ဒီနေ့အစည်းအဝေးကို တက်ရောက်ပေးကြလို့ ကျေးဇူးတင်ပါတယ်။"),
+                new BenchmarkCase("mythic_evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "အိမ်မွေးခွေးလေး၏ လည်ပတ်ကို သန့်ရှင်းသော ရေဖြင့် ဆေးကြောပေးထားသည်။"),
+                new BenchmarkCase("mythic_evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "လမ်းခွနေရာတွင် လမ်းညွှန်ဆိုင်းဘုတ် အသစ်တစ်ခု စိုက်ထူထားပါသည်။"),
+                new BenchmarkCase("mythic_evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "အားကစားကွင်းအတွင်း လူငယ်များ တက်ကြွစွာ လေ့ကျင့်နေကြသည်ကို တွေ့မြင်ရသည်။"),
+                new BenchmarkCase("mythic_evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "သီချင်းသံစဉ်များနှင့် ရိုးရာအကများကို ပွဲတော်ညတွင် ပျော်ရွှင်စွာ ကြည့်ရှုကြသည်။"),
 
                 // =========================================================================================
                 // TIER 1: EASY — Character, Encoding, Punctuation & UTN #11 Syllable Fundamentals (20 Cases)
@@ -816,7 +865,118 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                     ("တရား ဥပဒေ", "တရားဥပဒေ"),
                     ("အတြက္", "အတွက်"),
                     ("စနတ်တကျ", "စနစ်တကျ"),
-                    ("လုံခြုံစွာသိမ်းဆည်း", "လုံခြုံစွာ သိမ်းဆည်း"))
+                    ("လုံခြုံစွာသိမ်းဆည်း", "လုံခြုံစွာ သိမ်းဆည်း")),
+
+                // =========================================================================================
+                // TIER 7: ABYSSAL MYTHIC TORTURE — 5-to-6 Simultaneous Cascading Cross-Layer Errors/Sentence
+                // =========================================================================================
+                new BenchmarkCase("abyssal_gov", BenchmarkDifficulty.AbyssalMythic, ProofingStyleMode.FormalOfficial,
+                    "အစိုးရ အဖွဲ့က အခြေခံအဆောက်အဦများ တိုးတက်လာဖို့ လုအပ်သော စီမံကန်းများကို အကောင်အထည်ဖော်ဖို ညွှန်ကြားခဲ့သည် တိုင်းဒေသကြီးရုံးများသို့.",
+                    ("အစိုးရ အဖွဲ့", "အစိုးရအဖွဲ့"),
+                    ("လုအပ်", "လိုအပ်"),
+                    ("စီမံကန်း", "စီမံကိန်း"),
+                    ("ဖို", "ဖို့"),
+                    ("ညွှန်ကြားခဲ့သည် တိုင်းဒေသကြီးရုံးများသို့", "တိုင်းဒေသကြီးရုံးများသို့ ညွှန်ကြားခဲ့သည်"),
+                    (".", "။")),
+                new BenchmarkCase("abyssal_cascade", BenchmarkDifficulty.AbyssalMythic, ProofingStyleMode.GeneralStandard,
+                    "ဒီမနက် အစ်ကိုက ဖိနဘ် နှစ်ယောက် ဝယ်ယူပီ မိသားစုအထွက် လက်ဆောင်ပေးခြင်တယ် လို့ ပြောတယ်။",
+                    ("ဖိနဘ်", "ဖိနပ်"),
+                    ("ယောက်", "ရံ"),
+                    ("ယူပီ", "ယူပြီး"),
+                    ("အထွက်", "အတွက်"),
+                    ("ခြင်", "ချင်")),
+                new BenchmarkCase("abyssal_causative", BenchmarkDifficulty.AbyssalMythic, ProofingStyleMode.GeneralStandard,
+                    "ပတ် ဝန်းကျင် ထိန်းသိမ်းစောင့်ရှောက်ချင်းက လူသားတွေက ဘေးကင်းလုံခြုံစေပြီး ကျန်းမာရေးကောင်းဖို အဓိကအချက်ပယ်။",
+                    ("ပတ် ဝန်းကျင်", "ပတ်ဝန်းကျင်"),
+                    ("ချင်း", "ခြင်း"),
+                    ("လူသားတွေက", "လူသားတွေကို"),
+                    ("ဖို", "ဖို့"),
+                    ("ပယ်", "ပဲ")),
+                new BenchmarkCase("abyssal_pali", BenchmarkDifficulty.AbyssalMythic, ProofingStyleMode.FormalOfficial,
+                    "ကျောင်း တိုက်များတွင် သတိပဋ္ဌာ တရားပွားများရန် အလည်အပဒ် လာရောက်သူများအား အကူ အညီ ပေးအပ်ကြောင်း ရေသားထားသည်။",
+                    ("ကျောင်း တိုက်", "ကျောင်းတိုက်"),
+                    ("သတိပဋ္ဌာ", "သတိပဋ္ဌာန်"),
+                    ("အလည်အပဒ်", "အလည်အပတ်"),
+                    ("အကူ အညီ", "အကူအညီ"),
+                    ("ရေသား", "ရေးသား")),
+                new BenchmarkCase("abyssal_law", BenchmarkDifficulty.AbyssalMythic, ProofingStyleMode.FormalOfficial,
+                    "မူးယစ် ဆေးဝါး ရောင်းဝယ်ခြင်းတည် ဥပဒေချိုးဖောက်မှုဖြစ်၍ တရားခံများကို အမြန်ဆုံး ဖမ်းစီ အရေးယူခွင်ပြုရန် လုအပ်သည်။",
+                    ("မူးယစ် ဆေးဝါး", "မူးယစ်ဆေးဝါး"),
+                    ("တည်", "သည်"),
+                    ("ဖမ်းစီ", "ဖမ်းဆီး"),
+                    ("ခွင်", "ခွင့်"),
+                    ("လုအပ်", "လိုအပ်")),
+                new BenchmarkCase("abyssal_tech", BenchmarkDifficulty.AbyssalMythic, ProofingStyleMode.GeneralStandard,
+                    "ဒီဆော့ဝဲလ်ကို အသုံးပြုမယ်သူတွေအနေနဲ့ စာရွက် စာတမ်းတွေကို လုံခြုံစွာသိမ်းဆည်း နိုင်ပါတယ်လား။",
+                    ("ဆော့ဝဲလ်", "ဆော့ဖ်ဝဲ"),
+                    ("မယ်", "မယ့်"),
+                    ("စာရွက် စာတမ်း", "စာရွက်စာတမ်း"),
+                    ("လုံခြုံစွာသိမ်းဆည်း", "လုံခြုံစွာ သိမ်းဆည်း"),
+                    ("ပါတယ်လား", "ပါသလား")),
+                new BenchmarkCase("abyssal_narrative", BenchmarkDifficulty.AbyssalMythic, ProofingStyleMode.GeneralStandard,
+                    "ခရစ္စမတ်နေမှာ မိုးကြိုးသံကြားလို့ ရင်ထဲမာ အလွန် ကျောက်နေပေမဲ့ စွပ်ပြုတ်ပူပူလေးက အရမ်းသောက်လိုကောင်းပြီး ပျော့စရာကောင်းတယ်။",
+                    ("နေမှာ", "နေ့မှာ"),
+                    ("ထဲမာ", "ထဲမှာ"),
+                    ("ကျောက်", "ကြောက်"),
+                    ("သောက်လို", "သောက်လို့"),
+                    ("ပျော့စရာ", "ပျော်စရာ")),
+                new BenchmarkCase("abyssal_economy", BenchmarkDifficulty.AbyssalMythic, ProofingStyleMode.FormalOfficial,
+                    "ပွန်ထမ်းများ၏ အရည် အချင်း ပိုမို ကျယ်ပြန်လာစေရန်နှင့် အခွန်ဆောင်းဖို့ ခွင့်မူချက် ထုတ်ပေးထားသည်။",
+                    ("ပွန်ထမ်း", "ဝန်ထမ်း"),
+                    ("အရည် အချင်း", "အရည်အချင်း"),
+                    ("ကျယ်ပြန်", "ကျယ်ပြန့်"),
+                    ("အခွန်ဆောင်း", "အခွန်ဆောင်"),
+                    ("ခွင့်မူချက်", "ခွင့်ပြုချက်")),
+                new BenchmarkCase("abyssal_culinary", BenchmarkDifficulty.AbyssalMythic, ProofingStyleMode.GeneralStandard,
+                    "နံနက် စာအဖြစ် ထမင်း ကျော်၊ လက်ဖက်သုတ်နှင့် ငံ့ပြာရည်ပါသော ခေါက်ဆွဲပြု သောက်ကြတယ်။",
+                    ("နံနက် စာ", "နံနက်စာ"),
+                    ("ထမင်း ကျော်", "ထမင်းကြော်"),
+                    ("လက်ဖက်သုတ်", "လက်ဖက်သုပ်"),
+                    ("ငံ့ပြာရည်", "ငံပြာရည်"),
+                    ("ပြု", "ပြုတ်")),
+                new BenchmarkCase("abyssal_media", BenchmarkDifficulty.AbyssalMythic, ProofingStyleMode.GeneralStandard,
+                    "ကျွန်တော်ရဲ့ ဖုန်းထဲမှ သီချန်ကို နား ထောင်ရင်း ဘောပင်းနဲ့ စာရေးရတာ အရမ်းလှ့တယ်။",
+                    ("ကျွန်တော်", "ကျွန်တော့်"),
+                    ("သီချန်", "သီချင်း"),
+                    ("နား ထောင်", "နားထောင်"),
+                    ("ဘောပင်း", "ဘောပင်"),
+                    ("လှ့", "လှ")),
+                new BenchmarkCase("abyssal_resources", BenchmarkDifficulty.AbyssalMythic, ProofingStyleMode.FormalOfficial,
+                    "သဘာဝသယံဇာ ထုတ်လုပ်သည့် လုပ်ငန်းထွင် သတင်းအချက်အရက် မှန်ကန်မှုက အထောက် အကူပြုပြီး လုပ်ငန်းကို လွယ်ကုစေသည်။",
+                    ("သယံဇာ", "သယံဇာတ"),
+                    ("ထွင်", "တွင်"),
+                    ("သတင်းအချက်အရက်", "သတင်းအချက်အလက်"),
+                    ("အထောက် အကူ", "အထောက်အကူ"),
+                    ("လွယ်ကု", "လွယ်ကူ")),
+                new BenchmarkCase("abyssal_register", BenchmarkDifficulty.AbyssalMythic, ProofingStyleMode.FormalOfficial,
+                    "စာမေးပွဲခန်းတွင် ကျောင်းသားတွေဂ အေးဆေး နေရမည်ဖြစ်ပြီး ယာဉ်အန်ထရာယ် ကင်းရှင်းရေးအတြက္ ဆုတောင်းပေးကြပါစေလား။",
+                    ("ဂ", "က"),
+                    ("အေးဆေး", "တိတ်တဆိတ်"),
+                    ("အန်ထရာယ်", "အန္တရာယ်"),
+                    ("အတြက္", "အတွက်"),
+                    ("ပါစေလား", "ပါစေ")),
+                new BenchmarkCase("abyssal_literary", BenchmarkDifficulty.AbyssalMythic, ProofingStyleMode.GeneralStandard,
+                    "မဟဂျွတ် ကုသိုလ်တရားများကို သတ္တိရမိတိုင်း အခက် အခဲကြုံလျှင် အကူအညီတောင်ပါရန် မျောလင့်မိပါတယ်။",
+                    ("မဟဂျွတ်", "မဟဂ္ဂုတ်"),
+                    ("သတ္တိရမိ", "သတိရမိ"),
+                    ("အခက် အခဲ", "အခက်အခဲ"),
+                    ("တောင်", "တောင်း"),
+                    ("မျောလင့်", "မျှော်လင့်")),
+                new BenchmarkCase("abyssal_dialogue", BenchmarkDifficulty.AbyssalMythic, ProofingStyleMode.GeneralStandard,
+                    "မင်္ဂလာပါ ခင်ဗျား။ ကျွန်တော်မှာ မိတ်ဆွေတွေနဲ့ စကားဖျော်ရင်း ဘာကြောင့် သူနဲ့ လမ်းခွခဲ့သလဲဆိုတာ သီချင်ပါတယ်။",
+                    ("ခင်ဗျား", "ခင်ဗျာ"),
+                    ("ကျွန်တော်", "ကျွန်တော့်"),
+                    ("ဖျော်", "ပြော"),
+                    ("လမ်းခွ", "လမ်းခွဲ"),
+                    ("သီ", "သိ")),
+                new BenchmarkCase("abyssal_boss", BenchmarkDifficulty.AbyssalMythic, ProofingStyleMode.FormalOfficial,
+                    "ယမန်နှစ်က စစ်တက္ ကသိုလ်မှ သုတေသီများသည် မှတ်ပုံ\u200Bတင် စာရင်းနှင့် ကေျာင်းသား အချက်အလတ်များကို ပေးပို့ခဲ့သည် ဗဟိုရုံးချုပ်သို့.",
+                    ("စစ်တက္ ကသိုလ်", "စစ်တက္ကသိုလ်"),
+                    ("မှတ်ပုံ\u200Bတင်", "မှတ်ပုံတင်"),
+                    ("ကေျာင်း", "ကျောင်း"),
+                    ("အချက်အလတ်", "အချက်အလက်"),
+                    ("ပေးပို့ခဲ့သည် ဗဟိုရုံးချုပ်သို့", "ဗဟိုရုံးချုပ်သို့ ပေးပို့ခဲ့သည်"),
+                    (".", "။"))
             };
         }
     }
