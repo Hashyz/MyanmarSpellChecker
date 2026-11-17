@@ -2879,5 +2879,95 @@ namespace MyanmarSpellChecker.Core.Tests
                     UnicodeNormalizer.NormalizeCanonicalOrder(patched));
             }
         }
+
+        [Fact]
+        public void V66B_OptimisedTop1RankingCoalescerAndLatencyChampionship_Gate()
+        {
+            var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
+            var trie = repo.LoadIntoTrie("MM-GOV-THATPON-SQLCIPHER-2026!");
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+
+            // 1. Six V66 Evil-Twin Clean Controls (Zero False Positives)
+            (MyanmarProofingEngine Engine, string CleanSentence)[] v66CleanControls =
+            {
+                (formalEngine, "လက်ငင်းငွေမပါဘဲ အရစ်ကျစနစ်ဖြင့် စနစ်တကျ ပေးချေနိုင်ပါသည်။"),
+                (generalEngine, "ကိုယ်ပိုင်စီးပွားရေးလုပ်ငန်းတစ်ခုစလုပ်ဖို့ သေချာစွာ ပြင်ဆင်နေပါတယ်။"),
+                (formalEngine, "ဧည့်သည်တော်များအတွက် စားဖွယ်မုန့်တို့ကိုထုတ်၏။"),
+                (formalEngine, "မဂမ်နှင့် မိသားစုဝင်များသည် နံနက်တိုင်း ပန်းခြံ၌ ဂျောဂင်းထွက်ကြသည်။"),
+                (generalEngine, "“ကျမလည်း ဒီသင်တန်းကို တက်ရောက်ချင်ပါတယ်” ဟု ပြောကြားသည်။"),
+                (generalEngine, "ဘယ်လို ဖွင့်ပေးတာလည်း ဆိုတာတော့ သေချာမသိသေးပါဘူး။")
+            };
+
+            foreach (var (eng, clean) in v66CleanControls)
+            {
+                var fp = eng.CheckText(clean);
+                Assert.True(fp.Count == 0, $"V66 clean control falsely flagged '{clean}': {string.Join(", ", fp.Select(x => x.OriginalText + "->" + (x.Suggestions.FirstOrDefault()?.Replacement ?? "")))}");
+            }
+
+            // 2. Whole-Stem Coalescer, Context-Steered Top-1 Reranker & Bidirectional Register Harmony in 1 Pass
+            (MyanmarProofingEngine Engine, string RawInput, int ExpectedIssues, string ExpectedCleanOutput)[] v66ChampionshipCases =
+            {
+                (
+                    formalEngine,
+                    "ကျောင်းဝင်းအတွင်းရှိ ကေါင်းလောင်းသံကြားလျှင် ကျောင်းသားများ အစည်း အဝေးခန်းမသို့ စနစ် တကျ ဝင်ရောက်ကြသည်။",
+                    3,
+                    "ကျောင်းဝင်းအတွင်းရှိ ခေါင်းလောင်းသံကြားလျှင် ကျောင်းသားများ အစည်းအဝေးခန်းမသို့ စနစ်တကျ ဝင်ရောက်ကြသည်။"
+                ),
+                (
+                    generalEngine,
+                    "သဘာဝဘေးအန္တရာယ် တားသိးနိုင်ခွင့်နှင့် ပတ်ဝန်းကျင် ထိးသိမ်းဖို့က အားလုံးအတွက် အရေးကြီးတယ်။",
+                    2,
+                    "သဘာဝဘေးအန္တရာယ် တားဆီးနိုင်ခွင့်နှင့် ပတ်ဝန်းကျင် ထိန်းသိမ်းဖို့က အားလုံးအတွက် အရေးကြီးတယ်။"
+                ),
+                (
+                    generalEngine,
+                    "တရားစီရိန်ရေးကဏ္ဍမှာ အချက်အလက်တွေကို နှိုင်းယှင်းပြီး သတင်းထိန်ချိန်ထားခြင်း မပြုရပါ။",
+                    3,
+                    "တရားစီရင်ရေးကဏ္ဍမှာ အချက်အလက်တွေကို နှိုင်းယှဉ်ပြီး သတင်းထိမ်ချန်ထားခြင်း မပြုရပါ။"
+                ),
+                (
+                    generalEngine,
+                    "ဒီန့ဲ မနက်ပိုင်း လေယာဉခရီးစဉ်ဖြင့် ရှေးဟောင်းဒေသသို့ သွားရောက်နည်ပတ်ကြတယ်။",
+                    3,
+                    "ဒီနေ့ မနက်ပိုင်း လေယာဉ်ခရီးစဉ်ဖြင့် ရှေးဟောင်းဒေသသို့ သွားရောက်လည်ပတ်ကြတယ်။"
+                ),
+                (
+                    formalEngine,
+                    "ပညာရေ ဝန်ကြီး ဌာန၏ ထုတ်ပြန်ချက်အရ ကော်မရှင် ဥက္ကဌ သည် အရေးပါတဲ့ကဏ္တတစ်ခုဖြစ်သော သုတေသနလုပ်ငန်းစင်များကို ကြေငြာ ခဲ့သည်.",
+                    7,
+                    "ပညာရေး ဝန်ကြီးဌာန၏ ထုတ်ပြန်ချက်အရ ကော်မရှင် ဥက္ကဋ္ဌ သည် အရေးပါတဲ့ကဏ္ဍတစ်ခုဖြစ်သော သုတေသနလုပ်ငန်းစဉ်များကို ကြေညာ ခဲ့သည်။"
+                )
+            };
+
+            foreach (var (eng, raw, expectedCount, expectedClean) in v66ChampionshipCases)
+            {
+                var issues = eng.CheckText(raw);
+                Assert.Equal(expectedCount, issues.Count);
+
+                string patched = raw;
+                foreach (var iss in issues.OrderByDescending(i => i.StartIndex))
+                {
+                    Assert.NotEmpty(iss.Suggestions);
+                    patched = patched.Substring(0, iss.StartIndex) +
+                              iss.Suggestions[0].Replacement +
+                              patched.Substring(iss.StartIndex + iss.Length);
+                }
+
+                Assert.Equal(
+                    UnicodeNormalizer.NormalizeCanonicalOrder(expectedClean),
+                    UnicodeNormalizer.NormalizeCanonicalOrder(patched));
+            }
+
+            // 3. Optimised Uncached Latency Gate (mean < 35 ms per multi-error sentence)
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            for (int r = 0; r < v66ChampionshipCases.Length; r++)
+            {
+                _ = v66ChampionshipCases[r].Engine.CheckText(v66ChampionshipCases[r].RawInput, cacheParagraph: false);
+            }
+            sw.Stop();
+            double meanUncachedMs = sw.Elapsed.TotalMilliseconds / v66ChampionshipCases.Length;
+            Assert.True(meanUncachedMs < 35.0, $"Expected fast < 35 ms mean uncached multi-error sentence latency, got {meanUncachedMs:F2} ms.");
+        }
     }
 }

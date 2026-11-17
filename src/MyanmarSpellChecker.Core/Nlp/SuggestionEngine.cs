@@ -497,13 +497,19 @@ namespace MyanmarSpellChecker.Core.Nlp
                 {
                     string fixedIuk = UnicodeNormalizer.NormalizeCanonicalOrder(lookalikeFixed.Replace("\u102D\u1000\u103A", "\u102D\u102F\u1000\u103A"));
                     if (_trie.ContainsExactWord(fixedIuk))
-                        AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedIuk, 104.0);
+                        AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedIuk, 105.2);
                 }
                 if (isOovBase && lookalikeFixed.IndexOf("\u102C\u1000\u103A", StringComparison.Ordinal) >= 0)
                 {
                     string fixedAuk = UnicodeNormalizer.NormalizeCanonicalOrder(lookalikeFixed.Replace("\u102C\u1000\u103A", "\u1031\u102C\u1000\u103A"));
                     if (_trie.ContainsExactWord(fixedAuk))
-                        AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedAuk, 104.0);
+                        AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedAuk, 105.2);
+                }
+                if (isOovBase && lookalikeFixed.IndexOf("\u102D\u1014\u103A", StringComparison.Ordinal) >= 0)
+                {
+                    string fixedIn = UnicodeNormalizer.NormalizeCanonicalOrder(lookalikeFixed.Replace("\u102D\u1014\u103A", "\u1004\u103A"));
+                    if (_trie.ContainsExactWord(fixedIn))
+                        AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedIn, 102.5);
                 }
                 if (lookalikeFixed.IndexOf("\u100A\u100F\u103A", StringComparison.Ordinal) >= 0)
                 {
@@ -519,12 +525,83 @@ namespace MyanmarSpellChecker.Core.Nlp
                     {
                         for (int oi = 0; oi < ounEntries.Count; oi++)
                         {
-                            if (ounEntries[oi].IsOfficialThatpon && ounEntries[oi].Frequency >= 100)
+                            if (ounEntries[oi].IsOfficialThatpon && ounEntries[oi].Frequency >= 8)
                             {
-                                AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedOun, 101.6);
+                                AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedOun, 104.2);
                                 break;
                             }
                         }
+                    }
+                }
+                if (isOovBase)
+                {
+                    // Palatal nasal homophone 'ည' (/ɲ/) <-> 'ငြ' (/ɲ/, e.g. 'ညိမ်းချမ်းရေး -> ငြိမ်းချမ်းရေး', 'ညိမ်းသတ် -> ငြိမ်းသတ်')
+                    if (lookalikeFixed.IndexOf('\u100A') >= 0)
+                    {
+                        string fixedNgya = UnicodeNormalizer.NormalizeCanonicalOrder(lookalikeFixed.Replace("\u100A", "\u1004\u103C"));
+                        if (_trie.ContainsExactWord(fixedNgya))
+                            AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedNgya, 103.8);
+                    }
+                    // Retroflex pat-sint 'ဏ္တ -> ဏ္ဍ' (e.g. 'ကဏ္တ -> ကဏ္ဍ')
+                    if (lookalikeFixed.IndexOf("\u100F\u1039\u1010", StringComparison.Ordinal) >= 0)
+                    {
+                        string fixedNda = UnicodeNormalizer.NormalizeCanonicalOrder(lookalikeFixed.Replace("\u100F\u1039\u1010", "\u100F\u1039\u100D"));
+                        if (_trie.ContainsExactWord(fixedNda))
+                            AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedNda, 104.2);
+                    }
+                    // Pyidaungsu QWERTY adjacent 'ိ' (D) <-> '်' (F) & missing final killer '\u103A' (e.g. 'ဆက်စပိ -> ဆက်စပ်', 'လေယာဉ -> လေယာဉ်', 'စီရိန်ရေး -> စီရင်ရေး', 'မြိတ -> မြတ်')
+                    char lastCh = lookalikeFixed[lookalikeFixed.Length - 1];
+                    if (lastCh == '\u102D' && lookalikeFixed.Length >= 3)
+                    {
+                        string swapToAsat = UnicodeNormalizer.NormalizeCanonicalOrder(
+                            lookalikeFixed.Substring(0, lookalikeFixed.Length - 1) + "\u103A");
+                        if (_trie.ContainsExactWord(swapToAsat))
+                            AddOrUpdateEnrichedCandidate(results, rawTrimmed, swapToAsat, 104.0);
+                    }
+                    else if (lastCh >= '\u1000' && lastCh <= '\u1021' && lookalikeFixed.Length >= 3)
+                    {
+                        string addTrailingAsat = UnicodeNormalizer.NormalizeCanonicalOrder(lookalikeFixed + "\u103A");
+                        if (_trie.ContainsExactWord(addTrailingAsat))
+                            AddOrUpdateEnrichedCandidate(results, rawTrimmed, addTrailingAsat, 104.2);
+                    }
+                    if (lookalikeFixed.IndexOf('\u102D') >= 0 && lookalikeFixed.Length >= 4)
+                    {
+                        for (int di = 1; di < lookalikeFixed.Length; di++)
+                        {
+                            if (lookalikeFixed[di] == '\u102D')
+                            {
+                                string dropExtraI = UnicodeNormalizer.NormalizeCanonicalOrder(
+                                    lookalikeFixed.Remove(di, 1));
+                                if (_trie.ContainsExactWord(dropExtraI))
+                                    AddOrUpdateEnrichedCandidate(results, rawTrimmed, dropExtraI, 103.4);
+                                if (dropExtraI.Length >= 3 && dropExtraI[dropExtraI.Length - 1] >= '\u1000' && dropExtraI[dropExtraI.Length - 1] <= '\u1021')
+                                {
+                                    string dropIPlusAsat = UnicodeNormalizer.NormalizeCanonicalOrder(dropExtraI + "\u103A");
+                                    if (_trie.ContainsExactWord(dropIPlusAsat))
+                                        AddOrUpdateEnrichedCandidate(results, rawTrimmed, dropIPlusAsat, 103.8);
+                                }
+                            }
+                        }
+                    }
+                    // Dropped onset 'ရ' before orphan 'ည်' ('စွမ်းည် -> စွမ်းရည်')
+                    if (lookalikeFixed.Length >= 4 && lookalikeFixed.EndsWith("\u100A\u103A", StringComparison.Ordinal))
+                    {
+                        char beforeNya = lookalikeFixed[lookalikeFixed.Length - 3];
+                        if (beforeNya == '\u1038' || beforeNya == '\u1037' || beforeNya == '\u103A' || beforeNya == '\u1036')
+                        {
+                            string withYa = UnicodeNormalizer.NormalizeCanonicalOrder(
+                                lookalikeFixed.Substring(0, lookalikeFixed.Length - 2) + "\u101B\u100A\u103A");
+                            if (_trie.ContainsExactWord(withYa))
+                                AddOrUpdateEnrichedCandidate(results, rawTrimmed, withYa, 104.2);
+                        }
+                    }
+                    // '-ိန့် -> -ိုင့်' ('ချိန့် -> ချိုင့်')
+                    if (lookalikeFixed.EndsWith("\u102D\u1014\u103A\u1037", StringComparison.Ordinal))
+                    {
+                        string fixedChaing = UnicodeNormalizer.NormalizeCanonicalOrder(
+                            lookalikeFixed.Substring(0, lookalikeFixed.Length - 4) + "\u102D\u102F\u1004\u103A\u1037");
+                        if (_trie.ContainsExactWord(fixedChaing))
+                            AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedChaing, 103.6);
                     }
                 }
                 if (lookalikeFixed.IndexOf("\u1005\u103C", StringComparison.Ordinal) >= 0)
@@ -638,29 +715,49 @@ namespace MyanmarSpellChecker.Core.Nlp
                     {
                         double freqBonus = Math.Min(8.5, Math.Log10(entry.Frequency + 1) * 2.5);
                         double thatponBonus = entry.IsOfficialThatpon ? 1.5 : 0.0;
+                        double profileBonus = SharesExactToneAndMedialProfile(lookalikeFixed, entry.Word) ? 3.8 : 0.0;
                         double anchorBonus = ComputeMultiSyllablePreservationBonus(lookalikeFixed, spanSyllables, entry.Word);
-                        double score = Math.Max(68.0, 91.0 - dist * 8.0 + freqBonus + thatponBonus + anchorBonus);
+                        double score = Math.Max(68.0, 91.0 - dist * 8.0 + freqBonus + thatponBonus + profileBonus + anchorBonus);
                         AddOrUpdateEnrichedCandidate(results, rawTrimmed, entry.Word, score);
                     }
                 }
             }
 
             // 5. Fast Bucketed Weighted Edit Distance using Center-Outward Branch-and-Bound + 45-bit Base Pre-Filtering
-            if (results.Count < computeCap || spanSyllables.Count <= 1 || lookalikeFixed.Length <= 8)
+            //    Skip exhaustive 5-bucket scan when Steps 1..4 already filled `computeCap` with high-confidence homophone/anchor matches!
+            double bestPreBucketScore = 0.0;
+            for (int rIdx = 0; rIdx < results.Count; rIdx++)
+            {
+                if (results[rIdx].Score > bestPreBucketScore)
+                    bestPreBucketScore = results[rIdx].Score;
+            }
+            double preBucketFloor = ComputeSafeFloorScore(results, computeCap);
+            bool skipExhaustiveBuckets =
+                (!allowCompositional && ((results.Count >= 1 && bestPreBucketScore >= 92.0) || spanSyllables.Count >= 4)) ||
+                (results.Count >= computeCap &&
+                 (hasExplicitWrongRule ||
+                  (spanSyllables.Count >= 2 && preBucketFloor >= 89.0) ||
+                  (spanSyllables.Count == 1 && preBucketFloor >= 96.5)));
+
+            if (!skipExhaustiveBuckets && (results.Count < computeCap || spanSyllables.Count <= 1 || lookalikeFixed.Length <= 8))
             {
                 int targetLen = lookalikeFixed.Length;
                 char firstChar = lookalikeFixed[0];
                 char lastChar = lookalikeFixed[targetLen - 1];
-                double maxAllowedDist = hasExplicitWrongRule ? 0.95 : 1.75;
+                double maxAllowedDist = hasExplicitWrongRule
+                    ? 0.84
+                    : (bestPreBucketScore >= 99.5 ? 0.84 : (bestPreBucketScore >= 95.0 ? 0.99 : 1.75));
                 bool canHaveMedialBonus = targetLen >= 2 &&
                     (firstChar == '\u1001' || firstChar == '\u1002' || firstChar == '\u1004' ||
                      firstChar == '\u1012' || firstChar == '\u1015' || firstChar == '\u101D') &&
                     lookalikeFixed.IndexOf('\u102C') > 0;
-                double maxPreservationBonus = (targetLen >= 3 ? 1.8 : 0.0) + (spanSyllables.Count >= 2 ? 3.2 : 0.0);
+                double maxPreservationBonus = (targetLen >= 3 ? 3.8 : 0.0) + (spanSyllables.Count >= 2 ? 3.2 : 0.0);
                 double maxBucketCeiling = 94.0 + 8.5 + 1.5 + 0.5 + maxPreservationBonus + (canHaveMedialBonus ? 4.0 : 0.0);
-                double floorScore = ComputeSafeFloorScore(results, computeCap);
+                double floorScore = preBucketFloor;
 
-                int[] bucketOffsets = { 0, 1, -1, 2, -2 };
+                int[] bucketOffsets = (!allowCompositional || targetLen == 1 || (spanSyllables.Count == 1 && results.Count >= computeCap && floorScore >= 90.0))
+                    ? new[] { 0, 1, -1 }
+                    : new[] { 0, 1, -1, 2, -2 };
                 for (int bo = 0; bo < bucketOffsets.Length; bo++)
                 {
                     int bLen = targetLen + bucketOffsets[bo];
@@ -737,7 +834,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                         double thatponBonus = entry.IsOfficialThatpon ? 1.5 : 0.0;
                         double cueBonus = string.IsNullOrWhiteSpace(entry.MeaningCue) ? 0.0 : 0.5;
                         double medialOrthographyBonus = (canHaveMedialBonus && HasMissingMedialBeforeRoundAa(lookalikeFixed, w)) ? 4.0 : 0.0;
-                        double toneAndAnchorBonus = (targetLen >= 3 && SharesExactToneAndMedialProfile(lookalikeFixed, w) ? 1.8 : 0.0) +
+                        double toneAndAnchorBonus = (targetLen >= 3 && SharesExactToneAndMedialProfile(lookalikeFixed, w) ? 3.8 : 0.0) +
                                                     (spanSyllables.Count >= 2 ? ComputeMultiSyllablePreservationBonus(lookalikeFixed, spanSyllables, w) : 0.0);
                         double entryZeroScore = 94.0 + freqBonus + thatponBonus + cueBonus + medialOrthographyBonus + toneAndAnchorBonus;
 
@@ -1216,8 +1313,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                         if (combined != normalized)
                         {
                             double segBase = rightFixes[r].Penalty <= 0.06
-                                ? 98.2
-                                : (right.Length >= 2 && rText.Length >= 2 && right[0] == rText[0] ? 94.2 : 92.5);
+                                ? 99.2
+                                : (right.Length >= 2 && rText.Length >= 2 && right[0] == rText[0] ? (r == 0 ? 98.8 : 94.2) : 92.5);
                             AddOrUpdateEnrichedCandidate(results, rawTrimmed, combined, segBase - r * 3.0, "ပေါင်းစပ်ပုဒ် စံသတ်ပုံအကြံပြုချက်");
                         }
                     }
@@ -1236,8 +1333,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                         if (combined != normalized)
                         {
                             double segBase = leftFixes[l].Penalty <= 0.06
-                                ? 98.2
-                                : (left.Length >= 2 && lText.Length >= 2 && left[0] == lText[0] ? 94.2 : 92.5);
+                                ? 99.2
+                                : (left.Length >= 2 && lText.Length >= 2 && left[0] == lText[0] ? (l == 0 ? 98.8 : 95.5) : 92.5);
                             AddOrUpdateEnrichedCandidate(results, rawTrimmed, combined, segBase - l * 3.0, "ပေါင်းစပ်ပုဒ် စံသတ်ပုံအကြံပြုချက်");
                         }
                     }
@@ -1245,7 +1342,13 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 6b. Syllable-by-Syllable Beam Synthesis (e.g. 'ဖစ်နေပီ -> ဖြစ်နေပြီ', 'မဖစ်ပု -> မဖြစ်ဘူး', 'စားပီးသွားပီ -> စားပြီးသွားပြီ')
-            if (count <= 5)
+            double bestAfterSplit = 0.0;
+            for (int rIdx = 0; rIdx < results.Count; rIdx++)
+            {
+                if (results[rIdx].Score > bestAfterSplit)
+                    bestAfterSplit = results[rIdx].Score;
+            }
+            if (count <= 5 && (bestAfterSplit < 98.0 || HasColloquialContractionSyllable(spanSyllables)))
             {
                 var beam = new List<(string Text, double Penalty)>(6) { (string.Empty, 0.0) };
                 var nextBeam = new List<(string Text, double Penalty)>(18);
@@ -1353,25 +1456,27 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         private static bool SharesExactToneAndMedialProfile(string query, string candidate)
         {
-            int qCreaky = 0, qVis = 0, qRa = 0;
+            int qCreaky = 0, qVis = 0, qRa = 0, qWa = 0;
             for (int i = 0; i < query.Length; i++)
             {
                 char c = query[i];
                 if (c == '\u1037') qCreaky++;
                 else if (c == '\u1038') qVis++;
                 else if (c == '\u103C') qRa++;
+                else if (c == '\u103D') qWa++;
             }
 
-            int cCreaky = 0, cVis = 0, cRa = 0;
+            int cCreaky = 0, cVis = 0, cRa = 0, cWa = 0;
             for (int i = 0; i < candidate.Length; i++)
             {
                 char c = candidate[i];
                 if (c == '\u1037') cCreaky++;
                 else if (c == '\u1038') cVis++;
                 else if (c == '\u103C') cRa++;
+                else if (c == '\u103D') cWa++;
             }
 
-            return qCreaky == cCreaky && qVis == cVis && (qRa == 0 || qRa == cRa);
+            return qCreaky == cCreaky && qVis == cVis && (qRa == 0 || qRa == cRa) && (qWa == 0 || qWa == cWa);
         }
 
         private static double ComputeMultiSyllablePreservationBonus(string query, List<string> querySyls, string candidate)
@@ -2258,7 +2363,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             //    Keep 'တ <-> ဓ' (0.36) strictly above 'တ <-> ထ' (0.24) so 'တမင်း -> ထမင်း' always beats 'ဓမင်း',
             //    while keeping က/ခ/ဂ, စ/ဆ/ဇ, ပ/ဖ/ဗ above Kinzi omission cost (0.26) so 'အကျီ -> အင်္ကျီ' beats 'အချီ'!
             if (a == '\u1010' && b == '\u1013') return 0.36; // တ <-> ဓ (Pali voiced-aspirate, rarer than ထ/ဒ)
-            if (IsDentalOrRetroflexStop(a) && IsDentalOrRetroflexStop(b)) return 0.24;
+            if (IsDentalOrRetroflexStop(a) && IsDentalOrRetroflexStop(b)) return (a == '\u100C' && b == '\u1011') ? 0.18 : 0.24;
             if (a == '\u100F' && b == '\u1014') return 0.22; // ဏ <-> န
             if (a == '\u1014' && b == '\u1019') return 0.38; // န <-> မ
             if (a == '\u1000' && b == '\u1010') return 0.40; // က <-> တ
@@ -2267,6 +2372,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             // 4. Same-vagga voicing/aspiration confusions (က/ခ/ဂ/ဃ, စ/ဆ/ဇ/ဈ, ပ/ဖ/ဗ/ဘ)
             if (a >= '\u1000' && b <= '\u1003') return b == '\u1003' ? 0.35 : 0.29;
+            if (a == '\u1007' && b == '\u1008') return 0.14; // ဇ <-> ဈ (identical /z/ phoneme: ဇေး -> ဈေး)
             if (a >= '\u1005' && b <= '\u1008') return 0.29;
             if (a >= '\u1015' && b <= '\u1018') return (a == '\u1015' && b == '\u1018') ? 0.35 : 0.29;
 

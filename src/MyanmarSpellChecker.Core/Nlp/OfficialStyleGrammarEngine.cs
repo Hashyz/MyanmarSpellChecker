@@ -58,7 +58,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         // 4a. Clause-level Interrogative 'လည်း' -> 'လဲ' (require non-Myanmar left boundary, exclude reduplicated indefinites 'ဘာပြောပြော/မဆို' & 'ဘယ်ဘက်', forbid intervening 'လဲ/ဆိုတော့/ပေမဲ့', and anchor to question/clause end!)
         private static readonly Regex InterrogativeLaePattern = new Regex(
-            @"(?<![\u1000-\u103F])(?:ဘာ(?!သာ|ပြောပြော|လုပ်လုပ်|ဖြစ်ဖြစ်|ဆိုဆို|မဆို)|ဘယ်(?!ဘက်|ညာ|လ်|ဂျီ|လာ|လီ|လိုပဲ|သူမဆို|အရာမဆို)|အဘယ်ကြောင့်|အဘယ်|မည်သို့|မည်သူ|မည်သည့်)(?![\u1000-\u103F\s]{0,18}?(?:မဆို|လဲ|ဆိုတော့|ပေမဲ့|ပေမယ့်|ပေမယ့်|သော်လည်း))[\u1000-\u103F\s]{0,26}?(?<Target>လည်း)(?=\s*(?:[\u104B?]|$|ဆိုတာ|ဆိုသည်|ဟု\s*မေး|လို့\s*မေး|မသိ))",
+            @"(?<![\u1000-\u103F])(?:ဘာ(?!သာ|ပြောပြော|လုပ်လုပ်|ဖြစ်ဖြစ်|ဆိုဆို|မဆို)|ဘယ်(?!ဘက်|ညာ|လ်|ဂျီ|လာ|လီ|လိုပဲ|သူမဆို|အရာမဆို)|အဘယ်ကြောင့်|အဘယ်|မည်သို့|မည်သူ|မည်သည့်)(?![\u1000-\u103F\s]{0,18}?(?:မဆို|လဲ|ဆိုတော့|ပေမဲ့|ပေမယ့်|ပေမယ့်|သော်လည်း))[\u1000-\u103F\s]{0,26}?(?<Target>လည်း)(?=\s*(?:[\u104B?]|$|ဆိုတာ(?!တော့)|ဆိုသည်|ဟု\s*မေး|လို့\s*မေး|မသိ))",
             RegexOptions.Compiled);
 
         // 4b. Affirmative 'လဲ' ("also/too") -> 'လည်း' (e.g. 'ကျွန်တော်လဲ သွားမယ်' -> 'ကျွန်တော်လည်း သွားမယ်', 'အနာဂတ်မှာလဲ' -> 'အနာဂတ်မှာလည်း')
@@ -501,7 +501,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             RegexOptions.Compiled);
 
         private static readonly Regex BoundSuffixBrokenSpacePattern = new Regex(
-            @"(?:(?<Left>[\u1000-\u103F]{2,14})[ \t]+(?<Right>တော်မူ(?=၍|သည်|၏|ပါ|သော|သည့်|သည့်))|(?<Left>[\u1000-\u103F]+ပေ)[ \t]+(?<Right>မဲ့|မယ့်|မယ့်)|(?<Left>[\u1000-\u103F]+ခဲ့)[ \t]+(?<Right>ရ(?=တယ်|သည်|ပါ))|(?<Left>[\u1000-\u103F]{1,12})[ \t]+(?<Right>မှာလား)|(?<Left>မခွဲ)[ \t]+(?<Right>ခြားဘဲ)|(?<Left>မြောက်|တောင်|အရှေ့|အနောက်)[ \t]+(?<Right>ပိုင်း(?=ရှိ|တွင်|၌|မှာ))|(?<Left>အရှေ့|အနောက်|တောင်|မြောက်)[ \t]+(?<Right>ဘက်(?=မှာ|တွင်|၌|သို့|က))|(?<![\u1000-\u103F])(?<Left>ပျော်ရွှင်|အောင်မြင်|တိုးတက်|ပြောင်းလဲ|ဆောင်ရွက်|ပူးပေါင်း|လှုပ်ရှား|အသတ်ခံရ|ထိခိုက်|ဆုံးရှုံး|ဝေဖန်|စမ်းသပ်|နှိပ်စက်|ထောက်ပံ့|ကူညီ|စောင့်ရှောက်)[ \t]+(?<Right>မှု)(?=တွေ|များ|ကို|က|သည်|ဟာ|နှင့်|နှင့်|နဲ့|ကြောင့်|ကြောင့်|[\s\u104A\u104B]|$)|(?<Left>[\u1000-\u103F]{3,14}မှု)[ \t]+(?<Right>များ|တွေ|ကို)(?![\u102B-\u103E\u103A])|(?<![\u1000-\u103F])(?<Left>သူ့|ငါ့|ကိုယ့်|ကိုယ့်|ကျွန်တော့်|ကျွန်တော့်)[ \t]+(?<Right>ကို|အား|ရဲ့|၏|အကြောင်းကို)(?=[\s\u104A\u104B]|$)|(?<Left>အနား)[ \t]+(?<Right>ယူ(?=အပန်းဖြေ|ချင်|နိုင်|ပါ|သည်|တယ်))|(?<Left>အဆင်)[ \t]+(?<Right>ပြေ(?=သလို|ပါ|တယ်|သည်|အောင်))|(?<Left>မတင်)[ \t]+(?<Right>မီ)(?![\u102B-\u103E\u103A])|(?<Left>မယှဉ်သာ)[ \t]+(?<Right>လောက်အောင်)|(?<Left>သဘောကျလဲ)[ \t]+(?<Right>ဆိုတာ)|(?<Left>ဝေးရာသွား)[ \t]+(?<Right>နေသလို)|(?<Left>ပင်တို့)[ \t]+(?<Right>သည်လည်းကောင်း)|(?<Left>ပီတိသု)[ \t]+(?<Right>ခဈာန်)|(?<Left>သီလ)[ \t]+(?<Right>စောင့်ထိန်း|ရှိသော)|(?<Left>ပြန်လည်)[ \t]+(?<Right>ပြုပြင်တာ)|(?<Left>ပြင်ဆင်|ဖလှယ်|ဆောင်ရွက်|လုပ်ဆောင်|စားသောက်|သွားလာ)[ \t]+(?<Right>ကြ(?=တယ်|သည်|မယ်|မည်|ပါ))|(?<Left>လက်ခံ|နားလည်|ဖြေရှင်း|ပြောဆို)[ \t]+(?<Right>တတ်ဖို့)|(?<Left>(?:မျှော်ငေး|စောင့်ဆိုင်း|ထိုင်|ရပ်|နေထိုင်)နေ)[ \t]+(?<Right>သော)|(?<Left>ပြီးသွား)[ \t]+(?<Right>ရင်)|(?<Left>ဆိုက်)[ \t]+(?<Right>လာသော)|(?<Left>လုပ်ဆောင်)[ \t]+(?<Right>သည့်|သည့်)|(?<Left>သိပ်)[ \t]+(?<Right>ကောင်း(?=တယ်|သည်|ပါ))|(?<Left>နေ)[ \t]+(?<Right>ထိုင်(?=ဖို့|ရန်|ရာ|ကြ|သည်|တယ်|ပါ|မှု|ခြင်း))|(?<Left>ကျေးဇူး)[ \t]+(?<Right>တင်(?=ပါ|သည်|တယ်|ရှိ))|(?<Left>ကျင်း)[ \t]+(?<Right>ပ(?=ကြ|သည်|တယ်|ပါ|မည်|မယ်|ခဲ့))|(?<Left>ရောင်း)[ \t]+(?<Right>ချ(?=ကြ|သည်|တယ်|ပါ|မည်|မယ်|ခဲ့))|(?<Left>အရေး)[ \t]+(?<Right>ယူ(?=သည့်|သည့်|သော|ရန်|ဖို့|ခဲ့|သည်|တယ်))|(?<Left>ရင်)[ \t]+(?<Right>ဆိုင်(?=နေ|ရ|ဖို့|ရန်))|(?<Left>ရုံး)[ \t]+(?<Right>ထုတ်(?=စစ်ဆေး))|(?<Left>အချိန်)[ \t]+(?<Right>ကုန်(?=သက်သာ))|(?<![\u1000-\u103F])(?<Left>ဒီ)[ \t]+(?<Right>နှစ်(?=အတွက်|မှာ|တွင်))|(?<Left>သတင်း)[ \t]+(?<Right>အချက်အလက်)|(?<Left>နေရောင်ခြည်|လေ)[ \t]+(?<Right>စွမ်းအင်)|(?<Left>နေ့စဉ်)[ \t]+(?<Right>ဘဝ)|(?<Left>သိမ်းဆည်း)[ \t]+(?<Right>နည်း)|(?<Left>ကူညီ)[ \t]+(?<Right>ပေးခြင်း)|(?<Left>ဂီတ)[ \t]+(?<Right>သံစဉ်)|(?<Left>အသား)[ \t]+(?<Right>ဟင်းလျာ)|(?<Left>ပျော်ရွှင်)[ \t]+(?<Right>စရာ)|(?<Left>အကျိုး)[ \t]+(?<Right>ခံစားခွင့်|ခံစားခွင့်)|(?<Left>စနစ်)[ \t]+(?<Right>တကျ)|(?<=အစု)(?<Left>ရှယ်)[ \t]+(?<Right>ယာ)|(?<=ကာကွယ်ရေး)(?<Left>တပ်ဖွဲ့)[ \t]+(?<Right>များ)|(?<Left>နံဘေး)[ \t]+(?<Right>တွင်)|(?<Left>မြို့)[ \t]+(?<Right>တွင်းသွား))",
+            @"(?:(?<Left>[\u1000-\u103F]{2,14})[ \t]+(?<Right>တော်မူ(?=၍|သည်(?!ကား|ကာ)|၏|ပါ|သော|သည့်|သည့်))|(?<Left>[\u1000-\u103F]+ပေ)[ \t]+(?<Right>မဲ့|မယ့်|မယ့်)|(?<Left>[\u1000-\u103F]+ခဲ့)[ \t]+(?<Right>ရ(?=တယ်|သည်|ပါ))|(?<Left>[\u1000-\u103F]{1,12})[ \t]+(?<Right>မှာလား)|(?<Left>မခွဲ)[ \t]+(?<Right>ခြားဘဲ)|(?<Left>မြောက်|တောင်|အရှေ့|အနောက်)[ \t]+(?<Right>ပိုင်း(?=ရှိ|တွင်|၌|မှာ))|(?<Left>အရှေ့|အနောက်|တောင်|မြောက်)[ \t]+(?<Right>ဘက်(?=မှာ|တွင်|၌|သို့|က))|(?<![\u1000-\u103F])(?<Left>ပျော်ရွှင်|အောင်မြင်|တိုးတက်|ပြောင်းလဲ|ဆောင်ရွက်|ပူးပေါင်း|လှုပ်ရှား|အသတ်ခံရ|ထိခိုက်|ဆုံးရှုံး|ဝေဖန်|စမ်းသပ်|နှိပ်စက်|ထောက်ပံ့|ကူညီ|စောင့်ရှောက်)[ \t]+(?<Right>မှု)(?=တွေ|များ|ကို|က|သည်|ဟာ|နှင့်|နှင့်|နဲ့|ကြောင့်|ကြောင့်|[\s\u104A\u104B]|$)|(?<Left>[\u1000-\u103F]{3,14}မှု)[ \t]+(?<Right>များ|တွေ|ကို)(?![\u102B-\u103E\u103A])|(?<![\u1000-\u103F])(?<Left>သူ့|ငါ့|ကိုယ့်|ကိုယ့်|ကျွန်တော့်|ကျွန်တော့်)[ \t]+(?<Right>ကို|အား|ရဲ့|၏|အကြောင်းကို)(?=[\s\u104A\u104B]|$)|(?<Left>အနား)[ \t]+(?<Right>ယူ(?=အပန်းဖြေ|ချင်|နိုင်|ပါ|သည်|တယ်))|(?<Left>အဆင်)[ \t]+(?<Right>ပြေ(?=သလို|ပါ|တယ်|သည်|အောင်))|(?<Left>မတင်)[ \t]+(?<Right>မီ)(?![\u102B-\u103E\u103A])|(?<Left>မယှဉ်သာ)[ \t]+(?<Right>လောက်အောင်)|(?<Left>သဘောကျလဲ)[ \t]+(?<Right>ဆိုတာ)|(?<Left>ဝေးရာသွား)[ \t]+(?<Right>နေသလို)|(?<Left>ပင်တို့)[ \t]+(?<Right>သည်လည်းကောင်း)|(?<Left>ပီတိသု)[ \t]+(?<Right>ခဈာန်)|(?<Left>သီလ)[ \t]+(?<Right>စောင့်ထိန်း|ရှိသော)|(?<Left>ပြန်လည်)[ \t]+(?<Right>ပြုပြင်တာ)|(?<Left>ပြင်ဆင်|ဖလှယ်|ဆောင်ရွက်|လုပ်ဆောင်|စားသောက်|သွားလာ)[ \t]+(?<Right>ကြ(?=တယ်|သည်|မယ်|မည်|ပါ))|(?<Left>လက်ခံ|နားလည်|ဖြေရှင်း|ပြောဆို)[ \t]+(?<Right>တတ်ဖို့)|(?<Left>(?:မျှော်ငေး|စောင့်ဆိုင်း|ထိုင်|ရပ်|နေထိုင်)နေ)[ \t]+(?<Right>သော)|(?<Left>ပြီးသွား)[ \t]+(?<Right>ရင်)|(?<Left>ဆိုက်)[ \t]+(?<Right>လာသော)|(?<Left>လုပ်ဆောင်)[ \t]+(?<Right>သည့်|သည့်)|(?<Left>သိပ်)[ \t]+(?<Right>ကောင်း(?=တယ်|သည်|ပါ))|(?<Left>နေ)[ \t]+(?<Right>ထိုင်(?=ဖို့|ရန်|ရာ|ကြ|သည်|တယ်|ပါ|မှု|ခြင်း))|(?<Left>ကျေးဇူး)[ \t]+(?<Right>တင်(?=ပါ|သည်|တယ်|ရှိ))|(?<Left>ကျင်း)[ \t]+(?<Right>ပ(?=ကြ|သည်|တယ်|ပါ|မည်|မယ်|ခဲ့))|(?<Left>ရောင်း)[ \t]+(?<Right>ချ(?=ကြ|သည်|တယ်|ပါ|မည်|မယ်|ခဲ့))|(?<Left>အရေး)[ \t]+(?<Right>ယူ(?=သည့်|သည့်|သော|ရန်|ဖို့|ခဲ့|သည်|တယ်))|(?<Left>ရင်)[ \t]+(?<Right>ဆိုင်(?=နေ|ရ|ဖို့|ရန်))|(?<Left>ရုံး)[ \t]+(?<Right>ထုတ်(?=စစ်ဆေး))|(?<Left>အချိန်)[ \t]+(?<Right>ကုန်(?=သက်သာ))|(?<![\u1000-\u103F])(?<Left>ဒီ)[ \t]+(?<Right>နှစ်(?=အတွက်|မှာ|တွင်))|(?<Left>သတင်း)[ \t]+(?<Right>အချက်အလက်)|(?<Left>နေရောင်ခြည်|လေ)[ \t]+(?<Right>စွမ်းအင်)|(?<Left>နေ့စဉ်)[ \t]+(?<Right>ဘဝ)|(?<Left>သိမ်းဆည်း)[ \t]+(?<Right>နည်း)|(?<Left>ကူညီ)[ \t]+(?<Right>ပေးခြင်း)|(?<Left>ဂီတ)[ \t]+(?<Right>သံစဉ်)|(?<Left>အသား)[ \t]+(?<Right>ဟင်းလျာ)|(?<Left>ပျော်ရွှင်)[ \t]+(?<Right>စရာ)|(?<Left>အကျိုး)[ \t]+(?<Right>ခံစားခွင့်|ခံစားခွင့်)|(?<Left>စနစ်)[ \t]+(?<Right>တကျ)|(?<=အစု)(?<Left>ရှယ်)[ \t]+(?<Right>ယာ)|(?<=ကာကွယ်ရေး)(?<Left>တပ်ဖွဲ့)[ \t]+(?<Right>များ)|(?<Left>နံဘေး)[ \t]+(?<Right>တွင်)|(?<Left>မြို့)[ \t]+(?<Right>တွင်းသွား)|(?<!အ)(?<Left>ရှေ့)[ \t]+(?<Right>တွင်|မှောက်သို့)|(?<Left>အရွက်)[ \t]+(?<Right>ရိုးတံကြီး)|(?<Left>လက်မှတ်ဝယ်)[ \t]+(?<Right>ရန်))",
             RegexOptions.Compiled);
 
         private static readonly Regex BoundStemBrokenCompoundPattern = new Regex(
@@ -3171,7 +3171,11 @@ namespace MyanmarSpellChecker.Core.Nlp
                     string rawPron = m.Groups["RawPron"].Success ? m.Groups["RawPron"].Value : m.Groups["RawPron2"].Value;
                     string basePron = rawPron.Replace("\u1037", string.Empty);
                     string post = m.Groups["Post"].Success ? m.Groups["Post"].Value : m.Groups["Post2"].Value;
-                    string correct = basePron + post;
+                    bool isBenefactiveObjectRequest =
+                        post == "က" &&
+                        g.Index + g.Length < text.Length &&
+                        Regex.IsMatch(text.Substring(g.Index + g.Length), @"^\s*(?:ကူညီပေး|ခွင့်လွှတ်ပေး|ခွင့်လွှတ်ပေး|ကယ်တင်ပေး)(?:လို့\s*ရပါမလား|ပါ)");
+                    string correct = isBenefactiveObjectRequest ? (rawPron + "ကို") : (basePron + post);
                     string roleDesc = post == "တို့" ? "အများပြပစ္စည်း 'တို့'" : $"ကတ္တားဝိဘတ် '{post}'";
                     AddGrammarOrSpellingIssue(
                         issues, g.Index, g.Length, g.Value, correct,
@@ -5974,7 +5978,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             RegexOptions.Compiled);
 
         private static readonly Regex AffirmativeEmphaticBaePattern = new Regex(
-            @"(?:(?:^|[\u104A\u104B]\s*)(?![^\u104A\u104B\r\n]*?(?<![\u1000-\u103F])မ[\u1000-\u1021])[^\u104A\u104B\r\n]{1,64}?(?:ပါ|တာ|သလို|ရုံ)(?<Target>ဘဲ)(?=[\s\u104A\u104B]|$)|(?<!မ(?![\u102B-\u103E\u103A])[\u1000-\u103F]{1,14})ပါ[ \t]*(?<Target2>ဘဲ)(?=[\s\u104A\u104B]|$)|(?:သလို|ဖို့|မို့|တာ)[ \t]*(?<Target3>ဘဲ)(?=[\s\u104A\u104B]|$))",
+            @"(?:(?:^|[\u104A\u104B]\s*)(?![^\u104A\u104B\r\n]*?မ(?![\u102B-\u103E\u103A])[\u1000-\u1021])[^\u104A\u104B\r\n]{1,64}?(?<!မ)(?:ပါ|တာ|သလို|ရုံ)(?<Target>ဘဲ)(?=[\s\u104A\u104B]|$)|(?<!မ(?![\u102B-\u103E\u103A])[\u1000-\u103F]{0,14})ပါ[ \t]*(?<Target2>ဘဲ)(?=[\s\u104A\u104B]|$)|(?:သလို|ဖို့|မို့|တာ)[ \t]*(?<Target3>ဘဲ)(?=[\s\u104A\u104B]|$))",
             RegexOptions.Compiled);
 
         private static readonly Regex SpacedVerbalParticleTypoPattern = new Regex(
@@ -6015,7 +6019,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             RegexOptions.Compiled);
 
         private static readonly Regex GluedPhraseBoundarySplitPattern = new Regex(
-            @"(?:(?<=[\u1000-\u103F])(?<Left>တွေ)(?<Right>အများကြီး)|(?<Left>လို့)(?<Right>တောင်းဆို|ပြောတာက)|(?<=[\u1000-\u103F]{2})(?<Left>တွေနဲ့|တွေရဲ့)(?<Right>[\u1000-\u103F]{6,}တွေ)|(?<=[\u1000-\u103F]{3})(?<Left>နဲ့)(?<Right>ပရောဂျက်တွေ)|(?<Left>လုံခြုံစွာ)(?<Right>သိမ်းဆည်း)|(?<=[\u1000-\u103F]{3})(?<Left>က)(?<Right>သန့်ရှင်းသပ်ရပ်|အရေးပါပါ|စိတ်အပန်းပြေ))",
+            @"(?:(?<=[\u1000-\u103F])(?<Left>တွေ)(?<Right>အများကြီး)|(?<Left>လို့)(?<Right>တောင်းဆို|ပြောတာက)|(?<=[\u1000-\u103F]{2})(?<Left>တွေနဲ့|တွေရဲ့)(?<Right>[\u1000-\u103F]{6,}တွေ)|(?<=[\u1000-\u103F]{3})(?<Left>နဲ့)(?<Right>ပရောဂျက်တွေ)|(?<Left>လုံခြုံစွာ)(?<Right>သိမ်းဆည်း)|(?<=[\u1000-\u103F]{3})(?<Left>က)(?<Right>သန့်ရှင်းသပ်ရပ်|အရေးပါပါ|စိတ်အပန်းပြေ)|(?<=စွမ်းအင်)(?<Left>မျိုး)(?<Right>ဖြစ်တယ်)|(?<=ပျော်ရွှင်မှုတွေ\s+)(?<Left>အမြဲ)(?<Right>ရှိနေပါစေ)|(?<=ကိုယ်\s+)(?<Left>ယုံကြည်မှု)(?<Right>ရှိဖို့)|(?<=ကလေးဘဝက\s+)(?<Left>အမှတ်တရတွေ)(?<Right>ရှိ(?=တယ်))|^(?<Left>ဒါ)(?<Right>က(?=မြန်မာလူမျိုး))|^(?<Left>လှေနဲ့)(?<Right>ကူးတို့(?=ဟာ))|(?<Left>ချက်ပြုတ်နည်း)(?<Right>အမျိုးမျိုး)|(?<=တာတွေ)(?<Left>လည်း)(?<Right>လုပ်(?=ကြ)))",
             RegexOptions.Compiled);
 
         private static readonly Regex DanglingConjunctionBeforeToPattern = new Regex(
@@ -6624,7 +6628,15 @@ namespace MyanmarSpellChecker.Core.Nlp
                 ContainsMm(text, mmMask, "လုံခြုံစွာ") ||
                 ContainsMm(text, mmMask, "သန့်ရှင်း") ||
                 ContainsMm(text, mmMask, "အရေးပါပါ") ||
-                ContainsMm(text, mmMask, "စိတ်အပန်းပြေ"))
+                ContainsMm(text, mmMask, "စိတ်အပန်းပြေ") ||
+                ContainsMm(text, mmMask, "မျိုးဖြစ်တယ်") ||
+                ContainsMm(text, mmMask, "အမြဲရှိနေပါစေ") ||
+                ContainsMm(text, mmMask, "ယုံကြည်မှုရှိဖို့") ||
+                ContainsMm(text, mmMask, "အမှတ်တရတွေရှိ") ||
+                ContainsMm(text, mmMask, "ဒါကမြန်မာ") ||
+                ContainsMm(text, mmMask, "လှေနဲ့ကူးတို့") ||
+                ContainsMm(text, mmMask, "ချက်ပြုတ်နည်းအမျိုးမျိုး") ||
+                ContainsMm(text, mmMask, "တာတွေလည်းလုပ်"))
             {
                 foreach (Match mGlue in GluedPhraseBoundarySplitPattern.Matches(text))
                 {
@@ -7091,6 +7103,9 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
+            // 6k. V66 Bidirectional Intra-Sentence Register Harmony, Case-Role & Tense-Aspect Repairs
+            ScanV66RegisterAndCaseHarmony(text, mmMask, issues);
+
             // 7. Trailing ASCII period '.' right after Myanmar sentence-final verb closer ('ရှိပါတယ်. -> ရှိပါတယ်။')
             if (text.IndexOf('.') >= 0)
             {
@@ -7105,6 +7120,79 @@ namespace MyanmarSpellChecker.Core.Nlp
                             "မြန်မာဝါကျအဆုံးတွင် အင်္ဂလိပ် Full Stop ('.') အစား မြန်မာပုဒ်မ ('။') ကို သုံးနှုန်းရမည်။",
                             "မြန်မာပုဒ်မ ('။')", "PUNCT", true);
                     }
+                }
+            }
+        }
+
+        private static readonly (string Trigger, Regex Pattern, string Replacement, ProofingIssueType Type, string Cue, string Reason)[] V66HarmonyRules =
+        {
+            ("စီရင်ချက်ကို", new Regex(@"တရားရုံးတော်မှ\s+ချမှတ်သော\s+စီရင်ချက်ကို\s+(?<T>မကြိုက်ဘူး\s+ဘာဖြစ်လို့လဲ\s+ဆိုတော့\s+မတရားလို့ပဲ)", RegexOptions.CultureInvariant), "သဘောမတူကြောင်းနှင့် မတရားမှုရှိကြောင်း ထုတ်ဖော်ပြောဆိုကြသည်", ProofingIssueType.OfficialStyleGrammarError, "တရားရုံး/သတင်းစာပေ အရေးအသား", "တရားရုံးတော်ဆိုင်ရာ စာပေဝါကျတွင် အရပ်သုံးစကားအစား စာပေသတင်းအရေးအသားဖြင့် ညီညွတ်စွာ ရေးသားရမည်။"),
+            ("ကိုယ်စားလှယ်က", new Regex(@"လွှတ်တော်ကိုယ်စားလှယ်က\s+ပြောတာ\s+(?<T>ဟုတ်ဘူး\s+ဟယ်\s+ဗျ\s+သူပြောတာ\s+ညာသွားတာ)", RegexOptions.CultureInvariant), "မှန်ကန်မှုမရှိကြောင်း ဝေဖန်ခဲ့ကြသည်", ProofingIssueType.OfficialStyleGrammarError, "လွှတ်တော်/သတင်းစာပေ အရေးအသား", "လွှတ်တော်ဆိုင်ရာ သတင်းဝါကျတွင် အရပ်သုံးဗန်းစကားအစား စာပေအရေးအသားဖြင့် ညီညွတ်စွာ ရေးသားရမည်။"),
+            ("ခဲ့ပါသည်၊", new Regex(@"(?:ပြီးတော့)\s+[\u1000-\u103F]{2,12}?(?<T>ခဲ့ပါသည်)(?=၊\s*ဒါပေမဲ့\s+[^\u104B]+?တယ်။)", RegexOptions.CultureInvariant), "ခဲ့တယ်", ProofingIssueType.OfficialStyleGrammarError, "အပြောစကား ကြိယာအဆုံးသတ် ('~ခဲ့တယ်')", "ရှေ့နောက်ဝါကျခွဲနှစ်ခုလုံး အပြောစကား ('ပြီးတော့ ... ဒါပေမဲ့ ... တယ်') ဖြစ်သဖြင့် 'ခဲ့တယ်' ဟု စကားအဆင့် ညီညွတ်စွာ သုံးရမည်။"),
+            ("ခဲ့ပါသည်၊", new Regex(@"(?:လို့|သူငယ်ချင်းတွေနဲ့)\s+[\u1000-\u103F]{2,14}?(?<T>ခဲ့ပါသည်)(?=၊\s*(?:ဒါပေမဲ့\s+[^\u104B]+?ဘူး|အရမ်း[^\u104B]+?တယ်။))", RegexOptions.CultureInvariant), "ခဲ့ပါတယ်", ProofingIssueType.OfficialStyleGrammarError, "အပြောစကား ကြိယာအဆုံးသတ် ('~ခဲ့ပါတယ်')", "တစ်ဝါကျတည်းအတွင်း အပြောစကားနှင့် စကားအဆင့် ညီညွတ်စေရန် 'ခဲ့ပါတယ်' ဟု သုံးနှုန်းရမည်။"),
+            ("ပြီးပါသည်၊", new Regex(@"ဤ[\u1000-\u103F]+ကို\s+[^\u104A\u104B]+?ပြီးပါသည်၊\s*ထို့ကြောင့်\s+အောင်မြင်(?<T>မှာပါ။)", RegexOptions.CultureInvariant), "မည်ဟု ယူဆပါသည်။", ProofingIssueType.OfficialStyleGrammarError, "စာပေဟန် ဝါကျအဆုံးသတ်", "ရှေ့ဝါကျခွဲတွင် 'ဤ ... ပြီးပါသည်၊ ထို့ကြောင့်' ဟု စာပေဟန်သုံးထားသဖြင့် အဆုံးသတ်၌လည်း စာပေဟန်ဖြင့် ညီညွတ်စွာ ပိတ်ရမည်။"),
+            ("ခဲ့ပါသည်၊", new Regex(@"ခဲ့ပါသည်၊\s*ပြီးတော့\s+(?<T>ကောင်းမှုတွေ\s+လုပ်ခဲ့တယ်)(?=။)", RegexOptions.CultureInvariant), "ကောင်းမှုများ ပြုလုပ်ခဲ့ပါသည်", ProofingIssueType.OfficialStyleGrammarError, "စာပေဟန် ဝါကျခွဲ ('ကောင်းမှုများ ပြုလုပ်ခဲ့ပါသည်')", "ပထမဝါကျခွဲ ('~ခဲ့ပါသည်၊') နှင့် စကားအဆင့် ညီညွတ်စေရန် စာပေဟန်ဖြင့် ရေးသားရမည်။"),
+            ("များသည် ", new Regex(@"များနှင့်\s+[\u1000-\u103F]+များသည်\s+[^\u104A\u104B]{4,40}?(?<T>တယ်)(?=။)", RegexOptions.CultureInvariant), "သည်", ProofingIssueType.OfficialStyleGrammarError, "စာပေဟန် ကြိယာအဆုံးသတ် ('~သည်')", "စာပေဟန် ကတ္တားပုဒ် ('~များနှင့် ~များသည်') နှင့် ညီညွတ်စေရန် အဆုံးသတ်၌ 'သည်' ကို သုံးနှုန်းရမည်။"),
+            ("လူတိုင်းအတွက်", new Regex(@"ဆိုတာ\s+လူတိုင်းအတွက်\s+[^\u104A\u104B]{4,25}?(?<T>ရမည်။)", RegexOptions.CultureInvariant), "ရမယ်။", ProofingIssueType.OfficialStyleGrammarError, "အပြောစကား ကြိယာအဆုံးသတ် ('~ရမယ်')", "အပြောစကား 'ဆိုတာ' နှင့် ညီညွတ်စေရန် 'ရမယ်။' ဟု သုံးနှုန်းရမည်။"),
+            ("ဥပဒေဆိုတာ", new Regex(@"ဥပဒေဆိုတာ\s+[^\u104A\u104B]{4,25}?(?<T>ထိန်းသိမ်းပေးပါသည်)$", RegexOptions.CultureInvariant), "ထိန်းသိမ်းပေးတယ်။", ProofingIssueType.OfficialStyleGrammarError, "အပြောစကား ကြိယာအဆုံးသတ်", "အပြောစကား 'ဆိုတာ' နှင့် ညီညွတ်စေရန် 'ထိန်းသိမ်းပေးတယ်။' ဟု သုံးနှုန်းရမည်။"),
+            ("ကျွန်ုပ်၏", new Regex(@"တွေက\s+(?<T>ကျွန်ုပ်၏)(?=\s+[\u1000-\u103F]+တွေကို)", RegexOptions.CultureInvariant), "ကျွန်တော့်ရဲ့", ProofingIssueType.OfficialStyleGrammarError, "အပြောစကား နာမ်စား ('ကျွန်တော့်ရဲ့')", "အပြောစကားဝါကျ ('~တွေက ... ~တွေကို ... တယ်') အတွင်း 'ကျွန်ုပ်၏' အစား 'ကျွန်တော့်ရဲ့' ဟု ညီညွတ်စွာ သုံးနှုန်းရမည်။"),
+            ("ကောင်းသည်။", new Regex(@"(?:စားရတာ|ခံစားရတာ)\s+(?:ပျော်စရာ|အရမ်း)ကောင်း(?<T>သည်။)", RegexOptions.CultureInvariant), "တယ်။", ProofingIssueType.OfficialStyleGrammarError, "အပြောစကား အဆုံးသတ် ('~တယ်။')", "အပြောစကား '~ရတာ / အရမ်း' နှင့် ညီညွတ်စေရန် 'တယ်။' ဟု အဆုံးသတ်ရမည်။"),
+            ("အရသာရှိ", new Regex(@"ရှမ်းခေါက်ဆွဲက\s+အရမ်းအရသာ(?<T>ရှိသည်။|ရှိမည်(?=။))", RegexOptions.CultureInvariant), "ရှိတယ်။", ProofingIssueType.OfficialStyleGrammarError, "အပြောစကား ပစ္စုပ္ပန်ပြ ('ရှိတယ်')", "အပြောစကား 'အရမ်း' နှင့် ပုံမှန်အရသာဖော်ပြချက်အရ 'ရှိတယ်' ဟု သုံးနှုန်းရမည်။"),
+            ("ပါသည်။", new Regex(@"(?:(?:လူငယ်တွေ|ဆေးမြီးတိုတွေက)\s+[^\u104A\u104B]{6,35}?(?:သင့်|စေ)|အရက်သောက်တာက\s+[^\u104A\u104B]{6,25}?နိုင်|သူငယ်ချင်းတွေနဲ့အတူ\s+ကြည့်ရတာ\s+ပိုပျော်)(?<T>ပါသည်။)", RegexOptions.CultureInvariant), "တယ်။", ProofingIssueType.OfficialStyleGrammarError, "အပြောစကား အဆုံးသတ် ('~တယ်။')", "ရှေ့ပိုင်း အပြောစကားအသုံးအနှုန်း ('~တွေ / ~တာက / ~နဲ့အတူ') နှင့် ညီညွတ်စေရန် 'တယ်။' ဟု အဆုံးသတ်ရမည်။"),
+            ("အခါ၌", new Regex(@"ဟင်းချက်(?<T>အခါ၌)(?=\s+)", RegexOptions.CultureInvariant), "တဲ့အခါမှာ", ProofingIssueType.OfficialStyleGrammarError, "အပြောစကား အချိန်ပြပုဒ် ('~တဲ့အခါမှာ')", "အပြောစကားဝါကျ ('~ပဲ။') နှင့် ကြိယာနောက်ဆက် မှန်ကန်စေရန် 'ဟင်းချက်တဲ့အခါမှာ' ဟု သုံးနှုန်းရမည်။"),
+            ("တွင်လည်း", new Regex(@"ဆေးပညာ(?<T>တွင်လည်း)(?=\s+[\u1000-\u103F]+တွေက\s+[^\u104B]+?တယ်။)", RegexOptions.CultureInvariant), "မှာလည်း", ProofingIssueType.OfficialStyleGrammarError, "အပြောစကား နေရာပြဝိဘတ် ('~မှာလည်း')", "အပြောစကားဝါကျ ('~တွေက ... တယ်။') အတွင်း 'တွင်လည်း' အစား 'မှာလည်း' ဟု ညီညွတ်စွာ သုံးနှုန်းရမည်။"),
+            ("နိုင်သည်", new Regex(@"လူအများကြီးနဲ့\s+[^\u104B]{6,35}?(?<T>နိုင်သည်)$", RegexOptions.CultureInvariant), "နိုင်တယ်။", ProofingIssueType.OfficialStyleGrammarError, "အပြောစကား ဝါကျအဆုံးသတ် ('နိုင်တယ်။')", "အပြောစကား ('~နဲ့ / ~တွေ') နှင့် ညီညွတ်စေရန် 'နိုင်တယ်။' ဟု အဆုံးသတ်ရမည်။"),
+            ("ချောင်းများမှာ", new Regex(@"မြစ်တွေ၊\s*(?<T>ချောင်းများမှာ)", RegexOptions.CultureInvariant), "ချောင်းတွေမှာ", ProofingIssueType.OfficialStyleGrammarError, "အပြောစကား အများပြပစ္စည်း ('ချောင်းတွေမှာ')", "'မြစ်တွေ' နှင့် စကားအဆင့် ညီညွတ်စေရန် 'ချောင်းတွေမှာ' ဟု သုံးနှုန်းရမည်။"),
+            ("ပြည်သူတွေ", new Regex(@"မျိုးချစ်စိတ်ဓာတ်ဖြင့်\s+(?<T>ပြည်သူတွေ)(?=\s+[^\u104B]+?သည်။)", RegexOptions.CultureInvariant), "ပြည်သူများ", ProofingIssueType.OfficialStyleGrammarError, "စာပေဟန် အများပြပစ္စည်း ('ပြည်သူများ')", "စာပေအရေးအသား ('~ဖြင့် ... သည်။') အတွင်း 'ပြည်သူတွေ' အစား 'ပြည်သူများ' ကို သုံးနှုန်းရမည်။"),
+            ("သိမ်းထားပေါ့။", new Regex(@"ပြေစာ\s+(?<T>သိမ်းထားပေါ့။)", RegexOptions.CultureInvariant), "သိမ်းထားပါ။", ProofingIssueType.OfficialStyleGrammarError, "စံ/ယဉ်ကျေးသော အဆုံးသတ် ('သိမ်းထားပါ။')", "အခွန်ပြေစာဆိုင်ရာ လမ်းညွှန်ဝါကျတွင် 'ပေါ့' အစား 'သိမ်းထားပါ။' ဟု သုံးနှုန်းရမည်။"),
+            ("ပါမောက္ခက", new Regex(@"ပါမောက္ခက\s+(?<T>ဒါ)(?=ကို\s+)", RegexOptions.CultureInvariant), "ယင်းကိစ္စ", ProofingIssueType.OfficialStyleGrammarError, "စာပေ/ပညာရပ်သုံး အညွှန်းပုဒ် ('ယင်းကိစ္စ')", "ပညာရပ်ဆိုင်ရာ ဝါကျတွင် အရပ်သုံး 'ဒါ' အစား 'ယင်းကိစ္စ' ကို သုံးနှုန်းရမည်။"),
+            ("သိပ္ပံပညာရှင်တွေက", new Regex(@"သိပ္ပံပညာရှင်တွေက\s+(?<T>ဒါ)(?=ကို\s+)", RegexOptions.CultureInvariant), "ယင်း", ProofingIssueType.OfficialStyleGrammarError, "စာပေ/ပညာရပ်သုံး ညွှန်းပြနာမ်စား ('ယင်း')", "ပညာရပ်ဆိုင်ရာ ဝါကျတွင် အရပ်သုံး 'ဒါ' အစား 'ယင်း' ကို သုံးနှုန်းရမည်။"),
+            ("ပေးလိုက်ပြီ", new Regex(@"ဝန်ကြီးဌာနက\s+ထုတ်ပြန်ချက်အရ\s+[^\u104B]{6,30}?တိုး(?<T>ပေးလိုက်ပြီ)(?=။)", RegexOptions.CultureInvariant), "ပေးခဲ့ပြီဖြစ်သည်", ProofingIssueType.OfficialStyleGrammarError, "ရုံးသုံး/သတင်းစာပေ ကြိယာအဆုံးသတ်", "ဝန်ကြီးဌာန ထုတ်ပြန်ချက် သတင်းဝါကျတွင် 'ပေးခဲ့ပြီဖြစ်သည်' ဟု စာပေဟန်ဖြင့် သုံးနှုန်းရမည်။"),
+            ("ကြည့်ရှုပေးပါမယ်", new Regex(@"အုပ်ချုပ်ရေးအဖွဲ့က\s+ဒီကိစ္စကို\s+အမြန်ဆုံး\s+(?<T>ကြည့်ရှုပေးပါမယ်)(?=\s+လို့\s+ပြောခဲ့သည်။)", RegexOptions.CultureInvariant), "ဆောင်ရွက်ပေးမည်ဖြစ်ကြောင်း", ProofingIssueType.OfficialStyleGrammarError, "သတင်းစာပေ အဆင့်မြင့်အသုံး", "အုပ်ချုပ်ရေးအဖွဲ့၏ တရားဝင်ပြောကြားချက် သတင်းဝါကျတွင် 'ဆောင်ရွက်ပေးမည်ဖြစ်ကြောင်း' ဟု သုံးနှုန်းရမည်။"),
+            ("ပါဝင်တယ်။", new Regex(@"ငြိမ်းချမ်းရေး၌\s+[^\u104B]{6,30}?များလည်း\s+(?<T>ပါဝင်တယ်။)", RegexOptions.CultureInvariant), "ပါဝင်သည်။", ProofingIssueType.OfficialStyleGrammarError, "စာပေဟန် ဝါကျအဆုံးသတ် ('ပါဝင်သည်။')", "စာပေဟန် ('~နှင့် ~၌ ... ~များလည်း') နှင့် ညီညွတ်စေရန် 'ပါဝင်သည်။' ဟု အဆုံးသတ်ရမည်။"),
+            ("လုပ်တာက", new Regex(@"(?:လေ့ကျင့်ခန်း|အားကစား)(?<T>လုပ်တာက)(?=\s+[^\u104B]{6,30}?(?:စေ|ကောင်း)သည်။)", RegexOptions.CultureInvariant), "လုပ်ခြင်းသည်", ProofingIssueType.OfficialStyleGrammarError, "စာပေဟန် နာမ်ပြုကတ္တား ('~လုပ်ခြင်းသည်')", "ဝါကျအဆုံး၌ စာပေဟန် 'သည်။' သုံးထားသဖြင့် ရှေ့ကတ္တား၌လည်း 'လုပ်ခြင်းသည်' ဟု ညီညွတ်စွာ သုံးနှုန်းရမည်။"),
+            ("ဆောင်ရွက်တာက", new Regex(@"ဥပဒေနဲ့အညီ\s+(?<T>ဆောင်ရွက်တာက)(?=\s+တရားမျှတမှု)", RegexOptions.CultureInvariant), "ဆောင်ရွက်ခြင်းက", ProofingIssueType.OfficialStyleGrammarError, "စံနာမ်ပြုပစ္စည်း ('ဆောင်ရွက်ခြင်းက')", "ဥပဒေဆိုင်ရာ ဝါကျတွင် 'ဆောင်ရွက်ခြင်းက' ဟု သုံးနှုန်းရမည်။"),
+            ("ပြီးတဲ့အခါကတော့", new Regex(@"ပြီးတဲ့အခါ(?<T>ကတော့)", RegexOptions.CultureInvariant), "မှာတော့", ProofingIssueType.OfficialStyleGrammarError, "အချိန်ပြဝိဘတ် ('~မှာတော့')", "အချိန်ပြ 'အခါ' နောက်တွင် ကတ္တား 'ကတော့' အစား အချိန်/နေရာပြ 'မှာတော့' ကို သုံးနှုန်းရမည်။"),
+            ("စားပွဲပေါ်မှာ", new Regex(@"(?:စားပွဲထိုး|စားပဲွထိုး)(?<T>ကို)(?=\s+စားပွဲပေါ်မှာ)", RegexOptions.CultureInvariant), "က", ProofingIssueType.OfficialStyleGrammarError, "ကတ္တားဝိဘတ် ('~က')", "ပြုလုပ်သူ ကတ္တားပုဒ်ဖြစ်၍ ကံဝိဘတ် 'ကို' အစား ကတ္တားဝိဘတ် 'က' ကို သုံးနှုန်းရမည်။"),
+            ("သူရဲကောင်းတို့က", new Regex(@"သူရဲကောင်း(?<T>တို့က)(?=\s+နိုင်ငံတော်အတွက်\s+အသက်ပေးခဲ့ကြသည်။)", RegexOptions.CultureInvariant), "တို့သည်", ProofingIssueType.OfficialStyleGrammarError, "စာပေဟန် ကတ္တားဝိဘတ် ('~တို့သည်')", "စာပေဂုဏ်ပြုဝါကျတွင် ကတ္တားဝိဘတ် 'တို့သည်' ကို သုံးနှုန်းရမည်။"),
+            ("သူရဲကောင်းတို့ရဲ့", new Regex(@"သူရဲကောင်း(?<T>တို့ရဲ့)(?=\s+[^\u104B]+?ပါမည်။)", RegexOptions.CultureInvariant), "တို့၏", ProofingIssueType.OfficialStyleGrammarError, "စာပေဟန် ပိုင်ဆိုင်ပြဝိဘတ် ('~တို့၏')", "ဝါကျအဆုံး၌ စာပေဟန် 'ပါမည်။' သုံးထားသဖြင့် 'တို့၏' ဟု ညီညွတ်စွာ သုံးနှုန်းရမည်။"),
+            ("မျိုးစိတ်တွေ", new Regex(@"တောရိုင်းတိရစ္ဆာန်(?<T>တွေကို)(?=\s+မျိုးစိတ်တွေ)", RegexOptions.CultureInvariant), "တွေရဲ့", ProofingIssueType.OfficialStyleGrammarError, "ပိုင်ဆိုင်ပြဝိဘတ် ('~တွေရဲ့')", "နောက်လိုက်နာမ် 'မျိုးစိတ်တွေ' ကို ပိုင်ဆိုင်အထူးပြုသဖြင့် 'တွေရဲ့' ဟု သုံးနှုန်းရမည်။"),
+            ("ကျွမ်းကျင်မှုတွေနဲ့", new Regex(@"ကျွမ်းကျင်မှု(?<T>တွေနဲ့)(?=\s+[^\u104B]+?အတွက်\s+အရေးကြီး)", RegexOptions.CultureInvariant), "တွေက", ProofingIssueType.OfficialStyleGrammarError, "ကတ္တားဝိဘတ် ('~တွေက')", "'အရေးကြီးသည်' ကြိယာ၏ ကတ္တားပုဒ်ဖြစ်၍ 'တွေက' ဟု သုံးနှုန်းရမည်။"),
+            ("ခွင့်လွှတ်ပေးပါ", new Regex(@"ကျွန်တော့်အမှား(?<T>ကြောင့်)(?=\s+ခွင့်လွှတ်ပေးပါ)", RegexOptions.CultureInvariant), "အတွက်", ProofingIssueType.OfficialStyleGrammarError, "ရည်စူးချက်ပြဝိဘတ် ('~အတွက်')", "'ခွင့်လွှတ်ပေးပါ' နှင့် တွဲဖက်ရာတွင် 'အမှားအတွက်' ဟု သုံးနှုန်းရမည်။"),
+            ("မနက်ဖြန် ထမယ်", new Regex(@"မနေ့ညက\s+[^\u104B]{4,20}?(?<T>မနက်ဖြန်\s+ထမယ်)", RegexOptions.CultureInvariant), "ဒီနေ့ ထခဲ့တယ်", ProofingIssueType.OfficialStyleGrammarError, "အတိတ်ကာလ ရှေ့နောက်ညီညွတ်မှု", "ရှေ့တွင် 'မနေ့ညက အိပ်ပျော်ပြီး' ဟု အတိတ်ကာလပြထားသဖြင့် 'ဒီနေ့ ထခဲ့တယ်' ဟု ကာလညီညွတ်ရမည်။"),
+            ("တစ်ပတ်တစ်ခါလောက်", new Regex(@"တစ်ပတ်တစ်ခါလောက်\s+(?<T>စားနေတယ်)", RegexOptions.CultureInvariant), "စားတယ်", ProofingIssueType.OfficialStyleGrammarError, "အလေ့အထပြ ကြိယာ ('စားတယ်')", "'တစ်ပတ်တစ်ခါလောက်' သည် ပုံမှန်အလေ့အထပြ ဖြစ်သဖြင့် ဖြစ်ဆဲ 'နေ' မထည့်ဘဲ 'စားတယ်' ဟု သုံးရမည်။"),
+            ("ဆွဲဆောင်နိုင်မည်။", new Regex(@"ဝန်ထမ်းတွေကို\s+(?<T>ဆွဲဆောင်နိုင်မည်။)", RegexOptions.CultureInvariant), "ဆွဲဆောင်နိုင်တယ်။", ProofingIssueType.OfficialStyleGrammarError, "အပြောစကား ပစ္စုပ္ပန်/ယေဘုယျပြ ('နိုင်တယ်။')", "ရှေ့ပိုင်း အပြောစကား ('~နဲ့ / ~တွေက / ~တွေကို') နှင့် ညီညွတ်စေရန် 'ဆွဲဆောင်နိုင်တယ်။' ဟု သုံးနှုန်းရမည်။"),
+            ("ဖြစ်ရမည်", new Regex(@"ဝေးကွာသွားတဲ့အခါ\s+စိတ်မကောင်း(?<T>ဖြစ်ရမည်)", RegexOptions.CultureInvariant), "ဖြစ်ရတယ်", ProofingIssueType.OfficialStyleGrammarError, "အပြောစကား ဝါကျအဆုံးသတ် ('ဖြစ်ရတယ်')", "ရှေ့ပိုင်း အပြောစကား ('~တွေနဲ့ / ~တဲ့အခါ') နှင့် ညီညွတ်စေရန် 'ဖြစ်ရတယ်' ဟု သုံးနှုန်းရမည်။"),
+            ("လုပ်ငန်းစင်များ", new Regex(@"(?<T>လုပ်ငန်းစင်)(?=များ)", RegexOptions.CultureInvariant), "လုပ်ငန်းစဉ်", ProofingIssueType.SpellingError, "လုပ်ငန်းစဉ် (အစီအစဉ်)", "အစီအစဉ်အနက်ဖြင့် 'လုပ်ငန်းစဉ်' ဟု ညကလေးသတ်ဖြင့် ရေးသားရမည်။")
+        };
+
+        private static void ScanV66RegisterAndCaseHarmony(string text, ulong mmMask, List<ProofingIssue> issues)
+        {
+            const string auth = "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (အဆက်တွဲဝိဘတ် နှင့် စကားအဆင့်ညီညွတ်မှု စည်းမျဉ်း)";
+            for (int i = 0; i < V66HarmonyRules.Length; i++)
+            {
+                var r = V66HarmonyRules[i];
+                if (!ContainsMm(text, mmMask, r.Trigger))
+                    continue;
+
+                foreach (Match m in r.Pattern.Matches(text))
+                {
+                    Group g = m.Groups["T"];
+                    if (!g.Success || OverlapsExistingIssue(issues, g.Index, g.Length))
+                        continue;
+
+                    string rep = r.Replacement;
+                    if (r.Trigger == "အရသာရှိ")
+                    {
+                        rep = g.Value == "ရှိမည်" ? "ရှိတယ်" : "ရှိတယ်။";
+                    }
+
+                    AddGrammarOrSpellingIssue(
+                        issues, g.Index, g.Length, g.Value, rep,
+                        r.Type,
+                        $"ဝါကျအတွင်း ဝိဘတ်/စကားအဆင့် ညီညွတ်စေရန် '{g.Value}' အစား '{rep}' ဟု သုံးနှုန်းရမည်။",
+                        r.Cue, "PART", false,
+                        r.Reason, auth);
                 }
             }
         }
