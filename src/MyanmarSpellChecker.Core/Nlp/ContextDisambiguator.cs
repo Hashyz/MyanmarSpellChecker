@@ -372,11 +372,18 @@ namespace MyanmarSpellChecker.Core.Nlp
                 "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ နစ်နာကြေး/တန်ဖိုး အစားပြန်ပေးလျော်ခြင်းကို ဟထိုးမပါဘဲ 'လျော်' ဟု ရေးသားရမည် ('လျှော်' သည် အဝတ်/ခေါင်း လျှော်ဖွပ်ခြင်း ဖြစ်သည်)။"
             ),
             new CollocationRule(
-                @"(?:အဝတ်အစား|အဝတ်အထည်|အင်္ကျီ|ပုဆိုး|ထဘီ|စောင်|ခြင်ထောင်|ဆံပင်)[^\u104A\u104B\r\n]{0,18}?(?<Target>လျော်)(?=ဖွပ်|ပေး|ပြီး|နေ|ထား|ရန်|သည်)",
+                @"(?:အဝတ်အစား|အဝတ်အထည်|အဝတ်|အင်္ကျီ|ပုဆိုး|ထဘီ|စောင်|ခြင်ထောင်|ဆံပင်)[^\u104A\u104B\r\n]{0,18}?(?<Target>လျော်)(?=\s*(?:ဖွပ်|ပေး|ပြီး|နေ|ထား|ရန်|သည်|ပါ|တယ်|ကြ|မယ်|ခဲ့))",
                 "Target",
                 "လျှော်",
                 "လျှော် (ရေ/ဆပ်ပြာဖြင့် အဝတ်~ဖွပ်သည်)",
                 "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ အဝတ်အထည်/ဆံပင် ရေဖြင့် လျှော်ဖွပ်ခြင်းကို ဟထိုးဖြင့် 'လျှော်' ဟု ရေးသားရမည် ('လျော်' သည် လျော်ကြေးပေးလျော်ခြင်း/သင့်လျော်ခြင်း ဖြစ်သည်)။"
+            ),
+            new CollocationRule(
+                @"(?:နေပူထဲ|နေရောင်အောက်)(?:မှာ|တွင်|၌)?[^\u104A\u104B\r\n]{0,18}?(?<!ခြေ|လက်)(?<Target>လှမ်း)(?=\s*(?:ရ|ထား|နေ|ပြီး|ပါ|သည်|တယ်|မည်|မယ်))",
+                "Target",
+                "လှန်း",
+                "လှန်း (နေပူထဲ၌ အခြောက်ခံ နေ~သည်)",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ နေရောင်/နေပူထဲ၌ အခြောက်ခံခြင်းကို နသတ်ဖြင့် 'လှန်း' ဟု ရေးသားရမည် ('လှမ်း' သည် ခြေလှမ်းခြင်း/လက်လှမ်းခြင်း ဖြစ်သည်)။"
             ),
             new CollocationRule(
                 @"(?<Target>တင်ပြွေဆေးနွေး)",
@@ -514,6 +521,62 @@ namespace MyanmarSpellChecker.Core.Nlp
                 "အရေးပေါ်",
                 "အရေးပေါ် (ချက်ချင်းဆောင်ရွက်ရန် ~)",
                 "ချက်ချင်းဆောင်ရွက်ရမည့် ကိစ္စရပ်များတွင် 'အရေးပေါ်' ဟု ရေးသားရမည်။"
+            ),
+            new CollocationRule(
+                @"(?<Target>ဂရုဆိုက်)",
+                "Target",
+                "ဂရုစိုက်",
+                "ဂရုစိုက် (အလေးထား ဂရုစိုက်~သည်)",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ အာရုံစူးစိုက် အလေးထားခြင်းကို စလုံးဖြင့် 'ဂရုစိုက်' ဟု ရေးသားရမည်။"
+            ),
+            new CollocationRule(
+                @"(?<Target>သွန်သင်ဆုံမ)",
+                "Target",
+                "သွန်သင်ဆုံးမ",
+                "သွန်သင်ဆုံးမ (လမ်းညွှန်ဆုံးမ~သည်)",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ လမ်းညွှန်ပဲ့ပြင်ခြင်းကို ဝစ္စပေါက်ပါလျက် 'သွန်သင်ဆုံးမ' ဟု ရေးသားရမည်။"
+            ),
+            new CollocationRule(
+                @"(?<Target>စနစ်တကွ)",
+                "Target",
+                "စနစ်တကျ",
+                "စနစ်တကျ (နည်းစနစ်မှန်ကန်စွာ ~)",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ နည်းလမ်းမှန်ကန်စွာ ဆောင်ရွက်ခြင်းကို 'စနစ်တကျ' ဟု ရေးသားရမည် ('တကွ' ကို 'အတူတကွ' ၌သာ သုံးသည်)။"
+            ),
+            new CollocationRule(
+                @"(?<Target>အလွယ်တကာ)(?=ဝယ်|ရ|သိ|လုပ်|တွေ့|သွား|ပြော|ဖတ်|သုံး|\s)",
+                "Target",
+                "အလွယ်တကူ",
+                "အလွယ်တကူ (လွယ်လင့်တကူ ~)",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ မခက်မခဲ လွယ်ကူစွာ ပြုလုပ်နိုင်ခြင်းကို 'အလွယ်တကူ' ဟု ရေးသားရမည်။"
+            ),
+            new CollocationRule(
+                @"(?<Target>သက်တောင့်သက်သာ|သက်တောင့်သက်သာ)",
+                "Target",
+                "သက်သောင့်သက်သာ",
+                "သက်သောင့်သက်သာ (ကိုယ်စိတ်ချမ်းသာစွာ ~)",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ ပင်ပန်းဆင်းရဲမှုကင်းစွာ နေထိုင်ခြင်းကို သကြီးဖြင့် 'သက်သောင့်သက်သာ' ဟု ရေးသားရမည် ('သက်တောင့်သက်သာ' မှာ အသံထွက်လိုက် မှားယွင်းရေးထုံး ဖြစ်သည်)။"
+            ),
+            new CollocationRule(
+                @"(?<!သေနတ်|လေး|မြား|အမြောက်)(?<Target>ပစ်မှု)(?=\s*(?:များ|တွေ|ကို|ကျူးလွန်|ဖြစ်ပွား|နှိမ်နင်း|စစ်ဆေး|ဆိုင်ရာ|ဖြင့်|ကြောင့်|အတွက်))",
+                "Target",
+                "ပြစ်မှု",
+                "ပြစ်မှု (ဥပဒေချိုးဖောက်သော ရာဇဝတ်ပြစ်မှု ~)",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ ဥပဒေချိုးဖောက်သည့် ရာဇဝတ်မှုကို ရရစ်ဖြင့် 'ပြစ်မှု' ဟု ရေးသားရမည် ('ပစ်' သည် ပစ်ခတ်/စွန့်ပစ်ခြင်း ဖြစ်သည်)။"
+            ),
+            new CollocationRule(
+                @"(?<Target>သုပ်ဆေး)",
+                "Target",
+                "သုတ်ဆေး",
+                "သုတ်ဆေး (နံရံ/သစ်သား အရောင်ခြယ်~)",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ အရောင်ခြယ်သုတ်လိမ်းသည့် ဆေးကို တဝမ်းပူသတ်ဖြင့် 'သုတ်ဆေး' ဟု ရေးသားရမည် ('သုပ်' သည် အစားအစာ နယ်ဖတ်သုပ်ခြင်း ဖြစ်သည်)။"
+            ),
+            new CollocationRule(
+                @"(?<Target>ဖွံ့ဖြိုးတိုးထက်)",
+                "Target",
+                "ဖွံ့ဖြိုးတိုးတက်",
+                "ဖွံ့ဖြိုးတိုးတက် (ကြီးပွားတိုးတက်~သည်)",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ ကြီးပွားဖွံ့ဖြိုးခြင်းကို တဝမ်းပူဖြင့် 'ဖွံ့ဖြိုးတိုးတက်' ဟု ရေးသားရမည်။"
             ),
 
             // 14. ဖတ် (read) vs ဖက် (hug/leaf/partner)
@@ -2272,6 +2335,119 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (n < 2)
                 return;
 
+            // 0. Generalized Contiguous-Chunk Nominalizer '-မူ -> -မှု' Pass (2..6 syllables before 'မူ', e.g. 'ပြေလည်မူ', 'ငွေပေးချေမူ', 'သင်ကြားပို့ချမူကို')
+            for (int mIdx = 1; mIdx < n; mIdx++)
+            {
+                ClauseWordToken muTok = wordTokens[mIdx];
+                if (muTok.NormText != "မူ" ||
+                    muTok.IsProtectedName ||
+                    wordTokens[mIdx - 1].EndIndex != muTok.StartIndex ||
+                    OverlapsExisting(existingIssues, muTok.StartIndex, muTok.Length) ||
+                    OverlapsExisting(issues, muTok.StartIndex, muTok.Length))
+                {
+                    continue;
+                }
+
+                if (mIdx + 1 < n && muTok.EndIndex == wordTokens[mIdx + 1].StartIndex)
+                {
+                    string nextGlued = wordTokens[mIdx + 1].NormText;
+                    if ((!GenericSyntacticParticles.Contains(nextGlued) && !ProtectedFunctionWords.Contains(nextGlued)) ||
+                        trie.ContainsExactWord("မူ" + nextGlued))
+                    {
+                        continue;
+                    }
+                }
+
+                int startK = mIdx - 1;
+                int leftSyls = 0;
+                while (startK >= 0)
+                {
+                    ClauseWordToken prev = wordTokens[startK];
+                    if (prev.IsProtectedName ||
+                        (startK < mIdx - 1 && prev.EndIndex != wordTokens[startK + 1].StartIndex) ||
+                        GenericSyntacticParticles.Contains(prev.NormText) ||
+                        OverlapsExisting(existingIssues, prev.StartIndex, prev.Length) ||
+                        OverlapsExisting(issues, prev.StartIndex, prev.Length) ||
+                        leftSyls + prev.SyllableCount > 6)
+                    {
+                        break;
+                    }
+                    leftSyls += prev.SyllableCount;
+                    startK--;
+                }
+                startK++;
+
+                if (leftSyls >= 2 && startK <= mIdx - 1)
+                {
+                    var sbLeft = new System.Text.StringBuilder(24);
+                    for (int t = startK; t < mIdx; t++)
+                        sbLeft.Append(wordTokens[t].NormText);
+                    string fullLeftNorm = sbLeft.ToString();
+
+                    if (!trie.ContainsExactWord(fullLeftNorm + "မူ") &&
+                        !fullLeftNorm.EndsWith("တော်", StringComparison.Ordinal) &&
+                        !fullLeftNorm.EndsWith("အ", StringComparison.Ordinal) &&
+                        !fullLeftNorm.EndsWith("ပါ", StringComparison.Ordinal) &&
+                        !fullLeftNorm.EndsWith("သော်", StringComparison.Ordinal) &&
+                        !fullLeftNorm.EndsWith("စေကာ", StringComparison.Ordinal) &&
+                        !fullLeftNorm.EndsWith("ရာ", StringComparison.Ordinal) &&
+                        !fullLeftNorm.EndsWith("တွင်", StringComparison.Ordinal))
+                    {
+                        ClauseWordToken immPrev = wordTokens[mIdx - 1];
+                        string tailTwoTokNorm = mIdx - 2 >= startK
+                            ? (wordTokens[mIdx - 2].NormText + immPrev.NormText)
+                            : immPrev.NormText;
+
+                        var leftSylList = MyanmarSyllableBreaker.BreakIntoSyllables(fullLeftNorm, isPreNormalized: true);
+                        string lastTwoSylNorm = leftSylList.Count >= 2
+                            ? (leftSylList[leftSylList.Count - 2] + leftSylList[leftSylList.Count - 1])
+                            : fullLeftNorm;
+                        string lastOneSylNorm = leftSylList.Count >= 1
+                            ? leftSylList[leftSylList.Count - 1]
+                            : string.Empty;
+
+                        bool confirmedMhuNominalization =
+                            trie.ContainsExactWord(fullLeftNorm + "မှု") ||
+                            (immPrev.SyllableCount >= 2 && (trie.ContainsExactWord(immPrev.NormText + "မှု") || trie.HasPosTag(immPrev.NormText, "V"))) ||
+                            (tailTwoTokNorm.Length >= 4 && (trie.ContainsExactWord(tailTwoTokNorm + "မှု") || (trie.ContainsExactWord(tailTwoTokNorm) && trie.HasPosTag(tailTwoTokNorm, "V")))) ||
+                            (leftSylList.Count >= 2 && (trie.ContainsExactWord(lastTwoSylNorm + "မှု") || (trie.ContainsExactWord(lastTwoSylNorm) && trie.HasPosTag(lastTwoSylNorm, "V")))) ||
+                            (leftSylList.Count >= 3 && lastOneSylNorm.Length >= 2 && trie.HasPosTag(lastOneSylNorm, "V") && trie.ContainsExactWord(lastOneSylNorm + "မှု"));
+
+                        if (confirmedMhuNominalization)
+                        {
+                            int spanStart = wordTokens[startK].StartIndex;
+                            int spanLen = muTok.EndIndex - spanStart;
+                            string rawSpan = text.Substring(spanStart, spanLen);
+                            string targetMhu = fullLeftNorm + "မှု";
+                            AddNonOverlapping(issues, new ProofingIssue
+                            {
+                                StartIndex = spanStart,
+                                Length = spanLen,
+                                OriginalText = rawSpan,
+                                IssueType = ProofingIssueType.SpellingError,
+                                RequiresReviewBeforeBatchFix = false,
+                                Message = $"ကြိယာနာမ်ပြုပစ္စည်း စာလုံးပေါင်းအမှန် — '{rawSpan}' အစား '{targetMhu}' (ဟထိုး တစ်ချောင်းငင် '~မှု') ဟု ရေးသားရမည်။",
+                                GrammaticalReasoning = $"ရှေ့ကြိယာပေါင်းစပ်ပုဒ် '{fullLeftNorm}' ကို နာမ်ပြောင်းရာတွင် ဟထိုးပါသော 'မှု' ပစ္စည်းကိုသာ သုံးရမည် ('မူ' သည် အပြုအမူ/မူဝါဒ/တော်မူ ၌သာ သုံးသည်)။",
+                                AuthoritativeSource = "မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း နှင့် မြန်မာသဒ္ဒါ (ကြိယာနာမ်ပြုပစ္စည်း 'မှု')",
+                                Suggestions = new List<SuggestionCandidate>
+                                {
+                                    new SuggestionCandidate
+                                    {
+                                        Replacement = targetMhu,
+                                        MeaningCue = "ကြိယာနာမ်ပြုပစ္စည်း ('~မှု')",
+                                        PosTag = "N",
+                                        IsOfficialThatpon = true,
+                                        SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(targetMhu),
+                                        DiagnosticDetail = OrthographicDiffExplainer.ExplainDifference(rawSpan, targetMhu),
+                                        Score = 100.0
+                                    }
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+
             for (int i = 0; i < n - 1; i++)
             {
                 ClauseWordToken w1 = wordTokens[i];
@@ -2299,7 +2475,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     if (winTokens == 3)
                     {
                         ClauseWordToken wMid = wordTokens[i + 1];
-                        if (wMid.NormText != "အ" ||
+                        if ((wMid.NormText != "အ" && wLast.NormText != "မူ") ||
                             w1.EndIndex != wMid.StartIndex ||
                             wMid.EndIndex != wLast.StartIndex ||
                             wMid.IsProtectedName ||
@@ -2325,8 +2501,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                         continue;
                     }
 
-                    int totalSyls = w1.SyllableCount + wLast.SyllableCount + (winTokens == 3 ? 1 : 0);
-                    if (totalSyls < 2 || totalSyls > 5)
+                    int totalSyls = w1.SyllableCount + wLast.SyllableCount + (winTokens == 3 ? wordTokens[i + 1].SyllableCount : 0);
+                    if (totalSyls < 2 || totalSyls > 6)
                         continue;
 
                     // Do not steal wLast if wLast + next glued token already forms an exact compound
@@ -2337,7 +2513,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                         continue;
                     }
 
-                    string leftPartNorm = winTokens == 3 ? (w1.NormText + "အ") : w1.NormText;
+                    string leftPartNorm = winTokens == 3 ? (w1.NormText + wordTokens[i + 1].NormText) : w1.NormText;
                     string rightPartNorm = wLast.NormText;
                     string combinedNorm = leftPartNorm + rightPartNorm;
                     if (trie.ContainsExactWord(combinedNorm) ||
@@ -2364,8 +2540,9 @@ namespace MyanmarSpellChecker.Core.Nlp
                     if (rightPartNorm == "ရေ" && WaterAndLiquidPrefixes.Contains(w1.NormText))
                         continue;
 
+                    ClauseWordToken wPrev = wordTokens[i + winTokens - 2];
                     DictionaryEntry? tier1Entry = TryFindTier1DeterministicCompoundSlip(
-                        trie, w1, wLast, winTokens, totalSyls, leftPartNorm, rightPartNorm, combinedNorm);
+                        trie, w1, wPrev, wLast, winTokens, totalSyls, leftPartNorm, rightPartNorm, combinedNorm);
 
                     if (tier1Entry != null)
                     {
@@ -2399,7 +2576,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     }
 
                     // Tier 2: Valid-Word Homophone Compound Ambiguity -> Yellow ContextualMeaningWarning (Review Needed ☐)
-                    if (!w1IsNominalPrefixA && totalSyls >= 2)
+                    if (!w1IsNominalPrefixA && totalSyls >= 2 && (winTokens == 2 || wordTokens[i + 1].NormText == "အ"))
                     {
                         DictionaryEntry? tier2Entry = TryFindTier2AmbiguousCompoundHomophone(
                             trie, wordTokens, nextIdx, w1, wLast, totalSyls, combinedNorm);
@@ -2441,6 +2618,7 @@ namespace MyanmarSpellChecker.Core.Nlp
         private static DictionaryEntry? TryFindTier1DeterministicCompoundSlip(
             MyanmarTrie trie,
             ClauseWordToken w1,
+            ClauseWordToken wPrev,
             ClauseWordToken wLast,
             int winTokens,
             int totalSyls,
@@ -2517,18 +2695,21 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            // 1E. Nominalizer '-မူ -> -မှု' after >=2-syllable established verb/compound (e.g. ပြေလည်မူ -> ပြေလည်မှု, အာဏာသိမ်းမူ -> အာဏာသိမ်းမှု)
-            if (winTokens == 2 &&
-                w1.SyllableCount >= 2 &&
+            // 1E. Nominalizer '-မူ -> -မှု' after >=2-syllable established verb/compound (e.g. ပြေလည်မူ -> ပြေလည်မှု, အာဏာသိမ်းမူ -> အာဏာသိမ်းမှု, သင်ကြားပို့ချမူ -> သင်ကြားပို့ချမှု)
+            if (winTokens >= 2 && winTokens <= 3 &&
+                totalSyls >= 3 &&
                 rightPartNorm == "မူ" &&
-                !w1.NormText.EndsWith("တော်", StringComparison.Ordinal))
+                !leftPartNorm.EndsWith("တော်", StringComparison.Ordinal))
             {
-                PickBestOfficialEntry(trie, w1.NormText + "မှု", minFreq: 5, ref best);
-                if (best == null && trie.HasPosTag(w1.NormText, "V"))
+                PickBestOfficialEntry(trie, leftPartNorm + "မှု", minFreq: 3, ref best);
+                if (best == null &&
+                    (trie.ContainsExactWord(leftPartNorm + "မှု") ||
+                     (winTokens == 2 && w1.SyllableCount >= 2 && trie.HasPosTag(w1.NormText, "V")) ||
+                     (winTokens == 3 && wPrev.SyllableCount >= 2 && trie.HasPosTag(wPrev.NormText, "V"))))
                 {
                     best = new DictionaryEntry
                     {
-                        Word = w1.NormText + "မှု",
+                        Word = leftPartNorm + "မှု",
                         MeaningCue = "ကြိယာနာမ်ပြုပစ္စည်း ('~မှု' — ဟထိုး တစ်ချောင်းငင်)",
                         PosTag = "N",
                         IsOfficialThatpon = true,
@@ -2630,13 +2811,15 @@ namespace MyanmarSpellChecker.Core.Nlp
                 yield return stem + "\u1000\u103A" + tone;
                 yield return stem + "\u1015\u103A" + tone;
             }
-            else if (coda == '\u1000') // -က် -> -တ်
+            else if (coda == '\u1000') // -က် -> -တ်, -ပ်
             {
                 yield return stem + "\u1010\u103A" + tone;
+                yield return stem + "\u1015\u103A" + tone;
             }
-            else if (coda == '\u1015') // -ပ် -> -တ်
+            else if (coda == '\u1015') // -ပ် -> -တ်, -က်
             {
                 yield return stem + "\u1010\u103A" + tone;
+                yield return stem + "\u1000\u103A" + tone;
             }
             else if (coda == '\u1004') // -င် -> -ဉ်
             {

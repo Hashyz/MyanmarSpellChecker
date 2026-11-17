@@ -1096,8 +1096,40 @@ namespace MyanmarSpellChecker.Core.Nlp
                 for (int gIdx = 0; gIdx < grammarIssues.Count; gIdx++)
                 {
                     var gi = grammarIssues[gIdx];
-                    if (IsIgnoredInSession(gi.OriginalText) || ViolatesOfficialHeadwordSpan(gi, officialHeadwordSpans))
+                    if (IsIgnoredInSession(gi.OriginalText))
                         continue;
+
+                    if (ViolatesOfficialHeadwordSpan(gi, officialHeadwordSpans))
+                    {
+                        // Allow syntactic noun + 'တစ်' + wrong-classifier agreement (e.g. 'ဖိနပ် တစ်ခု -> ရံ', 'ကား တစ်ခု -> စီး')
+                        // when the only overlapping official headword span is the 2-syllable numeral phrase 'တစ် + [Classifier]' itself
+                        // (never an extended lexical compound like 'တစ်ခုလပ်' or 'တစ်ယောက်တည်း').
+                        bool allowTaitClassifierAgreement =
+                            gi.IssueType == ProofingIssueType.NumeralClassifierError &&
+                            gi.StartIndex >= 3 &&
+                            string.CompareOrdinal(nlpText, gi.StartIndex - 3, "တစ်", 0, 3) == 0 &&
+                            !string.IsNullOrEmpty(gi.AuthoritativeSource) &&
+                            gi.AuthoritativeSource.IndexOf("မျိုးပြပစ္စည်း", StringComparison.Ordinal) >= 0;
+
+                        if (allowTaitClassifierAgreement)
+                        {
+                            int taitStart = gi.StartIndex - 3;
+                            int clfEnd = gi.StartIndex + gi.Length;
+                            for (int oIdx = 0; oIdx < officialHeadwordSpans.Count; oIdx++)
+                            {
+                                var sp = officialHeadwordSpans[oIdx];
+                                if (gi.StartIndex < sp.End && clfEnd > sp.Start &&
+                                    (sp.Start < taitStart || sp.End > clfEnd))
+                                {
+                                    allowTaitClassifierAgreement = false;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!allowTaitClassifierAgreement)
+                            continue;
+                    }
 
                     // In FormalOfficial (Government) mode, never let colloquial-to-literary particle rules ('တယ်->သည်', 'မယ်->မည်', 'နဲ့->နှင့်', 'တွေ->များ')
                     // slice inside an exact multi-syllable dictionary compound (e.g. 'ဒစ်ဂျစ်တယ်', 'ဟိုတယ်', 'ပေါ်တယ်', 'ဇင်းမယ်', 'ခနော်ခနဲ့') or a person's name ('ဒေါ်ခင်မေမယ်')!
@@ -4493,6 +4525,28 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return null;
             }
 
+            // Never mutate temporal verb 'ကျ' before conditional/temporal particles ('တစ်နေ့ကျရင်' != 'တစ်နေ့ကရင်', 'ညနေကျမှ', 'နောက်ကျတော့')
+            if (lastSyl == "ကျ" && startIndex + windowLen < tokens.Count &&
+                tokens[startIndex + windowLen].Kind == TokenKind.MyanmarSyllable)
+            {
+                string afterKyaTemporal = tokens[startIndex + windowLen].NormalizedText;
+                if (afterKyaTemporal == "ရင်" || afterKyaTemporal == "လျှင်" ||
+                    afterKyaTemporal == "တော့" || afterKyaTemporal == "မှ")
+                {
+                    return null;
+                }
+            }
+
+            // Culinary seed/plant oil compounds ('နှမ်းဆီ' = sesame oil != 'နှင်းဆီ' rose, 'ပဲဆီ', 'ပြောင်းဆီ', 'အုန်းဆီ')
+            // and accepted modern IT transliterations without optional cluster killer ('အယ်ဂိုရီသမ်', 'ဘလော့ချိန်း')
+            if ((windowLen == 2 && lastSyl == "ဆီ" &&
+                 (firstSyl == "နှမ်း" || firstSyl == "ပဲ" || firstSyl == "ပြောင်း" || firstSyl == "အုန်း")) ||
+                (windowLen >= 3 && firstSyl == "အယ်" && tokens[startIndex + 1].NormalizedText == "ဂို") ||
+                (windowLen >= 3 && firstSyl == "ဘ" && tokens[startIndex + 1].NormalizedText == "လော့" && lastSyl == "ချိန်း"))
+            {
+                return null;
+            }
+
             if (IsProtectedSyntacticBoundarySlice(tokens, runStart, runEnd, localOffset, windowLen, exactMultiWordBits))
             {
                 return null;
@@ -4709,6 +4763,29 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (startIndex > runStart && firstSyl.StartsWith("\u1004\u103A\u1039", StringComparison.Ordinal))
             {
                 return null;
+            }
+
+            // Cross-Compound Exact Multi-Word Seam Shield & Medical Transliteration Guard ('ပါကင်ဆန်ရောဂါ' != 'ကင်ဆာရောဂါ'):
+            // Never slice across the internal boundary of two contiguous exact >=2-syllable dictionary compounds,
+            // and never slice 'ကင်ဆန်...' out of 'ပါကင်ဆန်...' (Parkinson's disease) into 'ကင်ဆာ...' (Cancer)!
+            if (localOffset >= 1 && firstSyl == "ကင်" &&
+                tokens[startIndex - 1].NormalizedText == "ပါ" &&
+                windowLen >= 2 && tokens[startIndex + 1].NormalizedText == "ဆန်")
+            {
+                return null;
+            }
+            if (localOffset >= 1 && windowLen >= 3)
+            {
+                for (int splitK = 1; splitK < windowLen; splitK++)
+                {
+                    int rightLen = windowLen - splitK;
+                    if (rightLen >= 2 &&
+                        IsEndOfExactMultiWordMinLen(exactMultiWordBits, localOffset + splitK - 1, splitK + 1) &&
+                        HasExactSpan(exactMultiWordBits, localOffset + splitK, rightLen))
+                    {
+                        return null;
+                    }
+                }
             }
 
             // Colloquial ablative postposition '[Noun/Classifier] + ကနေ' (e.g. 'တခုကနေ', 'မြို့ကနေ' != 'ခုနက')

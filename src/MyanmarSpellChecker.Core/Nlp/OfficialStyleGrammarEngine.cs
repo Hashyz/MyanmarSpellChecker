@@ -51,19 +51,19 @@ namespace MyanmarSpellChecker.Core.Nlp
             @"(?:၁[၀-၉]{3}|၂၀[၀-၉]{2}|19[0-9]{2}|20[0-9]{2})\s*(?<Target>ခုနစ်)(?![\u102B-\u103E])",
             RegexOptions.Compiled);
 
-        // 3. Generalized Negative Verb 'မ...' + 'ပဲ' -> 'ဘဲ' (works for ANY negative verb in Myanmar while excluding nouns like မနက်/မနေ့ and nominalized '...တာပဲ' / '...သလောက်ပဲ')
+        // 3. Generalized Negative Verb 'မ...' + 'ပဲ' -> 'ဘဲ' (works for ANY negative verb in Myanmar while excluding nouns like မနက်/မနေ့, ordinal Pali numerals ပထမ/ပဉ္စမ/သတ္တမ, and nominalized/simile '...တာပဲ' / '...သလောက်ပဲ' / '...သလိုပဲ')
         private static readonly Regex NegativeVerbPePattern = new Regex(
-            @"(?<![\u1000-\u103F])မ(?![\u102B-\u103E]|[\u1000-\u1021]\u103B?[\u1039\u103A])(?!မပဲ|ပဲ|ဟာ|နက်|နေ့|ကွေး|လေးရှား|ရမ်း)(?<VerbBody>[\u1000-\u103F]{1,10}?)(?<!တာ|မှာ|ရင်|လို့|ခင်|က|ကို|မှ|လောက်|ရုံ|စရာ)(?<Target>ပဲ)(?=\s|$|[\u104A\u104B]|နှင့်|နဲ့)",
+            @"(?:(?<![\u1000-\u103F])|(?<=[\u1000-\u103F]{2,12})(?<!ပထ|ပဉ္စ|ဆဋ္ဌ|သတ္တ|အဋ္ဌ|နဝ|ဒသ))(?<Ma>မ)(?![\u102B-\u103E]|[\u1000-\u1021]\u103B?[\u1039\u103A])(?!မပဲ|ပဲ|ဟာ|နက်|နေ့|ကွေး|လေးရှား|ရမ်း)(?<VerbBody>[\u1000-\u103F]{1,10}?)(?<!တာ|မှာ|ရင်|လို့|ခင်|က|ကို|မှ|လောက်|ရုံ|စရာ|သလို|လို)(?<Target>ပဲ)(?=\s|$|[\u104A\u104B]|နှင့်|နဲ့)",
             RegexOptions.Compiled);
 
-        // 4a. Clause-level Interrogative 'လည်း' -> 'လဲ' (require non-Myanmar left boundary, exclude reduplicated indefinites 'ဘာပြောပြော/မဆို' & 'ဘယ်ဘက်', and anchor to question/clause end!)
+        // 4a. Clause-level Interrogative 'လည်း' -> 'လဲ' (require non-Myanmar left boundary, exclude reduplicated indefinites 'ဘာပြောပြော/မဆို' & 'ဘယ်ဘက်', forbid intervening 'လဲ/ဆိုတော့/ပေမဲ့', and anchor to question/clause end!)
         private static readonly Regex InterrogativeLaePattern = new Regex(
-            @"(?<![\u1000-\u103F])(?:ဘာ(?!သာ|ပြောပြော|လုပ်လုပ်|ဖြစ်ဖြစ်|ဆိုဆို|မဆို)|ဘယ်(?!ဘက်|ညာ|လ်|ဂျီ|လာ|လီ|လိုပဲ|သူမဆို|အရာမဆို)|အဘယ်ကြောင့်|အဘယ်|မည်သို့|မည်သူ|မည်သည့်)(?![\u1000-\u103F\s]{0,16}?မဆို)[\u1000-\u103F\s]{0,26}?(?<Target>လည်း)(?=\s*(?:[\u104B?]|$|ဆိုတာ|ဆိုသည်|ဟု\s*မေး|လို့\s*မေး|မသိ))",
+            @"(?<![\u1000-\u103F])(?:ဘာ(?!သာ|ပြောပြော|လုပ်လုပ်|ဖြစ်ဖြစ်|ဆိုဆို|မဆို)|ဘယ်(?!ဘက်|ညာ|လ်|ဂျီ|လာ|လီ|လိုပဲ|သူမဆို|အရာမဆို)|အဘယ်ကြောင့်|အဘယ်|မည်သို့|မည်သူ|မည်သည့်)(?![\u1000-\u103F\s]{0,18}?(?:မဆို|လဲ|ဆိုတော့|ပေမဲ့|ပေမယ့်|ပေမယ့်|သော်လည်း))[\u1000-\u103F\s]{0,26}?(?<Target>လည်း)(?=\s*(?:[\u104B?]|$|ဆိုတာ|ဆိုသည်|ဟု\s*မေး|လို့\s*မေး|မသိ))",
             RegexOptions.Compiled);
 
-        // 4b. Affirmative 'လဲ' ("also/too") -> 'လည်း' (e.g. 'ကျွန်တော်လဲ သွားမယ်' -> 'ကျွန်တော်လည်း သွားမယ်')
+        // 4b. Affirmative 'လဲ' ("also/too") -> 'လည်း' (e.g. 'ကျွန်တော်လဲ သွားမယ်' -> 'ကျွန်တော်လည်း သွားမယ်', 'အနာဂတ်မှာလဲ' -> 'အနာဂတ်မှာလည်း')
         private static readonly Regex AffirmativeLaeMisusePattern = new Regex(
-            @"(?:ကျွန်တော်|ကျွန်မ|သူ|ငါ|မင်း|သင်|ဒါ|အဲဒါ|ထိုသူ|၎င်း|သား|သမီး|အားလုံး|တို့|များ|တွေ)\s*(?<Target>လဲ)(?=\s+[\u1000-\u102A])",
+            @"(?:(?:ကျွန်တော်|ကျွန်မ|သူ|ငါ|မင်း|သင်|ဒါ|အဲဒါ|ထိုသူ|၎င်း|သား|သမီး|အားလုံး|တို့|များ|တွေ)|(?:အနာဂတ်|ပစ္စုပ္ပန်|အတိတ်|ဒီနေရာ|အိမ်|ကျောင်း|ရုံး|မြန်မာနိုင်ငံ)(?:မှာ|တွင်))\s*(?<Target>လဲ)(?=\s+[\u1000-\u102A])",
             RegexOptions.Compiled);
 
         // 4c. Universal Everyday Spelling & Casual Typo Corrections (apply in BOTH General & Formal modes)
@@ -123,9 +123,14 @@ namespace MyanmarSpellChecker.Core.Nlp
         private static readonly Regex CasualClauseFinalPiPattern = new Regex(
             @"(?<=[\u1000-\u103F])(?<!ကော်|ဂေါ်|ရူ|မတူ|က|ပီ|တီ|ဂျီ|စီ|ဒီ|အီး|ဗီ|အေ|ဘီ|ကေ|အိုင်|ထရို|ဟစ်|စကား|အသံ|လေသံ|ခရုသ|ပိန်း|လိုင်လင်း|ဟမ်|ပရင်စီ|ဟိုမိုတို|အင်သာ)(?<Target>\u1015\u102E)(?=(?:လား(?!ကောင်)|နော်|ကွာ|ကွ|ဗျာ|ဗျ|ရှင်|ရှင့်|ပေါ့|လေ|ဟ)(?=\s|$|[\u104A\u104B?])|\s*(?:[\u104A\u104B]|$)|\s+(?:ဖြစ်|ဟု|လို့|ဆိုပြီး))");
 
-        // Sequential 'ပြီး' misspelled as 'ပြီ' before linkers ('ပြီတော့/ပြီရင်/ပြီမှ') or serial verbs ('စားပြီ သွားမယ်')
+        // Sequential 'ပြီး' misspelled as 'ပြီ' before linkers ('ပြီတော့/ပြီရင်/ပြီမှ') or serial verbs ('စားပြီ သွားမယ်', 'အလုပ်လုပ်ပြီ အိမ်ပြန်မယ်')
         private static readonly Regex MisusedSequentialPyeePattern = new Regex(
-            @"(?:(?<=[\u1000-\u103F])(?<Target>\u1015\u103C\u102E)(?=(?:တော့|ရင်|လျှင်|မှ|နောက်|သား|စီး|ဆုံး|မြောက်)(?![\u102B-\u103E]))|(?:စား|သောက်|အိပ်|လုပ်|ဖတ်|ရေး|ဝယ်|ချက်|ဆေး|ချိုး)(?<Target2>\u1015\u103C\u102E)(?=\s+(?:သွား|လာ|ထိုင်|အိပ်|ပြန်|နား|ဆက်)))");
+            @"(?:(?<=[\u1000-\u103F])(?<Target>\u1015\u103C\u102E)(?=(?:တော့|ရင်|လျှင်|မှ|နောက်|သား|စီး|ဆုံး|မြောက်)(?![\u102B-\u103E]))|(?:အလုပ်လုပ်|စာဖတ်|ထမင်းစား|ရေချိုး|ဈေးဝယ်|လမ်းလျှောက်|အိပ်ရာထ|စား|သောက်|အိပ်|လုပ်|ဖတ်|ရေး|ဝယ်|ချက်|ဆေး|ချိုး)(?<Target2>\u1015\u103C\u102E)(?=\s+(?:အိမ်ပြန်|ကျောင်းသွား|ရုံးသွား|သွား|လာ|ထိုင်|အိပ်|ပြန်|နား|ဆက်)))");
+
+        // Sentence-final inchoative 'ပြီ' misspelled as consecutive converb 'ပြီး' right before '။' ('ဆင်းခွင့်ရပြီး။ -> ပြီ။', 'စာမေးပွဲ အောင်ပြီး။ -> ပြီ။')
+        private static readonly Regex MisusedSentenceFinalConverbPyeePattern = new Regex(
+            @"(?<=(?:ဆင်းခွင့်ရ|ခွင့်ရ|အောင်မြင်|အောင်|ပြီးစီး|ရောက်ရှိ|ရောက်လာ|ပျောက်ကင်း|သက်သာ|ပြည့်စုံ|လုံလောက်|သိရှိ|နားလည်|သဘောပေါက်|အဆင်ပြေ))(?<Target>ပြီး)(?=\s*။)",
+            RegexOptions.Compiled);
 
         // Missing visarga on clause-final question particle 'လာ' -> 'လား' after completive/negative/tag markers or standalone 'ဟုတ်လာ/မဟုတ်လာ'
         private static readonly Regex MissingVisargaQuestionLaPattern = new Regex(
@@ -179,10 +184,18 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         // 4f. Temporal Adverb <-> Clause/Sentence-Final Tense Agreement (excludes narrative 'နောက်ရက်/နောက်နေ့' which means 'the following day [in the past]' in stories!)
         private static readonly Regex FutureAdverbWithPastVerbPattern = new Regex(
-            @"(?:မနက်ဖြန်|သန်ဖြန်|မကြာမီ|မကြာခင်|လာမည့်(?:နှစ်|လ|အပတ်|ရက်)|လာမယ့်(?:နှစ်|လ|အပတ်|ရက်)|နောက်(?:အပတ်|လ|နှစ်)(?:တွင်|မှာ|၌)?)[^\u104A\u104B\r\n]{1,64}?(?<!ရင်|လျှင်)(?<Target>ခဲ့ပါသည်|ခဲ့ပါတယ်|ခဲ့သည်|ခဲ့တယ်)(?=\s*(?:[\u104B]|$|ဟု|လို့|ဆိုတာ|ဆိုပြီး))");
+            @"(?:မနက်ဖြန်|သန်ဖြန်|မကြာမီ|မကြာခင်|လာမည့်(?:နှစ်|လ|အပတ်|ရက်)|လာမယ့်(?:နှစ်|လ|အပတ်|ရက်)|နောက်(?:အပတ်|လ|နှစ်)(?:တွင်|မှာ|၌)?)[^\u104A\u104B\r\n]{1,64}?(?<!ရင်|လျှင်)(?<Target>ခဲ့ကြပါသည်|ခဲ့ကြသည်|ခဲ့ကြတယ်|ခဲ့ပါသည်|ခဲ့ပါတယ်|ခဲ့သည်|ခဲ့တယ်)(?=\s*(?:[\u104B]|$|ဟု|လို့|ဆိုတာ|ဆိုပြီး))");
 
         private static readonly Regex PastAdverbWithFutureVerbPattern = new Regex(
-            @"(?:မနေ့က|ယမန်နေ့က|တမြန်နေ့က|ယနေ့နံနက်က|(?:ပြီးခဲ့|လွန်ခဲ့)(?:သော|သည့်|တဲ့)\s*[\u1000-\u103F]{1,14}(?:က|တွင်|၌|မှာ)?)[^\u104A\u104B\r\n]{1,64}?(?<Target>ပါမည်|ပါမယ်|လိမ့်မည်|လိမ့်မယ်|(?<!ရ|နိုင်|လို|ချင်)မည်|(?<!ရ|နိုင်|လို|ချင်)မယ်)(?=\s*(?:[\u104B]|$|ဟု|လို့|ဆိုတာ|ဆိုပြီး))");
+            @"(?:မနေ့က|ယမန်နေ့က|ယမန်နှစ်က|တမြန်နေ့က|ယနေ့နံနက်က|(?:ပြီးခဲ့|လွန်ခဲ့)(?:သော|သည့်|တဲ့)\s*[\u1000-\u103F]{1,14}(?:က|တွင်|၌|မှာ)?)[^\u104A\u104B\r\n]{1,64}?(?<Target>မည်ဖြစ်ကြောင်း|မည်ဖြစ်သည်|ပါမည်|ပါမယ်|လိမ့်မည်|လိမ့်မယ်|(?<!ရ|နိုင်|လို|ချင်)မည်|(?<!ရ|နိုင်|လို|ချင်)မယ်)(?=\s*(?:[\u104B]|$|ဟု|လို့|ဆိုတာ|ဆိုပြီး|ထုတ်ပြန်))");
+
+        private static readonly Regex ImpossibleAspectStackPattern = new Regex(
+            @"(?<=[\u1000-\u103F])(?<Target>ခဲ့နေပြီ)(?=[\s\u104A\u104B]|$)",
+            RegexOptions.Compiled);
+
+        private static readonly Regex GenericGnomicHabitualPastPattern = new Regex(
+            @"ဆိုတာ\s+[^\u104A\u104B\r\n]{1,36}?(?<Target>တတ်ခဲ့တယ်)(?=\s*(?:[\u104B]|$))",
+            RegexOptions.Compiled);
 
         private static readonly Regex PresentOngoingWithPastVerbPattern = new Regex(
             @"(?:လက်ရှိတွင်|ယခုလက်ရှိတွင်|လောလောဆယ်တွင်)[^\u104A\u104B\r\n]{1,64}?(?:စုံစမ်းစစ်ဆေး|ဆွေးနွေးညှိနှိုင်း|ညှိနှိုင်းဆောင်ရွက်|စစ်ဆေးဆောင်ရွက်)(?<Target>ခဲ့ပါသည်|ခဲ့ပါတယ်|ခဲ့သည်|ခဲ့တယ်)(?=\s*(?:[\u104B]|$|ဟု|လို့|ဆိုတာ|ဆိုပြီး))");
@@ -201,7 +214,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             // Footwear / paired items -> ရံ
             (
                 new[] { "ဖိနပ်", "ခြေအိတ်", "လက်အိတ်", "နားကပ်" },
-                new Regex(@"(?:ဖိနပ်|ခြေအိတ်|လက်အိတ်|နားကပ်)\s*(?<Num>" + MyanmarNumeralCore + @")\s*(?<Wrong>ယောက်|ဦး|ကောင်|စီး|လုံး|အုပ်|ချပ်)(?![\u102B-\u103E]|[\u1000-\u1021]\u103A)"),
+                new Regex(@"(?:ဖိနပ်|ခြေအိတ်|လက်အိတ်|နားကပ်)\s*(?<Num>" + MyanmarNumeralCore + @")\s*(?<Wrong>ယောက်|ဦး|ကောင်|စီး|ခု|လုံး|အုပ်|ချပ်)(?![\u102B-\u103E]|[\u1000-\u1021]\u103A)"),
                 "ရံ", "အစုံလိုက်ဝတ်ဆင်ရသော ပစ္စည်းပြ မျိုးပြပစ္စည်း ('~ရံ')"
             ),
             // Land vehicles -> စီး (guards 'ဇာတ်ကား / ပန်းချီကား / စကား' so only actual vehicles match!)
@@ -294,10 +307,10 @@ namespace MyanmarSpellChecker.Core.Nlp
                 new Regex(@"(?:သစ်ပင်|ပန်းပင်|ထန်းပင်|အုန်းပင်|ညောင်ပင်|ဝါးပင်)\s*(?<Num>" + MyanmarNumeralCore + @")\s*(?<Wrong>ယောက်|ဦး|ကောင်|ခု|လုံး|စီး|ထည်)(?![\u102B-\u103E]|[\u1000-\u1021]\u103A)"),
                 "ပင်", "သစ်ပင်ပန်းမန်ပြ မျိုးပြပစ္စည်း ('~ပင်')"
             ),
-            // Hand-held weapons, umbrellas & stringed instruments -> လက်
+            // Hand-held weapons, umbrellas & stringed instruments -> လက် (exempts 'ထီး + ထည်' e.g. 'ကမ်းခြေထီးတစ်ထည်')
             (
                 new[] { "သေနတ်", "ဓား", "လှံ", "ထီး", "ဂီတာ" },
-                new Regex(@"(?:သေနတ်|ဓား|လှံ|ထီး|ဂီတာ)\s*(?<Num>" + MyanmarNumeralCore + @")\s*(?<Wrong>ယောက်|ဦး|ကောင်|စီး|ထည်|အုပ်|ရံ)(?![\u102B-\u103E]|[\u1000-\u1021]\u103A)"),
+                new Regex(@"(?:(?:သေနတ်|ဓား|လှံ|ဂီတာ)\s*(?<Num>" + MyanmarNumeralCore + @")\s*(?<Wrong>ယောက်|ဦး|ကောင်|စီး|ထည်|အုပ်|ရံ)|ထီး\s*(?<Num>" + MyanmarNumeralCore + @")\s*(?<Wrong>ယောက်|ဦး|ကောင်|စီး|အုပ်|ရံ))(?![\u102B-\u103E]|[\u1000-\u1021]\u103A)"),
                 "လက်", "လက်နက်/တူရိယာ/ထီးပြ မျိုးပြပစ္စည်း ('~လက်')"
             ),
             // Inanimate abstract nouns -> ခု (when misclassified with human/animal classifier ယောက်/ဦး/ကောင်)
@@ -476,11 +489,15 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         // 4h. Broken Space-Split Mandatory Compounds (e.g. 'စာ ကြည့်တိုက်' -> 'စာကြည့်တိုက်', 'အစည်း အဝေး' -> 'အစည်းအဝေး', 'နေ့အထိမ်း အမှတ်ဂုဏ်ပြု' -> 'အထိမ်းအမှတ်')
         private static readonly Regex CuratedBrokenCompoundPattern = new Regex(
-            @"(?:(?<![\u1000-\u103F])(?<Left>စာ|ဝန်|လေ|အိမ်|ဘယ်|ဘာ|ကိုယ်|လက်|ဒီအ|ထိုနေ|ဆရာ|ကား|ရေ|မြို့|ရုံး)|(?<Left>အစိုးရ|အစည်း|အခမ်း|အစီ|အခြေ|အတွေ့|အခွင့်|အချက်|အဆောက်|အထိမ်း|အလုပ်|အစား|အဝတ်|အရောင်း|အပေး|အဆက်|အကောင်|အသိ|လုပ်ရိုး|ကျောင်း|ကျောင်းအုပ်|ဆေးရုံ|မိန်း|ယောက်ျား|သတင်း|မော်တော်|ကွန်ပျူ|တယ်လီ|စာသင်|တက္က|အစိုး|ဥပ|ကျန်းမာ|စီးပွား|စိုက်ပျိုး|မွေးမြူ|ပညာ|လူမှု|ပို့ဆောင်|ရေကြောင်း|ဝန်ကြီး|ဦးစီး|အိမ်ခြံ|နိုင်ငံ|ဆောင်ရွက်|လူနာတင်|မီးသတ်|တပ်မ|ကိုယ်စား|ပလတ်))[ \t]+(?<Right>ကြည့်တိုက်|အဝေး|အနား|အစဉ်|အနေ|အကြုံ|အရေး|အလမ်း|အလက်|အအုံ|အမှတ်|အကိုင်|အသောက်|အစား|အဝယ်|အယူ|အသွယ်|အထည်|လုပ်စဉ်|သား|သူ|ထမ်း|သမား|ချိန်|အုပ်|ကြီး|ဝန်|လမ်း|ချိုး|နယ်|ခန်း|ကလေး|လေး|စာ|ယာဉ်|တာ|ဖုန်း|ကျောင်း|သိုလ်|ရ|အဖွဲ့|ဒေ|ရေး|ပို့ဆောင်ရေး|ဌာန|မြေ|ခြား|မှတ်|ချက်|တိုင်း|ရာ|ကား|လို|လို့|တော်|စားလှယ်|လှယ်|စတစ်)(?=\s|$|[\u104A\u104B]|ကို|အား|မှ|သို့|နှင့်|နဲ့|သည်|၏|၌|တွင်|က|မှာ|များ|တွေ|အတွက်|အကြောင်း|ဆိုင်ရာ|ဖြင့်|သဖြင့်|ကြောင့်|အပြင်|ရရှိ|ဖြတ်စ|ကဏ္ဍ|ရေးရာ|အုပ်ချုပ်|လုပ်ငန်း)",
+            @"(?:(?<![\u1000-\u103F])(?<Left>စာ|ဝန်|လေ|အိမ်|ဘယ်|ဘာ|ကိုယ်|လက်|ဒီအ|ထိုနေ|ဆရာ|ကား|ရေ|မြို့|ရုံး|မီး)|(?<![\u1000-\u103F]အ)(?<Left>လုပ်)|(?<Left>အဖွဲ့|ဘာသာ|ရဟန်း|ရောဂါ|မြေဆီ|အုပ်|မြန်မာ|စုစု|အစည်း|အခမ်း|အစီ|အခြေ|အတွေ့|အခွင့်|အချက်|အဆောက်|အထိမ်း|အလုပ်|အစား|အဝတ်|အရောင်း|အပေး|အဆက်|အကောင်|အသိ|လုပ်ရိုး|ကျောင်း|ကျောင်းအုပ်|ဆေးရုံ|မိန်း|ယောက်ျား|သတင်း|မော်တော်|ကွန်ပျူ|တယ်လီ|စာသင်|တက္က|အစိုး|ဥပ|ကျန်းမာ|စီးပွား|စိုက်ပျိုး|မွေးမြူ|ပညာ|လူမှု|ပို့ဆောင်|ရေကြောင်း|ဝန်ကြီး|ဦးစီး|အိမ်ခြံ|နိုင်ငံ|ဆောင်ရွက်|လူနာတင်|မီးသတ်|တပ်မ|ကိုယ်စား|ပလတ်))[ \t]+(?<Right>ကြည့်တိုက်|အစည်း|ထောင်|ငန်း|သံဃာ|ပုံးပျံ|ဝေဒနာ|လွှာ|ချုပ်ရေးမှူး|ချုပ်ရေး|နိုင်ငံ|တော်သား|ပေါင်း|အဝေး|အနား|အစဉ်|အနေ|အကြုံ|အရေး|အလမ်း|အလက်|အအုံ|အမှတ်|အကိုင်|အသောက်|အစား|အဝယ်|အယူ|အသွယ်|အထည်|လုပ်စဉ်|သား|သူ|ထမ်း|သမား|ချိန်|အုပ်|ကြီး|ဝန်|လမ်း|ချိုး|နယ်|ခန်း|ကလေး|လေး|စာ|ယာဉ်|တာ|ဖုန်း|ကျောင်း|သိုလ်|ရ|ဒေ|ရေး|ပို့ဆောင်ရေး|ဌာန|မြေ|ခြား|မှတ်|ချက်|တိုင်း|ရာ|ကား|လို|လို့|တော်|စားလှယ်|လှယ်|စတစ်)(?=\s|$|[\u104A\u104B]|ကို|အား|မှ|သို့|နှင့်|နဲ့|သည်|၏|၌|တွင်|က|မှာ|များ|တွေ|အတွက်|အကြောင်း|ဆိုင်ရာ|ဖြင့်|သဖြင့်|ကြောင့်|အပြင်|ရရှိ|ဖြတ်စ|ကဏ္ဍ|ရေးရာ|အုပ်ချုပ်|လုပ်ငန်း|တစ်ခု|လွတ်)",
             RegexOptions.Compiled);
 
         private static readonly Regex ThreePartBrokenCompoundPattern = new Regex(
-            @"(?<![\u1000-\u103F])(?:(?<P1>စာ)[ \t]+(?<P2>ကြည့်)[ \t]+(?<P3>တိုက်)|(?<P1>လူ)[ \t]+(?<P2>သွား)[ \t]+(?<P3>လမ်း)|(?<P1>မျက်နှာ)[ \t]+(?<P2>ချင်း)[ \t]+(?<P3>ဆိုင်)|(?<P1>ကျောင်း)[ \t]+(?<P2>အုပ်)[ \t]+(?<P3>ကြီး)|(?<P1>လူ)[ \t]+(?<P2>မှု)[ \t]+(?<P3>ရေး))(?=\s|$|[\u104A\u104B]|ကို|အား|မှ|သို့|နှင့်|နဲ့|သည်|၏|၌|တွင်|က|မှာ|များ|တွေ|လုပ်ငန်း)",
+            @"(?<![\u1000-\u103F])(?:(?<P1>စာ)[ \t]+(?<P2>ကြည့်)[ \t]+(?<P3>တိုက်)|(?<P1>လူ)[ \t]+(?<P2>သွား)[ \t]+(?<P3>လမ်း)|(?<P1>မျက်နှာ)[ \t]+(?<P2>ချင်း)[ \t]+(?<P3>ဆိုင်)|(?<P1>ကျောင်း)[ \t]+(?<P2>အုပ်)[ \t]+(?<P3>ကြီး)|(?<P1>လူ)[ \t]+(?<P2>မှု)[ \t]+(?<P3>ရေး)|(?<P1>ဘာ)[ \t]+(?<P2>သာ)[ \t]+(?<P3>ရေး)|(?<P1>ကျန်း)[ \t]+(?<P2>မာ)[ \t]+(?<P3>ရေး)|(?<P1>စီး)[ \t]+(?<P2>ပွား)[ \t]+(?<P3>ရေး)|(?<P1>ပ)[ \t]+(?<P2>ညာ)[ \t]+(?<P3>ရေး)|(?<P1>နိုင်)[ \t]+(?<P2>ငံ)[ \t]+(?<P3>ရေး)|(?<P1>တိုင်း)[ \t]+(?<P2>ရင်း)[ \t]+(?<P3>သား))(?=\s|$|[\u104A\u104B]|ကို|အား|မှ|သို့|နှင့်|နဲ့|သည်|၏|၌|တွင်|က|မှာ|များ|တွေ|လုပ်ငန်း|ဆိုင်ရာ)",
+            RegexOptions.Compiled);
+
+        private static readonly Regex BoundSuffixBrokenSpacePattern = new Regex(
+            @"(?:(?<Left>[\u1000-\u103F]{2,14})[ \t]+(?<Right>တော်မူ(?=၍|သည်|၏|ပါ|သော|သည့်|သည့်))|(?<Left>[\u1000-\u103F]+ပေ)[ \t]+(?<Right>မဲ့|မယ့်|မယ့်)|(?<Left>[\u1000-\u103F]+ခဲ့)[ \t]+(?<Right>ရ(?=တယ်|သည်|ပါ))|(?<Left>[\u1000-\u103F]{1,12})[ \t]+(?<Right>မှာလား)|(?<Left>မခွဲ)[ \t]+(?<Right>ခြားဘဲ)|(?<Left>မြောက်|တောင်|အရှေ့|အနောက်)[ \t]+(?<Right>ပိုင်း(?=ရှိ|တွင်|၌|မှာ)))",
             RegexOptions.Compiled);
 
         private static readonly Regex BoundStemBrokenCompoundPattern = new Regex(
@@ -518,13 +535,15 @@ namespace MyanmarSpellChecker.Core.Nlp
             "အလုပ်သမား", "အလုပ်ချိန်", "အလုပ်အကိုင်", "အစားအသောက်", "အဝတ်အစား", "အရောင်းအဝယ်", "အပေးအယူ",
             "အဆက်အသွယ်", "အကောင်အထည်", "အသိအမှတ်", "လုပ်ရိုးလုပ်စဉ်",
             "မိန်းကလေး", "ယောက်ျားလေး", "သတင်းစာ", "လေယာဉ်", "မော်တော်ယာဉ်",
-            "ကွန်ပျူတာ", "တယ်လီဖုန်း", "စာသင်ကျောင်း", "တက္ကသိုလ်", "အစိုးရ", "အစိုးရအဖွဲ့", "ဥပဒေ",
+            "ကွန်ပျူတာ", "တယ်လီဖုန်း", "စာသင်ကျောင်း", "တက္ကသိုလ်", "အစိုးရ", "ဥပဒေ",
             "ကျန်းမာရေး", "စီးပွားရေး", "စိုက်ပျိုးရေး", "မွေးမြူရေး", "ပညာရေး", "လူမှုရေး", "ပို့ဆောင်ရေး", "ရေကြောင်းပို့ဆောင်ရေး",
             "ဝန်ကြီးဌာန", "ဦးစီးဌာန", "ဆေးရုံအုပ်", "ကျောင်းအုပ်", "ကျောင်းအုပ်ကြီး", "ဆရာဝန်", "ကားလမ်း", "ရေချိုး", "မြို့နယ်", "ရုံးခန်း",
             "အိမ်ခြံမြေ", "နိုင်ငံခြား", "လက်မှတ်", "ဆောင်ရွက်ချက်", "ဒီအတိုင်း", "ထိုနေရာ",
             "လူသွားလမ်း", "မျက်နှာချင်းဆိုင်",
             "လူနာတင်ယာဉ်", "အိမ်စာ", "မီးသတ်ကား", "ဘယ်လို", "ဘာလို့",
-            "တပ်မတော်", "ကိုယ်စားလှယ်", "ပလတ်စတစ်", "မြင့်မိုရ်"
+            "တပ်မတော်", "တပ်မတော်သား", "ကိုယ်စားလှယ်", "ပလတ်စတစ်", "မြင့်မိုရ်",
+            "အဖွဲ့အစည်း", "ဘာသာရေး", "အိမ်ထောင်", "လုပ်ငန်း", "ရဟန်းသံဃာ", "မီးပုံးပျံ",
+            "ရောဂါဝေဒနာ", "မြေဆီလွှာ", "အုပ်ချုပ်ရေး", "အုပ်ချုပ်ရေးမှူး", "မြန်မာနိုင်ငံ", "စုစုပေါင်း"
         );
 
         private static readonly Regex SpaceSplitPairCandidateRegex = new Regex(
@@ -1464,11 +1483,52 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            // 3. Generalized 'မ...ပဲ' -> 'မ...ဘဲ'
+            // 3. Generalized 'မ...ပဲ' -> 'မ...ဘဲ' (including bipartite N-မ-V-ပဲ such as 'အမြတ်မထုတ်ပဲ' -> 'အမြတ်မထုတ်ဘဲ')
             if (hasMa && ContainsMm(text, mmMask, "ပဲ"))
             {
                 foreach (Match m in NegativeVerbPePattern.Matches(text))
                 {
+                    Group maGroup = m.Groups["Ma"];
+                    if (maGroup.Index > 0)
+                    {
+                        char prevCh = text[maGroup.Index - 1];
+                        if (prevCh >= '\u1000' && prevCh <= '\u103F')
+                        {
+                            string verbBody = UnicodeNormalizer.NormalizeCanonicalOrder(m.Groups["VerbBody"].Value);
+                            if (verbBody.StartsWith("ကြီး", StringComparison.Ordinal) ||
+                                verbBody.StartsWith("ငယ်", StringComparison.Ordinal) ||
+                                verbBody.StartsWith("လေး", StringComparison.Ordinal) ||
+                                verbBody.StartsWith("ကလေး", StringComparison.Ordinal) ||
+                                verbBody.StartsWith("တို့", StringComparison.Ordinal) ||
+                                verbBody.StartsWith("များ", StringComparison.Ordinal) ||
+                                verbBody.StartsWith("တွေ", StringComparison.Ordinal) ||
+                                verbBody.StartsWith("သာ", StringComparison.Ordinal) ||
+                                verbBody.StartsWith("လည်း", StringComparison.Ordinal))
+                            {
+                                continue;
+                            }
+
+                            if (trie != null)
+                            {
+                                string verbCore = verbBody;
+                                string[] auxSuffixes = { "ပါ", "သေး", "တော့", "နိုင်", "ချင်", "တတ်", "ရ", "ကြ" };
+                                for (int aIdx = 0; aIdx < auxSuffixes.Length; aIdx++)
+                                {
+                                    if (verbCore.Length > auxSuffixes[aIdx].Length &&
+                                        verbCore.EndsWith(auxSuffixes[aIdx], StringComparison.Ordinal))
+                                    {
+                                        verbCore = verbCore.Substring(0, verbCore.Length - auxSuffixes[aIdx].Length);
+                                        break;
+                                    }
+                                }
+                                if (!trie.HasPosTag(verbCore, "V") && !trie.HasPosTag(verbCore, "ADJ"))
+                                {
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
                     Group g = m.Groups["Target"];
                     AddGrammarOrSpellingIssue(
                         issues, g.Index, g.Length, g.Value, "ဘဲ",
@@ -1710,6 +1770,19 @@ namespace MyanmarSpellChecker.Core.Nlp
                         ProofingIssueType.SpellingError,
                         "ရှေ့ကြိယာ ပြီးဆုံး၍ နောက်ဆက်တွဲဖော်ပြရာတွင် ဝစ္စပေါက်ပါသော 'ပြီး' ('~ပြီးတော့ / ~ပြီးလျှင်') ကို သုံးရမည် ('ပြီ' သည် ဝါကျအဆုံးသတ် ဝိဘတ်ဖြစ်သည်)။",
                         "ရှေ့နောက်စဉ်ပြပစ္စည်း ('~ပြီး')", "PART", true);
+                }
+            }
+
+            if (ContainsMm(text, mmMask, "ပြီး") && text.IndexOf('။') >= 0)
+            {
+                foreach (Match m in MisusedSentenceFinalConverbPyeePattern.Matches(text))
+                {
+                    Group g = m.Groups["Target"];
+                    AddGrammarOrSpellingIssue(
+                        issues, g.Index, g.Length, g.Value, "ပြီ",
+                        ProofingIssueType.SpellingError,
+                        "ဝါကျအဆုံး ပြီးစီးခြင်းပြ ကြိယာဝိဘတ်တွင် ဝစ္စပေါက်မပါဘဲ 'ပြီ' ဟု ရေးသားရမည် ('ပြီး' သည် ရှေ့နောက်စဉ်ပြပစ္စည်း ဖြစ်သည်)။",
+                        "ပြီးစီးခြင်းပြ ကြိယာဝိဘတ် ('~ပြီ')", "PART", true);
                 }
             }
 
@@ -1975,45 +2048,145 @@ namespace MyanmarSpellChecker.Core.Nlp
                     foreach (Match m in FutureAdverbWithPastVerbPattern.Matches(text))
                     {
                         Group g = m.Groups["Target"];
+                        if (OverlapsExistingIssue(issues, g.Index, g.Length))
+                            continue;
                         string preTarget = text.Substring(m.Index, g.Index - m.Index);
                         if (FutureExemptionSubclauseRegex.IsMatch(preTarget))
                             continue;
                         string v = g.Value;
-                        string correct = v == "ခဲ့ပါသည်" ? "ပါမည်"
-                                       : v == "ခဲ့ပါတယ်" ? "ပါမယ်"
-                                       : v == "ခဲ့သည်" ? "မည်"
-                                       : "မယ်";
+                        bool passivePatientWithoutExplicitAgent =
+                            preTarget.IndexOf("ကို ", StringComparison.Ordinal) >= 0 &&
+                            preTarget.IndexOf("က ", StringComparison.Ordinal) < 0;
+
+                        string primary;
+                        string secondary;
+                        if (v == "ခဲ့ကြပါသည်") { primary = "ကြပါမည်"; secondary = "ကြမည်ဖြစ်သည်"; }
+                        else if (v == "ခဲ့ကြသည်") { primary = "ကြမည်ဖြစ်သည်"; secondary = "ကြမည်"; }
+                        else if (v == "ခဲ့ကြတယ်") { primary = "ကြမယ်"; secondary = "ကြပါမယ်"; }
+                        else if (v == "ခဲ့ပါသည်") { primary = "ပါမည်"; secondary = "မည်ဖြစ်သည်"; }
+                        else if (v == "ခဲ့ပါတယ်") { primary = "ပါမယ်"; secondary = "မယ်"; }
+                        else if (v == "ခဲ့သည်")
+                        {
+                            primary = passivePatientWithoutExplicitAgent ? "မည်ဖြစ်သည်" : "မည်";
+                            secondary = passivePatientWithoutExplicitAgent ? "မည်" : "မည်ဖြစ်သည်";
+                        }
+                        else
+                        {
+                            primary = "မယ်";
+                            secondary = "ပါမယ်";
+                        }
+
+                        issues.Add(new ProofingIssue
+                        {
+                            StartIndex = g.Index,
+                            Length = g.Length,
+                            OriginalText = v,
+                            IssueType = ProofingIssueType.OfficialStyleGrammarError,
+                            Message = $"ရှေ့တွင် အနာဂတ်အချိန်ပြပုဒ် ပါရှိသဖြင့် အတိတ်ပြဝိဘတ် '{v}' အစား အနာဂတ်ပြဝိဘတ် '{primary}' ကို သုံးနှုန်းရမည်။",
+                            GrammaticalReasoning = $"ဝါကျအစ၌ အနာဂတ်ကာလပြ ကြိယာဝိသေသန ('မနက်ဖြန်/နောက်လ/လာမည့်...') တည်ရှိပြီး ကြားတွင် ဝါကျခွဲ ('လျှင်/သော်လည်း') မခံသဖြင့် ပင်မကြိယာကို အတိတ်ပြပစ္စည်း '{v}' ဖြင့် မပိတ်ရဘဲ အနာဂတ်ပြ '{primary}' ဖြင့် ညှိနှိုင်းရမည်။",
+                            AuthoritativeSource = "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (ကာလပြ ကြိယာဝိသေသန နှင့် ကြိယာဝိဘတ် လိုက်လျောညီထွေမှု)",
+                            Suggestions = new List<SuggestionCandidate>
+                            {
+                                new SuggestionCandidate
+                                {
+                                    Replacement = primary,
+                                    MeaningCue = "ကာလကိုက်ညီသော အနာဂတ်ပြဝိဘတ်",
+                                    PosTag = "PART",
+                                    IsOfficialThatpon = true,
+                                    Score = 100.0
+                                },
+                                new SuggestionCandidate
+                                {
+                                    Replacement = secondary,
+                                    MeaningCue = "အနာဂတ်ပြ ကြိယာဝိဘတ်ပုံစံကွဲ",
+                                    PosTag = "PART",
+                                    IsOfficialThatpon = true,
+                                    Score = 95.0
+                                }
+                            }
+                        });
+                    }
+                }
+
+                if (ContainsMm(text, mmMask, "ခဲ့နေပြီ"))
+                {
+                    foreach (Match m in ImpossibleAspectStackPattern.Matches(text))
+                    {
+                        Group g = m.Groups["Target"];
+                        if (OverlapsExistingIssue(issues, g.Index, g.Length))
+                            continue;
+                        string primary = styleMode == ProofingStyleMode.FormalOfficial ? "နေသည်" : "နေတယ်";
+                        string secondary = styleMode == ProofingStyleMode.FormalOfficial ? "နေပါသည်" : "နေပါတယ်";
+                        issues.Add(new ProofingIssue
+                        {
+                            StartIndex = g.Index,
+                            Length = g.Length,
+                            OriginalText = g.Value,
+                            IssueType = ProofingIssueType.OfficialStyleGrammarError,
+                            Message = $"ကြိယာထောက်ပစ္စည်း အစီအစဉ်နှင့် ကာလဝိဘတ် မှားယွင်းနေပါသည် — '{g.Value}' အစား '{primary}' ဟု ရေးသားရမည်။",
+                            GrammaticalReasoning = "အတိတ်ပြ 'ခဲ့'၊ ဖြစ်ဆဲပြ 'နေ' နှင့် အခြေအနေသစ်ရောက်ပြ 'ပြီ' တို့ကို '*ခဲ့နေပြီ' ဟု တစ်ပြိုင်နက် စီစဉ်တွဲစပ်၍ မရပါ။ ဖြစ်ဆဲအနက်အတွက် 'နေတယ်/နေသည်' ကို သုံးရမည်။",
+                            AuthoritativeSource = "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (ကြိယာထောက်ပစ္စည်းနှင့် ကာလပြဝိဘတ်)",
+                            Suggestions = new List<SuggestionCandidate>
+                            {
+                                new SuggestionCandidate { Replacement = primary, MeaningCue = "ဖြစ်ပေါ်ဆဲပြ ကြိယာဝိဘတ်", PosTag = "PART", IsOfficialThatpon = styleMode == ProofingStyleMode.FormalOfficial, Score = 100.0 },
+                                new SuggestionCandidate { Replacement = secondary, MeaningCue = "ယဉ်ကျေးမှုပါ ဖြစ်ပေါ်ဆဲပြဝိဘတ်", PosTag = "PART", IsOfficialThatpon = styleMode == ProofingStyleMode.FormalOfficial, Score = 95.0 }
+                            }
+                        });
+                    }
+                }
+
+                if (ContainsMm(text, mmMask, "ဆိုတာ") && ContainsMm(text, mmMask, "တတ်ခဲ့တယ်"))
+                {
+                    foreach (Match m in GenericGnomicHabitualPastPattern.Matches(text))
+                    {
+                        Group g = m.Groups["Target"];
+                        if (OverlapsExistingIssue(issues, g.Index, g.Length))
+                            continue;
                         AddGrammarOrSpellingIssue(
-                            issues, g.Index, g.Length, v, correct,
+                            issues, g.Index, g.Length, g.Value, "တတ်တယ်",
                             ProofingIssueType.OfficialStyleGrammarError,
-                            $"ရှေ့တွင် အနာဂတ်အချိန်ပြပုဒ် ပါရှိသဖြင့် အတိတ်ပြဝိဘတ် '{v}' အစား အနာဂတ်ပြဝိဘတ် '{correct}' ကို သုံးနှုန်းရမည်။",
-                            "ကာလကိုက်ညီသော အနာဂတ်ပြဝိဘတ်", "PART", true,
-                            $"ဝါကျအစ၌ အနာဂတ်ကာလပြ ကြိယာဝိသေသန ('မနက်ဖြန်/နောက်လ/လာမည့်...') တည်ရှိပြီး ကြားတွင် ဝါကျခွဲ ('လျှင်/သော်လည်း') မခံသဖြင့် ပင်မကြိယာကို အတိတ်ပြပစ္စည်း '{v}' ဖြင့် မပိတ်ရဘဲ အနာဂတ်ပြ '{correct}' ဖြင့် ညှိနှိုင်းရမည်။",
-                            "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (ကာလပြ ကြိယာဝိသေသန နှင့် ကြိယာဝိဘတ် လိုက်လျောညီထွေမှု)");
+                            "ယေဘုယျဓမ္မတာပြဝါကျ ('~ဆိုတာ ...') တွင် အတိတ်ပြ 'ခဲ့' မလိုအပ်ပါ — 'တတ်ခဲ့တယ်' အစား 'တတ်တယ်' ဟု ရေးသားရမည်။",
+                            "ဓမ္မတာ/အလေ့အထပြ ကြိယာနောက်ဆက် ('~တတ်တယ်')", "PART", false,
+                            "အမြဲမှန်ကန်သော သဘာဝဓမ္မတာ သို့မဟုတ် အလေ့အထကို ဖော်ပြသည့် ဝါကျ၌ အတိတ်ကာလပြပစ္စည်း 'ခဲ့' မတွဲရဘဲ 'တတ်တယ်/တတ်သည်' ဟုသာ သုံးနှုန်းရမည်။",
+                            "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (ဓမ္မတာပြ ပစ္စုပ္ပန်ကာလ)");
                     }
                 }
             }
 
-            if (hasMyiOrMal && (hasKhae || ContainsMm(text, mmMask, "နေ့")))
+            if (hasMyiOrMal && (hasKhae || ContainsMm(text, mmMask, "နေ့") || ContainsMm(text, mmMask, "ယမန်")))
             {
                 foreach (Match m in PastAdverbWithFutureVerbPattern.Matches(text))
                 {
                     Group g = m.Groups["Target"];
+                    if (OverlapsExistingIssue(issues, g.Index, g.Length))
+                        continue;
                     string preTarget = text.Substring(m.Index, g.Index - m.Index);
                     if (PastExemptionSubclauseRegex.IsMatch(preTarget))
                         continue;
                     string v = g.Value;
-                    bool isFormal = v.EndsWith("မည်", StringComparison.Ordinal);
-                    bool hasPa = v.Contains("ပါ");
-                    string correct = hasPa
-                        ? (isFormal ? "ခဲ့ပါသည်" : "ခဲ့ပါတယ်")
-                        : (isFormal ? "ခဲ့သည်" : "ခဲ့တယ်");
+                    string correct;
+                    if (v == "မည်ဖြစ်ကြောင်း")
+                    {
+                        correct = "ခဲ့ကြောင်း";
+                    }
+                    else if (v == "မည်ဖြစ်သည်")
+                    {
+                        correct = "ခဲ့သည်";
+                    }
+                    else
+                    {
+                        bool isFormal = v.EndsWith("မည်", StringComparison.Ordinal);
+                        bool hasPa = v.Contains("ပါ");
+                        correct = hasPa
+                            ? (isFormal ? "ခဲ့ပါသည်" : "ခဲ့ပါတယ်")
+                            : (isFormal ? "ခဲ့သည်" : "ခဲ့တယ်");
+                    }
                     AddGrammarOrSpellingIssue(
                         issues, g.Index, g.Length, v, correct,
                         ProofingIssueType.OfficialStyleGrammarError,
                         $"ရှေ့တွင် အတိတ်အချိန်ပြပုဒ် ပါရှိသဖြင့် အနာဂတ်ပြဝိဘတ် '{v}' အစား အတိတ်ပြဝိဘတ် '{correct}' ကို သုံးနှုန်းရမည်။",
                         "ကာလကိုက်ညီသော အတိတ်ပြဝိဘတ်", "PART", true,
-                        $"ဝါကျအစ၌ ပြီးလွန်ပြီးသော အတိတ်အချိန်ပြပုဒ် ('မနေ့က/ပြီးခဲ့သော...') ပါရှိပြီး အနာဂတ်အကူးအပြောင်းပုဒ် ('ယခု/ဆက်လက်') မပါသဖြင့် အနာဂတ်ပြ '{v}' အစား အတိတ်ပြ '{correct}' ဖြင့် ကာလညှိရမည်။",
+                        $"ဝါကျအစ၌ ပြီးလွန်ပြီးသော အတိတ်အချိန်ပြပုဒ် ('မနေ့က/ယမန်နှစ်က/ပြီးခဲ့သော...') ပါရှိပြီး အနာဂတ်အကူးအပြောင်းပုဒ် ('ယခု/ဆက်လက်') မပါသဖြင့် အနာဂတ်ပြ '{v}' အစား အတိတ်ပြ '{correct}' ဖြင့် ကာလညှိရမည်။",
                         "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (ကာလပြ ကြိယာဝိသေသန နှင့် ကြိယာဝိဘတ် လိုက်လျောညီထွေမှု)");
                 }
             }
@@ -3385,6 +3558,18 @@ namespace MyanmarSpellChecker.Core.Nlp
                             $"တစ်ပေါင်းတည်း ရေးသားရမည့် ပေါင်းစပ်ပုဒ် ဖြစ်ပါသည် — '{m.Value}' အစား '{joined}' ဟု ခြားမရေးဘဲ ရေးသားရမည်။",
                             "တစ်ဆက်တည်းရေးရမည့် ပေါင်းစပ်ပုဒ် (သတ်ပုံကျမ်း)", "N", true);
                     }
+                }
+
+                foreach (Match m in BoundSuffixBrokenSpacePattern.Matches(text))
+                {
+                    if (OverlapsExistingIssue(issues, m.Index, m.Length))
+                        continue;
+                    string joined = UnicodeNormalizer.NormalizeCanonicalOrder(m.Groups["Left"].Value + m.Groups["Right"].Value);
+                    AddGrammarOrSpellingIssue(
+                        issues, m.Index, m.Length, m.Value, joined,
+                        ProofingIssueType.SpellingError,
+                        $"နောက်ဆက်ပစ္စည်းနှင့် ပင်မပုဒ်ကြား နေရာလွတ် (Space) မခြားရပါ — '{m.Value}' အစား '{joined}' ဟု တစ်ဆက်တည်း ရေးသားရမည်။",
+                        "တစ်ဆက်တည်းရေးရမည့် နောက်ဆက်တွဲပုဒ်", "PART", true);
                 }
 
                 for (int cIdx = 0; cIdx < CuratedAddressAndHistoricalBrokenCompounds.Length; cIdx++)
@@ -5713,11 +5898,24 @@ namespace MyanmarSpellChecker.Core.Nlp
             RegexOptions.Compiled);
 
         private static readonly Regex AffirmativeEmphaticBaePattern = new Regex(
-            @"(?:^|[\u104A\u104B]\s*)(?![^\u104A\u104B\r\n]*?(?<![\u1000-\u103F])မ[\u1000-\u1021])[^\u104A\u104B\r\n]{1,64}?(?:ပါ|တာ|သလို|ရုံ)(?<Target>ဘဲ)(?=[\s\u104A\u104B]|$)",
+            @"(?:(?:^|[\u104A\u104B]\s*)(?![^\u104A\u104B\r\n]*?(?<![\u1000-\u103F])မ[\u1000-\u1021])[^\u104A\u104B\r\n]{1,64}?(?:ပါ|တာ|သလို|ရုံ)(?<Target>ဘဲ)(?=[\s\u104A\u104B]|$)|(?<!မ(?![\u102B-\u103E\u103A])[\u1000-\u103F]{1,14})ပါ[ \t]*(?<Target2>ဘဲ)(?=[\s\u104A\u104B]|$)|(?:သလို|ဖို့|မို့|တာ)[ \t]*(?<Target3>ဘဲ)(?=[\s\u104A\u104B]|$))",
             RegexOptions.Compiled);
 
         private static readonly Regex SpacedVerbalParticleTypoPattern = new Regex(
             @"(?:(?<=(?:သွား|လာ|လုပ်|စား|သောက်|ပြော|ကြည့်|ဖတ်|ရေး|နေ|ဝယ်|ပေး|ယူ|တွေ့|ရောက်)[ \t]+)(?<Khae>ခဲ)(?=[ \t]*(?:တယ်|သည်|ပါ))|(?<=(?:သွား|လာ|လုပ်|စား|သောက်|ပြော|ပေး|ယူ)[ \t]+)(?<Mae>မဲ)(?=[ \t]*(?:လို့|ဟု))|(?<=(?:ဆောက်|လုပ်|သွား|လာ|စား|ပြော|ဖတ်|ရေး|ရှောင်|သင်ယူ|ကြိုးစား))(?<Pho>ဖို)(?=\s+(?:ခက်ခဲ|လွယ်ကူ|လိုအပ်|ကောင်း|သင့်|အတွက်))|(?<=(?:ရှောင်|လုပ်|စား|သွား|ပြော|သတိထား|လိုက်နာ|ထည့်ပေး))(?<Thing>သင်)(?=တယ်|သည်|ပါတယ်|ပါသည်)|(?<KyoKa>ကြိုက)(?=တယ်|သည်|ပါ)|(?<=(?:စို|ကျ|ပျက်|မော|သေ|ရှုံး|နောက်ကျ))(?<IrrealisMar>မာ)(?=ပဲ|လား|လဲ|စိုး)|(?<=[\u1000-\u103F])(?<PaTaYa>ပါတယ)(?=[\s\u104A\u104B]|$))",
+            RegexOptions.Compiled);
+
+        private static readonly Regex VerbStemMissingCreakyPhoPattern = new Regex(
+            @"(?<![\u1000-\u103F])(?<Stem>[\u1000-\u103F]{2,14}?)(?<!မီး|အုတ်|ထုံး|ပန်းပဲ)(?<Pho2>ဖို)(?=က\s|\s*(?:လိုအပ်|လိုပါ|လိုတယ်|လိုသည်|ခက်ခဲ|ခက်ထန်|လွယ်ကူ|ကောင်း|သင့်|အတွက်))",
+            RegexOptions.Compiled);
+
+        private static readonly Regex ExtendedParticleAndMorphoSyntaxPattern = new Regex(
+            @"(?:(?<!နွား|ကျွဲ|ကုလားအုတ်)(?<Bho>ဘို့)(?=\s*(?:အတွက်|လို|က\s|ပါ|ပဲ|မဟုတ်|ဖြစ်))|(?<=(?:မှု|ခြင်း|ချက်|များ|တွေ))(?<Nhae>နှဲ့)(?=[\s\u1000-\u102A])|(?<=(?:ကြ|ပါ))(?<FinalTae>တဲ)(?=\s*။)|(?<=(?:ဆေးလိပ်သောက်|အရက်သောက်|လမ်းလျှောက်|စာဖတ်|အားကစားလုပ်|အိပ်ရေးပျက်))(?<GerundChin>ချင်း)(?=က|သည်|ဟာ|ကြောင့်|ဖြင့်)|(?<=(?:ထိရောက်|သေချာ|ပွင့်လင်းမြင်သာ|အောင်မြင်|ကောင်းမွန်))(?<AttrThaw>သော)(?=\s+(?:ဖြေရှင်း|ဆောင်ရွက်|လုပ်ဆောင်|ပြောဆို|ကာကွယ်|ကူညီ|အသုံးပြု)[\u1000-\u103F]*(?:နိုင်|ရ|ခဲ့|ပါ|သည်|တယ်|မည်|မယ်))|(?<=[\u1000-\u103F]{2,20})(?<!တစ်ဦး|တစ်ယောက်|လူ|သူ|မိသားစု)(?<LocKo>ကို)(?=\s+နေထိုင်(?:ပါ)?(?<LocEnd>သည်|တယ်))|(?<=ပြင်ဆင်|ဆောင်ရွက်|ကြိုးပမ်း|ထိန်းသိမ်း)(?<ContKar>ကာ)(?=\s+ရှိ(?:ပါ)?သည်))",
+            RegexOptions.Compiled);
+
+        // SOV Clause-Final Verb Restorer: detects English-calqued SVO clauses where a finite non-creaky main verb precedes postpositional NP arguments right before '။' / 'ဟု' / 'ဆိုတာ'
+        private static readonly Regex SovVerbInversionPattern = new Regex(
+            @"(?<=(?:က|မှ|အစ်ကို|အစ်မ|ညီမ|သူ|ကျွန်တော်|ကျွန်မ|တဲ့|သော|သည့်|သည့်)\s+)(?<Verb>[\u1000-\u103F]{2,26}?(?:ခဲ့ကြပါသည်|ခဲ့ပါသည်|ခဲ့ကြသည်|ခဲ့သည်|ချင်ကြတယ်|အနားယူတယ်|နားယူတယ်))\s+(?<Args>(?!(?:ဟု|ဆိုတာ|လို့|သော်လည်း|ပေမဲ့|ပေမယ့်|ပြီး|၍)(?:[\s\u104A\u104B]|$))[^\u104A\u104B""“”\r\n]{3,60}?(?:ကို|အား|သို့|ဖြင့်|ဖြင့်|တွင်|မှာ)(?:\s+(?!(?:ဟု|ဆိုတာ|လို့|သိရ|ဖော်ပြ|တွေ့ရ|ပါရှိ)(?:[\s\u104A\u104B]|$))[\u1000-\u103F]{2,20})?)(?=\s*(?:။|ဟု(?:\s|$)|ဆိုတာ(?:\s|$)))",
             RegexOptions.Compiled);
 
         private static readonly Regex MyanmarSentenceFinalAsciiDotPattern = new Regex(
@@ -5773,6 +5971,63 @@ namespace MyanmarSpellChecker.Core.Nlp
                         ProofingIssueType.SpellingError,
                         $"ဝဏ္ဏအတွင်း အသတ်ရှေ့၌ နေရာလွတ် (Space) မှားခြားမိနေပါသည် — '{rawSpan}' အစား '{targetRep}' ဟု တစ်ဆက်တည်း ရေးသားရမည်။",
                         "အသတ်နှင့် ရှေ့ဗျည်း တစ်ဆက်တည်းရေးရန်", "N", true);
+                }
+            }
+
+            // 1a. Corrupted Zawgyi/WinInnwa ASCII 'A' for Burmese 'အ' ('Aား -> အား', 'A မျိုးသား -> အမျိုးသား')
+            //     Must run BEFORE Layer-1 MyanmarSyllableValidator so 'Aား' is repaired to 'အား' rather than stripped as an orphan diacritic!
+            if (text.IndexOf('A') >= 0)
+            {
+                foreach (Match m in CorruptedAsciiAPrefixPattern.Matches(text))
+                {
+                    if (OverlapsExistingIssue(issues, m.Index, m.Length))
+                        continue;
+                    if (m.Groups["Target"].Success)
+                    {
+                        string raw = m.Groups["Target"].Value;
+                        string repaired = UnicodeNormalizer.NormalizeCanonicalOrder("\u1021" + raw.Substring(1));
+                        AddGrammarOrSpellingIssue(
+                            issues, m.Index, m.Length, raw, repaired,
+                            ProofingIssueType.SpellingError,
+                            $"အင်္ဂလိပ်အက္ခရာ 'A' ရောနှောနေပါသည် — '{raw}' အစား မြန်မာအက္ခရာ 'အ' ဖြင့် '{repaired}' ဟု ရေးသားရမည်။",
+                            "မြန်မာအက္ခရာ 'အ' အမှန်", "PART", true);
+                    }
+                    else if (m.Groups["Target2"].Success && trie != null)
+                    {
+                        Group stemGrp = m.Groups["Stem"];
+                        string rawStem = stemGrp.Value;
+                        if (!rawStem.StartsWith("\u1021", StringComparison.Ordinal))
+                        {
+                            var syls = MyanmarSyllableBreaker.BreakIntoSyllables(rawStem);
+                            string? bestPrefix = null;
+                            int bestRawLen = 0;
+                            int accumRaw = 0;
+                            for (int sCnt = 1; sCnt <= Math.Min(4, syls.Count); sCnt++)
+                            {
+                                accumRaw += syls[sCnt - 1].Length;
+                                if (accumRaw <= rawStem.Length)
+                                {
+                                    string subNorm = UnicodeNormalizer.NormalizeCanonicalOrder(rawStem.Substring(0, accumRaw));
+                                    string tryCand = "\u1021" + subNorm;
+                                    if (trie.TryGetExactEntries(tryCand, out var aEntries) &&
+                                        aEntries != null && aEntries.Count > 0 && aEntries[0].IsOfficialThatpon)
+                                    {
+                                        bestPrefix = tryCand;
+                                        bestRawLen = (stemGrp.Index - m.Index) + accumRaw;
+                                    }
+                                }
+                            }
+                            if (bestPrefix != null && bestRawLen > 0 && !OverlapsExistingIssue(issues, m.Index, bestRawLen))
+                            {
+                                string rawSlice = text.Substring(m.Index, bestRawLen);
+                                AddGrammarOrSpellingIssue(
+                                    issues, m.Index, bestRawLen, rawSlice, bestPrefix,
+                                    ProofingIssueType.SpellingError,
+                                    $"အင်္ဂလိပ်အက္ခရာ 'A' ရောနှောနေပါသည် — '{rawSlice}' အစား '{bestPrefix}' ဟု ရေးသားရမည်။",
+                                    "သတ်ပုံကျမ်းဝင် 'အ~' ပေါင်းစပ်ပုဒ်", "N", true);
+                            }
+                        }
+                    }
                 }
             }
 
@@ -5868,69 +6123,15 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            // 4. Corrupted Zawgyi/WinInnwa ASCII 'A' for Burmese 'အ' ('Aား -> အား', 'A မျိုးသား -> အမျိုးသား')
-            if (text.IndexOf('A') >= 0)
-            {
-                foreach (Match m in CorruptedAsciiAPrefixPattern.Matches(text))
-                {
-                    if (OverlapsExistingIssue(issues, m.Index, m.Length))
-                        continue;
-                    if (m.Groups["Target"].Success)
-                    {
-                        string raw = m.Groups["Target"].Value;
-                        string repaired = UnicodeNormalizer.NormalizeCanonicalOrder("\u1021" + raw.Substring(1));
-                        AddGrammarOrSpellingIssue(
-                            issues, m.Index, m.Length, raw, repaired,
-                            ProofingIssueType.SpellingError,
-                            $"အင်္ဂလိပ်အက္ခရာ 'A' ရောနှောနေပါသည် — '{raw}' အစား မြန်မာအက္ခရာ 'အ' ဖြင့် '{repaired}' ဟု ရေးသားရမည်။",
-                            "မြန်မာအက္ခရာ 'အ' အမှန်", "PART", true);
-                    }
-                    else if (m.Groups["Target2"].Success && trie != null)
-                    {
-                        Group stemGrp = m.Groups["Stem"];
-                        string rawStem = stemGrp.Value;
-                        if (!rawStem.StartsWith("\u1021", StringComparison.Ordinal))
-                        {
-                            var syls = MyanmarSyllableBreaker.BreakIntoSyllables(rawStem);
-                            string? bestPrefix = null;
-                            int bestRawLen = 0;
-                            int accumRaw = 0;
-                            for (int sCnt = 1; sCnt <= Math.Min(4, syls.Count); sCnt++)
-                            {
-                                accumRaw += syls[sCnt - 1].Length;
-                                if (accumRaw <= rawStem.Length)
-                                {
-                                    string subNorm = UnicodeNormalizer.NormalizeCanonicalOrder(rawStem.Substring(0, accumRaw));
-                                    string tryCand = "\u1021" + subNorm;
-                                    if (trie.TryGetExactEntries(tryCand, out var aEntries) &&
-                                        aEntries != null && aEntries.Count > 0 && aEntries[0].IsOfficialThatpon)
-                                    {
-                                        bestPrefix = tryCand;
-                                        bestRawLen = (stemGrp.Index - m.Index) + accumRaw;
-                                    }
-                                }
-                            }
-                            if (bestPrefix != null && bestRawLen > 0 && !OverlapsExistingIssue(issues, m.Index, bestRawLen))
-                            {
-                                string rawSlice = text.Substring(m.Index, bestRawLen);
-                                AddGrammarOrSpellingIssue(
-                                    issues, m.Index, bestRawLen, rawSlice, bestPrefix,
-                                    ProofingIssueType.SpellingError,
-                                    $"အင်္ဂလိပ်အက္ခရာ 'A' ရောနှောနေပါသည် — '{rawSlice}' အစား '{bestPrefix}' ဟု ရေးသားရမည်။",
-                                    "သတ်ပုံကျမ်းဝင် 'အ~' ပေါင်းစပ်ပုဒ်", "N", true);
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 5. Affirmative emphatic 'ဘဲ' -> 'ပဲ' (when clause contains no 'မ-' negation)
+            // 5. Affirmative emphatic 'ဘဲ' -> 'ပဲ' (when not negated by 'မ-')
             if (ContainsMm(text, mmMask, "ဘဲ"))
             {
                 foreach (Match m in AffirmativeEmphaticBaePattern.Matches(text))
                 {
-                    Group g = m.Groups["Target"];
-                    if (OverlapsExistingIssue(issues, g.Index, g.Length))
+                    Group g = m.Groups["Target"].Success ? m.Groups["Target"]
+                            : m.Groups["Target2"].Success ? m.Groups["Target2"]
+                            : m.Groups["Target3"];
+                    if (!g.Success || OverlapsExistingIssue(issues, g.Index, g.Length))
                         continue;
                     AddGrammarOrSpellingIssue(
                         issues, g.Index, g.Length, g.Value, "ပဲ",
@@ -5985,6 +6186,122 @@ namespace MyanmarSpellChecker.Core.Nlp
                     string rep = styleMode == ProofingStyleMode.FormalOfficial ? "ပါသည်" : "ပါတယ်";
                     AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, rep, ProofingIssueType.SpellingError,
                         $"အသတ် ('်') ကျန်ခဲ့ပါသည် — '{g.Value}' အစား '{rep}' ဟု ရေးသားရမည်။", "ကြိယာအဆုံးသတ်ပစ္စည်း", "PART", styleMode == ProofingStyleMode.FormalOfficial);
+                }
+            }
+
+            // 6b. Lexicon-backed VerbStem + 'ဖို' -> 'ဖို့' before purposive/modal predicates ('ကာကွယ်ဖိုက -> ကာကွယ်ဖို့က', 'ထိန်းသိမ်းဖို လိုအပ် -> ထိန်းသိမ်းဖို့')
+            if (trie != null && ContainsMm(text, mmMask, "ဖို"))
+            {
+                foreach (Match mPho in VerbStemMissingCreakyPhoPattern.Matches(text))
+                {
+                    Group gPho = mPho.Groups["Pho2"];
+                    if (OverlapsExistingIssue(issues, gPho.Index, gPho.Length))
+                        continue;
+                    string normStem = UnicodeNormalizer.NormalizeCanonicalOrder(mPho.Groups["Stem"].Value);
+                    if (trie.HasPosTag(normStem, "V"))
+                    {
+                        AddGrammarOrSpellingIssue(
+                            issues, gPho.Index, gPho.Length, gPho.Value, "ဖို့",
+                            ProofingIssueType.SpellingError,
+                            "ရည်ရွယ်ချက်ပြပစ္စည်းတွင် အောက်မြစ် ('့') ကျန်ခဲ့ပါသည် — 'ဖို' အစား 'ဖို့' ဟု ရေးသားရမည်။",
+                            "ရည်ရွယ်ချက်ပြပစ္စည်း ('~ဖို့')", "PART", true);
+                    }
+                }
+            }
+
+            // 6c. Extended particle, nominalizer, adverbializer & case-frame confusions ('ဘို့ -> ဖို့', '~မှုနှဲ့ -> နဲ့', '~ချင်း -> ~ခြင်း', '~သော -> ~စွာ', '~ကို နေထိုင် -> တွင်/မှာ', '~ကာ ရှိသည် -> လျက်')
+            foreach (Match mExt in ExtendedParticleAndMorphoSyntaxPattern.Matches(text))
+            {
+                if (mExt.Groups["Bho"].Success && !OverlapsExistingIssue(issues, mExt.Groups["Bho"].Index, mExt.Groups["Bho"].Length))
+                {
+                    Group g = mExt.Groups["Bho"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "ဖို့", ProofingIssueType.SpellingError,
+                        "ရည်ရွယ်ချက်ပြပစ္စည်းကို ဖဦးထုပ်ဖြင့် 'ဖို့' ဟု ရေးသားရမည် ('ဘို့' သည် 'နွားဘို့' နာမ်၌သာ သုံးသည်)။",
+                        "ရည်ရွယ်ချက်ပြပစ္စည်း ('~ဖို့')", "PART", true);
+                }
+                else if (mExt.Groups["Nhae"].Success && !OverlapsExistingIssue(issues, mExt.Groups["Nhae"].Index, mExt.Groups["Nhae"].Length))
+                {
+                    Group g = mExt.Groups["Nhae"];
+                    string rep = styleMode == ProofingStyleMode.FormalOfficial ? "နှင့်" : "နဲ့";
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, rep, ProofingIssueType.SpellingError,
+                        $"အတူပြဝိဘတ်တွင် '{g.Value}' အစား '{rep}' ဟု ရေးသားရမည် ('နှဲ့' သည် လှုပ်နှဲ့သည့် ကြိယာဖြစ်သည်)။",
+                        "အတူပြ နာမ်ဝိဘတ်", "PART", styleMode == ProofingStyleMode.FormalOfficial);
+                }
+                else if (mExt.Groups["FinalTae"].Success && !OverlapsExistingIssue(issues, mExt.Groups["FinalTae"].Index, mExt.Groups["FinalTae"].Length))
+                {
+                    Group g = mExt.Groups["FinalTae"];
+                    string rep = styleMode == ProofingStyleMode.FormalOfficial ? "သည်" : "တယ်";
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, rep, ProofingIssueType.SpellingError,
+                        $"ဝါကျအဆုံး ကြိယာဝိဘတ်တွင် '{g.Value}' အစား '{rep}' ဟု ရေးသားရမည်။",
+                        "ကြိယာအဆုံးသတ်ပစ္စည်း", "PART", styleMode == ProofingStyleMode.FormalOfficial);
+                }
+                else if (mExt.Groups["GerundChin"].Success && !OverlapsExistingIssue(issues, mExt.Groups["GerundChin"].Index, mExt.Groups["GerundChin"].Length))
+                {
+                    Group g = mExt.Groups["GerundChin"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "ခြင်း", ProofingIssueType.SpellingError,
+                        "ကြိယာမှ နာမ်ပြောင်းရာတွင် ရရစ် ('ြ') ဖြင့် 'ခြင်း' ဟု ရေးသားရမည်။",
+                        "ကြိယာနာမ်ပြုပစ္စည်း ('~ခြင်း')", "PART", true);
+                }
+                else if (mExt.Groups["AttrThaw"].Success && !OverlapsExistingIssue(issues, mExt.Groups["AttrThaw"].Index, mExt.Groups["AttrThaw"].Length))
+                {
+                    Group g = mExt.Groups["AttrThaw"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "စွာ", ProofingIssueType.OfficialStyleGrammarError,
+                        "နောက်မှ ကြိယာကို အထူးပြုရာတွင် နာမဝိသေသနပြ 'သော' အစား ကြိယာဝိသေသနပြ 'စွာ' ကို သုံးနှုန်းရမည်။",
+                        "ကြိယာဝိသေသနပြုပစ္စည်း ('~စွာ')", "PART", true,
+                        "နောက်၌ နာမ်ပုဒ်မလိုက်ဘဲ ကြိယာတိုက်ရိုက်လိုက်နေသဖြင့် နာမ်အထူးပြု 'သော' အစား ကြိယာဝိသေသနပြုပစ္စည်း 'စွာ' ဖြင့် တွဲစပ်ရမည်။",
+                        "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (ကြိယာဝိသေသနပြုပစ္စည်း 'စွာ')");
+                }
+                else if (mExt.Groups["LocKo"].Success && !OverlapsExistingIssue(issues, mExt.Groups["LocKo"].Index, mExt.Groups["LocKo"].Length))
+                {
+                    Group g = mExt.Groups["LocKo"];
+                    bool formalSentence = styleMode == ProofingStyleMode.FormalOfficial || mExt.Groups["LocEnd"].Value == "သည်";
+                    string primary = formalSentence ? "တွင်" : "မှာ";
+                    string secondary = formalSentence ? "မှာ" : "တွင်";
+                    issues.Add(new ProofingIssue
+                    {
+                        StartIndex = g.Index,
+                        Length = g.Length,
+                        OriginalText = g.Value,
+                        IssueType = ProofingIssueType.OfficialStyleGrammarError,
+                        Message = $"'နေထိုင်' ကြိယာရှေ့ နေရာပြဝိဘတ်တွင် 'ကို' အစား '{primary}' ကို သုံးနှုန်းရမည်။",
+                        GrammaticalReasoning = "'နေထိုင်သည်/နေထိုင်တယ်' သည် တည်နေရာပြ ကြိယာဖြစ်သဖြင့် ကံပုဒ်ပြ/ရှေးရှုရာပြ 'ကို' မသုံးရဘဲ နေရာပြဝိဘတ် 'တွင်/မှာ' ကို သုံးရမည်။",
+                        AuthoritativeSource = "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (နေရာပြ နာမ်ဝိဘတ် 'တွင်/၌/မှာ')",
+                        Suggestions = new List<SuggestionCandidate>
+                        {
+                            new SuggestionCandidate { Replacement = primary, MeaningCue = "နေရာပြ နာမ်ဝိဘတ်", PosTag = "PART", IsOfficialThatpon = formalSentence, Score = 100.0 },
+                            new SuggestionCandidate { Replacement = secondary, MeaningCue = "နေရာပြ ဝိဘတ်ပုံစံကွဲ", PosTag = "PART", IsOfficialThatpon = !formalSentence, Score = 95.0 }
+                        }
+                    });
+                }
+                else if (mExt.Groups["ContKar"].Success && !OverlapsExistingIssue(issues, mExt.Groups["ContKar"].Index, mExt.Groups["ContKar"].Length))
+                {
+                    Group g = mExt.Groups["ContKar"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "လျက်", ProofingIssueType.OfficialStyleGrammarError,
+                        "'~ရှိသည်' ရှေ့ ဆောင်ရွက်ဆဲပြရာတွင် 'ကာ' အစား 'လျက်' ('~လျက် ရှိသည်') ကို သုံးနှုန်းရမည်။",
+                        "ဖြစ်ပေါ်ဆဲပြပစ္စည်း ('~လျက် ရှိသည်')", "PART", true,
+                        "အကူကြိယာ 'ရှိသည်' နှင့်တွဲ၍ ဖြစ်ပေါ်ဆဲအခြေအနေကို ဖော်ပြရာတွင် 'လျက် ရှိသည်' ဟူသော စံတွဲထုံးကို သုံးရမည်။",
+                        "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (ကြိယာဝိသေသနပြုပစ္စည်း 'လျက်')");
+                }
+            }
+
+            // 6d. SOV Clause-Final Verb Restorer (repairs English-calqued SVO clauses where finite main verb precedes postpositional NP arguments)
+            if (text.IndexOf(' ') >= 0 &&
+                (ContainsMm(text, mmMask, "ခဲ့") || ContainsMm(text, mmMask, "တယ်")))
+            {
+                foreach (Match mSov in SovVerbInversionPattern.Matches(text))
+                {
+                    if (OverlapsExistingIssue(issues, mSov.Index, mSov.Length))
+                        continue;
+                    string verbPhrase = mSov.Groups["Verb"].Value.Trim();
+                    string argsPhrase = mSov.Groups["Args"].Value.Trim();
+                    string restoredSov = $"{argsPhrase} {verbPhrase}";
+                    AddGrammarOrSpellingIssue(
+                        issues, mSov.Index, mSov.Length, mSov.Value, restoredSov,
+                        ProofingIssueType.OfficialStyleGrammarError,
+                        $"မြန်မာဝါကျဖွဲ့ထုံး (SOV) အရ ပင်မကြိယာ '{verbPhrase}' ကို ဝါကျအဆုံး၌ ထားရှိရမည် — '{restoredSov}' ဟု ပြန်လည်စီစဉ်သင့်ပါသည်။",
+                        "မြန်မာစံဝါကျအစီအစဉ် (ကတ္တား + ကံ/နေရာပြပုဒ် + ကြိယာ)", "SYNTAX", true,
+                        $"မြန်မာဘာသာစကား၏ စံဝါကျတည်ဆောက်ပုံ (Subject-Object-Verb) တွင် ကံပုဒ်နှင့် ဝိဘတ်တွဲပုဒ်များ ('{argsPhrase}') သည် အဆုံးသတ်ပင်မကြိယာ ('{verbPhrase}') ၏ ရှေ့တွင် တည်ရှိရမည်။",
+                        "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (ဝါကျဖွဲ့ထုံးနှင့် ပုဒ်အစီအစဉ်)");
                 }
             }
 

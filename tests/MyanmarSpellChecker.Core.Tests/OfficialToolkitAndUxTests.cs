@@ -2420,5 +2420,108 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.Equal("N", syntheticModel.Entries.First(e => e.IsOfficialThatpon).PosTag);
             Assert.Empty(syntheticModel.WordBigrams);
         }
+
+        [Fact]
+        public void V61B_EasyToHardestProgressiveBenchmark_SovTenseParticleAndBrokenCompound_Gate()
+        {
+            string dbPath = TestPaths.EncryptedDbPath;
+            Assert.True(File.Exists(dbPath), "Compiled mlc_thatpon.db must exist.");
+
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            MyanmarTrie trie = repo.LoadIntoTrie(AntiTamperGuard.ReconstructProtectedFallbackKey());
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // 1. Adversarial Clean Controls (0 False Positives across tricky medical, culinary, IT, classifier, simile & female-noun patterns)
+            string[] cleanGeneralControls =
+            {
+                "ဗိုက်ဆာလို့ အားမရှိသလိုပဲ။",
+                "တစ်နေ့ကျရင် နိုင်ငံခြားတိုင်းပြည်တွေကို လေ့လာရေးသွားချင်တယ်။",
+                "ခေါက်ဆွဲပေါ်မှာ နှမ်းဆီနဲ့ ပဲဆီ မွှေးမွှေးလေး ဆမ်းထားတယ်။",
+                "ဒီသင်တန်းကို ဆရာမကြီးပဲ ကိုယ်တိုင် ဦးဆောင်သင်ကြားပေးမှာ ဖြစ်ပါတယ်။",
+                "တစ်စုံတစ်ယောက်ကို မမေးမြန်းပါဘဲ ဆုံးဖြတ်ချက် မချသင့်ပါဘူး။",
+                "ပထမတန်းပဲ တက်ရသေးပေမဲ့ စာဖတ်တာ အရမ်းသွက်လက်တယ်။",
+                "မီးဖိုက မီးခိုးတွေ ထွက်လာလို့ ပြတင်းပေါက် ဖွင့်ထားလိုက်တယ်။"
+            };
+            foreach (string clean in cleanGeneralControls)
+            {
+                var fp = generalEngine.CheckText(clean);
+                Assert.True(fp.Count == 0, $"Expected 0 issues on clean General sentence '{clean}', got: {string.Join(", ", fp.Select(x => x.OriginalText + "->" + (x.Suggestions.FirstOrDefault()?.Replacement ?? "")))}");
+            }
+
+            string[] cleanFormalControls =
+            {
+                "ပါမောက္ခဆရာဝန်ကြီးသည် ပါကင်ဆန်ရောဂါ ကုသရေးစာတမ်းကို ဖတ်ကြားသည်။",
+                "ကမ်းခြေထီးတစ်ထည်နှင့် ရေကူးဝတ်စုံကို အိတ်ထဲတွင် ထုပ်ပိုးထားသည်။",
+                "ပရိုဂရမ်ရေးသားသူများသည် အယ်လ်ဂိုရီသမ်နှင့် ဘလော့ချိန်းနည်းပညာကို လေ့လာကြသည်။",
+                "ခရီးသည်များ သက်သောင့်သက်သာ အနားယူနိုင်သည်။",
+                "အစိုးရ အဖွဲ့အသီးသီးနှင့် ညှိနှိုင်း၍ ဒေသဖွံ့ဖြိုးရေးလုပ်ငန်းများကို ဆောင်ရွက်သည်။",
+                "လယ်သမားများသည် နွားဘို့နှင့် ထမ်းပိုးကို သေချာစွာ စစ်ဆေးကြသည်။"
+            };
+            foreach (string clean in cleanFormalControls)
+            {
+                var fp = formalEngine.CheckText(clean);
+                Assert.True(fp.Count == 0, $"Expected 0 issues on clean Formal sentence '{clean}', got: {string.Join(", ", fp.Select(x => x.OriginalText + "->" + (x.Suggestions.FirstOrDefault()?.Replacement ?? "")))}");
+            }
+
+            // 2. Easy -> Medium -> Hard -> Hardest Progressive Detection & Top-1 Repair Assertions
+            (MyanmarProofingEngine Engine, string Input, string ExpectedOrig, string ExpectedTop1)[] progressiveCases =
+            {
+                // Easy: ASCII 'A' before Myanmar vowel mark (must repair to 'အား', not strip diacritic!)
+                (formalEngine, "ကျောင်းသားများ Aားကစား ကွင်း၌ လေ့ကျင့်ကြသည်။", "Aား", "အား"),
+
+                // Medium: Symmetric oral-stop coda triangle (-ပ် -> -က် / -တ်) & multi-token '-မူ -> -မှု' nominalizations
+                (formalEngine, "ယာဉ်မတော်တဆမှုကြောင့် ထိခိုပ်ဒဏ်ရာရရှိခဲ့သည်။", "ထိခိုပ်ဒဏ်ရာ", "ထိခိုက်ဒဏ်ရာ"),
+                (generalEngine, "နံရံကို သုပ်ဆေး အသစ် ပြန်သုတ်ထားတယ်။", "သုပ်ဆေး", "သုတ်ဆေး"),
+                (formalEngine, "ဒစ်ဂျစ်တယ် ငွေပေးချေမူ စနစ်ကို အသုံးပြုသည်။", "ငွေပေးချေမူ", "ငွေပေးချေမှု"),
+                (formalEngine, "ဆရာများ၏ သင်ကြားပို့ချမူကို ကျောင်းသားများ နှစ်သက်သည်။", "သင်ကြားပို့ချမူ", "သင်ကြားပို့ချမှု"),
+                (formalEngine, "ခရီးသည်များ သက်တောင့်သက်သာ နားနေနိုင်သည်။", "သက်တောင့်သက်သာ", "သက်သောင့်သက်သာ"),
+
+                // Hard: Broken compounds, bound-suffix space splits, bipartite N-မ-V-ပဲ, purposive ဘို့/ဖို & gerund ချင်း
+                (formalEngine, "မြို့နယ် အုပ် ချုပ်ရေးမှူး က ရှင်းလင်းပြောကြားသည်။", "အုပ် ချုပ်ရေးမှူး", "အုပ်ချုပ်ရေးမှူး"),
+                (formalEngine, "ဆရာတော်ကြီးက တရားဟောကြား တော်မူ၍ ပရိသတ်များ နာယူကြသည်။", "ဟောကြား တော်မူ", "ဟောကြားတော်မူ"),
+                (formalEngine, "ပြည်သူများအပေါ် အမြတ်မထုတ်ပဲ ရောင်းချပေးသည်။", "ပဲ", "ဘဲ"),
+                (generalEngine, "သူက မနက်ဖြန် ရောက်လာမှာ ဖြစ်ပါဘဲ။", "ဘဲ", "ပဲ"),
+                (formalEngine, "လူနာသည် ဆေးရုံမှ ဆင်းခွင့်ရပြီး။", "ပြီး", "ပြီ"),
+                (generalEngine, "သဘာဝပတ်ဝန်းကျင် ကာကွယ်ဖိုက အားလုံးရဲ့ တာဝန်ပါ။", "ဖို", "ဖို့"),
+                (generalEngine, "နေ့စဉ် လမ်းလျှောက်ချင်းက ကျန်းမာရေးအတွက် ကောင်းတယ်။", "ချင်း", "ခြင်း"),
+
+                // Hardest / Expert: Real-word collocations, 'တစ်' classifier agreement, morphosyntax, temporal agreement & SOV word order
+                (generalEngine, "မနက်တိုင်း အဝတ် လျော် ပါတယ်။", "လျော်", "လျှော်"),
+                (generalEngine, "နေပူထဲ အဝတ် လှမ်း ထားတယ်။", "လှမ်း", "လှန်း"),
+                (formalEngine, "တရားခံသည် ပြင်းထန်သော ပစ်မှု ကျူးလွန်ခဲ့သည်။", "ပစ်မှု", "ပြစ်မှု"),
+                (generalEngine, "ဖိနပ် တစ်ခု ဝယ်လာတယ်။", "ခု", "ရံ"),
+                (formalEngine, "ပြဿနာကို ထိရောက်သော ဖြေရှင်းနိုင်ခဲ့သည်။", "သော", "စွာ"),
+                (formalEngine, "သူသည် မန္တလေးမြို့ကို နေထိုင်သည်။", "ကို", "တွင်"),
+                (formalEngine, "ဝန်ကြီးဌာနသည် စီမံချက်ကို ပြင်ဆင်ကာ ရှိသည်။", "ကာ", "လျက်"),
+                (formalEngine, "လာမည့်နှစ်တွင် အဆောက်အအုံသစ်ကို ဖွင့်လှစ်ခဲ့သည်။", "ခဲ့သည်", "မည်ဖြစ်သည်"),
+                (formalEngine, "ယမန်နှစ်က ညီလာခံကြီးကို အောင်မြင်စွာ ကျင်းပမည်ဖြစ်သည်။", "မည်ဖြစ်သည်", "ခဲ့သည်"),
+                (generalEngine, "ကလေးက အခန်းထဲမှာ စာရေးခဲ့နေပြီ။", "ခဲ့နေပြီ", "နေတယ်"),
+                (formalEngine, "ဝန်ကြီးဌာနက တင်သွင်းခဲ့သည် အစီရင်ခံစာသစ်ကို လွှတ်တော်သို့ ဟု ထုတ်ပြန်သည်။",
+                    "တင်သွင်းခဲ့သည် အစီရင်ခံစာသစ်ကို လွှတ်တော်သို့",
+                    "အစီရင်ခံစာသစ်ကို လွှတ်တော်သို့ တင်သွင်းခဲ့သည်"),
+                (generalEngine, "ကျောင်းသားများက လေ့လာချင်ကြတယ် နည်းပညာဘာသာရပ်သစ်ကို။",
+                    "လေ့လာချင်ကြတယ် နည်းပညာဘာသာရပ်သစ်ကို",
+                    "နည်းပညာဘာသာရပ်သစ်ကို လေ့လာချင်ကြတယ်")
+            };
+
+            foreach (var (eng, inp, expectedOrig, expectedTop1) in progressiveCases)
+            {
+                var issues = eng.CheckText(inp);
+                var match = issues.FirstOrDefault(x =>
+                    x.OriginalText == expectedOrig ||
+                    x.OriginalText.Contains(expectedOrig) ||
+                    expectedOrig.Contains(x.OriginalText));
+                Assert.True(match != null, $"Expected span '{expectedOrig}' in '{inp}', got: {string.Join(", ", issues.Select(i => i.OriginalText))}");
+                Assert.NotEmpty(match!.Suggestions);
+
+                int origPos = inp.IndexOf(expectedOrig, StringComparison.Ordinal);
+                string expectedSentence = UnicodeNormalizer.NormalizeCanonicalOrder(
+                    inp.Substring(0, origPos) + expectedTop1 + inp.Substring(origPos + expectedOrig.Length));
+                string actualSentence = UnicodeNormalizer.NormalizeCanonicalOrder(
+                    inp.Substring(0, match.StartIndex) + match.Suggestions[0].Replacement + inp.Substring(match.StartIndex + match.Length));
+                Assert.Equal(expectedSentence, actualSentence);
+            }
+        }
     }
 }
