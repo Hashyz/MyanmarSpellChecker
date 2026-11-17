@@ -2523,5 +2523,95 @@ namespace MyanmarSpellChecker.Core.Tests
                 Assert.Equal(expectedSentence, actualSentence);
             }
         }
+
+        [Fact]
+        public void V62B_NightmareAndGrandmasterMultiErrorTorture_Gate()
+        {
+            string dbPath = TestPaths.EncryptedDbPath;
+            Assert.True(File.Exists(dbPath), "Compiled mlc_thatpon.db must exist.");
+
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            MyanmarTrie trie = repo.LoadIntoTrie(AntiTamperGuard.ReconstructProtectedFallbackKey());
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // 1. Evil-Twin Minimal-Pair Clean Controls (must produce 0 false positives)
+            (MyanmarProofingEngine Engine, string CleanInput)[] evilTwins =
+            {
+                (formalEngine, "တပ်ဖွဲ့ဝင်များသည် သေနတ်ပစ်မှု လေ့ကျင့်ရေးကွင်း၌ စနစ်တကျ လေ့ကျင့်ကြသည်။"),
+                (formalEngine, "ပျက်စီးသွားသော ပစ္စည်းတန်ဖိုးကို အပြည့်အဝ ပြန်လည်လျော်ပေးရမည်။"),
+                (formalEngine, "ကလေးများ လက်လှမ်းမမီသော နေရာတွင် ဆေးဝါးများကို သိမ်းဆည်းပါ။"),
+                (generalEngine, "မနက်ဖြန် ရုံးကို စာရွက်စာတမ်းတွေ ယူလာခဲ့မယ် လို့ ပြောသွားတယ်။"),
+                (formalEngine, "နူးညံ့ပျော့ပျောင်းသော ပိုးထည်များကို သေတ္တာထဲတွင် စနစ်တကျ ထည့်ထားသည်။"),
+                (formalEngine, "ဝင်ငွေနှင့် အထွက်စာရင်းများကို လချုပ်အစီရင်ခံစာတွင် တိကျစွာ ဖော်ပြထားသည်။"),
+                (formalEngine, "ရဲတပ်ဖွဲ့ စခန်းမှူးက ယာဉ်စည်းကမ်း လိုက်နာရေးအတွက် အသိပညာပေး ဟောပြောသည်။")
+            };
+            foreach (var (eng, clean) in evilTwins)
+            {
+                var fp = eng.CheckText(clean);
+                Assert.True(fp.Count == 0, $"Evil-twin clean control flagged '{clean}': {string.Join(", ", fp.Select(x => x.OriginalText + "->" + (x.Suggestions.FirstOrDefault()?.Replacement ?? "")))}");
+            }
+
+            // 2. Grandmaster Multi-Error Torture: Apply ALL non-overlapping Top-1 suggestions simultaneously (right-to-left)
+            //    and assert 100% exact full-sentence reconstruction!
+            (MyanmarProofingEngine Engine, string TortureInput, int ExpectedIssueCount, string ExpectedCleanOutput)[] grandmasterSentences =
+            {
+                (
+                    formalEngine,
+                    "ဝန်ကြီးဌာနက အရေးကြိးသော အချက် အလက်များကို ပေးပို့ခဲ့သည် တိုင်းဒေသကြီးရုံးသို့။",
+                    3,
+                    "ဝန်ကြီးဌာနက အရေးကြီးသော အချက်အလက်များကို တိုင်းဒေသကြီးရုံးသို့ ပေးပို့ခဲ့သည်။"
+                ),
+                (
+                    formalEngine,
+                    "ယမန်နှစ်က အာဏာသိမ်းမူဆိုင်ရာ ဆွေနွေးပွဲကို အောင်မြင်စွာ ကျင်းပမည်ဖြစ်သည်။",
+                    3,
+                    "ယမန်နှစ်က အာဏာသိမ်းမှုဆိုင်ရာ ဆွေးနွေးပွဲကို အောင်မြင်စွာ ကျင်းပခဲ့သည်။"
+                ),
+                (
+                    formalEngine,
+                    "လာမ ည့် နှစ်တွင် ပညာရေ စီမံကိန်းသစ်ကို စတင်ဆောင်ရွက်ခဲ့သည်။",
+                    3,
+                    "လာမည့် နှစ်တွင် ပညာရေး စီမံကိန်းသစ်ကို စတင်ဆောင်ရွက်မည်ဖြစ်သည်။"
+                ),
+                (
+                    formalEngine,
+                    "အဆိုရရဲ့ ဝန်စောင့်မှုလုပ်ငန်းများ ပိုမိုကောင်းမွန်လာအောင်းလည်း ဆောင်ရွက်ပေးသည်။",
+                    4,
+                    "အစိုးရ၏ ဝန်ဆောင်မှုလုပ်ငန်းများ ပိုမိုကောင်းမွန်လာအောင်လည်း ဆောင်ရွက်ပေးသည်။"
+                ),
+                (
+                    generalEngine,
+                    "ယာဉ်မတော်တဆမှုကြောင့် ထိခိုပ်ဒဏ်ရာရရှိသူတွေးကို ဆေးရုံသို့ ပို့ဆောင်ပြီးပါပီ.",
+                    4,
+                    "ယာဉ်မတော်တဆမှုကြောင့် ထိခိုက်ဒဏ်ရာရရှိသူတွေကို ဆေးရုံသို့ ပို့ဆောင်ပြီးပါပြီ။"
+                ),
+                (
+                    generalEngine,
+                    "ဒါနပြုခြင်းဖြင့် စိပ်ကြည်နူးမှု ရရှိသလိုဘဲ တိုးတက်စေပါတယ် လူ့အသိုင်းအဝိုင်းကို။",
+                    3,
+                    "ဒါနပြုခြင်းဖြင့် စိတ်ကြည်နူးမှု ရရှိသလိုပဲ လူ့အသိုင်းအဝိုင်းကို တိုးတက်စေပါတယ်။"
+                )
+            };
+
+            foreach (var (eng, raw, expectedCount, expectedClean) in grandmasterSentences)
+            {
+                var issues = eng.CheckText(raw);
+                Assert.Equal(expectedCount, issues.Count);
+
+                string patched = raw;
+                foreach (var iss in issues.OrderByDescending(i => i.StartIndex))
+                {
+                    Assert.NotEmpty(iss.Suggestions);
+                    patched = patched.Substring(0, iss.StartIndex) +
+                              iss.Suggestions[0].Replacement +
+                              patched.Substring(iss.StartIndex + iss.Length);
+                }
+
+                Assert.Equal(
+                    UnicodeNormalizer.NormalizeCanonicalOrder(expectedClean),
+                    UnicodeNormalizer.NormalizeCanonicalOrder(patched));
+            }
+        }
     }
 }

@@ -12,9 +12,11 @@ using MyanmarSpellChecker.Core.Spreadsheet;
 namespace MyanmarSpellChecker.AdminTools.Benchmark
 {
     /// <summary>
-    /// Built-in offline Progressive (Easy -> Medium -> Hard -> Hardest/Expert) Accuracy, Clean-FPR,
-    /// Suggestion-MRR, Latency (p50/p95/p99) &amp; Office Throughput Benchmark Suite.
-    /// Run via: <c>MyanmarSpellChecker.AdminTools.exe benchmark [optionalDbPath]</c>
+    /// Built-in offline Progressive (Easy -> Medium -> Hard -> Hardest -> Nightmare -> Grandmaster Multi-Error Torture)
+    /// Accuracy, Clean-FPR, Suggestion-MRR, Full-Sentence Multi-Fix Rate, Latency &amp; Office Throughput Benchmark Suite.
+    /// Run via:
+    ///   <c>MyanmarSpellChecker.AdminTools.exe benchmark [optionalDbPath]</c>
+    ///   <c>MyanmarSpellChecker.AdminTools.exe benchmark --hardest [optionalDbPath]</c>
     /// </summary>
     internal static class ProofingBenchmarkRunner
     {
@@ -24,7 +26,21 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             Easy = 1,
             Medium = 2,
             Hard = 3,
-            Hardest = 4
+            Hardest = 4,
+            Nightmare = 5,
+            GrandmasterTorture = 6
+        }
+
+        private readonly struct ExpectedErrorSpan
+        {
+            public string WrongSpan { get; }
+            public string TopCorrection { get; }
+
+            public ExpectedErrorSpan(string wrongSpan, string topCorrection)
+            {
+                WrongSpan = wrongSpan;
+                TopCorrection = topCorrection;
+            }
         }
 
         private sealed class BenchmarkCase
@@ -33,31 +49,63 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             public BenchmarkDifficulty Difficulty { get; }
             public ProofingStyleMode Mode { get; }
             public string Input { get; }
-            public string? ExpectedWrongSpan { get; }
-            public string? ExpectedTopCorrection { get; }
+            public IReadOnlyList<ExpectedErrorSpan> ExpectedErrors { get; }
+
+            public BenchmarkCase(
+                string domain,
+                BenchmarkDifficulty difficulty,
+                ProofingStyleMode mode,
+                string input)
+            {
+                Domain = domain;
+                Difficulty = difficulty;
+                Mode = mode;
+                Input = input;
+                ExpectedErrors = Array.Empty<ExpectedErrorSpan>();
+            }
 
             public BenchmarkCase(
                 string domain,
                 BenchmarkDifficulty difficulty,
                 ProofingStyleMode mode,
                 string input,
-                string? expectedWrongSpan = null,
-                string? expectedTopCorrection = null)
+                string expectedWrongSpan,
+                string expectedTopCorrection)
             {
                 Domain = domain;
                 Difficulty = difficulty;
                 Mode = mode;
                 Input = input;
-                ExpectedWrongSpan = expectedWrongSpan;
-                ExpectedTopCorrection = expectedTopCorrection;
+                ExpectedErrors = new[] { new ExpectedErrorSpan(expectedWrongSpan, expectedTopCorrection) };
             }
 
-            public bool IsClean => ExpectedWrongSpan == null;
+            public BenchmarkCase(
+                string domain,
+                BenchmarkDifficulty difficulty,
+                ProofingStyleMode mode,
+                string input,
+                params (string WrongSpan, string TopCorrection)[] multipleErrors)
+            {
+                Domain = domain;
+                Difficulty = difficulty;
+                Mode = mode;
+                Input = input;
+                var list = new List<ExpectedErrorSpan>(multipleErrors.Length);
+                for (int i = 0; i < multipleErrors.Length; i++)
+                {
+                    list.Add(new ExpectedErrorSpan(multipleErrors[i].WrongSpan, multipleErrors[i].TopCorrection));
+                }
+                ExpectedErrors = list;
+            }
+
+            public bool IsClean => ExpectedErrors.Count == 0;
         }
 
         private sealed class TierAccumulator
         {
-            public int Cases;
+            public int Sentences;
+            public int PerfectMultiFixSentences;
+            public int GoldSpans;
             public int Tp;
             public int Fn;
             public int Fp;
@@ -69,9 +117,17 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
 
         public static int Run(string[] args)
         {
-            string dbPath = args.Length > 1 && File.Exists(args[1])
-                ? args[1]
-                : (File.Exists(Path.Combine("data", "mlc_thatpon.db"))
+            bool hardestOnly = args.Any(a =>
+                string.Equals(a, "--hardest", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(a, "hardest", StringComparison.OrdinalIgnoreCase));
+
+            string? explicitDbArg = args.Skip(1).FirstOrDefault(a =>
+                !string.Equals(a, "--hardest", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(a, "hardest", StringComparison.OrdinalIgnoreCase) &&
+                File.Exists(a));
+
+            string dbPath = explicitDbArg
+                ?? (File.Exists(Path.Combine("data", "mlc_thatpon.db"))
                     ? Path.Combine("data", "mlc_thatpon.db")
                     : Path.Combine("artifacts", "mlc_thatpon.db"));
 
@@ -96,15 +152,31 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                 _ = formalEngine.CheckText("ဝန်ကြီးဌာနမှ လုပ်ငန်းစင်များ ဖေါ်ပြထားပါသည်။");
             }
 
-            List<BenchmarkCase> suite = BuildCleanRoomProgressiveSuite();
+            List<BenchmarkCase> fullSuite = BuildCleanRoomProgressiveSuite();
+            List<BenchmarkCase> suite = hardestOnly
+                ? fullSuite.Where(c =>
+                    c.Difficulty == BenchmarkDifficulty.CleanControl ||
+                    c.Difficulty >= BenchmarkDifficulty.Hardest).ToList()
+                : fullSuite;
+
             var latenciesMs = new List<double>(suite.Count);
-            var tierStats = new Dictionary<BenchmarkDifficulty, TierAccumulator>
+            var tierOrder = hardestOnly
+                ? new[] { BenchmarkDifficulty.Hardest, BenchmarkDifficulty.Nightmare, BenchmarkDifficulty.GrandmasterTorture }
+                : new[]
+                {
+                    BenchmarkDifficulty.Easy,
+                    BenchmarkDifficulty.Medium,
+                    BenchmarkDifficulty.Hard,
+                    BenchmarkDifficulty.Hardest,
+                    BenchmarkDifficulty.Nightmare,
+                    BenchmarkDifficulty.GrandmasterTorture
+                };
+
+            var tierStats = new Dictionary<BenchmarkDifficulty, TierAccumulator>();
+            foreach (var td in tierOrder)
             {
-                [BenchmarkDifficulty.Easy] = new TierAccumulator(),
-                [BenchmarkDifficulty.Medium] = new TierAccumulator(),
-                [BenchmarkDifficulty.Hard] = new TierAccumulator(),
-                [BenchmarkDifficulty.Hardest] = new TierAccumulator()
-            };
+                tierStats[td] = new TierAccumulator();
+            }
 
             int tp = 0, fp = 0, fn = 0;
             int cleanTotal = 0, cleanWithFp = 0;
@@ -135,78 +207,116 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                 }
 
                 TierAccumulator acc = tierStats[tc.Difficulty];
-                acc.Cases++;
+                acc.Sentences++;
+                acc.GoldSpans += tc.ExpectedErrors.Count;
                 acc.LatenciesMs.Add(elapsedMs);
 
-                string normExpectedSpan = UnicodeNormalizer.NormalizeCanonicalOrder(tc.ExpectedWrongSpan!);
-                string normExpectedFix = UnicodeNormalizer.NormalizeCanonicalOrder(tc.ExpectedTopCorrection!);
+                var matchedIssueIndices = new HashSet<int>();
+                bool allSpansTop1InSentence = true;
 
-                int spanIdx = tc.Input.IndexOf(tc.ExpectedWrongSpan!, StringComparison.Ordinal);
-                int goldEnd = spanIdx >= 0 ? spanIdx + tc.ExpectedWrongSpan!.Length : tc.Input.Length;
-
-                ProofingIssue? matched = issues.FirstOrDefault(iss =>
-                    (spanIdx >= 0 && Math.Max(spanIdx, iss.StartIndex) < Math.Min(goldEnd, iss.StartIndex + iss.Length)) ||
-                    UnicodeNormalizer.NormalizeCanonicalOrder(iss.OriginalText).Contains(normExpectedSpan) ||
-                    normExpectedSpan.Contains(UnicodeNormalizer.NormalizeCanonicalOrder(iss.OriginalText)));
-
-                if (matched != null)
+                for (int eIdx = 0; eIdx < tc.ExpectedErrors.Count; eIdx++)
                 {
-                    tp++;
-                    acc.Tp++;
-                    evalSugCount++;
-                    acc.EvalSugCount++;
+                    ExpectedErrorSpan gold = tc.ExpectedErrors[eIdx];
+                    string normExpectedSpan = UnicodeNormalizer.NormalizeCanonicalOrder(gold.WrongSpan);
+                    string normExpectedFix = UnicodeNormalizer.NormalizeCanonicalOrder(gold.TopCorrection);
 
-                    string targetSpliced = spanIdx >= 0
-                        ? UnicodeNormalizer.NormalizeCanonicalOrder(
-                            tc.Input.Substring(0, spanIdx) + tc.ExpectedTopCorrection + tc.Input.Substring(goldEnd))
-                        : normExpectedFix;
+                    int spanIdx = tc.Input.IndexOf(gold.WrongSpan, StringComparison.Ordinal);
+                    int goldEnd = spanIdx >= 0 ? spanIdx + gold.WrongSpan.Length : tc.Input.Length;
 
-                    int foundRank = 0;
-                    for (int r = 0; r < matched.Suggestions.Count; r++)
+                    int matchedIdx = -1;
+                    for (int pIdx = 0; pIdx < issues.Count; pIdx++)
                     {
-                        string sugNorm = UnicodeNormalizer.NormalizeCanonicalOrder(matched.Suggestions[r].Replacement);
-                        string candSpliced = UnicodeNormalizer.NormalizeCanonicalOrder(
-                            tc.Input.Substring(0, matched.StartIndex) +
-                            matched.Suggestions[r].Replacement +
-                            tc.Input.Substring(matched.StartIndex + matched.Length));
-                        if (sugNorm == normExpectedFix || candSpliced == targetSpliced || sugNorm.Contains(normExpectedFix))
+                        if (matchedIssueIndices.Contains(pIdx))
+                            continue;
+                        ProofingIssue iss = issues[pIdx];
+                        string issOrigNorm = UnicodeNormalizer.NormalizeCanonicalOrder(iss.OriginalText);
+                        bool spanOverlap = spanIdx >= 0 && Math.Max(spanIdx, iss.StartIndex) < Math.Min(goldEnd, iss.StartIndex + iss.Length);
+                        if (spanOverlap || issOrigNorm == normExpectedSpan)
                         {
-                            foundRank = r + 1;
+                            matchedIdx = pIdx;
                             break;
                         }
                     }
 
-                    if (foundRank > 0)
+                    if (matchedIdx >= 0)
                     {
-                        if (foundRank == 1)
+                        matchedIssueIndices.Add(matchedIdx);
+                        ProofingIssue matched = issues[matchedIdx];
+                        tp++;
+                        acc.Tp++;
+                        evalSugCount++;
+                        acc.EvalSugCount++;
+
+                        string targetSpliced = spanIdx >= 0
+                            ? UnicodeNormalizer.NormalizeCanonicalOrder(
+                                tc.Input.Substring(0, spanIdx) + gold.TopCorrection + tc.Input.Substring(goldEnd))
+                            : normExpectedFix;
+
+                        int foundRank = 0;
+                        for (int r = 0; r < matched.Suggestions.Count; r++)
                         {
-                            top1Hits++;
-                            acc.Top1Hits++;
+                            string sugNorm = UnicodeNormalizer.NormalizeCanonicalOrder(matched.Suggestions[r].Replacement);
+                            string candSpliced = UnicodeNormalizer.NormalizeCanonicalOrder(
+                                tc.Input.Substring(0, matched.StartIndex) +
+                                matched.Suggestions[r].Replacement +
+                                tc.Input.Substring(matched.StartIndex + matched.Length));
+                            if (sugNorm == normExpectedFix || candSpliced == targetSpliced || sugNorm.Contains(normExpectedFix))
+                            {
+                                foundRank = r + 1;
+                                break;
+                            }
                         }
-                        double rr = 1.0 / foundRank;
-                        mrrSum += rr;
-                        acc.MrrSum += rr;
+
+                        if (foundRank > 0)
+                        {
+                            if (foundRank == 1)
+                            {
+                                top1Hits++;
+                                acc.Top1Hits++;
+                            }
+                            else
+                            {
+                                allSpansTop1InSentence = false;
+                            }
+                            double rr = 1.0 / foundRank;
+                            mrrSum += rr;
+                            acc.MrrSum += rr;
+                        }
+                        else
+                        {
+                            allSpansTop1InSentence = false;
+                            string got = matched.Suggestions.Count > 0 ? matched.Suggestions[0].Replacement : "(none)";
+                            Console.WriteLine($"  [SUG-MISS] [{tc.Difficulty}] expected '{gold.WrongSpan}'->'{gold.TopCorrection}', got '{matched.OriginalText}'->'{got}'");
+                        }
                     }
                     else
                     {
-                        string got = matched.Suggestions.Count > 0 ? matched.Suggestions[0].Replacement : "(none)";
-                        Console.WriteLine($"  [SUG-MISS] [{tc.Difficulty}] expected '{tc.ExpectedWrongSpan}'->'{tc.ExpectedTopCorrection}', got '{matched.OriginalText}'->'{got}'");
-                    }
-
-                    if (issues.Count > 1)
-                    {
-                        int extraFp = issues.Count - 1;
-                        fp += extraFp;
-                        acc.Fp += extraFp;
+                        allSpansTop1InSentence = false;
+                        fn++;
+                        acc.Fn++;
+                        Console.WriteLine($"  [FN-MISS]  [{tc.Difficulty}] ({tc.Domain}) missed '{gold.WrongSpan}' -> '{gold.TopCorrection}' in '{tc.Input}'");
                     }
                 }
-                else
+
+                int unmatchedPreds = issues.Count - matchedIssueIndices.Count;
+                if (unmatchedPreds > 0)
                 {
-                    fn++;
-                    acc.Fn++;
-                    fp += issues.Count;
-                    acc.Fp += issues.Count;
-                    Console.WriteLine($"  [FN-MISS]  [{tc.Difficulty}] ({tc.Domain}) missed '{tc.ExpectedWrongSpan}' -> '{tc.ExpectedTopCorrection}' in '{tc.Input}'");
+                    fp += unmatchedPreds;
+                    acc.Fp += unmatchedPreds;
+                    allSpansTop1InSentence = false;
+                    for (int u = 0; u < issues.Count; u++)
+                    {
+                        if (!matchedIssueIndices.Contains(u))
+                        {
+                            string uRep = issues[u].Suggestions.Count > 0 ? issues[u].Suggestions[0].Replacement : "(none)";
+                            Console.WriteLine($"  [EXTRA-FP] [{tc.Difficulty}] '{issues[u].OriginalText}'->'{uRep}' in '{tc.Input}'");
+                        }
+                    }
+                }
+
+                if (allSpansTop1InSentence)
+                {
+                    acc.PerfectMultiFixSentences++;
                 }
             }
 
@@ -243,24 +353,32 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             double cellsPerSec = (rows * cols) / Math.Max(0.001, swExcel.Elapsed.TotalSeconds);
 
             long memBytes = GC.GetTotalMemory(forceFullCollection: false);
+            string modeBanner = hardestOnly
+                ? "ULTRA-HARDEST STRESS MODE (--hardest: Hardest + Nightmare + Grandmaster Multi-Error Torture)"
+                : "FULL PROGRESSIVE SUITE (Easy -> Medium -> Hard -> Hardest -> Nightmare -> Grandmaster Torture)";
 
             Console.WriteLine();
-            Console.WriteLine("==========================================================================================");
-            Console.WriteLine(" Myanmar Spell Checker Suite — Easy -> Hardest Progressive Accuracy & Performance Report");
-            Console.WriteLine("==========================================================================================");
+            Console.WriteLine("================================================================================================");
+            Console.WriteLine(" Myanmar Spell Checker Suite — Progressive & Grandmaster Torture Benchmark Report");
+            Console.WriteLine($" Mode                  : {modeBanner}");
+            Console.WriteLine("================================================================================================");
             Console.WriteLine($" Dictionary DB Size    : {new FileInfo(dbPath).Length / (1024.0 * 1024.0):F2} MB ({trie.WordCount:N0} headwords, {trie.BigramCount:N0} bigrams)");
             Console.WriteLine($" Cold DB Load Time     : {swLoad.Elapsed.TotalMilliseconds:F1} ms");
             Console.WriteLine($" Managed Heap Footprint: {memBytes / (1024.0 * 1024.0):F2} MB");
-            Console.WriteLine("------------------------------------------------------------------------------------------");
-            Console.WriteLine(" Progressive Difficulty Breakdown (Easy -> Medium -> Hard -> Hardest / Expert):");
-            Console.WriteLine(" Tier                      | Cases |  TP |  FN | Recall  | Top-1   |   MRR  | p95 ms");
-            Console.WriteLine(" --------------------------+-------+-----+-----+---------+---------+--------+-------");
-            PrintTierRow("Tier 1: Easy (Syllable)", tierStats[BenchmarkDifficulty.Easy]);
-            PrintTierRow("Tier 2: Medium (Lexical)", tierStats[BenchmarkDifficulty.Medium]);
-            PrintTierRow("Tier 3: Hard (Boundary)", tierStats[BenchmarkDifficulty.Hard]);
-            PrintTierRow("Tier 4: Hardest (Syntax)", tierStats[BenchmarkDifficulty.Hardest]);
-            Console.WriteLine($" Tier 0: Clean Controls    | {cleanTotal,5} | FPR = {cleanFpr * 100.0,5:F2}% ({cleanWithFp}/{cleanTotal} false positives)");
-            Console.WriteLine("------------------------------------------------------------------------------------------");
+            Console.WriteLine("------------------------------------------------------------------------------------------------");
+            Console.WriteLine(" Tier                             | Sents | Spans |  TP |  FN | Recall  | Top-1   |   MRR  | p95 ms");
+            Console.WriteLine(" ---------------------------------+-------+-------+-----+-----+---------+---------+--------+-------");
+            foreach (var td in tierOrder)
+            {
+                PrintTierRow(GetTierLabel(td), tierStats[td]);
+            }
+            Console.WriteLine($" Tier 0: Evil-Twin Clean Controls | {cleanTotal,5} | FPR = {cleanFpr * 100.0,5:F2}% ({cleanWithFp}/{cleanTotal} false positives)");
+            if (tierStats.TryGetValue(BenchmarkDifficulty.GrandmasterTorture, out var gmAcc) && gmAcc.Sentences > 0)
+            {
+                double perfectPct = (double)gmAcc.PerfectMultiFixSentences / gmAcc.Sentences * 100.0;
+                Console.WriteLine($" Grandmaster All-Errors-In-1-Pass | {gmAcc.PerfectMultiFixSentences,2}/{gmAcc.Sentences,2} sentences ({perfectPct:F1}%) solved 100% simultaneously");
+            }
+            Console.WriteLine("------------------------------------------------------------------------------------------------");
             Console.WriteLine($" Overall Precision     : {precision * 100.0:F2}%  (TP={tp}, FP={fp}, FN={fn})");
             Console.WriteLine($" Overall Recall        : {recall * 100.0:F2}%");
             Console.WriteLine($" Overall F1 Score      : {f1 * 100.0:F2}%");
@@ -270,14 +388,25 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             Console.WriteLine($" Sentence Latency      : p50={p50:F2} ms | p95={p95:F2} ms | p99={p99:F2} ms | mean={meanMs:F2} ms");
             Console.WriteLine($" Excel 2D Block Scan   : {swExcel.Elapsed.TotalMilliseconds:F1} ms for 1,250 cells ({cellsPerSec:N0} cells/sec, {excelIssues.Count} issues)");
             Console.WriteLine($" COMPOSITE SCORE       : {composite:F4}");
-            Console.WriteLine("==========================================================================================");
+            Console.WriteLine("================================================================================================");
 
             return 0;
         }
 
+        private static string GetTierLabel(BenchmarkDifficulty difficulty) => difficulty switch
+        {
+            BenchmarkDifficulty.Easy => "Tier 1: Easy (Syllable)",
+            BenchmarkDifficulty.Medium => "Tier 2: Medium (Lexical)",
+            BenchmarkDifficulty.Hard => "Tier 3: Hard (Boundary)",
+            BenchmarkDifficulty.Hardest => "Tier 4: Hardest (Syntax)",
+            BenchmarkDifficulty.Nightmare => "Tier 5: Nightmare (Deep Trap)",
+            BenchmarkDifficulty.GrandmasterTorture => "Tier 6: Grandmaster (3-4x Err)",
+            _ => "Tier 0: Clean Controls"
+        };
+
         private static void PrintTierRow(string label, TierAccumulator acc)
         {
-            double rec = acc.Cases > 0 ? (double)acc.Tp / acc.Cases * 100.0 : 100.0;
+            double rec = acc.GoldSpans > 0 ? (double)acc.Tp / acc.GoldSpans * 100.0 : 100.0;
             double top1 = acc.EvalSugCount > 0 ? (double)acc.Top1Hits / acc.EvalSugCount * 100.0 : 0.0;
             double mrr = acc.EvalSugCount > 0 ? acc.MrrSum / acc.EvalSugCount : 0.0;
             double p95 = 0.0;
@@ -286,7 +415,7 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                 var sorted = acc.LatenciesMs.OrderBy(x => x).ToList();
                 p95 = sorted[Math.Min(sorted.Count - 1, (int)(0.95 * sorted.Count))];
             }
-            Console.WriteLine($" {label,-25} | {acc.Cases,5} | {acc.Tp,3} | {acc.Fn,3} | {rec,6:F1}% | {top1,6:F1}% | {mrr,6:F4} | {p95,6:F2}");
+            Console.WriteLine($" {label,-32} | {acc.Sentences,5} | {acc.GoldSpans,5} | {acc.Tp,3} | {acc.Fn,3} | {rec,6:F1}% | {top1,6:F1}% | {mrr,6:F4} | {p95,6:F2}");
         }
 
         private static List<BenchmarkCase> BuildCleanRoomProgressiveSuite()
@@ -294,7 +423,7 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             return new List<BenchmarkCase>
             {
                 // =========================================================================================
-                // TIER 0: ADVERSARIAL CLEAN CONTROLS (20 Clean Sentences — Must Produce 0 False Positives)
+                // TIER 0: ADVERSARIAL "EVIL-TWIN" CLEAN CONTROLS (30 Clean Sentences — Must Have 0 FPs!)
                 // =========================================================================================
                 new BenchmarkCase("ministry", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
                     "ပြည်ထောင်စုတရားလွှတ်တော်ချုပ်သည် စာချွန်တော်အမိန့်လျှောက်ထားမှုများကို ဥပဒေနှင့်အညီ စီရင်ဆုံးဖြတ်သည်။"),
@@ -336,6 +465,27 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                     "ဘာသာဗေဒနှင့် သဒ္ဒါသင်ခန်းစာများကို တက္ကသိုလ်တွင် စနစ်တကျ သင်ကြားပို့ချသည်။"),
                 new BenchmarkCase("commerce", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
                     "ပို့ကုန်သွင်းကုန် လုပ်ငန်းရှင်များသည် အခွန်စည်းမျဉ်းများကို အတိအကျ လိုက်နာကြသည်။"),
+                // 10 Evil-Twin Minimal-Pair Clean Controls for Nightmare & Grandmaster Rules:
+                new BenchmarkCase("evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "တပ်ဖွဲ့ဝင်များသည် သေနတ်ပစ်မှု လေ့ကျင့်ရေးကွင်း၌ စနစ်တကျ လေ့ကျင့်ကြသည်။"),
+                new BenchmarkCase("evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ပျက်စီးသွားသော ပစ္စည်းတန်ဖိုးကို အပြည့်အဝ ပြန်လည်လျော်ပေးရမည်။"),
+                new BenchmarkCase("evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ကလေးများ လက်လှမ်းမမီသော နေရာတွင် ဆေးဝါးများကို သိမ်းဆည်းပါ။"),
+                new BenchmarkCase("evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.GeneralStandard,
+                    "မနက်ဖြန် ရုံးကို စာရွက်စာတမ်းတွေ ယူလာခဲ့မယ် လို့ ပြောသွားတယ်။"),
+                new BenchmarkCase("evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ဆရာတော်ကြီးက တရားဓမ္မ ဟောကြားတော်မူပြီး ပရိသတ်များက သာဓုခေါ်ဆိုကြသည်။"),
+                new BenchmarkCase("evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "နူးညံ့ပျော့ပျောင်းသော ပိုးထည်များကို သေတ္တာထဲတွင် စနစ်တကျ ထည့်ထားသည်။"),
+                new BenchmarkCase("evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ဝင်ငွေနှင့် အထွက်စာရင်းများကို လချုပ်အစီရင်ခံစာတွင် တိကျစွာ ဖော်ပြထားသည်။"),
+                new BenchmarkCase("evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ရဲတပ်ဖွဲ့ စခန်းမှူးက ယာဉ်စည်းကမ်း လိုက်နာရေးအတွက် အသိပညာပေး ဟောပြောသည်။"),
+                new BenchmarkCase("evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.GeneralStandard,
+                    "ဗိုက်ဆာလို့ အားမရှိသလိုပဲ ခံစားနေရပေမဲ့ နှမ်းဆီမွှေးမွှေးလေးနဲ့ စားလိုက်တယ်။"),
+                new BenchmarkCase("evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ကမ်းခြေထီးတစ်ထည်နှင့် အယ်လ်ဂိုရီသမ်စာအုပ်တစ်အုပ်ကို သက်သောင့်သက်သာ ယူဆောင်လာသည်။"),
 
                 // =========================================================================================
                 // TIER 1: EASY — Character, Encoding, Punctuation & UTN #11 Syllable Fundamentals (20 Cases)
@@ -470,7 +620,7 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                     "နေ့စဉ် လမ်းလျှောက်ချင်းက ကျန်းမာရေးအတွက် ကောင်းတယ်။", "ချင်း", "ခြင်း"),
 
                 // =========================================================================================
-                // TIER 4: HARDEST / EXPERT — Real-Word Confusions, Tense-Aspect & SOV Word Order (20 Cases)
+                // TIER 4: HARDEST — Real-Word Collocations, Tense-Aspect & SOV Word Order (20 Cases)
                 // =========================================================================================
                 new BenchmarkCase("real_word", BenchmarkDifficulty.Hardest, ProofingStyleMode.GeneralStandard,
                     "ခွေးကို အစာ ကြွေး ပါ။", "ကြွေး", "ကျွေး"),
@@ -515,7 +665,132 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                 new BenchmarkCase("word_order", BenchmarkDifficulty.Hardest, ProofingStyleMode.GeneralStandard,
                     "ကျောင်းသားများက လေ့လာချင်ကြတယ် နည်းပညာဘာသာရပ်သစ်ကို။",
                     "လေ့လာချင်ကြတယ် နည်းပညာဘာသာရပ်သစ်ကို",
-                    "နည်းပညာဘာသာရပ်သစ်ကို လေ့လာချင်ကြတယ်")
+                    "နည်းပညာဘာသာရပ်သစ်ကို လေ့လာချင်ကြတယ်"),
+
+                // =========================================================================================
+                // TIER 5: NIGHTMARE — Deep Unspaced Homophones, Subtle Tone Traps & Case Collisions (20 Cases)
+                // =========================================================================================
+                new BenchmarkCase("speech_homophone", BenchmarkDifficulty.Nightmare, ProofingStyleMode.FormalOfficial,
+                    "ရပ်ကွက်အတွင်း ဆူညံမှု မပြုလုပ်ရန် တာဝန်ရှိသူများက ဟု ပြော့သည်။", "ပြော့", "ပြော"),
+                new BenchmarkCase("plural_homophone", BenchmarkDifficulty.Nightmare, ProofingStyleMode.GeneralStandard,
+                    "စေတနာ့ဝန်ထမ်းတွေက သက်ကြီးဘိုးဘွားတွေကို နွေးထွေးစွာ စောင့်ရှောက်ပေးကြာပါတယ်။", "ကြာ", "ကြ"),
+                new BenchmarkCase("verbal_particle", BenchmarkDifficulty.Nightmare, ProofingStyleMode.GeneralStandard,
+                    "ကျန်းမာရေးဝန်ထမ်းတွေက လူနာတွေကို စိတ်ရှည်လက်ရှည် ကုသပေးကြပတ်တယ်။", "ပတ်", "ပါ"),
+                new BenchmarkCase("modal_particle", BenchmarkDifficulty.Nightmare, ProofingStyleMode.GeneralStandard,
+                    "ဒီသင်တန်းမှာ ကွန်ပျူတာအခြေခံပညာကို အခမဲ့ လေ့လာလို့ရာတယ်။", "ရာ", "ရ"),
+                new BenchmarkCase("postposition_trap", BenchmarkDifficulty.Nightmare, ProofingStyleMode.FormalOfficial,
+                    "သစ်ပင်စိုက်ပျိုးခြင်းသည် ကမ္ဘာကြီးအထွက် အလွန်အကျိုးရှိပါသည်။", "အထွက်", "အတွက်"),
+                new BenchmarkCase("possessive_trap", BenchmarkDifficulty.Nightmare, ProofingStyleMode.GeneralStandard,
+                    "ကုမ္ပဏီတစ်ခုရဲ အောင်မြင်မှုဟာ ဝန်ထမ်းတွေရဲ့ ကြိုးစားမှုအပေါ် မူတည်တယ်။", "ရဲ", "ရဲ့"),
+                new BenchmarkCase("quotative_trap", BenchmarkDifficulty.Nightmare, ProofingStyleMode.GeneralStandard,
+                    "ဒီစီမံကိန်း ဘယ်တော့ပြီးမလဲလို ပြည်သူတွေက သိချင်နေကြတယ်။", "လို", "လို့"),
+                new BenchmarkCase("visarga_trap", BenchmarkDifficulty.Nightmare, ProofingStyleMode.GeneralStandard,
+                    "တောင်ပေါ်ဒေသကို ဆောင်းရာသီမှာ ခရီးသွားရတာ အရမ်းပျော်ဖို့ကောင်တယ်။", "ကောင်", "ကောင်း"),
+                new BenchmarkCase("spurious_visarga", BenchmarkDifficulty.Nightmare, ProofingStyleMode.GeneralStandard,
+                    "ကျောင်းသားတွေ စာဖတ်ဝါသနာ ရှိလာအောင်းလည်း ဆရာတွေက ကူညီပေးတယ်။", "အောင်း", "အောင်"),
+                new BenchmarkCase("plural_trap", BenchmarkDifficulty.Nightmare, ProofingStyleMode.FormalOfficial,
+                    "ရေဘေးသင့်ပြည်သူတွေးကို အရေးပေါ်ကယ်ဆယ်ရေးပစ္စည်းများ ထောက်ပံ့ပေးသည်။", "တွေး", "တွေ"),
+                new BenchmarkCase("hidden_compound", BenchmarkDifficulty.Nightmare, ProofingStyleMode.GeneralStandard,
+                    "အဆိုရရဲ့ ပညာရေးထောက်ပံ့ကြေး အစီအစဉ်ကို ကျောင်းသားများ လျှောက်ထားနိုင်သည်။", "အဆိုရ", "အစိုးရ"),
+                new BenchmarkCase("leading_visarga", BenchmarkDifficulty.Nightmare, ProofingStyleMode.FormalOfficial,
+                    "လုပ်ခလစာ တိုးမြှင့်ပေးပါရန် အလုပ်သမားများက တောင်ဆိုကြသည်။", "တောင်ဆို", "တောင်းဆို"),
+                new BenchmarkCase("hidden_compound", BenchmarkDifficulty.Nightmare, ProofingStyleMode.FormalOfficial,
+                    "ရှေးဟောင်းယဉ်ကျေးမှု အမွေအနှစ်များ ပျောက်စုန်မသွားအောင် ထိန်းသိမ်းရမည်။", "ပျောက်စုန်", "ပျောက်ဆုံး"),
+                new BenchmarkCase("hidden_compound", BenchmarkDifficulty.Nightmare, ProofingStyleMode.FormalOfficial,
+                    "စာကြည့်တိုက်တွင် လိုအပ်သော ကျမ်းကိုးစာအုပ်များကို အလွယ်တကူ ရှာဖွင့်နိုင်သည်။", "ရှာဖွင့်", "ရှာဖွေ"),
+                new BenchmarkCase("gerundive_trap", BenchmarkDifficulty.Nightmare, ProofingStyleMode.GeneralStandard,
+                    "တောင်တန်းဒေသ ရှုခင်းများကြည့်ရတာ အရမ်းစိတ်လှုပ်ရှားဆရာကောင်းတယ်။", "စိတ်လှုပ်ရှားဆရာ", "စိတ်လှုပ်ရှားစရာ"),
+                new BenchmarkCase("adjective_trap", BenchmarkDifficulty.Nightmare, ProofingStyleMode.FormalOfficial,
+                    "သဘာဝပတ်ဝန်းကျင် ထိန်းသိမ်းရေးသည် နိုင်ငံတိုင်းအတွက် အရေးကြည်သော လုပ်ငန်းဖြစ်သည်။", "အရေးကြည်", "အရေးကြီး"),
+                new BenchmarkCase("collocation_trap", BenchmarkDifficulty.Nightmare, ProofingStyleMode.FormalOfficial,
+                    "အားကစားလုပ်ခြင်းသည် စိတ်ဖိစီမှုကို သိသာစွာ လျှော့ချပေးနိုင်သည်။", "စိတ်ဖိစီမှု", "စိတ်ဖိစီးမှု"),
+                new BenchmarkCase("case_collision", BenchmarkDifficulty.Nightmare, ProofingStyleMode.GeneralStandard,
+                    "အားလပ်ရက်မှာ ကျွန်တော်ကို ရိုးရာအစားအစာတွေကို အရမ်းကြိုက်တယ်။", "ကျွန်တော်ကို", "ကျွန်တော်က"),
+                new BenchmarkCase("copula_collision", BenchmarkDifficulty.Nightmare, ProofingStyleMode.FormalOfficial,
+                    "ဦးအောင်မင်းသည် အတွေ့အကြုံရင့်ကျက်သော ဆရာဝန်ကြီးကို ဖြစ်သည်။", "ကို ဖြစ်သည်", "ဖြစ်သည်"),
+                new BenchmarkCase("historical_tense", BenchmarkDifficulty.Nightmare, ProofingStyleMode.GeneralStandard,
+                    "ပုဂံခေတ်ဟာ မြန်မာ့ဗိသုကာပညာ အထွန်းကားဆုံးကာလ ဖြစ်ပါလိမ့်မယ်။", "ဖြစ်ပါလိမ့်မယ်", "ဖြစ်ပါတယ်"),
+
+                // =========================================================================================
+                // TIER 6: GRANDMASTER MULTI-ERROR TORTURE — 3-to-4 Simultaneous Layer Errors/Sentence (15 Sents = 46 Spans)
+                // =========================================================================================
+                new BenchmarkCase("multi_torture", BenchmarkDifficulty.GrandmasterTorture, ProofingStyleMode.FormalOfficial,
+                    "ဝန်ကြီးဌာနက အရေးကြိးသော အချက် အလက်များကို ပေးပို့ခဲ့သည် တိုင်းဒေသကြီးရုံးသို့။",
+                    ("ကြိး", "ကြီး"),
+                    ("အချက် အလက်", "အချက်အလက်"),
+                    ("ပေးပို့ခဲ့သည် တိုင်းဒေသကြီးရုံးသို့", "တိုင်းဒေသကြီးရုံးသို့ ပေးပို့ခဲ့သည်")),
+                new BenchmarkCase("multi_torture", BenchmarkDifficulty.GrandmasterTorture, ProofingStyleMode.FormalOfficial,
+                    "ကေျာင်းသားများက စာ ကြည့် တိုက် တွင် ဘာမှ မပြောပဲ စာဖတ်နေကြသည်။",
+                    ("ကေျာင်း", "ကျောင်း"),
+                    ("စာ ကြည့် တိုက်", "စာကြည့်တိုက်"),
+                    ("ပဲ", "ဘဲ")),
+                new BenchmarkCase("multi_torture", BenchmarkDifficulty.GrandmasterTorture, ProofingStyleMode.FormalOfficial,
+                    "ယမန်နှစ်က အာဏာသိမ်းမူဆိုင်ရာ ဆွေနွေးပွဲကို အောင်မြင်စွာ ကျင်းပမည်ဖြစ်သည်။",
+                    ("အာဏာသိမ်းမူ", "အာဏာသိမ်းမှု"),
+                    ("ဆွေနွေး", "ဆွေးနွေး"),
+                    ("မည်ဖြစ်သည်", "ခဲ့သည်")),
+                new BenchmarkCase("multi_torture", BenchmarkDifficulty.GrandmasterTorture, ProofingStyleMode.GeneralStandard,
+                    "မနက်တိုင်း အဝတ် လျော် ပြီး နေပူထဲ အဝတ် လှမ်း ထားပေ မယ့် မခြောက်သေးဘူး။",
+                    ("လျော်", "လျှော်"),
+                    ("လှမ်း", "လှန်း"),
+                    ("ထားပေ မယ့်", "ထားပေမယ့်")),
+                new BenchmarkCase("multi_torture", BenchmarkDifficulty.GrandmasterTorture, ProofingStyleMode.FormalOfficial,
+                    "လာမ ည့် နှစ်တွင် ပညာရေ စီမံကိန်းသစ်ကို စတင်ဆောင်ရွက်ခဲ့သည်။",
+                    ("လာမ ည့်", "လာမည့်"),
+                    ("ပညာရေ", "ပညာရေး"),
+                    ("ခဲ့သည်", "မည်ဖြစ်သည်")),
+                new BenchmarkCase("multi_torture", BenchmarkDifficulty.GrandmasterTorture, ProofingStyleMode.GeneralStandard,
+                    "သဘာဝပတ်ဝန်းကျင် ကာကွယ်ဖိုက အရေးကြည်သော လုပ်ငန်းဖြစ်လို့ အမြတ်မထုတ်ပဲ ကူညီသင့်တယ်။",
+                    ("ဖို", "ဖို့"),
+                    ("အရေးကြည်", "အရေးကြီး"),
+                    ("ပဲ", "ဘဲ")),
+                new BenchmarkCase("multi_torture", BenchmarkDifficulty.GrandmasterTorture, ProofingStyleMode.GeneralStandard,
+                    "ဖိနပ် တစ်ခု ဝယ်ပြီး အစ်ကိုက မန္တလေးမြို့ကို နေထိုင်တယ် လို့ ပြော့သည်။",
+                    ("ခု", "ရံ"),
+                    ("ကို", "မှာ"),
+                    ("ပြော့", "ပြော")),
+                new BenchmarkCase("multi_torture", BenchmarkDifficulty.GrandmasterTorture, ProofingStyleMode.GeneralStandard,
+                    "ဆရာတော်ကြီးက တရားဟောကြား တော်မူ၍ တပည့်များက သွန်သင်ဆုံမ ချက်ကို နာယူကြပတ်တယ်။",
+                    ("ဟောကြား တော်မူ", "ဟောကြားတော်မူ"),
+                    ("သွန်သင်ဆုံမ", "သွန်သင်ဆုံးမ"),
+                    ("ပတ်", "ပါ")),
+                new BenchmarkCase("multi_torture", BenchmarkDifficulty.GrandmasterTorture, ProofingStyleMode.FormalOfficial,
+                    "စစ်တက္ ကသိုလ်မှ သုတေသီများက စမ်းသပ်ချက် ရလဓ် ကို စနစ်တကွ မှတ်တမ်းတင်သည်။",
+                    ("စစ်တက္ ကသိုလ်", "စစ်တက္ကသိုလ်"),
+                    ("ရလဓ်", "ရလဒ်"),
+                    ("စနစ်တကွ", "စနစ်တကျ")),
+                new BenchmarkCase("multi_torture", BenchmarkDifficulty.GrandmasterTorture, ProofingStyleMode.GeneralStandard,
+                    "နေ့စဉ် လမ်းလျှောက်ချင်းက စိတ်ဖိစီမှုကို လျော့ကျစေလို့ လူတိုင်း လုပ်ဖို့ကောင်တယ်။",
+                    ("ချင်း", "ခြင်း"),
+                    ("စိတ်ဖိစီမှု", "စိတ်ဖိစီးမှု"),
+                    ("ကောင်", "ကောင်း")),
+                new BenchmarkCase("multi_torture", BenchmarkDifficulty.GrandmasterTorture, ProofingStyleMode.FormalOfficial,
+                    "အဖွဲ့ အစည်းက ပြဿနာကို ထိရောက်သော ဖြေရှင်းနိုင်ရန် စီမံချက်ကို ပြင်ဆင်ကာ ရှိသည်။",
+                    ("အဖွဲ့ အစည်း", "အဖွဲ့အစည်း"),
+                    ("သော", "စွာ"),
+                    ("ကာ", "လျက်")),
+                new BenchmarkCase("multi_torture", BenchmarkDifficulty.GrandmasterTorture, ProofingStyleMode.FormalOfficial,
+                    "အဆိုရရဲ့ ဝန်စောင့်မှုလုပ်ငန်းများ ပိုမိုကောင်းမွန်လာအောင်းလည်း ဆောင်ရွက်ပေးသည်။",
+                    ("အဆိုရ", "အစိုးရ"),
+                    ("ရဲ့", "၏"),
+                    ("ဝန်စောင့်မှု", "ဝန်ဆောင်မှု"),
+                    ("အောင်း", "အောင်")),
+                new BenchmarkCase("multi_torture", BenchmarkDifficulty.GrandmasterTorture, ProofingStyleMode.GeneralStandard,
+                    "ယာဉ်မတော်တဆမှုကြောင့် ထိခိုပ်ဒဏ်ရာရရှိသူတွေးကို ဆေးရုံသို့ ပို့ဆောင်ပြီးပါပီ.",
+                    ("ထိခိုပ်", "ထိခိုက်"),
+                    ("တွေး", "တွေ"),
+                    ("ပါပီ", "ပါပြီ"),
+                    (".", "။")),
+                new BenchmarkCase("multi_torture", BenchmarkDifficulty.GrandmasterTorture, ProofingStyleMode.GeneralStandard,
+                    "အနော် ရထာမင်းကြီး လက်ထက်မှာ ဘာသာ ရေး စာပေများ စတင်ထွန်းကားပါလိမ့်မယ်။",
+                    ("အနော် ရထာ", "အနော်ရထာ"),
+                    ("ဘာသာ ရေး", "ဘာသာရေး"),
+                    ("ပါလိမ့်မယ်", "ခဲ့ပါတယ်")),
+                new BenchmarkCase("multi_torture", BenchmarkDifficulty.GrandmasterTorture, ProofingStyleMode.GeneralStandard,
+                    "ဒါနပြုခြင်းဖြင့် စိပ်ကြည်နူးမှု ရရှိသလိုဘဲ တိုးတက်စေပါတယ် လူ့အသိုင်းအဝိုင်းကို။",
+                    ("စိပ်ကြည်နူး", "စိတ်ကြည်နူး"),
+                    ("ဘဲ", "ပဲ"),
+                    ("တိုးတက်စေပါတယ် လူ့အသိုင်းအဝိုင်းကို", "လူ့အသိုင်းအဝိုင်းကို တိုးတက်စေပါတယ်"))
             };
         }
     }
