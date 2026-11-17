@@ -2613,5 +2613,89 @@ namespace MyanmarSpellChecker.Core.Tests
                     UnicodeNormalizer.NormalizeCanonicalOrder(patched));
             }
         }
+
+        [Fact]
+        public void V63B_CompositionalRerankerBoundaryAndClassicalNissayaShield_Gate()
+        {
+            string dbPath = TestPaths.EncryptedDbPath;
+            Assert.True(File.Exists(dbPath), "Compiled mlc_thatpon.db must exist.");
+
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            MyanmarTrie trie = repo.LoadIntoTrie(AntiTamperGuard.ReconstructProtectedFallbackKey());
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+
+            // 1. Classical Pitaka/Nissaya Orthography Shield, Euphonic '-ပေတည်း', Foreign Killed-Coda & Productive 'ရကြောင်း' Clean Controls
+            (MyanmarProofingEngine Engine, string CleanInput)[] cleanControls =
+            {
+                (formalEngine, "ရဟန်းတို့ သူတပါးအကျိုးငှါ တစုံတခုသော ကောင်းမှုကို ပြုရာ၏ဟုဆိုကုန်၏။"),
+                (formalEngine, "မှန်ကန်သော လုံ့လဝီရိယသည် ကြီးပွားချမ်းသာခြင်း၏ အကြောင်းရင်းပေတည်း။"),
+                (formalEngine, "အစည်းအဝေးသို့ မစ္စတာ ရောဘတ်စ် နှင့် ကိုယ်စားလှယ်အဖွဲ့ တက်ရောက်ကြသည်။"),
+                (formalEngine, "ကွင်းဆင်းစစ်ဆေးချက်အရ သက်သေအထောက်အထား အပြည့်အစုံ တွေ့ရှိရကြောင်း တင်ပြသည်။"),
+                (generalEngine, "အတိအကျ ပြောရရင် တကယ် တကယ် ကြိုးစားမှ အောင်မြင်မှာပါ။")
+            };
+
+            foreach (var (eng, clean) in cleanControls)
+            {
+                var fp = eng.CheckText(clean);
+                Assert.True(fp.Count == 0, $"Clean control falsely flagged '{clean}': {string.Join(", ", fp.Select(x => x.OriginalText + "->" + (x.Suggestions.FirstOrDefault()?.Replacement ?? "")))}");
+            }
+
+            // 2. Pillar #1 (Compositional Syllable-Preserving Reranker, Unstacked Pat-Sint, Pure-Lookalike Neighbor Shield)
+            //    + Pillar #2 (Space-Split Compounds, Trailing Virama-Asat, Glued Phrase Boundaries)
+            //    + Pillar #3 (Intra-Sentence Register-Clash Detector)
+            (MyanmarProofingEngine Engine, string RawInput, string ExpectedCleanSentence)[] repairSentences =
+            {
+                (
+                    formalEngine,
+                    "ယာဉ်အန်ထရာယ် ကင်းရှင်းရေးအတွက် စက်ကန့်ပိုင်း အတွင်း စနတ်တကျ စစ်ဆေးသည်။",
+                    "ယာဉ်အန္တရာယ် ကင်းရှင်းရေးအတွက် စက္ကန့်ပိုင်း အတွင်း စနစ်တကျ စစ်ဆေးသည်။"
+                ),
+                (
+                    formalEngine,
+                    "တံခါးပေါက်မှ လေအေးများ မ၀င်အောင် သေချာပိတ်ထားသည်။",
+                    "တံခါးပေါက်မှ လေအေးများ မဝင်အောင် သေချာပိတ်ထားသည်။"
+                ),
+                (
+                    generalEngine,
+                    "ပစ္စည်းတွေကို သေချာ သိမ်ဆည်းတာ ကောင်းသလို အကျံပေးချင်ပါတယ်။",
+                    "ပစ္စည်းတွေကို သေချာ သိမ်းဆည်းတာ ကောင်းသလို အကြံပေးချင်ပါတယ်။"
+                ),
+                (
+                    formalEngine,
+                    "တရား ဥပဒေ စိုးမိုးရေးအတြက္ စာရွက်စာတမ်းများကို စနတ်တကျ လုံခြုံစွာသိမ်းဆည်း ရမည်။",
+                    "တရားဥပဒေ စိုးမိုးရေးအတွက် စာရွက်စာတမ်းများကို စနစ်တကျ လုံခြုံစွာ သိမ်းဆည်း ရမည်။"
+                ),
+                (
+                    formalEngine,
+                    "စာမေးပွဲခန်းတွင် ကျောင်းသားများ အေးဆေး နေရမည်။",
+                    "စာမေးပွဲခန်းတွင် ကျောင်းသားများ တိတ်တဆိတ် နေရမည်။"
+                ),
+                (
+                    formalEngine,
+                    "လွှတ်တော်အစည်းအဝေးတွင် ဒီအကြောင်းအရာကို အကျယ်တဝင့် ဆွေးနွေးသည်။",
+                    "လွှတ်တော်အစည်းအဝေးတွင် ယင်းအကြောင်းအရာကို အကျယ်တဝင့် ဆွေးနွေးသည်။"
+                )
+            };
+
+            foreach (var (eng, raw, expectedClean) in repairSentences)
+            {
+                var issues = eng.CheckText(raw);
+                Assert.NotEmpty(issues);
+
+                string patched = raw;
+                foreach (var iss in issues.OrderByDescending(i => i.StartIndex))
+                {
+                    Assert.NotEmpty(iss.Suggestions);
+                    patched = patched.Substring(0, iss.StartIndex) +
+                              iss.Suggestions[0].Replacement +
+                              patched.Substring(iss.StartIndex + iss.Length);
+                }
+
+                Assert.Equal(
+                    UnicodeNormalizer.NormalizeCanonicalOrder(expectedClean),
+                    UnicodeNormalizer.NormalizeCanonicalOrder(patched));
+            }
+        }
     }
 }

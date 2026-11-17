@@ -486,6 +486,14 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                     "ဗိုက်ဆာလို့ အားမရှိသလိုပဲ ခံစားနေရပေမဲ့ နှမ်းဆီမွှေးမွှေးလေးနဲ့ စားလိုက်တယ်။"),
                 new BenchmarkCase("evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
                     "ကမ်းခြေထီးတစ်ထည်နှင့် အယ်လ်ဂိုရီသမ်စာအုပ်တစ်အုပ်ကို သက်သောင့်သက်သာ ယူဆောင်လာသည်။"),
+                new BenchmarkCase("pitaka_nissaya", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ရဟန်းတို့ သူတပါးအကျိုးငှါ တစုံတခုသော ကောင်းမှုကို ပြုရာ၏ဟုဆိုကုန်၏။"),
+                new BenchmarkCase("classical_euphonic", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "မှန်ကန်သော လုံ့လဝီရိယသည် ကြီးပွားချမ်းသာခြင်း၏ အကြောင်းရင်းပေတည်း။"),
+                new BenchmarkCase("foreign_coda", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "အစည်းအဝေးသို့ မစ္စတာ ရောဘတ်စ် နှင့် ကိုယ်စားလှယ်အဖွဲ့ တက်ရောက်ကြသည်။"),
+                new BenchmarkCase("evil_twin", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ကွင်းဆင်းစစ်ဆေးချက်အရ သက်သေအထောက်အထား အပြည့်အစုံ တွေ့ရှိရကြောင်း တင်ပြသည်။"),
 
                 // =========================================================================================
                 // TIER 1: EASY — Character, Encoding, Punctuation & UTN #11 Syllable Fundamentals (20 Cases)
@@ -710,9 +718,21 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                     "ဦးအောင်မင်းသည် အတွေ့အကြုံရင့်ကျက်သော ဆရာဝန်ကြီးကို ဖြစ်သည်။", "ကို ဖြစ်သည်", "ဖြစ်သည်"),
                 new BenchmarkCase("historical_tense", BenchmarkDifficulty.Nightmare, ProofingStyleMode.GeneralStandard,
                     "ပုဂံခေတ်ဟာ မြန်မာ့ဗိသုကာပညာ အထွန်းကားဆုံးကာလ ဖြစ်ပါလိမ့်မယ်။", "ဖြစ်ပါလိမ့်မယ်", "ဖြစ်ပါတယ်"),
+                new BenchmarkCase("unstacked_patsint", BenchmarkDifficulty.Nightmare, ProofingStyleMode.FormalOfficial,
+                    "ယာဉ်အန်ထရာယ် ကင်းရှင်းရေးအတွက် လမ်းစည်းကမ်း လိုက်နာပါ။", "အန်ထရာယ်", "အန္တရာယ်"),
+                new BenchmarkCase("unstacked_patsint", BenchmarkDifficulty.Nightmare, ProofingStyleMode.FormalOfficial,
+                    "စက်ကန့်ပိုင်း အတွင်း အဖြေထုတ်ပေးနိုင်သည်။", "စက်ကန့်", "စက္ကန့်"),
+                new BenchmarkCase("coda_rerank", BenchmarkDifficulty.Nightmare, ProofingStyleMode.FormalOfficial,
+                    "ရုံးစာတွဲများကို စနတ်တကျ မှတ်တမ်းတင်ထားရှိသည်။", "စနတ်တကျ", "စနစ်တကျ"),
+                new BenchmarkCase("lookalike_neighbor", BenchmarkDifficulty.Nightmare, ProofingStyleMode.FormalOfficial,
+                    "တံခါးပေါက်မှ လေအေးများ မ၀င်အောင် သေချာပိတ်ထားသည်။", "၀င်", "ဝင်"),
+                new BenchmarkCase("glued_boundary", BenchmarkDifficulty.Nightmare, ProofingStyleMode.FormalOfficial,
+                    "လျှို့ဝှက်စာရွက်စာတမ်းများကို လုံခြုံစွာသိမ်းဆည်း ထားရမည်။", "လုံခြုံစွာသိမ်းဆည်း", "လုံခြုံစွာ သိမ်းဆည်း"),
+                new BenchmarkCase("register_clash", BenchmarkDifficulty.Nightmare, ProofingStyleMode.FormalOfficial,
+                    "စာမေးပွဲခန်းတွင် ကျောင်းသားများ အေးဆေး နေရမည်။", "အေးဆေး", "တိတ်တဆိတ်"),
 
                 // =========================================================================================
-                // TIER 6: GRANDMASTER MULTI-ERROR TORTURE — 3-to-4 Simultaneous Layer Errors/Sentence (15 Sents = 46 Spans)
+                // TIER 6: GRANDMASTER MULTI-ERROR TORTURE — 3-to-4 Simultaneous Layer Errors/Sentence
                 // =========================================================================================
                 new BenchmarkCase("multi_torture", BenchmarkDifficulty.GrandmasterTorture, ProofingStyleMode.FormalOfficial,
                     "ဝန်ကြီးဌာနက အရေးကြိးသော အချက် အလက်များကို ပေးပို့ခဲ့သည် တိုင်းဒေသကြီးရုံးသို့။",
@@ -790,7 +810,13 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                     "ဒါနပြုခြင်းဖြင့် စိပ်ကြည်နူးမှု ရရှိသလိုဘဲ တိုးတက်စေပါတယ် လူ့အသိုင်းအဝိုင်းကို။",
                     ("စိပ်ကြည်နူး", "စိတ်ကြည်နူး"),
                     ("ဘဲ", "ပဲ"),
-                    ("တိုးတက်စေပါတယ် လူ့အသိုင်းအဝိုင်းကို", "လူ့အသိုင်းအဝိုင်းကို တိုးတက်စေပါတယ်"))
+                    ("တိုးတက်စေပါတယ် လူ့အသိုင်းအဝိုင်းကို", "လူ့အသိုင်းအဝိုင်းကို တိုးတက်စေပါတယ်")),
+                new BenchmarkCase("multi_torture", BenchmarkDifficulty.GrandmasterTorture, ProofingStyleMode.FormalOfficial,
+                    "တရား ဥပဒေ စိုးမိုးရေးအတြက္ စာရွက်စာတမ်းများကို စနတ်တကျ လုံခြုံစွာသိမ်းဆည်း ရမည်။",
+                    ("တရား ဥပဒေ", "တရားဥပဒေ"),
+                    ("အတြက္", "အတွက်"),
+                    ("စနတ်တကျ", "စနစ်တကျ"),
+                    ("လုံခြုံစွာသိမ်းဆည်း", "လုံခြုံစွာ သိမ်းဆည်း"))
             };
         }
     }

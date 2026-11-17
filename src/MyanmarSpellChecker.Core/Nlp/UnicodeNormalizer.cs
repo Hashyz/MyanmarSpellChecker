@@ -89,14 +89,15 @@ namespace MyanmarSpellChecker.Core.Nlp
             RegexOptions.Compiled);
 
         // 4b. Round AA 'ာ' (U+102C) illegally attached to unstacked, un-medialed ခ, ဂ, င, ဒ, ပ, ဝ or 'ဒွ' (ဒွါရ/ဒွါဒသမ) where Tall AA 'ါ' (U+102B) is mandatory
-        // (e.g. ဒော် -> ဒေါ်, ဒွာရ -> ဒွါရ, ပောင်း -> ပေါင်း, ခောင် -> ခေါင်, ဂန့်ဂော -> ဂန့်ဂေါ; exempts classical Pali 'ဂောတမ' and dropped-medial open 'ပော' -> 'ပြော')
+        // (e.g. ဒော် -> ဒေါ်, ဒွာရ -> ဒွါရ, ပောင်း -> ပေါင်း, ပောများ -> ပေါများ, ခောင် -> ခေါင်, ဂန့်ဂော -> ဂန့်ဂေါ; exempts classical Pali 'ဂောတမ' and dropped-medial open 'ပော' -> 'ပြော')
         private static readonly Regex MisusedRoundAaPattern = new Regex(
-            @"(?<=(?:(?<!\u1039)|\u1004\u103A\u1039)(?:[\u1001\u1002\u1004\u1012\u1015\u101D]|\u1012\u103D)\u1031?)(?!(?<=\u1015\u1031)\u102C(?![\u1000-\u1021]\u103A|\u103A))\u102C(?!တမ)",
+            @"(?<=(?:(?<!\u1039)|\u1004\u103A\u1039)(?:[\u1001\u1002\u1004\u1012\u1015\u101D]|\u1012\u103D)\u1031?)(?!(?<=\u1015\u1031)\u102C(?![\u1000-\u1021]\u103A|\u103A|များ|ပေါက်|လော))\u102C(?!တမ)",
             RegexOptions.Compiled);
 
         // 4c. Accidental Shift+F Virama '\u1039' typed instead of Asat '\u103A' before a consonant+Ya-pin cluster (e.g. 'လိုအပ္ချက်' -> 'လိုအပ်ချက်')
+        // or after 'ယ' before any consonant ('ယ္' never forms a Pali/Burmese pat-sint stack, e.g. 'အဓိပ္ပာယ္ရှိ' -> 'အဓိပ္ပာယ်ရှိ')
         private static readonly Regex AccidentalViramaBeforeYaPinPattern = new Regex(
-            @"(?<!\u1004\u103A)\u1039(?=[\u1000-\u1007\u1009-\u1021]\u103B)",
+            @"(?<!\u1004\u103A)(?:\u1039(?=[\u1000-\u1007\u1009-\u1021]\u103B)|(?<=\u101A)\u1039(?=[\u1000-\u1021]))",
             RegexOptions.Compiled);
 
         // 4d. Non-existent Burmese rhyme 'မှုံ / မှုံ့' (\u1019\u103E\u102F\u1036 — 0x in 462p သတ်ပုံကျမ်း) -> 'မှုန် / မှုန့်' (45x in 462p သတ်ပုံကျမ်း)
