@@ -259,9 +259,13 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
             int contextCount = _allItems.Count(i => !i.IsResolved && i.Issue.IsContextualWarning);
 
             _btnFilterAll.Text = UiLocalizer.Pick($"All ({unresolvedTotal:N0})", $"အားလုံး ({unresolvedTotal:N0})");
-            _btnFilterSpelling.Text = UiLocalizer.Pick($"Spelling ({spellingCount:N0})", $"သတ်ပုံ ({spellingCount:N0})");
-            _btnFilterGrammar.Text = UiLocalizer.Pick($"Grammar ({grammarCount:N0})", $"သဒ္ဒါ ({grammarCount:N0})");
-            _btnFilterContext.Text = UiLocalizer.Pick($"Meaning ({contextCount:N0})", $"အနက် ({contextCount:N0})");
+            _btnFilterSpelling.Text = UiLocalizer.Pick($"Spell ({spellingCount:N0})", $"သတ်ပုံ ({spellingCount:N0})");
+            _btnFilterGrammar.Text = UiLocalizer.Pick($"Style ({grammarCount:N0})", $"သဒ္ဒါ ({grammarCount:N0})");
+            _btnFilterContext.Text = UiLocalizer.Pick($"Sense ({contextCount:N0})", $"အနက် ({contextCount:N0})");
+            _toolTip.SetToolTip(_btnFilterAll, UiLocalizer.Pick($"Show All Issues ({unresolvedTotal:N0})", $"အမှားစုစုပေါင်း ({unresolvedTotal:N0})"));
+            _toolTip.SetToolTip(_btnFilterSpelling, UiLocalizer.Pick($"Spelling & Encoding Issues ({spellingCount:N0})", $"သတ်ပုံနှင့် ယူနီကုဒ်အမှား ({spellingCount:N0})"));
+            _toolTip.SetToolTip(_btnFilterGrammar, UiLocalizer.Pick($"Grammar & Official Style Issues ({grammarCount:N0})", $"သဒ္ဒါနှင့် ရုံးသုံးစာဟန်အမှား ({grammarCount:N0})"));
+            _toolTip.SetToolTip(_btnFilterContext, UiLocalizer.Pick($"Contextual Meaning & Slide Consistency ({contextCount:N0})", $"အနက်သံသယနှင့် ဆလိုက်ညီညွတ်မှု ({contextCount:N0})"));
 
             ApplyFilterPillAppearance(_btnFilterAll, _currentFilter == IssueFilterMode.All, Color.FromArgb(24, 58, 118), Color.FromArgb(238, 242, 250), Color.FromArgb(45, 58, 78));
             ApplyFilterPillAppearance(_btnFilterSpelling, _currentFilter == IssueFilterMode.SpellingOnly, Color.FromArgb(196, 36, 36), Color.FromArgb(253, 238, 238), Color.FromArgb(158, 28, 28));
@@ -471,7 +475,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
                     : UiLocalizer.Pick(
                         $"No issues in this filter ({totalUnresolved:N0} in other categories)",
                         $"ဤအမျိုးအစားတွင် တွေ့ရှိချက် မရှိပါ (အခြားအမျိုးအစား၌ {totalUnresolved:N0} ခု ရှိသည်)");
-                _lblSummary.ForeColor = Color.FromArgb(183, 71, 42);
+                _lblSummary.ForeColor = Color.FromArgb(16, 108, 56);
             }
             else
             {
@@ -579,8 +583,8 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
                     var lblOkBody = new Label
                     {
                         Text = UiLocalizer.Pick(
-                            "• Scan the Active Sheet, Selected Cells, or Entire Workbook anytime.\n• Flagged cells display screen-only red (spelling), blue (grammar), or amber (meaning) wavy underlines — cell text color & saved .xlsx files are never altered.\n• Excel formulas (=SUM, =IF, =VLOOKUP) and numeric calculations are 100% protected and untouched.",
-                            "• လက်ရှိ Sheet၊ ရွေးထားသော အကွက်များ သို့မဟုတ် Workbook တစ်ခုလုံးကို ရွေးချယ်စစ်ဆေးနိုင်ပါသည်။\n• အမှားတွေ့ရှိသော အကွက်များတွင် ဖန်သားပြင်ပေါ်၌သာ အနီ/အပြာ/လိမ္မော် မျဉ်းလှိုင်းများ ပြသပြီး Cell စာသားအရောင်နှင့် .xlsx ဖိုင်ကို လုံးဝ မပြောင်းလဲပါ။\n• Excel Formula အကွက်များ (=SUM, =IF, =VLOOKUP) နှင့် ကိန်းဂဏန်းတွက်ချက်မှုများကို 100% အလိုအလျောက် ကာကွယ်ချန်လှပ်ထားပါသည်။"),
+                            "• Scan the Active Slide, Selected Shapes, or All Slides (+ Speaker Notes & optional Slide Masters) anytime.\n• Real Myanmar issues show screen-only red (spelling), blue (grammar), or amber (meaning) wavy underlines — PowerPoint's false English red squiggles on valid Burmese text are automatically silenced.\n• Slide fonts, RGB colors, grouped shapes, animations, Slide Show (F5), and saved .pptx designs stay 100% protected.",
+                            "• လက်ရှိ Slide၊ ရွေးထားသော ပုံများ သို့မဟုတ် Slide အားလုံး (Speaker Notes နှင့် Slide Master အပါအဝင်) ကို စစ်ဆေးနိုင်ပါသည်။\n• မြန်မာစာလုံးအမှန်များအောက်၌ PowerPoint ၏ အင်္ဂလိပ်အနီမျဉ်း မှားယွင်းပေါ်နေမှုကို အလိုအလျောက် ဖယ်ရှားပေးပြီး အမှန်တကယ်မှားသော စာလုံးများကိုသာ အနီ/အပြာ/လိမ္မော် မျဉ်းလှိုင်းပြသပေးပါသည်။\n• ဆလိုက်ဖောင့်၊ အရောင်၊ Group ပုံ၊ Animation၊ Slide Show (F5) နှင့် .pptx ဒီဇိုင်းများကို 100% ကာကွယ်ထားပါသည်။"),
                         Font = _fontSmall,
                         ForeColor = Color.FromArgb(62, 74, 92),
                         AutoSize = true,

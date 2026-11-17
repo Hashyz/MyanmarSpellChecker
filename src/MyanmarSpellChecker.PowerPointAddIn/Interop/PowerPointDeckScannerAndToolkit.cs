@@ -72,7 +72,13 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
         private readonly HashSet<string> _suppressedOverlayPresentations =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        private readonly Dictionary<string, string> _noProofSyncedTextByTarget =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
         private readonly System.Windows.Forms.Timer _deferredScanTimer;
+        private readonly System.Windows.Forms.Timer _liveTypingPollTimer;
+        private string _lastPolledActiveShapeKey = string.Empty;
+        private string _lastPolledActiveTextSnapshot = string.Empty;
         private PresentationScanScope _deferredScope = PresentationScanScope.ActiveSlide;
         private CancellationTokenSource? _activeScanCts;
         private int _suppressEventsDepth;
@@ -105,6 +111,11 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
             // 450 ms idle debounce for live Active-Slide auto-scan (smooth 60 FPS shape dragging & typing)
             _deferredScanTimer = new System.Windows.Forms.Timer { Interval = 450 };
             _deferredScanTimer.Tick += OnDeferredScanTimerTick;
+
+            // Lightweight foreground-only active-TextBox typing watcher (PowerPoint does not fire WindowSelectionChange per keystroke)
+            _liveTypingPollTimer = new System.Windows.Forms.Timer { Interval = 650 };
+            _liveTypingPollTimer.Tick += OnLiveTypingPollTick;
+            _liveTypingPollTimer.Start();
         }
 
         public void Dispose()
@@ -114,6 +125,8 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
             _disposed = true;
 
             CancelActiveScan();
+            _liveTypingPollTimer.Stop();
+            _liveTypingPollTimer.Dispose();
             _deferredScanTimer.Stop();
             _deferredScanTimer.Dispose();
         }
@@ -284,8 +297,169 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
             _qualityByPresentation.Remove(presentationKey);
             _scanMetaByPresentation.Remove(presentationKey);
             _suppressedOverlayPresentations.Remove(presentationKey);
+            var staleKeys = _noProofSyncedTextByTarget.Keys
+                .Where(k => k.StartsWith(presentationKey + "|", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            for (int i = 0; i < staleKeys.Count; i++)
+                _noProofSyncedTextByTarget.Remove(staleKeys[i]);
             _undoManager.ClearForPresentation(presentationKey);
             NotifyVisualUnderlinesInvalidated();
+        }
+
+        private void OnLiveTypingPollTick(object? sender, EventArgs e)
+        {
+            if (_disposed || !IsLiveAutoScanEnabled || _suppressEventsDepth > 0 || IsScanning || IsSlideShowRunning)
+                return;
+
+            // Zero COM calls when PowerPoint is not the active foreground window
+            if (!PowerPointSlideGeometryHelper.IsPowerPointWindowForegroundAndNormal(_pptApp, out _, out _))
+                return;
+
+            try
+            {
+                PowerPoint.DocumentWindow win = _pptApp.ActiveWindow;
+                PowerPoint.Selection? sel = null;
+                try { sel = win?.Selection; } catch { }
+                if (sel == null || sel.Type != PowerPoint.PpSelectionType.ppSelectionText)
+                {
+                    _lastPolledActiveShapeKey = string.Empty;
+                    _lastPolledActiveTextSnapshot = string.Empty;
+                    return;
+                }
+
+                int slideId = (win?.View?.Slide is PowerPoint.Slide curSlide) ? curSlide.SlideID : 0;
+                PowerPoint.ShapeRange? sr = null;
+                try { sr = sel.HasChildShapeRange ? sel.ChildShapeRange : sel.ShapeRange; } catch { }
+                if (sr == null || sr.Count < 1)
+                    return;
+
+                PowerPoint.Shape sh = sr[1];
+                if (sh == null || sh.HasTextFrame != Office.MsoTriState.msoTrue)
+                    return;
+
+                PowerPoint.TextRange tr = sh.TextFrame.TextRange;
+                string liveTxt = tr?.Text ?? string.Empty;
+                string shapeKey = $"{GetActivePresentationKey()}|LIVE|{slideId}|{sh.Id}";
+
+                if (!string.Equals(shapeKey, _lastPolledActiveShapeKey, StringComparison.Ordinal))
+                {
+                    _lastPolledActiveShapeKey = shapeKey;
+                    _lastPolledActiveTextSnapshot = liveTxt;
+                    if (tr != null && SpreadsheetProofingHelper.ContainsMyanmarScript(liveTxt))
+                    {
+                        SuppressNativeEnglishSpellcheckOnMyanmarRange(tr, string.Empty, liveTxt);
+                    }
+                    return;
+                }
+
+                if (!string.Equals(liveTxt, _lastPolledActiveTextSnapshot, StringComparison.Ordinal))
+                {
+                    _lastPolledActiveTextSnapshot = liveTxt;
+                    if (tr != null && SpreadsheetProofingHelper.ContainsMyanmarScript(liveTxt))
+                    {
+                        SuppressNativeEnglishSpellcheckOnMyanmarRange(tr, string.Empty, liveTxt);
+                    }
+                    QueueLiveActiveSlideScan();
+                }
+            }
+            catch
+            {
+                // Ignore transient COM states during slide editing
+            }
+        }
+
+        private static bool IsMyanmarScriptCodePoint(char c) =>
+            (c >= '\u1000' && c <= '\u109F') ||
+            (c >= '\uAA60' && c <= '\uAA7F') ||
+            (c >= '\uA9E0' && c <= '\uA9FF');
+
+        /// <summary>
+        /// Marks Myanmar script spans with <see cref="Office.MsoLanguageID.msoLanguageIDNoProofing"/> (<c>noProof="1"</c>)
+        /// so PowerPoint's built-in English spellchecker never draws false red squiggles under valid Burmese words
+        /// (e.g. "စားပြီးပြီ"), while keeping English text in the same slide/shape checked by PowerPoint's English dictionary.
+        /// </summary>
+        private void SuppressNativeEnglishSpellcheckOnMyanmarRange(PowerPoint.TextRange? tr, string targetKey, string rawText)
+        {
+            if (tr == null || string.IsNullOrEmpty(rawText) || !SpreadsheetProofingHelper.ContainsMyanmarScript(rawText))
+                return;
+
+            if (!string.IsNullOrEmpty(targetKey) &&
+                _noProofSyncedTextByTarget.TryGetValue(targetKey, out string? prevSynced) &&
+                string.Equals(prevSynced, rawText, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _suppressEventsDepth++;
+            try
+            {
+                if (!HasAsciiLetters(rawText))
+                {
+                    if (tr.LanguageID != Office.MsoLanguageID.msoLanguageIDNoProofing)
+                    {
+                        tr.LanguageID = Office.MsoLanguageID.msoLanguageIDNoProofing;
+                    }
+                }
+                else
+                {
+                    int n = rawText.Length;
+                    int i = 0;
+                    while (i < n)
+                    {
+                        if (!IsMyanmarScriptCodePoint(rawText[i]))
+                        {
+                            i++;
+                            continue;
+                        }
+
+                        int spanStart = i;
+                        i++;
+                        while (i < n)
+                        {
+                            char ch = rawText[i];
+                            if (IsMyanmarScriptCodePoint(ch) || ch == '\u200B' || ch == '\u200C')
+                            {
+                                i++;
+                                continue;
+                            }
+                            if (ch == ' ')
+                            {
+                                int peek = i + 1;
+                                while (peek < n && rawText[peek] == ' ')
+                                    peek++;
+                                if (peek < n && IsMyanmarScriptCodePoint(rawText[peek]))
+                                {
+                                    i = peek;
+                                    continue;
+                                }
+                            }
+                            break;
+                        }
+
+                        int spanLen = i - spanStart;
+                        PowerPoint.TextRange sub = tr.Characters(spanStart + 1, spanLen);
+                        if (sub != null && sub.LanguageID != Office.MsoLanguageID.msoLanguageIDNoProofing)
+                        {
+                            sub.LanguageID = Office.MsoLanguageID.msoLanguageIDNoProofing;
+                        }
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(targetKey))
+                {
+                    if (_noProofSyncedTextByTarget.Count > 4096)
+                        _noProofSyncedTextByTarget.Clear();
+                    _noProofSyncedTextByTarget[targetKey] = rawText;
+                }
+            }
+            catch
+            {
+                // Ignore locked/read-only placeholders
+            }
+            finally
+            {
+                _suppressEventsDepth--;
+            }
         }
 
         public void QueueLiveActiveSlideScan()
@@ -521,7 +695,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
             return string.Empty;
         }
 
-        private static void ExtractAllFromSlide(
+        private void ExtractAllFromSlide(
             PowerPoint.Slide slide,
             string presKey,
             List<PresentationTextTarget> targets)
@@ -566,11 +740,12 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
                             if (ns.HasTextFrame == Office.MsoTriState.msoTrue &&
                                 ns.TextFrame.HasText == Office.MsoTriState.msoTrue)
                             {
-                                string txt = ns.TextFrame.TextRange.Text ?? string.Empty;
+                                PowerPoint.TextRange noteTr = ns.TextFrame.TextRange;
+                                string txt = noteTr.Text ?? string.Empty;
                                 if (!string.IsNullOrWhiteSpace(txt))
                                 {
-                                    string fontName = GetPrimaryFontNameSafe(ns.TextFrame.TextRange);
-                                    targets.Add(new PresentationTextTarget
+                                    string fontName = GetPrimaryFontNameSafe(noteTr);
+                                    var noteTarget = new PresentationTextTarget
                                     {
                                         PresentationName = presKey,
                                         SlideId = slideId,
@@ -581,7 +756,9 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
                                         ShapeName = SafeGetShapeName(ns),
                                         TextSnapshot = txt,
                                         PrimaryFontName = fontName
-                                    });
+                                    };
+                                    SuppressNativeEnglishSpellcheckOnMyanmarRange(noteTr, noteTarget.BuildTargetKey(), txt);
+                                    targets.Add(noteTarget);
                                 }
                             }
                         }
@@ -591,7 +768,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
             catch { }
         }
 
-        private static void ExtractSlideMastersAndLayouts(
+        private void ExtractSlideMastersAndLayouts(
             PowerPoint.Presentation pres,
             string presKey,
             List<PresentationTextTarget> targets)
@@ -647,7 +824,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
             catch { }
         }
 
-        private static void ExtractFromShapeRecursive(
+        private void ExtractFromShapeRecursive(
             PowerPoint.Shape shape,
             string presKey,
             int slideId,
@@ -722,10 +899,11 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
                                     cellShape.HasTextFrame == Office.MsoTriState.msoTrue &&
                                     cellShape.TextFrame.HasText == Office.MsoTriState.msoTrue)
                                 {
-                                    string cellTxt = cellShape.TextFrame.TextRange.Text ?? string.Empty;
+                                    PowerPoint.TextRange cellTr = cellShape.TextFrame.TextRange;
+                                    string cellTxt = cellTr.Text ?? string.Empty;
                                     if (!string.IsNullOrWhiteSpace(cellTxt))
                                     {
-                                        targets.Add(new PresentationTextTarget
+                                        var cellTarget = new PresentationTextTarget
                                         {
                                             PresentationName = presKey,
                                             SlideId = slideId,
@@ -738,8 +916,10 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
                                             TableRow = r,
                                             TableColumn = c,
                                             TextSnapshot = cellTxt,
-                                            PrimaryFontName = GetPrimaryFontNameSafe(cellShape.TextFrame.TextRange)
-                                        });
+                                            PrimaryFontName = GetPrimaryFontNameSafe(cellTr)
+                                        };
+                                        SuppressNativeEnglishSpellcheckOnMyanmarRange(cellTr, cellTarget.BuildTargetKey(), cellTxt);
+                                        targets.Add(cellTarget);
                                     }
                                 }
                             }
@@ -753,10 +933,11 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
                 if (shape.HasTextFrame == Office.MsoTriState.msoTrue &&
                     shape.TextFrame.HasText == Office.MsoTriState.msoTrue)
                 {
-                    string txt = shape.TextFrame.TextRange.Text ?? string.Empty;
+                    PowerPoint.TextRange shapeTr = shape.TextFrame.TextRange;
+                    string txt = shapeTr.Text ?? string.Empty;
                     if (!string.IsNullOrWhiteSpace(txt))
                     {
-                        targets.Add(new PresentationTextTarget
+                        var shapeTarget = new PresentationTextTarget
                         {
                             PresentationName = presKey,
                             SlideId = slideId,
@@ -768,8 +949,10 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
                             GroupPathIds = currentGroupPath,
                             MasterOrLayoutName = masterOrLayoutName,
                             TextSnapshot = txt,
-                            PrimaryFontName = GetPrimaryFontNameSafe(shape.TextFrame.TextRange)
-                        });
+                            PrimaryFontName = GetPrimaryFontNameSafe(shapeTr)
+                        };
+                        SuppressNativeEnglishSpellcheckOnMyanmarRange(shapeTr, shapeTarget.BuildTargetKey(), txt);
+                        targets.Add(shapeTarget);
                     }
                 }
             }
@@ -1138,7 +1321,14 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
                 try { _pptApp.StartNewUndoEntry(); } catch { }
 
                 // Surgical 1-based character replacement preserves bold, italic, size, RGB color, hyperlinks & animations!
-                tr.Characters(startZero + 1, oldLen).Text = replacement;
+                PowerPoint.TextRange editedChars = tr.Characters(startZero + 1, oldLen);
+                editedChars.Text = replacement;
+                try
+                {
+                    if (replacement.Length > 0 && SpreadsheetProofingHelper.ContainsMyanmarScript(replacement))
+                        tr.Characters(startZero + 1, replacement.Length).LanguageID = Office.MsoLanguageID.msoLanguageIDNoProofing;
+                }
+                catch { }
                 string updatedText = tr.Text ?? (liveText.Substring(0, startZero) + replacement + liveText.Substring(startZero + oldLen));
 
                 var writeOp = new SlideTextWriteOperation
@@ -1607,6 +1797,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
                         }
                     }
 
+                    SuppressNativeEnglishSpellcheckOnMyanmarRange(tr, op.Target.BuildTargetKey(), op.UpdatedText);
                     succeededOps.Add(op);
                 }
             }

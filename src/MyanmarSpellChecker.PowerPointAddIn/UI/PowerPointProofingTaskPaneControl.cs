@@ -569,13 +569,13 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
                 Padding = new Padding(2),
                 Margin = new Padding(0, 0, 0, 4)
             };
-            _scopeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 27F));
-            _scopeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 24F));
+            _scopeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22F));
             _scopeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 26F));
-            _scopeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 23F));
+            _scopeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 28F));
+            _scopeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 24F));
             _scopeRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            _btnScopeSheet = CreateTabSegmentButton("လက်ရှိ Slide");
+            _btnScopeSheet = CreateTabSegmentButton("ယခု Slide");
             _btnScopeSelection = CreateTabSegmentButton("ရွေးကွက်");
             _btnScopeWorkbook = CreateTabSegmentButton("Slide အားလုံး");
             _btnIncludeMasters = CreateTabSegmentButton("☐ Master");
@@ -603,10 +603,10 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
                 RowCount = 1,
                 Margin = new Padding(0, 0, 0, 4)
             };
-            _actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30F));
-            _actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30F));
-            _actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22F));
-            _actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 18F));
+            _actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 29F));
+            _actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 26F));
+            _actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 24F));
+            _actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 21F));
             _actionRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             _btnScanNow = CreateActionButton("Slide စစ်မည်", Color.FromArgb(183, 71, 42), Color.White, Color.FromArgb(150, 54, 30), _fontSmallBold);
@@ -1375,11 +1375,27 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
             _btnStyleGeneral.Text = UiLocalizer.Pick("General Standard", "အထွေထွေ စံသတ်ပုံ");
             _btnStyleFormal.Text = UiLocalizer.Pick("Formal / Official", "ရုံးသုံး / စာပေဟန်");
 
-            _btnScopeSheet.Text = UiLocalizer.Pick("Active Sheet", "လက်ရှိ Sheet");
-            _btnScopeSelection.Text = UiLocalizer.Pick("Selection", "ရွေးထားကွက်");
-            _btnScopeWorkbook.Text = UiLocalizer.Pick("Workbook", "Workbook လုံး");
+            _btnScopeSheet.Text = UiLocalizer.Pick("Slide", "ယခု Slide");
+            _btnScopeSelection.Text = UiLocalizer.Pick("Selection", "ရွေးကွက်");
+            _btnScopeWorkbook.Text = UiLocalizer.Pick("All Slides", "အားလုံး");
+            _toolTip.SetToolTip(
+                _btnScopeSheet,
+                UiLocalizer.Pick(
+                    "Scan Active Slide (TextBoxes, Tables, Grouped Shapes & Speaker Notes)",
+                    "လက်ရှိ Slide (TextBox၊ ဇယား၊ Group ပုံ နှင့် Speaker Notes) ကို စစ်ဆေးရန်"));
+            _toolTip.SetToolTip(
+                _btnScopeSelection,
+                UiLocalizer.Pick(
+                    "Scan Selected Shape(s), Table, or Slides",
+                    "ရွေးချယ်ထားသော ပုံ သို့မဟုတ် ဆလိုက်များကိုသာ စစ်ဆေးရန်"));
+            _toolTip.SetToolTip(
+                _btnScopeWorkbook,
+                UiLocalizer.Pick(
+                    "Scan All Slides & Speaker Notes Across Presentation",
+                    "PowerPoint ဆလိုက်တွဲ တစ်ခုလုံးရှိ ဆလိုက်နှင့် မှတ်စုအားလုံးကို စစ်ဆေးရန်"));
+            UpdateIncludeMastersButtonChrome();
 
-            _btnClearUnderlines.Text = UiLocalizer.Pick("Clear Marks", "မျဉ်းရှင်း");
+            _btnClearUnderlines.Text = UiLocalizer.Pick("Clear", "မျဉ်းရှင်း");
             _toolTip.SetToolTip(
                 _btnClearUnderlines,
                 UiLocalizer.Pick(
@@ -1505,8 +1521,8 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
             if (_btnIncludeMasters == null)
                 return;
             _btnIncludeMasters.Text = _includeSlideMasters
-                ? UiLocalizer.Pick("☑ Masters", "☑ Master")
-                : UiLocalizer.Pick("☐ Masters", "☐ Master");
+                ? UiLocalizer.Pick("☑ Master", "☑ Master")
+                : UiLocalizer.Pick("☐ Master", "☐ Master");
             StyleSegment(_btnIncludeMasters, _includeSlideMasters, Color.FromArgb(183, 71, 42));
             _toolTip.SetToolTip(
                 _btnIncludeMasters,
@@ -1539,7 +1555,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
                 _btnUndoLast,
                 _undoAvailableCount > 0
                     ? UiLocalizer.Pick(
-                        $"Revert last spreadsheet edit: {_undoLatestLabel}",
+                        $"Revert last slide edit: {_undoLatestLabel}",
                         $"နောက်ဆုံးပြင်ဆင်ချက်ကို မူလအတိုင်း ပြန်ဆုတ်ရန်: {_undoLatestLabel}")
                     : UiLocalizer.Pick(
                         "No undo history available yet",

@@ -3186,6 +3186,14 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.Contains("SlideShowEnd", pptAddInText, StringComparison.Ordinal);
             Assert.Contains("MyanmarSpellChecker.PowerPointAddIn", pptAddInText, StringComparison.Ordinal);
             Assert.Contains("MyanmarSpellChecker.PowerPointTaskPaneControl", pptAddInText, StringComparison.Ordinal);
+
+            string pptScannerText = File.ReadAllText(Path.Combine(pptSrcDir, "Interop", "PowerPointDeckScannerAndToolkit.cs"));
+            Assert.Contains("msoLanguageIDNoProofing", pptScannerText, StringComparison.Ordinal);
+            Assert.Contains("SuppressNativeEnglishSpellcheckOnMyanmarRange", pptScannerText, StringComparison.Ordinal);
+
+            string pptPaneText = File.ReadAllText(Path.Combine(pptSrcDir, "UI", "PowerPointProofingTaskPaneControl.cs"));
+            Assert.DoesNotContain("\"Active Sheet\"", pptPaneText, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"Workbook\"", pptPaneText, StringComparison.Ordinal);
         }
     }
 }
