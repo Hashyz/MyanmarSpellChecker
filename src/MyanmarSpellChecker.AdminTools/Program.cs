@@ -7,6 +7,7 @@ using MyanmarSpellChecker.AdminTools.Compiler;
 using MyanmarSpellChecker.Core.Dictionary;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
+using MyanmarSpellChecker.Core.Official;
 using MyanmarSpellChecker.Core.Security;
 
 namespace MyanmarSpellChecker.AdminTools
@@ -40,11 +41,26 @@ namespace MyanmarSpellChecker.AdminTools
                     return RunGenerateKeys(args);
                 case "sign-license":
                     return RunSignLicense(args);
+                case "export-guide":
+                    return RunExportUserGuide(args);
                 case "benchmark":
                     return ProofingBenchmarkRunner.Run(args);
                 default:
                     return RunInteractiveDemo();
             }
+        }
+
+        private static int RunExportUserGuide(string[] args)
+        {
+            string outDir = args.Length > 1 ? args[1] : "docs";
+            Directory.CreateDirectory(outDir);
+            string mdPath = OfflineUserGuideExporter.EnsureMarkdownGuideOnDisk(outDir);
+            string htmlPath = OfflineUserGuideExporter.EnsureInteractiveHtmlGuideOnDisk(outDir);
+            string docxPath = OfflineUserGuideExporter.EnsurePrintableWordGuideOnDisk(outDir);
+            Console.WriteLine($"[+] Exported User Guide (MD)  : {Path.GetFullPath(mdPath)}");
+            Console.WriteLine($"[+] Exported User Guide (HTML): {Path.GetFullPath(htmlPath)}");
+            Console.WriteLine($"[+] Exported User Guide (DOCX): {Path.GetFullPath(docxPath)}");
+            return 0;
         }
 
         private static int RunValidateData(string[] args)

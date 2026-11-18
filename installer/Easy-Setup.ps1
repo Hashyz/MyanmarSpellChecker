@@ -353,6 +353,18 @@ try {
     [System.IO.File]::Copy($dbSource, [System.IO.Path]::Combine($appInstallDir, "mlc_thatpon.db"), $true)
     [System.IO.File]::Copy($dbSource, [System.IO.Path]::Combine($localRootDir,  "mlc_thatpon.db"), $true)
 
+    $guideDir = [System.IO.Path]::Combine($localRootDir, "Guide")
+    [void][System.IO.Directory]::CreateDirectory($guideDir)
+    foreach ($gf in @("Myanmar-Spell-Checker-User-Guide.html", "Myanmar-Spell-Checker-User-Guide.docx")) {
+        foreach ($candDir in @($scriptDir, ([System.IO.Path]::Combine($repoRoot, "docs")), ([System.IO.Path]::Combine($repoRoot, "artifacts\release-package")))) {
+            $candFile = [System.IO.Path]::Combine($candDir, $gf)
+            if ([System.IO.File]::Exists($candFile)) {
+                try { [System.IO.File]::Copy($candFile, [System.IO.Path]::Combine($guideDir, $gf), $true) } catch { }
+                break
+            }
+        }
+    }
+
     try {
         foreach ($f in [System.IO.Directory]::GetFiles($appInstallDir)) {
             Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue

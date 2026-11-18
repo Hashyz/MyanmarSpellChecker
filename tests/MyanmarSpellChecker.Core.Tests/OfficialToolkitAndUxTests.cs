@@ -3819,5 +3819,71 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.Contains("ToSafeHwnd", pptGeom, StringComparison.Ordinal);
             Assert.Contains("unchecked((long)(uint)rawHwnd)", pptGeom, StringComparison.Ordinal);
         }
+
+        [Fact]
+        public void V74_BilingualThreeWayUserGuideAndRibbonMenu_Gate()
+        {
+            // 1. Structured 8-Chapter Bilingual Guide Check
+            var chapters = OfflineUserGuideExporter.BuildStructuredChapters();
+            Assert.Equal(8, chapters.Count);
+
+            // 2. GitHub Markdown Guide Check
+            string md = OfflineUserGuideExporter.BuildMarkdownUserGuide();
+            Assert.Contains("Complete Directory of Available Tools", md, StringComparison.Ordinal);
+            Assert.Contains("How It Works Under the Hood", md, StringComparison.Ordinal);
+            Assert.Contains("Htet Yar Zar (ထက်ရာဇာ)", md, StringComparison.Ordinal);
+            Assert.Contains("U Moe Kyaw Thu (ဦးမိုးကျော်သူ)", md, StringComparison.Ordinal);
+
+            // 3. Interactive Offline HTML Guide Check (search box + EN/MM/Bilingual switcher + Print CSS)
+            string html = OfflineUserGuideExporter.BuildInteractiveHtmlUserGuide();
+            Assert.Contains("function setLang(mode)", html, StringComparison.Ordinal);
+            Assert.Contains("function filterGuide(q)", html, StringComparison.Ordinal);
+            Assert.Contains("@media print", html, StringComparison.Ordinal);
+            Assert.Contains("Myanmar-Spell-Checker-User-Guide.docx", html, StringComparison.Ordinal);
+
+            // 4. Printable ISO A4 Word (.docx) OpenXML Package Check
+            byte[] docxBytes = OfflineUserGuideExporter.BuildPrintableA4WordUserGuideBytes();
+            Assert.True(docxBytes.Length > 8_000, $"Expected substantial A4 .docx manual, got {docxBytes.Length} bytes.");
+            using (var ms = new MemoryStream(docxBytes))
+            using (var zip = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Read))
+            {
+                var docEntry = zip.GetEntry("word/document.xml");
+                Assert.NotNull(docEntry);
+                Assert.NotNull(zip.GetEntry("word/header1.xml"));
+                Assert.NotNull(zip.GetEntry("word/footer1.xml"));
+
+                using (var sr = new StreamReader(docEntry!.Open()))
+                {
+                    string docXml = sr.ReadToEnd();
+                    var xml = new System.Xml.XmlDocument();
+                    xml.LoadXml(docXml);
+                    Assert.Contains("w:w=\"11906\" w:h=\"16838\"", docXml, StringComparison.Ordinal);
+                    Assert.Contains("<w:tblHeader/>", docXml, StringComparison.Ordinal);
+                    Assert.Contains("<w:noProof/>", docXml, StringComparison.Ordinal);
+                }
+            }
+
+            // 5. Ribbon [User Guide ▾] Menu XML & Handlers Across Word, Excel & PowerPoint
+            foreach (string relPath in new[]
+            {
+                @"src\MyanmarSpellChecker.WordAddIn\ThisAddIn.cs",
+                @"src\MyanmarSpellChecker.ExcelAddIn\ExcelThisAddIn.cs",
+                @"src\MyanmarSpellChecker.PowerPointAddIn\PowerPointThisAddIn.cs"
+            })
+            {
+                string src = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, relPath));
+                int xmlStart = src.IndexOf("<customUI ", StringComparison.Ordinal);
+                int xmlEnd = src.IndexOf("</customUI>", StringComparison.Ordinal);
+                string rawXml = src.Substring(xmlStart, (xmlEnd + "</customUI>".Length) - xmlStart);
+
+                var xmlDoc = new System.Xml.XmlDocument();
+                xmlDoc.LoadXml(rawXml);
+                Assert.Contains("id='MnuUserGuide'", rawXml, StringComparison.Ordinal);
+                Assert.Contains("id='BtnGuideHtml'", rawXml, StringComparison.Ordinal);
+                Assert.Contains("id='BtnGuideDocx'", rawXml, StringComparison.Ordinal);
+                Assert.Contains("public void OnRibbonOpenHtmlGuide(", src, StringComparison.Ordinal);
+                Assert.Contains("public void OnRibbonOpenWordGuide(", src, StringComparison.Ordinal);
+            }
+        }
     }
 }

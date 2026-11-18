@@ -2341,6 +2341,22 @@ namespace MyanmarSpellChecker.WordAddIn
                   imageMso='Info'
                   onAction='OnRibbonOpenLicense'
                   getScreentip='GetRibbonScreentip' />
+          <menu id='MnuUserGuide'
+                getLabel='GetRibbonLabel'
+                size='normal'
+                imageMso='Help'
+                getScreentip='GetRibbonScreentip'>
+            <button id='BtnGuideHtml'
+                    getLabel='GetRibbonLabel'
+                    imageMso='WebPagePreview'
+                    onAction='OnRibbonOpenHtmlGuide'
+                    getScreentip='GetRibbonScreentip' />
+            <button id='BtnGuideDocx'
+                    getLabel='GetRibbonLabel'
+                    imageMso='FilePrintPreview'
+                    onAction='OnRibbonOpenWordGuide'
+                    getScreentip='GetRibbonScreentip' />
+          </menu>
         </group>
         <group id='GrpTypographyToolkit' getLabel='GetRibbonLabel'>
           <button id='BtnConvertFonts'
@@ -2442,6 +2458,9 @@ namespace MyanmarSpellChecker.WordAddIn
                 "BtnToggleUiLanguage" => UiLocalizer.Pick("UI: English (⇄ မြန်မာ)", "UI: မြန်မာ (⇄ EN)"),
                 "BtnManageCustomWords" => UiLocalizer.Pick("Custom Words", "မှတ်သားဝေါဟာရ စီမံရန်"),
                 "BtnLicenseActivation" => UiLocalizer.Pick("About & GPLv3 License", "ဖန်တီးသူနှင့် လိုင်စင် (GPLv3)"),
+                "MnuUserGuide" => UiLocalizer.Pick("User Guide", "အသုံးပြုပုံ လမ်းညွှန်"),
+                "BtnGuideHtml" => UiLocalizer.Pick("Interactive Searchable Guide (HTML)", "အပြန်အလှန် ရှာဖွေဖတ်ရှုရန် လမ်းညွှန် (HTML)"),
+                "BtnGuideDocx" => UiLocalizer.Pick("Printable A4 Manual (Word .docx)", "ပုံနှိပ်ရန်အသင့် A4 လမ်းညွှန်စာအုပ် (.docx)"),
                 "GrpTypographyToolkit" => UiLocalizer.Pick("Font, PDF & Numerals", "ဖောင့်၊ PDF နှင့် ကိန်းဂဏန်း"),
                 "BtnConvertFonts" => "WinInnwa/Zawgyi ➔ Pyidaungsu",
                 "BtnRepairBrokenPdf" => UiLocalizer.Pick("Repair Garbled PDF", "PDF စာသားပျက်ပြင်ရန်"),
@@ -2509,6 +2528,15 @@ namespace MyanmarSpellChecker.WordAddIn
                 "BtnLicenseActivation" => UiLocalizer.Pick(
                     "View system info, creator Htet Yar Zar (Kyaukse University), and GNU GPL v3.0 open-source license",
                     "စနစ်အချက်အလက်၊ ဖန်တီးသူ ထက်ရာဇာ (ကျောက်ဆည်တက္ကသိုလ်) နှင့် GNU GPL v3.0 Open-Source လိုင်စင် ကြည့်ရှုရန်"),
+                "MnuUserGuide" => UiLocalizer.Pick(
+                    "Open the 100% offline Bilingual User Guide & Complete Tool Handbook (Interactive HTML or Printable A4 Word)",
+                    "၁၀၀% အော့ဖ်လိုင်း အသုံးပြုပုံလမ်းညွှန်နှင့် ကိရိယာအညွှန်းစာအုပ် ဖွင့်ရန် (HTML သို့မဟုတ် A4 Word)"),
+                "BtnGuideHtml" => UiLocalizer.Pick(
+                    "Open the searchable offline HTML handbook with live EN / မြန်မာ language filter",
+                    "ရှာဖွေနိုင်သော Offline HTML လမ်းညွှန် (EN / မြန်မာ) ကို ဖွင့်ရန်"),
+                "BtnGuideDocx" => UiLocalizer.Pick(
+                    "Open the print-ready ISO A4 Portrait Word manual (.docx)",
+                    "A4 စာရွက်ဖြင့် ပရင့်ထုတ်နိုင်သော Word လမ်းညွှန်စာအုပ် (.docx) ကို ဖွင့်ရန်"),
                 "BtnConvertFonts" => UiLocalizer.Pick(
                     "Convert WinInnwa, WinResearcher, CE, and Zawgyi text to Pyidaungsu Unicode without breaking English fonts",
                     "WinInnwa, WinResearcher, CE နှင့် Zawgyi ဖောင့်များကို အင်္ဂလိပ်ဖောင့်နှင့် ပုံစံမပျက်စေဘဲ Pyidaungsu သို့ တစ်ချက်နှိပ် ပြောင်းလဲရန်"),
@@ -2779,6 +2807,16 @@ namespace MyanmarSpellChecker.WordAddIn
         public void OnRibbonOpenLicense(Office.IRibbonControl control)
         {
             AddInDiagnostics.SafeExecute("OnRibbonOpenLicense", ShowLicenseDialog);
+        }
+
+        public void OnRibbonOpenHtmlGuide(Office.IRibbonControl control)
+        {
+            AddInDiagnostics.SafeExecute("OnRibbonOpenHtmlGuide", () => OfflineUserGuideExporter.OpenInteractiveHtmlGuide());
+        }
+
+        public void OnRibbonOpenWordGuide(Office.IRibbonControl control)
+        {
+            AddInDiagnostics.SafeExecute("OnRibbonOpenWordGuide", () => OfflineUserGuideExporter.OpenPrintableWordGuide());
         }
 
         public void OnRibbonConvertFonts(Office.IRibbonControl control)

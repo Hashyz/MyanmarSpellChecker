@@ -9,6 +9,11 @@
 
 Built on the complete 462-page **"မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း"** (Myanmar Language Commission), **"မြန်မာအဘိဓာန်"**, **57,064+ Bilingual English ⇄ Myanmar Lexicon (`အင်္ဂလိပ် ⇄ မြန်မာ အဘိဓာန်`)**, **25,000+ Offline Encyclopedia (`စွယ်စုံဗဟုသုတကျမ်း`)**, **MLIS/MOI Union Statutory Laws**, **MIMU v9.7 / GAD Multi-Tier Gazetteer**, **"ရုံးသုံးမြန်မာစာ"**, and **8 Specialized Academic, Government & Enterprise Domains** (including **Geology & Earth Sciences / ဘူမိဗေဒနှင့် မြေကမ္ဘာသိပ္ပံ**, **Public Administration & Civil Service**, and **Higher Education & Universities**).
 
+> **Complete Bilingual User Guide & Tool Handbook (`EN + မြန်မာ`):**
+> - **GitHub Online Edition:** [`docs/USER_GUIDE.md`](./docs/USER_GUIDE.md)
+> - **Interactive Searchable Offline HTML Guide:** [`docs/Myanmar-Spell-Checker-User-Guide.html`](./docs/Myanmar-Spell-Checker-User-Guide.html) *(also accessible inside Word, Excel & PowerPoint via **`Myanmar Spell Checker ➔ User Guide ▾`**)*
+> - **Printable ISO A4 Word Manual (`.docx`):** [`docs/Myanmar-Spell-Checker-User-Guide.docx`](./docs/Myanmar-Spell-Checker-User-Guide.docx)
+
 ---
 
 ## Author, Special Dedication & Collaborators

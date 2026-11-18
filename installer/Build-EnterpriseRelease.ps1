@@ -341,6 +341,20 @@ foreach ($pbPair in @(
     }
 }
 
+# Generate 3-Format Bilingual User Guide (docs\USER_GUIDE.md + Interactive HTML + Printable A4 Word .docx)
+$docsDir = Join-Path $repoRoot "docs"
+New-Item -ItemType Directory -Path $docsDir -Force | Out-Null
+$adminExe = Join-Path $repoRoot "src\MyanmarSpellChecker.AdminTools\bin\Release\net48\MyanmarSpellChecker.AdminTools.exe"
+if (Test-Path $adminExe) {
+    & $adminExe export-guide $docsDir
+    foreach ($guideFile in @("Myanmar-Spell-Checker-User-Guide.html", "Myanmar-Spell-Checker-User-Guide.docx")) {
+        $gSrc = Join-Path $docsDir $guideFile
+        if (Test-Path $gSrc) {
+            [System.IO.File]::Copy($gSrc, (Join-Path $releasePkgDir $guideFile), $true)
+        }
+    }
+}
+
 # Build lock-safe standalone EasySetup .zip archive even if MS Word, Excel, or PowerPoint is currently open!
 $zipOutPath   = Join-Path $artifactsDir "MyanmarSpellChecker-EasySetup-OfficeSuite.zip"
 $legacyZipOut = Join-Path $artifactsDir "MyanmarSpellChecker-EasySetup-Word-Excel.zip"
@@ -353,7 +367,7 @@ New-Item -ItemType Directory -Path $zipStaging -Force | Out-Null
 [System.IO.File]::Copy((Join-Path $pptBuildOutDir "MyanmarSpellChecker.PowerPointAddIn.dll"), (Join-Path $zipStaging "MyanmarSpellChecker.PowerPointAddIn.dll"), $true)
 [System.IO.File]::Copy($outDbPath, (Join-Path $zipStaging "mlc_thatpon.db"), $true)
 [System.IO.File]::Copy($cerPath, (Join-Path $zipStaging "MyanmarSpellChecker-EnterpriseCA.cer"), $true)
-foreach ($extra in @("Easy-Setup.ps1", "Install-EasyUser.bat", "Uninstall-EasyUser.bat", "Install-MinistryGPO.cmd", "LICENSE", "NOTICE", "CITATION.cff")) {
+foreach ($extra in @("Easy-Setup.ps1", "Install-EasyUser.bat", "Uninstall-EasyUser.bat", "Install-MinistryGPO.cmd", "Myanmar-Spell-Checker-User-Guide.html", "Myanmar-Spell-Checker-User-Guide.docx", "LICENSE", "NOTICE", "CITATION.cff")) {
     $extraSrc = Join-Path $releasePkgDir $extra
     if (Test-Path $extraSrc) { [System.IO.File]::Copy($extraSrc, (Join-Path $zipStaging $extra), $true) }
 }

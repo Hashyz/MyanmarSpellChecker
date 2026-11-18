@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
 using MyanmarSpellChecker.Core.Localization;
+using MyanmarSpellChecker.Core.Official;
 using MyanmarSpellChecker.Core.Security;
 
 namespace MyanmarSpellChecker.WordAddIn.UI
@@ -134,6 +135,46 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             btnClose.FlatAppearance.BorderColor = Color.FromArgb(210, 216, 228);
             btnClose.Click += (s, e) => Close();
 
+            var btnHtmlGuide = new Button
+            {
+                Text = UiLocalizer.Pick("User Guide (HTML)", "လမ်းညွှန် (HTML)"),
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                BackColor = Color.FromArgb(16, 118, 62),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Font = UiFontCache.GetMyanmar(9.0F, FontStyle.Bold),
+                Padding = new Padding(S(9), S(4), S(9), S(4)),
+                Margin = new Padding(0, 0, S(6), 0),
+                Cursor = Cursors.Hand
+            };
+            btnHtmlGuide.FlatAppearance.BorderColor = Color.FromArgb(12, 96, 50);
+            btnHtmlGuide.Click += (s, e) =>
+            {
+                try { OfflineUserGuideExporter.OpenInteractiveHtmlGuide(); } catch { }
+            };
+
+            var btnWordGuide = new Button
+            {
+                Text = UiLocalizer.Pick("A4 Manual (.docx)", "A4 စာအုပ် (.docx)"),
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                BackColor = Color.FromArgb(234, 243, 255),
+                ForeColor = Color.FromArgb(18, 72, 162),
+                FlatStyle = FlatStyle.Flat,
+                Font = UiFontCache.GetMyanmar(9.0F, FontStyle.Bold),
+                Padding = new Padding(S(9), S(4), S(9), S(4)),
+                Margin = new Padding(0, 0, S(8), 0),
+                Cursor = Cursors.Hand
+            };
+            btnWordGuide.FlatAppearance.BorderColor = Color.FromArgb(182, 206, 245);
+            btnWordGuide.Click += (s, e) =>
+            {
+                try { OfflineUserGuideExporter.OpenPrintableWordGuide(); } catch { }
+            };
+
+            btnRow.Controls.Add(btnHtmlGuide);
+            btnRow.Controls.Add(btnWordGuide);
             btnRow.Controls.Add(_btnCopyRepo);
             btnRow.Controls.Add(btnClose);
             _footerBar.Controls.Add(btnRow);
@@ -175,8 +216,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             var lblHeader = new Label
             {
                 Text = UiLocalizer.Pick(
-                    "Myanmar Spell Checker, Grammar & Encyclopedia Suite (Word + Excel)",
-                    "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း၊ သဒ္ဒါနှင့် စွယ်စုံအဘိဓာန် (Word + Excel)"),
+                    "Myanmar Spell Checker, Grammar & Encyclopedia Suite (Word • Excel • PowerPoint)",
+                    "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း၊ သဒ္ဒါနှင့် စွယ်စုံအဘိဓာန် (Word • Excel • PowerPoint)"),
                 Font = UiFontCache.GetMyanmar(10.8F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(18, 48, 102),
                 AutoSize = true,
