@@ -251,31 +251,31 @@ if exist "%SystemRoot%\Microsoft.NET\Framework\v4.0.30319\RegAsm.exe" (
 )
 
 REM 4. Register Office Word Addins Registry Keys (64-bit & 32-bit WOW6432Node)
-reg add "HKLM\Software\Microsoft\Office\Word\Addins\MyanmarSpellChecker.WordAddIn" /v "FriendlyName" /t REG_SZ /d "Myanmar Official Spell Checker" /f >nul
+reg add "HKLM\Software\Microsoft\Office\Word\Addins\MyanmarSpellChecker.WordAddIn" /v "FriendlyName" /t REG_SZ /d "Myanmar Spell Checker" /f >nul
 reg add "HKLM\Software\Microsoft\Office\Word\Addins\MyanmarSpellChecker.WordAddIn" /v "Description" /t REG_SZ /d "100% Offline Myanmar Spell and Grammar Checker (Word)" /f >nul
 reg add "HKLM\Software\Microsoft\Office\Word\Addins\MyanmarSpellChecker.WordAddIn" /v "LoadBehavior" /t REG_DWORD /d 3 /f >nul
 
-reg add "HKLM\Software\WOW6432Node\Microsoft\Office\Word\Addins\MyanmarSpellChecker.WordAddIn" /v "FriendlyName" /t REG_SZ /d "Myanmar Official Spell Checker" /f >nul
+reg add "HKLM\Software\WOW6432Node\Microsoft\Office\Word\Addins\MyanmarSpellChecker.WordAddIn" /v "FriendlyName" /t REG_SZ /d "Myanmar Spell Checker" /f >nul
 reg add "HKLM\Software\WOW6432Node\Microsoft\Office\Word\Addins\MyanmarSpellChecker.WordAddIn" /v "Description" /t REG_SZ /d "100% Offline Myanmar Spell and Grammar Checker (Word)" /f >nul
 reg add "HKLM\Software\WOW6432Node\Microsoft\Office\Word\Addins\MyanmarSpellChecker.WordAddIn" /v "LoadBehavior" /t REG_DWORD /d 3 /f >nul
 reg delete "HKCU\Software\Microsoft\Office\Word\Addins\MyanmarSpellChecker.WordAddIn" /f >nul 2>&1
 
 REM 5. Register Office Excel Addins Registry Keys (64-bit & 32-bit WOW6432Node)
-reg add "HKLM\Software\Microsoft\Office\Excel\Addins\MyanmarSpellChecker.ExcelAddIn" /v "FriendlyName" /t REG_SZ /d "Myanmar Official Spell Checker (Excel)" /f >nul
+reg add "HKLM\Software\Microsoft\Office\Excel\Addins\MyanmarSpellChecker.ExcelAddIn" /v "FriendlyName" /t REG_SZ /d "Myanmar Spell Checker" /f >nul
 reg add "HKLM\Software\Microsoft\Office\Excel\Addins\MyanmarSpellChecker.ExcelAddIn" /v "Description" /t REG_SZ /d "100% Offline Formula-Safe Myanmar Spell and Grammar Checker (Excel)" /f >nul
 reg add "HKLM\Software\Microsoft\Office\Excel\Addins\MyanmarSpellChecker.ExcelAddIn" /v "LoadBehavior" /t REG_DWORD /d 3 /f >nul
 
-reg add "HKLM\Software\WOW6432Node\Microsoft\Office\Excel\Addins\MyanmarSpellChecker.ExcelAddIn" /v "FriendlyName" /t REG_SZ /d "Myanmar Official Spell Checker (Excel)" /f >nul
+reg add "HKLM\Software\WOW6432Node\Microsoft\Office\Excel\Addins\MyanmarSpellChecker.ExcelAddIn" /v "FriendlyName" /t REG_SZ /d "Myanmar Spell Checker" /f >nul
 reg add "HKLM\Software\WOW6432Node\Microsoft\Office\Excel\Addins\MyanmarSpellChecker.ExcelAddIn" /v "Description" /t REG_SZ /d "100% Offline Formula-Safe Myanmar Spell and Grammar Checker (Excel)" /f >nul
 reg add "HKLM\Software\WOW6432Node\Microsoft\Office\Excel\Addins\MyanmarSpellChecker.ExcelAddIn" /v "LoadBehavior" /t REG_DWORD /d 3 /f >nul
 reg delete "HKCU\Software\Microsoft\Office\Excel\Addins\MyanmarSpellChecker.ExcelAddIn" /f >nul 2>&1
 
 REM 6. Register Office PowerPoint Addins Registry Keys (64-bit & 32-bit WOW6432Node)
-reg add "HKLM\Software\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn" /v "FriendlyName" /t REG_SZ /d "Myanmar Official Spell Checker (PowerPoint)" /f >nul
+reg add "HKLM\Software\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn" /v "FriendlyName" /t REG_SZ /d "Myanmar Spell Checker" /f >nul
 reg add "HKLM\Software\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn" /v "Description" /t REG_SZ /d "100% Offline Zero-Mutation Myanmar Spell and Grammar Checker (PowerPoint)" /f >nul
 reg add "HKLM\Software\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn" /v "LoadBehavior" /t REG_DWORD /d 3 /f >nul
 
-reg add "HKLM\Software\WOW6432Node\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn" /v "FriendlyName" /t REG_SZ /d "Myanmar Official Spell Checker (PowerPoint)" /f >nul
+reg add "HKLM\Software\WOW6432Node\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn" /v "FriendlyName" /t REG_SZ /d "Myanmar Spell Checker" /f >nul
 reg add "HKLM\Software\WOW6432Node\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn" /v "Description" /t REG_SZ /d "100% Offline Zero-Mutation Myanmar Spell and Grammar Checker (PowerPoint)" /f >nul
 reg add "HKLM\Software\WOW6432Node\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn" /v "LoadBehavior" /t REG_DWORD /d 3 /f >nul
 reg delete "HKCU\Software\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn" /f >nul 2>&1

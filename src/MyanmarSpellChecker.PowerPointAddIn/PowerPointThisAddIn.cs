@@ -543,6 +543,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
                     ctrl.SetUndoState(_scannerToolkit.UndoManager.UndoCount, _scannerToolkit.UndoManager.LatestDescription);
                 }
                 _ribbonUi?.InvalidateControl("BtnToggleTaskPane");
+                _ribbonUi?.InvalidateControl("BtnReviewTogglePane");
             });
         }
 
@@ -732,7 +733,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
 
                 Office.CustomTaskPane pane = _ctpFactory.CreateCTP(
                     "MyanmarSpellChecker.PowerPointTaskPaneControl",
-                    UiLocalizer.Pick("Myanmar Spell Checker (PowerPoint)", "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း (PowerPoint)"),
+                    UiLocalizer.Pick("Myanmar Spell Checker", "မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး"),
                     activeWin);
 
                 var ctrl = (PowerPointProofingTaskPaneControl)pane.ContentControl;
@@ -778,6 +779,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
                             ScheduleStartupPaneWidthEnforcement(hwnd, ctp, ctrl, forceIfNarrow: false);
                         }
                         _ribbonUi?.InvalidateControl("BtnToggleTaskPane");
+                        _ribbonUi?.InvalidateControl("BtnReviewTogglePane");
                     }
                     catch { }
                 };
@@ -794,6 +796,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
                 }
 
                 _ribbonUi?.InvalidateControl("BtnToggleTaskPane");
+                _ribbonUi?.InvalidateControl("BtnReviewTogglePane");
                 return ctrl;
             }
             catch (Exception ex)
@@ -1905,7 +1908,10 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             {
                 kv.Control.SetStyleMode(mode);
             }
-            _ribbonUi?.InvalidateControl("BtnToggleFormalStyle");
+            _ribbonUi?.InvalidateControl("MnuStyleMode");
+            _ribbonUi?.InvalidateControl("ChkStyleCasual");
+            _ribbonUi?.InvalidateControl("ChkStyleStandard");
+            _ribbonUi?.InvalidateControl("ChkStyleOfficial");
 
             if (_proofingEngine == null || _scannerToolkit == null)
                 return;
@@ -1963,6 +1969,23 @@ namespace MyanmarSpellChecker.PowerPointAddIn
 <customUI xmlns='http://schemas.microsoft.com/office/2009/07/customui' onLoad='OnRibbonLoad'>
   <ribbon>
     <tabs>
+      <tab idMso='TabReview'>
+        <group id='GrpReviewMyanmarSpellChecker' getLabel='GetRibbonLabel'>
+          <toggleButton id='BtnReviewTogglePane'
+                        getLabel='GetRibbonLabel'
+                        size='large'
+                        imageMso='SpellingAndGrammar'
+                        getPressed='GetTaskPanePressed'
+                        onAction='OnRibbonToggleTaskPane'
+                        getScreentip='GetRibbonScreentip' />
+          <button id='BtnReviewScanNow'
+                  getLabel='GetRibbonLabel'
+                  size='normal'
+                  imageMso='AcceptInvitation'
+                  onAction='OnRibbonScanActiveSlide'
+                  getScreentip='GetRibbonScreentip' />
+        </group>
+      </tab>
       <tab id='TabMyanmarPowerPointProofing' getLabel='GetRibbonLabel'>
         <group id='GrpPptScanAndFix' getLabel='GetRibbonLabel'>
           <button id='BtnScanActiveSlide'
@@ -2005,13 +2028,27 @@ namespace MyanmarSpellChecker.PowerPointAddIn
                   getScreentip='GetRibbonScreentip' />
         </group>
         <group id='GrpPptStyleAndLive' getLabel='GetRibbonLabel'>
-          <toggleButton id='BtnToggleFormalStyle'
-                        getLabel='GetRibbonLabel'
-                        size='large'
-                        imageMso='FileDocumentInspect'
-                        getPressed='GetFormalStylePressed'
-                        onAction='OnRibbonToggleFormalStyle'
-                        getScreentip='GetRibbonScreentip' />
+          <menu id='MnuStyleMode'
+                getLabel='GetRibbonLabel'
+                size='large'
+                imageMso='FileDocumentInspect'
+                getScreentip='GetRibbonScreentip'>
+            <checkBox id='ChkStyleCasual'
+                      getLabel='GetRibbonLabel'
+                      getPressed='GetStyleModeItemPressed'
+                      onAction='OnRibbonSelectStyleMode'
+                      getScreentip='GetRibbonScreentip' />
+            <checkBox id='ChkStyleStandard'
+                      getLabel='GetRibbonLabel'
+                      getPressed='GetStyleModeItemPressed'
+                      onAction='OnRibbonSelectStyleMode'
+                      getScreentip='GetRibbonScreentip' />
+            <checkBox id='ChkStyleOfficial'
+                      getLabel='GetRibbonLabel'
+                      getPressed='GetStyleModeItemPressed'
+                      onAction='OnRibbonSelectStyleMode'
+                      getScreentip='GetRibbonScreentip' />
+          </menu>
           <toggleButton id='BtnToggleLiveScan'
                         getLabel='GetRibbonLabel'
                         size='large'
@@ -2137,9 +2174,13 @@ namespace MyanmarSpellChecker.PowerPointAddIn
 
         public string GetRibbonLabel(Office.IRibbonControl control)
         {
+            ProofingStyleMode activeMode = _proofingEngine?.StyleMode ?? _pendingStyleMode;
             return control.Id switch
             {
-                "TabMyanmarPowerPointProofing" => UiLocalizer.Pick("Myanmar Proofing", "မြန်မာစာ စစ်ဆေးရေး"),
+                "TabMyanmarPowerPointProofing" => UiLocalizer.Pick("Myanmar Spell Checker", "မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး"),
+                "GrpReviewMyanmarSpellChecker" => UiLocalizer.Pick("Myanmar Spell Checker", "မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး"),
+                "BtnReviewTogglePane" => UiLocalizer.Pick("Myanmar Spell Checker", "မြန်မာစာ စာစစ်ပြကွက်"),
+                "BtnReviewScanNow" => UiLocalizer.Pick("Scan Slide", "Slide စစ်ဆေးမည်"),
                 "GrpPptScanAndFix" => UiLocalizer.Pick("Slide & Notes Proofing (Zero-Mutation)", "ဆလိုက်နှင့် မှတ်စု စစ်ဆေးရေး"),
                 "BtnScanActiveSlide" => UiLocalizer.Pick("Scan Active Slide", "လက်ရှိ Slide စစ်မည်"),
                 "BtnScanSelection" => UiLocalizer.Pick("Scan Selection", "ရွေးထားသည့်ပုံ စစ်မည်"),
@@ -2149,6 +2190,15 @@ namespace MyanmarSpellChecker.PowerPointAddIn
                 "BtnUndoLastFix" => UiLocalizer.Pick("Undo Last Fix", "ပြန်ဆုတ်မည် (Undo)"),
 
                 "GrpPptStyleAndLive" => UiLocalizer.Pick("Style & Live Options", "အရေးအသားနှင့် အလိုအလျောက်စနစ်"),
+                "MnuStyleMode" => activeMode switch
+                {
+                    ProofingStyleMode.ColloquialPermissive => UiLocalizer.Pick("Mode: Casual", "စနစ် - ပေါ့ပါးဟန်"),
+                    ProofingStyleMode.FormalOfficial => UiLocalizer.Pick("Mode: Official", "စနစ် - ရုံးသုံးစာပေ"),
+                    _ => UiLocalizer.Pick("Mode: Standard", "စနစ် - အထွေထွေစံ")
+                },
+                "ChkStyleCasual" => UiLocalizer.Pick("Casual / Chat (Colloquial)", "ပေါ့ပါးဟန် (Casual / Chat)"),
+                "ChkStyleStandard" => UiLocalizer.Pick("General Standard", "အထွေထွေ စံသတ်ပုံ (Standard)"),
+                "ChkStyleOfficial" => UiLocalizer.Pick("Official / Literary", "ရုံးသုံး / စာပေဟန် (Official)"),
                 "BtnToggleFormalStyle" => UiLocalizer.Pick("Formal / Official Style", "စာပေ / ရုံးသုံး အရေးစကားစနစ်"),
                 "BtnToggleLiveScan" => UiLocalizer.Pick("Live Slide Scan", "အလိုအလျောက် စစ်ဆေးမှု (Live)"),
                 "BtnToggleVisualUnderlines" => UiLocalizer.Pick("Show Underlines", "အနီမျဉ်း ပြသမှု (Underlines)"),
@@ -2181,6 +2231,12 @@ namespace MyanmarSpellChecker.PowerPointAddIn
         {
             return control.Id switch
             {
+                "BtnReviewTogglePane" => UiLocalizer.Pick(
+                    "Show or hide the Myanmar Spell Checker task pane on the right",
+                    "ညာဘက် မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး ပြကွက် (Task Pane) ကို ဖွင့်/ပိတ်ရန်"),
+                "BtnReviewScanNow" => UiLocalizer.Pick(
+                    "Scan TextBoxes, Tables, Grouped Shapes & Speaker Notes on the active PowerPoint slide",
+                    "လက်ရှိဆလိုက်ရှိ TextBox၊ ဇယား၊ Group ပုံ နှင့် Speaker Notes များကို စစ်ဆေးရန်"),
                 "BtnScanActiveSlide" => UiLocalizer.Pick(
                     "Check Slide TextBoxes, Tables, Grouped Shapes & Speaker Notes on the active slide with zero design mutation",
                     "လက်ရှိဆလိုက်ရှိ TextBox၊ ဇယား၊ Group ပုံ နှင့် Speaker Notes များကို ဒီဇိုင်းမပျက်စေဘဲ စစ်ဆေးရန်"),
@@ -2199,6 +2255,18 @@ namespace MyanmarSpellChecker.PowerPointAddIn
                 "BtnUndoLastFix" => UiLocalizer.Pick(
                     "Restore slide containers modified by the most recent proofing or toolkit action",
                     "နောက်ဆုံး ပြင်ဆင်ခဲ့သော ဆလိုက်စာသားများကို မူလအတိုင်း ပြန်ဆုတ်ရန်"),
+                "MnuStyleMode" => UiLocalizer.Pick(
+                    "Choose writing register: Casual / Chat, General Standard, or Official / Literary",
+                    "အရေးအသားစနစ် ရွေးချယ်ရန် — ပေါ့ပါးဟန် (Casual)၊ အထွေထွေစံ (Standard) သို့မဟုတ် ရုံးသုံးစာပေ (Official)"),
+                "ChkStyleCasual" => UiLocalizer.Pick(
+                    "Checks spelling & homophones while allowing conversational Burmese particles and shortcuts",
+                    "စကားပြောဟန် အသုံးအနှုန်းများကို ခွင့်ပြုပြီး သတ်ပုံအမှားများကိုသာ စစ်ဆေးပေးပါမည်"),
+                "ChkStyleStandard" => UiLocalizer.Pick(
+                    "Checks official 462p orthography, homophones, and core grammar while allowing polite spoken particles",
+                    "သတ်ပုံကျမ်း၊ အနက်တူအမှားနှင့် အခြေခံသဒ္ဒါများကို စစ်ဆေးပေးပါမည်"),
+                "ChkStyleOfficial" => UiLocalizer.Pick(
+                    "Enforces full formal literary and government ministry prose standards (ပါတယ် -> ပါသည်, တွေ -> များ)",
+                    "ရုံးသုံးနှင့် စာပေအရေးအသား စံနှုန်းအပြည့်အဝ စစ်ဆေးပေးပါမည်"),
                 "BtnToggleFormalStyle" => UiLocalizer.Pick(
                     "Toggle formal/literary Burmese checks (e.g., ပါတယ်➔ပါသည်, တွေ➔များ)",
                     "ရုံးသုံးနှင့် စာပေအရေးအသား (ပါတယ်➔ပါသည်၊ တွေ➔များ) စစ်ဆေးမှုကို ဖွင့်/ပိတ်ရန်"),
@@ -2285,6 +2353,32 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             AddInDiagnostics.SafeExecute("OnRibbonToggleFormalStyle", () =>
             {
                 ApplyStyleModeAndRescan(pressed ? ProofingStyleMode.FormalOfficial : ProofingStyleMode.GeneralStandard);
+            });
+        }
+
+        public bool GetStyleModeItemPressed(Office.IRibbonControl control)
+        {
+            ProofingStyleMode current = _proofingEngine?.StyleMode ?? _pendingStyleMode;
+            return control?.Id switch
+            {
+                "ChkStyleCasual" => current == ProofingStyleMode.ColloquialPermissive,
+                "ChkStyleStandard" => current == ProofingStyleMode.GeneralStandard,
+                "ChkStyleOfficial" => current == ProofingStyleMode.FormalOfficial,
+                _ => false
+            };
+        }
+
+        public void OnRibbonSelectStyleMode(Office.IRibbonControl control, bool pressed)
+        {
+            AddInDiagnostics.SafeExecute("OnRibbonSelectStyleMode", () =>
+            {
+                ProofingStyleMode next = control?.Id switch
+                {
+                    "ChkStyleCasual" => ProofingStyleMode.ColloquialPermissive,
+                    "ChkStyleOfficial" => ProofingStyleMode.FormalOfficial,
+                    _ => ProofingStyleMode.GeneralStandard
+                };
+                ApplyStyleModeAndRescan(next);
             });
         }
 
@@ -2415,6 +2509,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
                     GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
                 }
                 _ribbonUi?.InvalidateControl("BtnToggleTaskPane");
+                _ribbonUi?.InvalidateControl("BtnReviewTogglePane");
             });
         }
 

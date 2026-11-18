@@ -591,6 +591,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 }
                 _quickFixController?.ScheduleRefreshForActiveCell(90);
                 _ribbonUi?.InvalidateControl("BtnToggleTaskPane");
+                _ribbonUi?.InvalidateControl("BtnReviewTogglePane");
             });
         }
 
@@ -769,7 +770,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
 
                 Office.CustomTaskPane pane = _ctpFactory.CreateCTP(
                     "MyanmarSpellChecker.ExcelTaskPaneControl",
-                    UiLocalizer.Pick("Myanmar Spell Checker (Excel)", "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း (Excel)"),
+                    UiLocalizer.Pick("Myanmar Spell Checker", "မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး"),
                     activeWin);
 
                 var ctrl = (ExcelProofingTaskPaneControl)pane.ContentControl;
@@ -810,6 +811,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
                             ScheduleStartupPaneWidthEnforcement(hwnd, ctp, ctrl, forceIfNarrow: false);
                         }
                         _ribbonUi?.InvalidateControl("BtnToggleTaskPane");
+                        _ribbonUi?.InvalidateControl("BtnReviewTogglePane");
                     }
                     catch { }
                 };
@@ -826,6 +828,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 }
 
                 _ribbonUi?.InvalidateControl("BtnToggleTaskPane");
+                _ribbonUi?.InvalidateControl("BtnReviewTogglePane");
                 return ctrl;
             }
             catch (Exception ex)
@@ -1886,7 +1889,10 @@ namespace MyanmarSpellChecker.ExcelAddIn
             {
                 kv.Control.SetStyleMode(mode);
             }
-            _ribbonUi?.InvalidateControl("BtnToggleFormalStyle");
+            _ribbonUi?.InvalidateControl("MnuStyleMode");
+            _ribbonUi?.InvalidateControl("ChkStyleCasual");
+            _ribbonUi?.InvalidateControl("ChkStyleStandard");
+            _ribbonUi?.InvalidateControl("ChkStyleOfficial");
 
             if (_proofingEngine == null || _scannerToolkit == null)
                 return;
@@ -1944,6 +1950,23 @@ namespace MyanmarSpellChecker.ExcelAddIn
 <customUI xmlns='http://schemas.microsoft.com/office/2009/07/customui' onLoad='OnRibbonLoad'>
   <ribbon>
     <tabs>
+      <tab idMso='TabReview'>
+        <group id='GrpReviewMyanmarSpellChecker' getLabel='GetRibbonLabel'>
+          <toggleButton id='BtnReviewTogglePane'
+                        getLabel='GetRibbonLabel'
+                        size='large'
+                        imageMso='SpellingAndGrammar'
+                        getPressed='GetTaskPanePressed'
+                        onAction='OnRibbonToggleTaskPane'
+                        getScreentip='GetRibbonScreentip' />
+          <button id='BtnReviewScanNow'
+                  getLabel='GetRibbonLabel'
+                  size='normal'
+                  imageMso='AcceptInvitation'
+                  onAction='OnRibbonScanSheet'
+                  getScreentip='GetRibbonScreentip' />
+        </group>
+      </tab>
       <tab id='TabMyanmarExcelProofing' getLabel='GetRibbonLabel'>
         <group id='GrpExcelScanAndFix' getLabel='GetRibbonLabel'>
           <button id='BtnScanActiveSheet'
@@ -1979,13 +2002,27 @@ namespace MyanmarSpellChecker.ExcelAddIn
                   getScreentip='GetRibbonScreentip' />
         </group>
         <group id='GrpExcelStyleAndLive' getLabel='GetRibbonLabel'>
-          <toggleButton id='BtnToggleFormalStyle'
-                        getLabel='GetRibbonLabel'
-                        size='large'
-                        imageMso='FileDocumentInspect'
-                        getPressed='GetFormalStylePressed'
-                        onAction='OnRibbonToggleFormalStyle'
-                        getScreentip='GetRibbonScreentip' />
+          <menu id='MnuStyleMode'
+                getLabel='GetRibbonLabel'
+                size='large'
+                imageMso='FileDocumentInspect'
+                getScreentip='GetRibbonScreentip'>
+            <checkBox id='ChkStyleCasual'
+                      getLabel='GetRibbonLabel'
+                      getPressed='GetStyleModeItemPressed'
+                      onAction='OnRibbonSelectStyleMode'
+                      getScreentip='GetRibbonScreentip' />
+            <checkBox id='ChkStyleStandard'
+                      getLabel='GetRibbonLabel'
+                      getPressed='GetStyleModeItemPressed'
+                      onAction='OnRibbonSelectStyleMode'
+                      getScreentip='GetRibbonScreentip' />
+            <checkBox id='ChkStyleOfficial'
+                      getLabel='GetRibbonLabel'
+                      getPressed='GetStyleModeItemPressed'
+                      onAction='OnRibbonSelectStyleMode'
+                      getScreentip='GetRibbonScreentip' />
+          </menu>
           <toggleButton id='BtnToggleLiveScan'
                         getLabel='GetRibbonLabel'
                         size='large'
@@ -2105,9 +2142,13 @@ namespace MyanmarSpellChecker.ExcelAddIn
 
         public string GetRibbonLabel(Office.IRibbonControl control)
         {
+            ProofingStyleMode activeMode = _proofingEngine?.StyleMode ?? _pendingStyleMode;
             return control.Id switch
             {
-                "TabMyanmarExcelProofing" => UiLocalizer.Pick("Myanmar Proofing", "မြန်မာစာ စစ်ဆေးရေး"),
+                "TabMyanmarExcelProofing" => UiLocalizer.Pick("Myanmar Spell Checker", "မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး"),
+                "GrpReviewMyanmarSpellChecker" => UiLocalizer.Pick("Myanmar Spell Checker", "မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး"),
+                "BtnReviewTogglePane" => UiLocalizer.Pick("Myanmar Spell Checker", "မြန်မာစာ စာစစ်ပြကွက်"),
+                "BtnReviewScanNow" => UiLocalizer.Pick("Scan Sheet", "Sheet စစ်ဆေးမည်"),
                 "GrpExcelScanAndFix" => UiLocalizer.Pick("Spreadsheet Proofing (Formula-Safe)", "ဇယားကွက် စစ်ဆေးရေး (Formula-Safe)"),
                 "BtnScanActiveSheet" => UiLocalizer.Pick("Scan Active Sheet", "လက်ရှိ Sheet စစ်မည်"),
                 "BtnScanSelection" => UiLocalizer.Pick("Scan Selection", "ရွေးကွက် စစ်မည်"),
@@ -2116,6 +2157,15 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 "BtnUndoLastFix" => UiLocalizer.Pick("Undo Last Fix", "ပြန်ဆုတ်မည် (Undo)"),
 
                 "GrpExcelStyleAndLive" => UiLocalizer.Pick("Style & Live Options", "အရေးအသားနှင့် အလိုအလျောက်စနစ်"),
+                "MnuStyleMode" => activeMode switch
+                {
+                    ProofingStyleMode.ColloquialPermissive => UiLocalizer.Pick("Mode: Casual", "စနစ် - ပေါ့ပါးဟန်"),
+                    ProofingStyleMode.FormalOfficial => UiLocalizer.Pick("Mode: Official", "စနစ် - ရုံးသုံးစာပေ"),
+                    _ => UiLocalizer.Pick("Mode: Standard", "စနစ် - အထွေထွေစံ")
+                },
+                "ChkStyleCasual" => UiLocalizer.Pick("Casual / Chat (Colloquial)", "ပေါ့ပါးဟန် (Casual / Chat)"),
+                "ChkStyleStandard" => UiLocalizer.Pick("General Standard", "အထွေထွေ စံသတ်ပုံ (Standard)"),
+                "ChkStyleOfficial" => UiLocalizer.Pick("Official / Literary", "ရုံးသုံး / စာပေဟန် (Official)"),
                 "BtnToggleFormalStyle" => UiLocalizer.Pick("Formal / Official Style", "စာပေ / ရုံးသုံး အရေးစကားစနစ်"),
                 "BtnToggleLiveScan" => UiLocalizer.Pick("Live Auto-Scan", "အလိုအလျောက် စစ်ဆေးမှု (Live)"),
                 "BtnToggleVisualUnderlines" => UiLocalizer.Pick("Show Underlines", "အနီမျဉ်း ပြသမှု (Underlines)"),
@@ -2147,6 +2197,12 @@ namespace MyanmarSpellChecker.ExcelAddIn
         {
             return control.Id switch
             {
+                "BtnReviewTogglePane" => UiLocalizer.Pick(
+                    "Show or hide the Myanmar Spell Checker task pane on the right",
+                    "ညာဘက် မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး ပြကွက် (Task Pane) ကို ဖွင့်/ပိတ်ရန်"),
+                "BtnReviewScanNow" => UiLocalizer.Pick(
+                    "Scan all Myanmar text cells in the active Excel worksheet without touching formulas",
+                    "လက်ရှိ Worksheet ရှိ မြန်မာစာ အကွက်အားလုံးကို Formula မထိခိုက်စေဘဲ စစ်ဆေးရန်"),
                 "BtnScanActiveSheet" => UiLocalizer.Pick(
                     "Scan all Myanmar text cells in the active worksheet without touching Excel formulas",
                     "လက်ရှိ Worksheet ရှိ မြန်မာစာ အကွက်အားလုံးကို Formula မထိခိုက်စေဘဲ အမြန်စစ်ဆေးရန်"),
@@ -2162,6 +2218,18 @@ namespace MyanmarSpellChecker.ExcelAddIn
                 "BtnUndoLastFix" => UiLocalizer.Pick(
                     "Restore the cells modified by the most recent spell/toolkit action",
                     "နောက်ဆုံး ပြင်ဆင်ခဲ့သော အကွက်များကို မူလအတိုင်း ပြန်ဆုတ်ရန်"),
+                "MnuStyleMode" => UiLocalizer.Pick(
+                    "Choose writing register: Casual / Chat, General Standard, or Official / Literary",
+                    "အရေးအသားစနစ် ရွေးချယ်ရန် — ပေါ့ပါးဟန် (Casual)၊ အထွေထွေစံ (Standard) သို့မဟုတ် ရုံးသုံးစာပေ (Official)"),
+                "ChkStyleCasual" => UiLocalizer.Pick(
+                    "Checks spelling & homophones while allowing conversational Burmese particles and shortcuts",
+                    "စကားပြောဟန် အသုံးအနှုန်းများကို ခွင့်ပြုပြီး သတ်ပုံအမှားများကိုသာ စစ်ဆေးပေးပါမည်"),
+                "ChkStyleStandard" => UiLocalizer.Pick(
+                    "Checks official 462p orthography, homophones, and core grammar while allowing polite spoken particles",
+                    "သတ်ပုံကျမ်း၊ အနက်တူအမှားနှင့် အခြေခံသဒ္ဒါများကို စစ်ဆေးပေးပါမည်"),
+                "ChkStyleOfficial" => UiLocalizer.Pick(
+                    "Enforces full formal literary and government ministry prose standards (ပါတယ် -> ပါသည်, တွေ -> များ)",
+                    "ရုံးသုံးနှင့် စာပေအရေးအသား စံနှုန်းအပြည့်အဝ စစ်ဆေးပေးပါမည်"),
                 "BtnToggleFormalStyle" => UiLocalizer.Pick(
                     "Toggle formal/literary Burmese checks (e.g., ပါတယ်➔ပါသည်, တွေ➔များ)",
                     "ရုံးသုံးနှင့် စာပေအရေးအသား (ပါတယ်➔ပါသည်၊ တွေ➔များ) စစ်ဆေးမှုကို ဖွင့်/ပိတ်ရန်"),
@@ -2235,6 +2303,32 @@ namespace MyanmarSpellChecker.ExcelAddIn
             AddInDiagnostics.SafeExecute("OnRibbonToggleFormalStyle", () =>
             {
                 ApplyStyleModeAndRescan(pressed ? ProofingStyleMode.FormalOfficial : ProofingStyleMode.GeneralStandard);
+            });
+        }
+
+        public bool GetStyleModeItemPressed(Office.IRibbonControl control)
+        {
+            ProofingStyleMode current = _proofingEngine?.StyleMode ?? _pendingStyleMode;
+            return control?.Id switch
+            {
+                "ChkStyleCasual" => current == ProofingStyleMode.ColloquialPermissive,
+                "ChkStyleStandard" => current == ProofingStyleMode.GeneralStandard,
+                "ChkStyleOfficial" => current == ProofingStyleMode.FormalOfficial,
+                _ => false
+            };
+        }
+
+        public void OnRibbonSelectStyleMode(Office.IRibbonControl control, bool pressed)
+        {
+            AddInDiagnostics.SafeExecute("OnRibbonSelectStyleMode", () =>
+            {
+                ProofingStyleMode next = control?.Id switch
+                {
+                    "ChkStyleCasual" => ProofingStyleMode.ColloquialPermissive,
+                    "ChkStyleOfficial" => ProofingStyleMode.FormalOfficial,
+                    _ => ProofingStyleMode.GeneralStandard
+                };
+                ApplyStyleModeAndRescan(next);
             });
         }
 
@@ -2365,6 +2459,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
                     GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
                 }
                 _ribbonUi?.InvalidateControl("BtnToggleTaskPane");
+                _ribbonUi?.InvalidateControl("BtnReviewTogglePane");
             });
         }
 

@@ -49,8 +49,8 @@ This project is open-source software licensed under the **[GNU General Public Li
 2. **Close Microsoft Word, Excel, and PowerPoint** (save any open documents first).
 3. **Double-click `Install-MyanmarSpellChecker.bat`** inside the extracted folder *(or **`Install-EasyUser.bat`** inside the standalone Release ZIP — **no PowerShell commands, no `.NET SDK`, and no Administrator password required!**)*.
 4. A friendly confirmation popup (`✓ Installed successfully!`) will appear once the **15.06 MB (`95,225` spellcheck headwords + `57,064` Bilingual `EN ⇄ MM` entries + `25,001` Encyclopedia articles = `181,497` compiled entries)** offline dictionary and all three **Word + Excel + PowerPoint** Add-ins are installed into `%LocalAppData%\MyanmarSpellChecker\app`.
-5. **Open Microsoft Word, Excel, or PowerPoint** — you will see the **`Myanmar Proofing`** Ribbon tab and the **4-Tab Myanmar Spell Checker Task Pane** docked on the right!
-   - **Default UI Language is English (`🌐 EN`)** — click **`🌐 EN` ⇄ `🌐 မြန်မာ`** in the Task Pane header (or **`UI: English ➔ မြန်မာ`** on the Ribbon) anytime to switch the entire interface live between **English** and **Myanmar (`မြန်မာ`)** without restarting Word or Excel!
+5. **Open Microsoft Word, Excel, or PowerPoint** — you will see the **`Myanmar Spell Checker`** Ribbon tab (plus a quick-launch button inside Office's **`Review`** tab) and the **4-Tab Myanmar Spell Checker Task Pane** docked on the right!
+   - **Default UI Language is English (`🌐 EN`)** — click **`🌐 EN` ⇄ `🌐 မြန်မာ`** in the Task Pane header (or **`UI: English ➔ မြန်မာ`** on the Ribbon) anytime to switch the entire interface live between **English (`Myanmar Spell Checker`)** and **Myanmar (`မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး`)** without restarting Word, Excel, or PowerPoint!
 
 #### Option B — Developer CLI Setup (From `git clone`)
 1. **Clone and build Release binaries** (`data\mlc_thatpon.db` is tracked directly in Git and automatically copied to `bin\Release\net48\`):
@@ -62,11 +62,11 @@ This project is open-source software licensed under the **[GNU General Public Li
    ```
    *(Optional — for IT / Ministry-wide deployment across all users on a PC, run `Build-EnterpriseRelease.ps1` and execute `artifacts\release-package\Install-MinistryGPO.cmd` as Administrator, or share the generated `artifacts\release-package` folder as a `.zip` with `Install-EasyUser.bat`.)*
 
-> **Tip (If the Ribbon Tab Does Not Appear):** In Word or Excel, go to **File ➔ Options ➔ Add-ins ➔ Manage: COM Add-ins ➔ Go...**, check **`Myanmar Official Spell Checker`**, and click **OK**.
+> **Tip (If the Ribbon Tab Does Not Appear):** In Word, Excel, or PowerPoint, go to **File ➔ Options ➔ Add-ins ➔ Manage: COM Add-ins ➔ Go...**, check **`Myanmar Spell Checker`**, and click **OK**.
 
 ---
 
-### Step 2 — How to Use in Microsoft Word (`မြန်မာစာ စစ်ဆေးရေး` Tab)
+### Step 2 — How to Use in Microsoft Word (`Myanmar Spell Checker` / `မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး` Tab)
 
 #### A. Real-Time & Full-Document Proofing
 - **Live Typing & Paste Scan:** As you type or paste paragraphs (including web/Facebook/PDF text containing hidden zero-width characters), the add-in automatically checks your text in the background without freezing Word.
@@ -81,9 +81,10 @@ This project is open-source software licensed under the **[GNU General Public Li
   3. **Click any Issue Card in the right-hand Task Pane (`စာစစ်` tab)** to jump to that exact word in the document and click a green `✓ ပြင်မည် ➔ ...` button (or click **`အားလုံးပြင်`** to fix all safe spelling & grammar errors in a single `Ctrl+Z` undo step).
 - **Safe Save & Print:** All temporary red/blue/amber proofing underlines are automatically stripped before saving or printing so your `.docx` file stays 100% clean.
 
-#### B. Choosing Writing Style Mode
-- **`အထွေထွေစံ` (General Standard Mode):** Checks official spelling (`သတ်ပုံကျမ်း`), homophones, and core grammar while allowing natural polite spoken particles (`တယ်`, `မယ်`, `တွေ`, `နဲ့`, `ဘူး`).
-- **`ရုံးသုံးစာပေ` / `စာပေ / ရုံးသုံး အရေးစကားစနစ်` (Formal / Official Mode):** Enforces full formal literary and government ministry prose standards (`ပါတယ် ➔ ပါသည်`, `တွေ ➔ များ`, `နဲ့ ➔ နှင့်`, `ဒါပေမယ့် ➔ သို့သော်လည်း`).
+#### B. Choosing Writing Style Mode (3-Mode Selector on Ribbon & Task Pane)
+- **`Casual / Chat` (`ပေါ့ပါးဟန်`):** Checks official spelling and homophones while allowing conversational particles and everyday Pali-sans-that shortcuts (`ပြဿနာ`, `ပုဒ်မ`, `ဥပမာ`).
+- **`Standard` (`အထွေထွေစံ` — General Standard Mode):** Checks official 462-page spelling (`သတ်ပုံကျမ်း`), homophones, and core grammar while allowing natural polite spoken particles (`တယ်`, `မယ်`, `တွေ`, `နဲ့`, `ဘူး`).
+- **`Official` (`ရုံးသုံးစာပေ` — Formal / Official Mode):** Enforces full formal literary and government ministry prose standards (`ပါတယ် ➔ ပါသည်`, `တွေ ➔ များ`, `နဲ့ ➔ နှင့်`, `ဒါပေမယ့် ➔ သို့သော်လည်း`).
 
 #### C. Using the 4-Tab Custom Task Pane in Word
 1. **`စာစစ်` (Proofing Tab):** Filter issues by **All (`အားလုံး`)**, **Spelling (`သတ်ပုံ`)**, **Grammar (`သဒ္ဒါ`)**, or **Context (`အနက်`)**, step through issues with **`↑` / `↓`**, and read deep Burmese linguistic & Pali etymological explanations on every card.
@@ -102,7 +103,7 @@ This project is open-source software licensed under the **[GNU General Public Li
 
 ---
 
-### Step 3 — How to Use in Microsoft Excel (`Myanmar Proofing` / `မြန်မာစာ စစ်ဆေးရေး` Tab)
+### Step 3 — How to Use in Microsoft Excel (`Myanmar Spell Checker` / `မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး` Tab)
 
 The Excel Add-in provides **100% Non-Destructive Screen-Only Wavy Underlines, Word-Style On-Cursor Quick-Fix Popups & Formula-Safe Accounting Tools**:
 
@@ -127,7 +128,7 @@ The Excel Add-in provides **100% Non-Destructive Screen-Only Wavy Underlines, Wo
 
 ---
 
-### Step 4 — How to Use in Microsoft PowerPoint (`မြန်မာစာ စစ်ဆေးရေး` Tab)
+### Step 4 — How to Use in Microsoft PowerPoint (`Myanmar Spell Checker` / `မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး` Tab)
 
 1. **Deep Multi-Container Slide & Notes Scanning:**
    - Checks **Slide TextBoxes, Titles, Subtitles, Bullet Placeholders, Slide Tables (`[Row, Col]`), Recursively Nested Grouped Shapes (`GroupItems`), and Speaker Notes** — plus an optional **`Include Masters`** toggle for Slide Masters & Custom Layouts!

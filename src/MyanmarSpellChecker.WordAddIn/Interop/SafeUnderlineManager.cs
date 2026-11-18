@@ -5,6 +5,7 @@ using System.Windows.Forms;
 using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
+using MyanmarSpellChecker.Core.Typography;
 using Word = Microsoft.Office.Interop.Word;
 
 namespace MyanmarSpellChecker.WordAddIn.Interop
@@ -301,7 +302,27 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             return _noProofAppliedSpans.TryGetValue(doc, out var set) && set.Contains(key);
         }
 
-        public void SuppressBuiltInEnglishSquigglesOnRangeOnce(
+        public void ResetNoProofCacheForDocument(Word.Document? doc)
+        {
+            if (doc != null)
+            {
+                _noProofAppliedSpans.Remove(doc);
+            }
+        }
+
+        public void RefreshScreenAfterNoProofUpdate()
+        {
+            try
+            {
+                _app.ScreenRefresh();
+            }
+            catch
+            {
+                // Ignore transient COM busy states
+            }
+        }
+
+        public bool SuppressBuiltInEnglishSquigglesOnRangeOnce(
             Word.Document doc,
             Word.Range? range,
             int storySlotId,
@@ -309,19 +330,106 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             int endOffset)
         {
             if (doc == null || range == null)
-                return;
+                return false;
             if (!TryMarkNoProofSpanApplied(doc, storySlotId, startOffset, endOffset))
-                return;
+                return false;
 
             try
             {
-                if (range.NoProofing != 1)
+                int np = range.NoProofing;
+                if (np == 0 || np == 9999999)
+                {
                     range.NoProofing = 1;
+                    return true;
+                }
             }
             catch
             {
                 // Ignore read-only or protected document sections
             }
+            return false;
+        }
+
+        /// <summary>
+        /// Suppresses Word's built-in US-English red spellcheck squiggles on ALL Myanmar words in <paramref name="containerRange"/>
+        /// (both pure-Myanmar paragraphs AND mixed Myanmar + English paragraphs like "4. Campaign တွင် ပါဝင်သူများ ... Tiktok ..."),
+        /// while leaving English words at <c>NoProofing = 0</c> and 100% preserving user <c>wdUnderlineSingle</c> formatting.
+        /// </summary>
+        public bool SuppressBuiltInEnglishSquigglesOnMyanmarText(
+            Word.Document doc,
+            Word.Range? containerRange,
+            string? cleanedContainerText,
+            int storySlotId,
+            int startOffset,
+            int endOffset)
+        {
+            if (doc == null || containerRange == null || string.IsNullOrEmpty(cleanedContainerText))
+                return false;
+
+            MyanmarProofingSpanExtractor.ClassifyMyanmarAndLatinPresence(
+                cleanedContainerText,
+                out bool hasMyanmar,
+                out bool hasLatin);
+
+            if (!hasMyanmar)
+                return false;
+
+            if (!TryMarkNoProofSpanApplied(doc, storySlotId, startOffset, endOffset))
+                return false;
+
+            bool anyMutated = false;
+            try
+            {
+                if (!hasLatin)
+                {
+                    int np = containerRange.NoProofing;
+                    if (np == 0 || np == 9999999)
+                    {
+                        containerRange.NoProofing = 1;
+                        anyMutated = true;
+                    }
+                    return anyMutated;
+                }
+
+                // Mixed Myanmar + English paragraph: set NoProofing = 1 strictly on coalesced Myanmar script spans
+                // so English words (e.g. "Tiktok", "Thumainbayan", "Licencing") keep native English spellchecking!
+                var spans = MyanmarProofingSpanExtractor.ExtractNonLatinMyanmarSpans(cleanedContainerText);
+                List<VisibleCharSpan>? lazyCharMap = null;
+                for (int i = 0; i < spans.Count; i++)
+                {
+                    var sp = spans[i];
+                    try
+                    {
+                        Word.Range? subRange = ResolveIssueRange(
+                            containerRange,
+                            cleanedContainerText!,
+                            sp.Start,
+                            sp.Length,
+                            sp.Text,
+                            ref lazyCharMap);
+
+                        if (subRange != null)
+                        {
+                            int np = subRange.NoProofing;
+                            if (np == 0 || np == 9999999)
+                            {
+                                subRange.NoProofing = 1;
+                                anyMutated = true;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Continue remaining spans if a sub-range is inside a locked content control
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore read-only or protected document sections
+            }
+
+            return anyMutated;
         }
 
         private bool TryMarkNoProofSpanApplied(Word.Document doc, int storySlotId, int startOffset, int endOffset)
@@ -437,6 +545,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             string cleanedContainerText = preloadedCleanText ?? CleanWordControlChars(containerRange.Text ?? string.Empty);
             string snippet = issues.Count > 0 ? BuildTrimmedSnippet(cleanedContainerText) : string.Empty;
             bool hasMyanmar = ContainsMyanmarCharacters(cleanedContainerText);
+            bool needsNoProofSync = hasMyanmar && !HasNoProofSpanApplied(doc, storySlotId, containerStart, containerEnd);
             bool docNeverHadAddInWavy = (knownDocHasNoUnderlines == true) || !HasEverAppliedWavyUnderlines(doc);
             bool hasExistingTracked = !docNeverHadAddInWavy && HasTrackedInSpan(doc, containerStart, containerEnd, storySlotId);
             bool hasPotentialWavy = false;
@@ -450,8 +559,8 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 catch { }
             }
 
-            // Fast no-op path: nothing to strip, no stray wavy underline, and no issues -> touch ZERO COM properties!
-            if (issues.Count == 0 && !hasExistingTracked && !hasPotentialWavy)
+            // Fast no-op path: nothing to strip, no stray wavy underline, no unshielded Myanmar text, and no issues -> touch ZERO COM properties!
+            if (issues.Count == 0 && !hasExistingTracked && !hasPotentialWavy && !needsNoProofSync)
             {
                 return boundItems;
             }
@@ -468,19 +577,17 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         out undoRecord);
                 }
 
-                // Only suppress built-in proofing on paragraphs that actually carry proofing issues, and at most once per span
-                // (prevents repeatedly mutating wdUndefined/9999999 mixed-language paragraphs on every scan).
-                if (hasMyanmar && issues.Count > 0 && TryMarkNoProofSpanApplied(doc, storySlotId, containerStart, containerEnd))
+                // Suppress Word's built-in English red squiggles on ALL Myanmar runs (both clean & flagged, pure & mixed English+Myanmar)
+                // while keeping English words at NoProofing = 0!
+                if (needsNoProofSync)
                 {
-                    try
-                    {
-                        if (containerRange.NoProofing != 1)
-                            containerRange.NoProofing = 1;
-                    }
-                    catch
-                    {
-                        // Ignore if range is locked
-                    }
+                    SuppressBuiltInEnglishSquigglesOnMyanmarText(
+                        doc,
+                        containerRange,
+                        cleanedContainerText,
+                        storySlotId,
+                        containerStart,
+                        containerEnd);
                 }
 
                 // 1. Restore & remove any previously tracked wavy underlines inside this container range
@@ -983,9 +1090,13 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     r.Font.Underline = item.OriginalUnderline;
                     r.Font.UnderlineColor = item.OriginalUnderlineColor;
                     r.Text = replacementText;
-                    // Re-apply after r.Text assignment in case Word inherited adjacent wavy underline
+                    // Re-apply after r.Text assignment in case Word inherited adjacent wavy underline or English NoProofing=0
                     r.Font.Underline = item.OriginalUnderline;
                     r.Font.UnderlineColor = item.OriginalUnderlineColor;
+                    if (ContainsMyanmarCharacters(replacementText))
+                    {
+                        try { r.NoProofing = 1; } catch { }
+                    }
                     item.IsResolved = true;
                     applied = true;
                     try { IssueReplacedInDocument?.Invoke(doc, item, replacementText); } catch { }
@@ -1060,6 +1171,10 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         r.Text = replacementText;
                         r.Font.Underline = item.OriginalUnderline;
                         r.Font.UnderlineColor = item.OriginalUnderlineColor;
+                        if (ContainsMyanmarCharacters(replacementText))
+                        {
+                            try { r.NoProofing = 1; } catch { }
+                        }
                         item.IsResolved = true;
                         resolvedRanges.Add(r);
                         replacedCount++;
@@ -1147,6 +1262,10 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         r.Text = topReplacement;
                         r.Font.Underline = item.OriginalUnderline;
                         r.Font.UnderlineColor = item.OriginalUnderlineColor;
+                        if (ContainsMyanmarCharacters(topReplacement))
+                        {
+                            try { r.NoProofing = 1; } catch { }
+                        }
                         item.IsResolved = true;
                         resolvedRanges.Add(r);
                         replacedCount++;
@@ -1264,6 +1383,10 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         r.Text = chosenReplacement;
                         r.Font.Underline = item.OriginalUnderline;
                         r.Font.UnderlineColor = item.OriginalUnderlineColor;
+                        if (ContainsMyanmarCharacters(chosenReplacement))
+                        {
+                            try { r.NoProofing = 1; } catch { }
+                        }
                         item.IsResolved = true;
                         resolvedRanges.Add(r);
                         replacedCount++;
@@ -1419,10 +1542,9 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                 if (clearTrackingList)
                 {
-                    if (_documentsWithAppliedWavy.Contains(doc))
-                    {
-                        ScrubResidualWavyUnderlines(doc.Content);
-                    }
+                    // Always scrub any residual or saved wdUnderlineWavy across main body (< 1ms via native C++ Find when clean,
+                    // 100% preserving user wdUnderlineSingle / wdUnderlineDouble headings!).
+                    ScrubResidualWavyUnderlines(doc.Content);
                     _documentsWithAppliedWavy.Remove(doc);
                 }
             }
@@ -2039,7 +2161,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                     int guard = 0;
                     int prevNextPos = -1;
-                    while (guard++ < 32 && find.Execute())
+                    while (guard++ < 2048 && find.Execute())
                     {
                         int hitStart = findScope.Start;
                         int hitEnd = findScope.End;
@@ -2067,8 +2189,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
         {
             for (int i = 0; i < text.Length; i++)
             {
-                char c = text[i];
-                if (c >= '\u1000' && c <= '\u109F')
+                if (MyanmarProofingSpanExtractor.IsMyanmarScriptCodePoint(text[i]))
                     return true;
             }
             return false;

@@ -772,7 +772,7 @@ namespace MyanmarSpellChecker.WordAddIn
 
                 Office.CustomTaskPane pane = _ctpFactory.CreateCTP(
                     "MyanmarSpellChecker.ProofingTaskPaneControl",
-                    UiLocalizer.Pick("Myanmar Spell Checker", "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း"),
+                    UiLocalizer.Pick("Myanmar Spell Checker", "မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး"),
                     activeWin);
 
                 var ctrl = (ProofingTaskPaneControl)pane.ContentControl;
@@ -806,6 +806,7 @@ namespace MyanmarSpellChecker.WordAddIn
                             ScheduleStartupPaneWidthEnforcement(hwnd, ctp, ctrl, forceIfNarrow: false);
                         }
                         _ribbonUi?.InvalidateControl("BtnToggleTaskPane");
+                        _ribbonUi?.InvalidateControl("BtnReviewTogglePane");
                     }
                     catch { }
                 };
@@ -823,6 +824,7 @@ namespace MyanmarSpellChecker.WordAddIn
                 }
 
                 _ribbonUi?.InvalidateControl("BtnToggleTaskPane");
+                _ribbonUi?.InvalidateControl("BtnReviewTogglePane");
                 return ctrl;
             }
             catch
@@ -1075,6 +1077,7 @@ namespace MyanmarSpellChecker.WordAddIn
                 if (_wordApp?.ActiveDocument != null)
                 {
                     _underlineManager?.StripAllProofingUnderlines(_wordApp.ActiveDocument);
+                    _documentScanner?.SuppressBuiltInEnglishSquigglesInDocumentOnce(_wordApp.ActiveDocument);
                     _documentScanner?.ClearCachedIssues(_wordApp.ActiveDocument);
                 }
             };
@@ -2211,7 +2214,10 @@ namespace MyanmarSpellChecker.WordAddIn
             {
                 kv.Control.SetStyleMode(mode);
             }
-            _ribbonUi?.InvalidateControl("BtnToggleFormalStyle");
+            _ribbonUi?.InvalidateControl("MnuStyleMode");
+            _ribbonUi?.InvalidateControl("ChkStyleCasual");
+            _ribbonUi?.InvalidateControl("ChkStyleStandard");
+            _ribbonUi?.InvalidateControl("ChkStyleOfficial");
 
             if (_proofingEngine == null)
                 return;
@@ -2221,7 +2227,7 @@ namespace MyanmarSpellChecker.WordAddIn
             if (_wordApp?.ActiveDocument != null)
             {
                 _underlineManager?.StripAllProofingUnderlines(_wordApp.ActiveDocument);
-                _documentScanner?.InvalidateParagraphCache(_wordApp.ActiveDocument);
+                _documentScanner?.InvalidateParagraphCache(_wordApp.ActiveDocument, resetNoProofCache: false);
                 _documentScanner?.ScanFullDocumentAsync();
             }
         }
@@ -2235,6 +2241,23 @@ namespace MyanmarSpellChecker.WordAddIn
 <customUI xmlns='http://schemas.microsoft.com/office/2009/07/customui' onLoad='OnRibbonLoad'>
   <ribbon>
     <tabs>
+      <tab idMso='TabReviewWord'>
+        <group id='GrpReviewMyanmarSpellChecker' getLabel='GetRibbonLabel'>
+          <toggleButton id='BtnReviewTogglePane'
+                        getLabel='GetRibbonLabel'
+                        size='large'
+                        imageMso='SpellingAndGrammar'
+                        getPressed='GetTaskPanePressed'
+                        onAction='OnRibbonToggleTaskPane'
+                        getScreentip='GetRibbonScreentip' />
+          <button id='BtnReviewScanNow'
+                  getLabel='GetRibbonLabel'
+                  size='normal'
+                  imageMso='AcceptInvitation'
+                  onAction='OnRibbonScanDocument'
+                  getScreentip='GetRibbonScreentip' />
+        </group>
+      </tab>
       <tab id='TabMyanmarProofing' getLabel='GetRibbonLabel'>
         <group id='GrpProofingActions' getLabel='GetRibbonLabel'>
           <button id='BtnScanFullDocument'
@@ -2257,13 +2280,27 @@ namespace MyanmarSpellChecker.WordAddIn
                   getScreentip='GetRibbonScreentip' />
         </group>
         <group id='GrpStyleAndLive' getLabel='GetRibbonLabel'>
-          <toggleButton id='BtnToggleFormalStyle'
-                        getLabel='GetRibbonLabel'
-                        size='large'
-                        imageMso='FileDocumentInspect'
-                        getPressed='GetFormalStylePressed'
-                        onAction='OnRibbonToggleFormalStyle'
-                        getScreentip='GetRibbonScreentip' />
+          <menu id='MnuStyleMode'
+                getLabel='GetRibbonLabel'
+                size='large'
+                imageMso='FileDocumentInspect'
+                getScreentip='GetRibbonScreentip'>
+            <checkBox id='ChkStyleCasual'
+                      getLabel='GetRibbonLabel'
+                      getPressed='GetStyleModeItemPressed'
+                      onAction='OnRibbonSelectStyleMode'
+                      getScreentip='GetRibbonScreentip' />
+            <checkBox id='ChkStyleStandard'
+                      getLabel='GetRibbonLabel'
+                      getPressed='GetStyleModeItemPressed'
+                      onAction='OnRibbonSelectStyleMode'
+                      getScreentip='GetRibbonScreentip' />
+            <checkBox id='ChkStyleOfficial'
+                      getLabel='GetRibbonLabel'
+                      getPressed='GetStyleModeItemPressed'
+                      onAction='OnRibbonSelectStyleMode'
+                      getScreentip='GetRibbonScreentip' />
+          </menu>
           <toggleButton id='BtnToggleLiveScan'
                         getLabel='GetRibbonLabel'
                         size='large'
@@ -2376,14 +2413,27 @@ namespace MyanmarSpellChecker.WordAddIn
 
         public string GetRibbonLabel(Office.IRibbonControl control)
         {
+            ProofingStyleMode activeMode = _proofingEngine?.StyleMode ?? _pendingStyleMode;
             return control?.Id switch
             {
-                "TabMyanmarProofing" => UiLocalizer.Pick("Myanmar Proofing", "မြန်မာစာ စစ်ဆေးရေး"),
+                "TabMyanmarProofing" => UiLocalizer.Pick("Myanmar Spell Checker", "မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး"),
+                "GrpReviewMyanmarSpellChecker" => UiLocalizer.Pick("Myanmar Spell Checker", "မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး"),
+                "BtnReviewTogglePane" => UiLocalizer.Pick("Myanmar Spell Checker", "မြန်မာစာ စာစစ်ပြကွက်"),
+                "BtnReviewScanNow" => UiLocalizer.Pick("Scan Document", "စာတမ်း စစ်ဆေးမည်"),
                 "GrpProofingActions" => UiLocalizer.Pick("Proofing & Fixes", "စာတမ်း စစ်ဆေးရေးနှင့် ပြင်ဆင်မှု"),
                 "BtnScanFullDocument" => UiLocalizer.Pick("Scan Document", "စာတမ်းတစ်ခုလုံး စစ်ဆေးမည်"),
                 "BtnFixAllIssues" => UiLocalizer.Pick("Fix All (Preview)", "အားလုံး တစ်ပြိုင်နက် ပြင်မည်"),
                 "BtnClearUnderlines" => UiLocalizer.Pick("Clear Marks", "မျဉ်းလှိုင်းများ ဖယ်ရှားမည်"),
                 "GrpStyleAndLive" => UiLocalizer.Pick("Style & Auto-Scan", "အရေးအသားနှင့် အလိုအလျောက်စနစ်"),
+                "MnuStyleMode" => activeMode switch
+                {
+                    ProofingStyleMode.ColloquialPermissive => UiLocalizer.Pick("Mode: Casual", "စနစ် - ပေါ့ပါးဟန်"),
+                    ProofingStyleMode.FormalOfficial => UiLocalizer.Pick("Mode: Official", "စနစ် - ရုံးသုံးစာပေ"),
+                    _ => UiLocalizer.Pick("Mode: Standard", "စနစ် - အထွေထွေစံ")
+                },
+                "ChkStyleCasual" => UiLocalizer.Pick("Casual / Chat (Colloquial)", "ပေါ့ပါးဟန် (Casual / Chat)"),
+                "ChkStyleStandard" => UiLocalizer.Pick("General Standard", "အထွေထွေ စံသတ်ပုံ (Standard)"),
+                "ChkStyleOfficial" => UiLocalizer.Pick("Official / Literary", "ရုံးသုံး / စာပေဟန် (Official)"),
                 "BtnToggleFormalStyle" => UiLocalizer.Pick("Formal / Official Style", "စာပေ / ရုံးသုံး အရေးစကားစနစ်"),
                 "BtnToggleLiveScan" => UiLocalizer.Pick("Live Auto-Check", "အလိုအလျောက် စစ်ဆေးမှု (Live)"),
                 "GrpDictionaryAndTools" => UiLocalizer.Pick("Dictionary & Workspace", "အဘိဓာန်နှင့် စစ်ဆေးရေးပြကွက် (Offline)"),
@@ -2411,6 +2461,12 @@ namespace MyanmarSpellChecker.WordAddIn
         {
             return control?.Id switch
             {
+                "BtnReviewTogglePane" => UiLocalizer.Pick(
+                    "Show or hide the Myanmar Spell Checker Task Pane on the right",
+                    "ညာဘက် မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး ပြကွက် (Task Pane) ကို ဖွင့်/ပိတ်ရန်"),
+                "BtnReviewScanNow" => UiLocalizer.Pick(
+                    "Scan the entire Word document for Myanmar spelling, grammar, and meaning issues",
+                    "စာတမ်းတစ်ခုလုံးရှိ မြန်မာစာလုံးပေါင်းနှင့် သဒ္ဒါအမှားများကို စစ်ဆေးရန်"),
                 "BtnScanFullDocument" => UiLocalizer.Pick(
                     "Scan document body, tables, headers, and footers for Myanmar spelling, grammar, and meaning issues",
                     "စာကိုယ်၊ ဇယားကွက်နှင့် ခေါင်းစီး/အောက်ခြေ အားလုံးကို စစ်ဆေးရန်"),
@@ -2420,6 +2476,18 @@ namespace MyanmarSpellChecker.WordAddIn
                 "BtnClearUnderlines" => UiLocalizer.Pick(
                     "Clear temporary proofing wavy underlines from the document",
                     "စာတမ်းပေါ်ရှိ စစ်ဆေးရေး မျဉ်းလှိုင်းများကို ဖယ်ရှားရန်"),
+                "MnuStyleMode" => UiLocalizer.Pick(
+                    "Choose writing register: Casual / Chat, General Standard, or Official / Literary",
+                    "အရေးအသားစနစ် ရွေးချယ်ရန် — ပေါ့ပါးဟန် (Casual)၊ အထွေထွေစံ (Standard) သို့မဟုတ် ရုံးသုံးစာပေ (Official)"),
+                "ChkStyleCasual" => UiLocalizer.Pick(
+                    "Checks spelling & homophones while allowing conversational Burmese particles and Pali-sans-that shortcuts",
+                    "စကားပြောဟန် အသုံးအနှုန်းများကို ခွင့်ပြုပြီး သတ်ပုံအမှားများကိုသာ စစ်ဆေးပေးပါမည်"),
+                "ChkStyleStandard" => UiLocalizer.Pick(
+                    "Checks official 462p orthography, homophones, and core grammar while allowing polite spoken particles",
+                    "သတ်ပုံကျမ်း၊ အနက်တူအမှားနှင့် အခြေခံသဒ္ဒါများကို စစ်ဆေးပေးပါမည်"),
+                "ChkStyleOfficial" => UiLocalizer.Pick(
+                    "Enforces full formal literary and government ministry prose standards (ပါတယ် -> ပါသည်, တွေ -> များ)",
+                    "ရုံးသုံးနှင့် စာပေအရေးအသား စံနှုန်းအပြည့်အဝ (ပါတယ် -> ပါသည်၊ တွေ -> များ) စစ်ဆေးပေးပါမည်"),
                 "BtnToggleFormalStyle" => UiLocalizer.Pick(
                     "Off = General Standard spelling; On = also check colloquial-to-formal style (ပါတယ် -> ပါသည်, တွေ -> များ)",
                     "ပိတ်ထားပါက အထွေထွေ စံသတ်ပုံစနစ်ဖြင့် စစ်ဆေးပြီး၊ ဖွင့်ထားပါက စာပေနှင့် ရုံးသုံးအရေးစကား (ပါတယ်->ပါသည်၊ တွေ->များ) ပါ စစ်ဆေးပေးပါမည်"),
@@ -2487,6 +2555,32 @@ namespace MyanmarSpellChecker.WordAddIn
             AddInDiagnostics.SafeExecute("OnRibbonToggleFormalStyle", () =>
             {
                 ApplyStyleModeAndRescan(pressed ? ProofingStyleMode.FormalOfficial : ProofingStyleMode.GeneralStandard);
+            });
+        }
+
+        public bool GetStyleModeItemPressed(Office.IRibbonControl control)
+        {
+            ProofingStyleMode current = _proofingEngine?.StyleMode ?? _pendingStyleMode;
+            return control?.Id switch
+            {
+                "ChkStyleCasual" => current == ProofingStyleMode.ColloquialPermissive,
+                "ChkStyleStandard" => current == ProofingStyleMode.GeneralStandard,
+                "ChkStyleOfficial" => current == ProofingStyleMode.FormalOfficial,
+                _ => false
+            };
+        }
+
+        public void OnRibbonSelectStyleMode(Office.IRibbonControl control, bool pressed)
+        {
+            AddInDiagnostics.SafeExecute("OnRibbonSelectStyleMode", () =>
+            {
+                ProofingStyleMode next = control?.Id switch
+                {
+                    "ChkStyleCasual" => ProofingStyleMode.ColloquialPermissive,
+                    "ChkStyleOfficial" => ProofingStyleMode.FormalOfficial,
+                    _ => ProofingStyleMode.GeneralStandard
+                };
+                ApplyStyleModeAndRescan(next);
             });
         }
 
@@ -2580,7 +2674,7 @@ namespace MyanmarSpellChecker.WordAddIn
 
                             if (_wordApp?.ActiveDocument != null)
                             {
-                                _documentScanner.InvalidateParagraphCache(_wordApp.ActiveDocument);
+                                _documentScanner.InvalidateParagraphCache(_wordApp.ActiveDocument, resetNoProofCache: true);
                             }
                             _documentScanner.ScanFullDocumentAsync();
                         });
@@ -2599,7 +2693,7 @@ namespace MyanmarSpellChecker.WordAddIn
 
             if (_wordApp?.ActiveDocument != null)
             {
-                _documentScanner.InvalidateParagraphCache(_wordApp.ActiveDocument);
+                _documentScanner.InvalidateParagraphCache(_wordApp.ActiveDocument, resetNoProofCache: true);
             }
             _documentScanner.ScanFullDocumentAsync();
         }
@@ -2661,6 +2755,7 @@ namespace MyanmarSpellChecker.WordAddIn
                     GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
                 }
                 _ribbonUi?.InvalidateControl("BtnToggleTaskPane");
+                _ribbonUi?.InvalidateControl("BtnReviewTogglePane");
             });
         }
 
@@ -2671,6 +2766,7 @@ namespace MyanmarSpellChecker.WordAddIn
                 if (_wordApp?.ActiveDocument != null)
                 {
                     _underlineManager?.StripAllProofingUnderlines(_wordApp.ActiveDocument);
+                    _documentScanner?.SuppressBuiltInEnglishSquigglesInDocumentOnce(_wordApp.ActiveDocument);
                     _documentScanner?.ClearCachedIssues(_wordApp.ActiveDocument);
                     var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
                     ctrl?.ShowToastBanner(UiLocalizer.Pick(

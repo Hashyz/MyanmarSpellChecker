@@ -424,18 +424,18 @@ try {
     }
 
     New-Item -Path $wordAddInKey -Force | Out-Null
-    Set-ItemProperty -Path $wordAddInKey -Name "FriendlyName" -Value "Myanmar Official Spell Checker" -Type String
+    Set-ItemProperty -Path $wordAddInKey -Name "FriendlyName" -Value "Myanmar Spell Checker" -Type String
     Set-ItemProperty -Path $wordAddInKey -Name "Description"  -Value "100% Offline Myanmar Spell and Grammar Checker (Word)" -Type String
     Set-ItemProperty -Path $wordAddInKey -Name "LoadBehavior" -Value 3 -Type DWord
 
     New-Item -Path $excelAddInKey -Force | Out-Null
-    Set-ItemProperty -Path $excelAddInKey -Name "FriendlyName" -Value "Myanmar Official Spell Checker (Excel)" -Type String
+    Set-ItemProperty -Path $excelAddInKey -Name "FriendlyName" -Value "Myanmar Spell Checker" -Type String
     Set-ItemProperty -Path $excelAddInKey -Name "Description"  -Value "100% Offline Formula-Safe Myanmar Spell and Grammar Checker (Excel)" -Type String
     Set-ItemProperty -Path $excelAddInKey -Name "LoadBehavior" -Value 3 -Type DWord
 
     if ($pptDllSource -and [System.IO.File]::Exists([System.IO.Path]::Combine($appInstallDir, "MyanmarSpellChecker.PowerPointAddIn.dll"))) {
         New-Item -Path $pptAddInKey -Force | Out-Null
-        Set-ItemProperty -Path $pptAddInKey -Name "FriendlyName" -Value "Myanmar Official Spell Checker (PowerPoint)" -Type String
+        Set-ItemProperty -Path $pptAddInKey -Name "FriendlyName" -Value "Myanmar Spell Checker" -Type String
         Set-ItemProperty -Path $pptAddInKey -Name "Description"  -Value "100% Offline Zero-Mutation Myanmar Spell and Grammar Checker (PowerPoint)" -Type String
         Set-ItemProperty -Path $pptAddInKey -Name "LoadBehavior" -Value 3 -Type DWord
     }

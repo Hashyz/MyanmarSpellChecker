@@ -3667,5 +3667,128 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.Equal("ပြီး", casualTypos[0].Suggestions[0].Replacement);
             Assert.Equal("ဥက္ကဋ္ဌ", casualTypos[1].Suggestions[0].Replacement);
         }
+
+        [Fact]
+        public void V72_RedSquiggleShieldAndUnifiedMyanmarSpellCheckerRibbon_Gate()
+        {
+            // 1. Mixed Myanmar + English Span Extraction Gate (exact paragraphs from Soundit Myanmar Star Campaign)
+            MyanmarProofingSpanExtractor.ClassifyMyanmarAndLatinPresence(
+                "မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး စနစ်ဖြစ်သည်။",
+                out bool pureMm,
+                out bool pureLat);
+            Assert.True(pureMm);
+            Assert.False(pureLat);
+
+            string[] mixedCampaignParagraphs =
+            {
+                "ရက်စွဲ \t\t : 9.Feb.2026",
+                "သို့ \t\t : Outlet ဆိုင်ကြီးများ",
+                "Campaign အကြောင်းအရာ အသေးစိတ်",
+                "1. Campaign အချိန်ကာလ - 1.Mar.2026 မှ 31.Mar.2026 ထိ။",
+                "ပထမဆု (Ultimate Star) - 2,000,000Ks",
+                "4. Campaign တွင် ပါဝင်သူများ အနေဖြင့် Soundit Myanmar Tiktok Account အား Follow ပြုလုပ်ထားရမည် ဖြစ်ပြီး မိမိ Campaign တွင် ပါဝင်ထားသည်အား Soundit Myanmar Tiktok Account သို့ လာရောက် ပေးပို့ရမည် ဖြစ်သည်။"
+            };
+
+            foreach (string para in mixedCampaignParagraphs)
+            {
+                MyanmarProofingSpanExtractor.ClassifyMyanmarAndLatinPresence(para, out bool hasMm, out bool hasLat);
+                Assert.True(hasMm);
+                Assert.True(hasLat);
+
+                var spans = MyanmarProofingSpanExtractor.ExtractNonLatinMyanmarSpans(para);
+                Assert.NotEmpty(spans);
+
+                // Every Myanmar character in the paragraph MUST be covered by at least one NoProofing span
+                for (int idx = 0; idx < para.Length; idx++)
+                {
+                    if (MyanmarProofingSpanExtractor.IsMyanmarScriptCodePoint(para[idx]))
+                    {
+                        bool covered = spans.Any(sp => idx >= sp.Start && idx < sp.Start + sp.Length);
+                        Assert.True(covered, $"Myanmar char '{para[idx]}' at index {idx} in '{para}' was not covered by NoProofing spans!");
+                    }
+                    else if (MyanmarProofingSpanExtractor.IsLatinLetter(para[idx]))
+                    {
+                        // ZERO Latin characters (e.g. 'Tiktok', 'Ultimate', 'Campaign') may be inside any Myanmar NoProofing span!
+                        bool leakedIntoNoProof = spans.Any(sp => idx >= sp.Start && idx < sp.Start + sp.Length);
+                        Assert.False(leakedIntoNoProof, $"Latin char '{para[idx]}' at index {idx} in '{para}' leaked into Myanmar NoProofing span!");
+                    }
+                }
+
+                // Every span text must exactly match substring and never contain tabs or '^'
+                foreach (var sp in spans)
+                {
+                    Assert.Equal(para.Substring(sp.Start, sp.Length), sp.Text);
+                    Assert.DoesNotContain("\t", sp.Text, StringComparison.Ordinal);
+                    Assert.DoesNotContain("^", sp.Text, StringComparison.Ordinal);
+                }
+            }
+
+            // 2. Unified "Myanmar Spell Checker" Branding, 3-Mode Ribbon Menu & Built-In Review Tab Quick Launcher Gate
+            var hostSpecs = new (string Name, string RelPath, string ExpectedReviewIdMso, string CustomTabId)[]
+            {
+                ("Word", @"src\MyanmarSpellChecker.WordAddIn\ThisAddIn.cs", "TabReviewWord", "TabMyanmarProofing"),
+                ("Excel", @"src\MyanmarSpellChecker.ExcelAddIn\ExcelThisAddIn.cs", "TabReview", "TabMyanmarExcelProofing"),
+                ("PowerPoint", @"src\MyanmarSpellChecker.PowerPointAddIn\PowerPointThisAddIn.cs", "TabReview", "TabMyanmarPowerPointProofing")
+            };
+
+            foreach (var (hostName, relPath, reviewIdMso, customTabId) in hostSpecs)
+            {
+                string srcPath = Path.Combine(TestPaths.RepoRoot, relPath);
+                string src = File.ReadAllText(srcPath);
+
+                // Unified Ribbon tab & Task Pane branding
+                Assert.Contains($"\"{customTabId}\" => UiLocalizer.Pick(\"Myanmar Spell Checker\", \"မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး\")", src, StringComparison.Ordinal);
+                Assert.Contains("UiLocalizer.Pick(\"Myanmar Spell Checker\", \"မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး\")", src, StringComparison.Ordinal);
+                Assert.DoesNotContain("Myanmar Spell Checker (Excel)", src, StringComparison.Ordinal);
+                Assert.DoesNotContain("Myanmar Spell Checker (PowerPoint)", src, StringComparison.Ordinal);
+
+                // Extract CustomUI XML and parse via XmlDocument
+                int xmlStart = src.IndexOf("<customUI ", StringComparison.Ordinal);
+                int xmlEnd = src.IndexOf("</customUI>", StringComparison.Ordinal);
+                Assert.True(xmlStart > 0 && xmlEnd > xmlStart, $"{hostName} CustomUI XML block not found.");
+                string rawXml = src.Substring(xmlStart, (xmlEnd + "</customUI>".Length) - xmlStart);
+
+                var xmlDoc = new System.Xml.XmlDocument();
+                xmlDoc.LoadXml(rawXml);
+
+                Assert.Contains($"idMso='{reviewIdMso}'", rawXml, StringComparison.Ordinal);
+                Assert.Contains("id='GrpReviewMyanmarSpellChecker'", rawXml, StringComparison.Ordinal);
+                Assert.Contains("id='BtnReviewTogglePane'", rawXml, StringComparison.Ordinal);
+                Assert.Contains("id='BtnReviewScanNow'", rawXml, StringComparison.Ordinal);
+                Assert.Contains("id='MnuStyleMode'", rawXml, StringComparison.Ordinal);
+                Assert.Contains("id='ChkStyleCasual'", rawXml, StringComparison.Ordinal);
+                Assert.Contains("id='ChkStyleStandard'", rawXml, StringComparison.Ordinal);
+                Assert.Contains("id='ChkStyleOfficial'", rawXml, StringComparison.Ordinal);
+                Assert.DoesNotContain("id='BtnToggleFormalStyle'", rawXml, StringComparison.Ordinal);
+
+                // Verify <checkBox> elements do NOT carry invalid CustomUI XSD attributes ('size' or 'imageMso')
+                var checkBoxes = xmlDoc.GetElementsByTagName("checkBox");
+                Assert.Equal(3, checkBoxes.Count);
+                foreach (System.Xml.XmlElement cb in checkBoxes)
+                {
+                    Assert.False(cb.HasAttribute("size"), $"{hostName} checkBox '{cb.GetAttribute("id")}' must not have invalid XSD attribute 'size'.");
+                    Assert.False(cb.HasAttribute("imageMso"), $"{hostName} checkBox '{cb.GetAttribute("id")}' must not have invalid XSD attribute 'imageMso'.");
+                }
+
+                // Verify 3-mode Ribbon callback handlers exist
+                Assert.Contains("public bool GetStyleModeItemPressed(", src, StringComparison.Ordinal);
+                Assert.Contains("public void OnRibbonSelectStyleMode(", src, StringComparison.Ordinal);
+            }
+
+            // 3. Installer FriendlyName unification check
+            foreach (string installerRel in new[]
+            {
+                @"installer\Register-DevAddIn.ps1",
+                @"installer\Easy-Setup.ps1",
+                @"installer\Build-EnterpriseRelease.ps1"
+            })
+            {
+                string psText = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, installerRel));
+                Assert.Contains("Myanmar Spell Checker", psText, StringComparison.Ordinal);
+                Assert.DoesNotContain("Myanmar Official Spell Checker (Excel)", psText, StringComparison.Ordinal);
+                Assert.DoesNotContain("Myanmar Official Spell Checker (PowerPoint)", psText, StringComparison.Ordinal);
+                Assert.DoesNotContain("Myanmar Official Spell & Grammar Checker", psText, StringComparison.Ordinal);
+            }
+        }
     }
 }

@@ -327,6 +327,7 @@ function Register-OfficeHostAddIn([string]$HostName, [string]$HkcuAddInKey, [str
         if (Test-Path $HkcuAddInKey) {
             Remove-Item -Path $HkcuAddInKey -Recurse -Force -ErrorAction SilentlyContinue
         }
+        try { Set-ItemProperty -Path $HklmAddInKey -Name "FriendlyName" -Value $FriendlyName -ErrorAction SilentlyContinue } catch { }
         Write-Host "[+] Verified active Microsoft $HostName Add-in via $HklmAddInKey (COM -> $DllPath)" -ForegroundColor Green
     } else {
         New-Item -Path $HkcuAddInKey -Force | Out-Null
@@ -341,22 +342,22 @@ Register-OfficeHostAddIn `
     -HostName "Word" `
     -HkcuAddInKey $wordAddInKey `
     -HklmAddInKey "HKLM:\Software\Microsoft\Office\Word\Addins\MyanmarSpellChecker.WordAddIn" `
-    -FriendlyName "Myanmar Official Spell & Grammar Checker" `
-    -Desc "100% Offline Myanmar Spell & Grammar Checker (B2G Edition)" `
+    -FriendlyName "Myanmar Spell Checker" `
+    -Desc "100% Offline Myanmar Spell & Grammar Checker (Word)" `
     -DllPath $wordAddInDll
 
 Register-OfficeHostAddIn `
     -HostName "Excel" `
     -HkcuAddInKey $excelAddInKey `
     -HklmAddInKey "HKLM:\Software\Microsoft\Office\Excel\Addins\MyanmarSpellChecker.ExcelAddIn" `
-    -FriendlyName "Myanmar Official Spell & Grammar Checker (Excel)" `
-    -Desc "100% Offline Formula-Safe Myanmar Spell & Grammar Checker for Excel" `
+    -FriendlyName "Myanmar Spell Checker" `
+    -Desc "100% Offline Formula-Safe Myanmar Spell & Grammar Checker (Excel)" `
     -DllPath $excelAddInDll
 
 Register-OfficeHostAddIn `
     -HostName "PowerPoint" `
     -HkcuAddInKey $pptAddInKey `
     -HklmAddInKey "HKLM:\Software\Microsoft\Office\PowerPoint\Addins\MyanmarSpellChecker.PowerPointAddIn" `
-    -FriendlyName "Myanmar Official Spell & Grammar Checker (PowerPoint)" `
-    -Desc "100% Offline Zero-Mutation Myanmar Spell & Grammar Checker for PowerPoint" `
+    -FriendlyName "Myanmar Spell Checker" `
+    -Desc "100% Offline Zero-Mutation Myanmar Spell & Grammar Checker (PowerPoint)" `
     -DllPath $pptAddInDll

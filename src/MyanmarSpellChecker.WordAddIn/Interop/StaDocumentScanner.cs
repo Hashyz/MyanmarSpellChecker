@@ -339,13 +339,76 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             }
         }
 
-        public void InvalidateParagraphCache(Word.Document? doc)
+        public void InvalidateParagraphCache(Word.Document? doc, bool resetNoProofCache = false)
         {
             if (doc != null)
             {
                 _lastParagraphTextByStart.Remove(doc);
                 _documentQualityCache.Remove(doc);
+                if (resetNoProofCache)
+                {
+                    _underlineManager.ResetNoProofCacheForDocument(doc);
+                }
             }
+        }
+
+        /// <summary>
+        /// Immediately shields all Myanmar text spans in <paramref name="doc"/> from Word's built-in English spellcheck
+        /// red squiggles (used by Clear Marks so clicking Clear leaves zero false red underlines on Burmese words).
+        /// </summary>
+        public void SuppressBuiltInEnglishSquigglesInDocumentOnce(Word.Document? doc)
+        {
+            if (doc == null)
+                return;
+
+            try
+            {
+                _underlineManager.ResetNoProofCacheForDocument(doc);
+                bool anyChanged = false;
+                var sw = Stopwatch.StartNew();
+
+                _underlineManager.ExecuteInSharedProofingBatch(doc, () =>
+                {
+                    Word.Range content = doc.Content;
+                    string wholeText = CleanWordControlChars(content.Text ?? string.Empty);
+                    MyanmarProofingSpanExtractor.ClassifyMyanmarAndLatinPresence(wholeText, out bool hasMm, out bool hasLat);
+                    if (hasMm && !hasLat)
+                    {
+                        if (_underlineManager.SuppressBuiltInEnglishSquigglesOnRangeOnce(doc, content, 0, 0, Math.Max(1, content.End)))
+                            anyChanged = true;
+                        return;
+                    }
+
+                    if (!hasMm)
+                        return;
+
+                    Word.Paragraphs paras = doc.Paragraphs;
+                    int idx = 0;
+                    foreach (Word.Paragraph p in paras)
+                    {
+                        if (++idx > 400 || sw.ElapsedMilliseconds >= 65)
+                            break;
+
+                        try
+                        {
+                            Word.Range pr = p.Range;
+                            string txt = CleanWordControlChars(pr.Text ?? string.Empty);
+                            if (string.IsNullOrWhiteSpace(txt))
+                                continue;
+
+                            if (_underlineManager.SuppressBuiltInEnglishSquigglesOnMyanmarText(doc, pr, txt, 0, pr.Start, pr.End))
+                                anyChanged = true;
+                        }
+                        catch { }
+                    }
+                });
+
+                if (anyChanged)
+                {
+                    _underlineManager.RefreshScreenAfterNoProofUpdate();
+                }
+            }
+            catch { }
         }
 
         public void PurgeDocument(Word.Document? doc)
@@ -1177,6 +1240,13 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                             foreach (var (snap, issues, _) in analyzed)
                             {
                                 if (issues.Count > 0)
+                                {
+                                    needsComWrite = true;
+                                    break;
+                                }
+
+                                MyanmarProofingSpanExtractor.ClassifyMyanmarAndLatinPresence(snap.RawText, out bool snapHasMm, out _);
+                                if (snapHasMm && !_underlineManager.HasNoProofSpanApplied(doc, snap.StorySlotId, snap.StartOffset, snap.EndOffset))
                                 {
                                     needsComWrite = true;
                                     break;
@@ -2782,6 +2852,13 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                         UpdateEcoActiveState(budgets.IsEcoActive);
 
+                        // On full-document scans, strip all prior/saved temporary wavy underlines cleanly up front
+                        // (while 100% preserving user wdUnderlineSingle / wdUnderlineDouble headings!).
+                        if (!outcomeMeta.WasPartialAutoScan)
+                        {
+                            _underlineManager.StripAllProofingUnderlines(doc, clearTrackingList: true);
+                        }
+
                         // Pure O(1) managed check — immune to user wdUnderlineSingle headings or hyperlinks!
                         bool docHadZeroUnderlines = !_underlineManager.HasEverAppliedWavyUnderlines(doc);
 
@@ -2810,8 +2887,16 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
 
                         if (analyzed.Count <= ImmediateUnderlineParagraphThreshold)
                         {
-                            ProcessUnderlineJobChunk(job, analyzed.Count, budgetMs: 12);
-                            FinalizeCompletedUnderlineJob(job);
+                            ProcessUnderlineJobChunk(job, analyzed.Count, budgetMs: 40);
+                            if (job.NextOrderCursor >= job.ProcessingOrder.Length)
+                            {
+                                FinalizeCompletedUnderlineJob(job);
+                            }
+                            else
+                            {
+                                _activeUnderlineJob = job;
+                                _underlineChunkTimer.Start();
+                            }
                         }
                         else
                         {
@@ -3044,10 +3129,7 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                 }
             }
 
-            if (!job.OutcomeMetadata.WasPartialAutoScan)
-            {
-                SuppressWordBuiltInEnglishSquigglesOnPureMyanmarSpans(job);
-            }
+            SuppressWordBuiltInEnglishSquigglesOnMyanmarSpans(job);
 
             _lastParagraphTextByStart[job.Document] = job.DoneMap;
             if (job.CollectedContainers.Count > 0)
@@ -3058,13 +3140,13 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
             ScanCompleted?.Invoke(job.Document, orderedBound);
         }
 
-        private void SuppressWordBuiltInEnglishSquigglesOnPureMyanmarSpans(PendingFullUnderlineJob job)
+        private void SuppressWordBuiltInEnglishSquigglesOnMyanmarSpans(PendingFullUnderlineJob job)
         {
             try
             {
                 bool hasAnyMyanmarMain = false;
                 bool hasAnyLatinMain = false;
-                var pureMyanmarSnaps = new List<ParagraphSnapshot>(64);
+                var pendingMyanmarSnaps = new List<ParagraphSnapshot>(96);
 
                 for (int i = 0; i < job.Analyzed.Count; i++)
                 {
@@ -3073,26 +3155,29 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                     if (string.IsNullOrWhiteSpace(txt))
                         continue;
 
-                    ClassifyMyanmarAndLatinPresence(txt, out bool hasMyanmar, out bool hasLatin);
+                    MyanmarProofingSpanExtractor.ClassifyMyanmarAndLatinPresence(txt, out bool hasMyanmar, out bool hasLatin);
                     if (snap.StorySlotId == 0)
                     {
                         if (hasMyanmar) hasAnyMyanmarMain = true;
                         if (hasLatin) hasAnyLatinMain = true;
                     }
 
-                    // Pure-Myanmar paragraph (zero Latin A-Z letters, so English spellcheck on words like 'Licencing' stays 100% active!)
-                    if (hasMyanmar && !hasLatin && pureMyanmarSnaps.Count < 96 &&
+                    // Collect ALL paragraphs containing Myanmar script (both pure Burmese AND mixed Myanmar + English
+                    // such as "4. Campaign တွင် ပါဝင်သူများ အနေဖြင့် Soundit Myanmar Tiktok Account အား...")!
+                    if (hasMyanmar && pendingMyanmarSnaps.Count < 450 &&
                         !_underlineManager.HasNoProofSpanApplied(job.Document, snap.StorySlotId, snap.StartOffset, snap.EndOffset))
                     {
-                        pureMyanmarSnaps.Add(snap);
+                        pendingMyanmarSnaps.Add(snap);
                     }
                 }
 
-                if (!hasAnyMyanmarMain && pureMyanmarSnaps.Count == 0)
+                if (!hasAnyMyanmarMain && pendingMyanmarSnaps.Count == 0)
                     return;
 
+                bool anyChanged = false;
+
                 // Fast Path 1: Entire main story has Myanmar text and ZERO English/Latin letters -> 1 single O(1) COM call!
-                if (hasAnyMyanmarMain && !hasAnyLatinMain)
+                if (!job.OutcomeMetadata.WasPartialAutoScan && hasAnyMyanmarMain && !hasAnyLatinMain)
                 {
                     int docEnd = Math.Max(1, job.OutcomeMetadata.TotalDocumentChars);
                     if (!_underlineManager.HasNoProofSpanApplied(job.Document, 0, 0, docEnd))
@@ -3101,59 +3186,60 @@ namespace MyanmarSpellChecker.WordAddIn.Interop
                         {
                             try
                             {
-                                _underlineManager.SuppressBuiltInEnglishSquigglesOnRangeOnce(
-                                    job.Document, job.Document.Content, 0, 0, docEnd);
+                                if (_underlineManager.SuppressBuiltInEnglishSquigglesOnRangeOnce(
+                                        job.Document, job.Document.Content, 0, 0, docEnd))
+                                {
+                                    anyChanged = true;
+                                }
                             }
                             catch { }
                         });
                     }
-                    return;
+
+                    // Also cover any non-main-story headers/footers/shapes
+                    pendingMyanmarSnaps.RemoveAll(s => s.StorySlotId == 0);
                 }
 
-                // Fast Path 2: Mixed Myanmar + English document -> suppress built-in squiggles ONLY on pure-Myanmar paragraphs (bounded to 6ms)
-                if (pureMyanmarSnaps.Count > 0)
+                // Fast Path 2: Mixed Myanmar + English document (and/or Headers/Footers/Shapes) ->
+                // sets NoProofing = 1 on pure-Myanmar paragraphs in O(1) and strictly on Myanmar sub-spans inside mixed paragraphs
+                // so English words ("Tiktok", "Thumainbayan", "Licencing") keep native English spellchecking!
+                if (pendingMyanmarSnaps.Count > 0)
                 {
+                    int budgetMs = job.OutcomeMetadata.WasPartialAutoScan ? 20 : 55;
                     var sw = Stopwatch.StartNew();
                     _underlineManager.ExecuteInSharedProofingBatch(job.Document, () =>
                     {
-                        for (int i = 0; i < pureMyanmarSnaps.Count; i++)
+                        for (int i = 0; i < pendingMyanmarSnaps.Count; i++)
                         {
-                            var snap = pureMyanmarSnaps[i];
+                            var snap = pendingMyanmarSnaps[i];
                             Word.Range? r = snap.ParagraphRange ?? TrySliceStoryRange(job, snap);
                             if (r != null)
                             {
-                                _underlineManager.SuppressBuiltInEnglishSquigglesOnRangeOnce(
-                                    job.Document, r, snap.StorySlotId, snap.StartOffset, snap.EndOffset);
+                                if (_underlineManager.SuppressBuiltInEnglishSquigglesOnMyanmarText(
+                                        job.Document,
+                                        r,
+                                        snap.RawText,
+                                        snap.StorySlotId,
+                                        snap.StartOffset,
+                                        snap.EndOffset))
+                                {
+                                    anyChanged = true;
+                                }
                             }
-                            if (sw.ElapsedMilliseconds >= 6)
+                            if (sw.ElapsedMilliseconds >= budgetMs)
                                 break;
                         }
                     });
+                }
+
+                if (anyChanged)
+                {
+                    _underlineManager.RefreshScreenAfterNoProofUpdate();
                 }
             }
             catch
             {
                 // Ignore transient COM locks
-            }
-        }
-
-        private static void ClassifyMyanmarAndLatinPresence(string text, out bool hasMyanmar, out bool hasLatin)
-        {
-            hasMyanmar = false;
-            hasLatin = false;
-            for (int i = 0; i < text.Length; i++)
-            {
-                char c = text[i];
-                if (c >= '\u1000' && c <= '\u109F')
-                {
-                    hasMyanmar = true;
-                    if (hasLatin) return;
-                }
-                else if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))
-                {
-                    hasLatin = true;
-                    if (hasMyanmar) return;
-                }
             }
         }
 
