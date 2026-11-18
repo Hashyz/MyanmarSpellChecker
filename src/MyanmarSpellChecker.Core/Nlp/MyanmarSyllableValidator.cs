@@ -71,6 +71,10 @@ namespace MyanmarSpellChecker.Core.Nlp
             @"(?<Onset>[\u1000-\u1021][\u103B-\u103E]*)(?<Coda>[\u1000\u1004\u1005\u1009\u100A\u1010\u1014\u1015\u1019\u101A])(?<V>[\u102D-\u1030\u1032])\u103A(?<Tone>[\u1037\u1038]?)",
             RegexOptions.Compiled);
 
+        private static readonly Regex CorruptedNhacClusterPattern = new Regex(
+            @"\u1014\u102D\u103A\u103E(?![\u102B-\u1038])",
+            RegexOptions.Compiled);
+
         // 9. Misused virama '\u1039':
         private static readonly Regex ViramaBeforeVowelCodaPattern = new Regex(
             @"(?<Onset>[\u1000-\u1021][\u103B-\u103E]*)(?<Coda>[\u1000-\u1020])\u1039(?<Vowel>[\u102B-\u1032\u1036]+)(?<Tone>[\u1037\u1038]?)",
@@ -503,6 +507,76 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return;
             }
 
+            // 0. Stray vowel inside coda ('ဟငိ်း' -> 'ဟင်း', 'စိတ်ဝနိ်စား' -> 'စိတ်ဝင်စား', 'စဝနိ်ကြ' -> 'စဝင်ကြ', 'နိ်ှဦး' -> 'နှစ်ဦး')
+            //    Must run BEFORE ShatteredStrayAsatSyllablePattern so 'ဝနိ်' is never sliced in half at 'နိ် -> နိ'!
+            if (hasPrematureAsatMedial && text.IndexOf("\u1014\u102D\u103A\u103E", StringComparison.Ordinal) >= 0)
+            {
+                foreach (Match mNh in CorruptedNhacClusterPattern.Matches(text))
+                {
+                    if (!OverlapsAny(issues, mNh.Index, mNh.Length))
+                    {
+                        AddValidatorIssue(
+                            issues, mNh.Index, mNh.Length, mNh.Value, "နှစ်",
+                            $"ဗျည်းတွဲနှင့် အသတ်အစီအစဉ် လွဲမှားနေပါသည် — '{mNh.Value}' အစား 'နှစ်' ဟု ရေးသားရမည်။",
+                            "စံဝဏ္ဏ စာလုံးပေါင်းအမှန် ('နှစ်')");
+                    }
+                }
+            }
+
+            if (hasStrayVowelInCoda)
+            {
+                foreach (Match m in StrayVowelInsideCodaPattern.Matches(text))
+                {
+                    if (OverlapsAny(issues, m.Index, m.Length))
+                        continue;
+
+                    string raw = m.Value;
+                    string onset = m.Groups["Onset"].Value;
+                    string coda = m.Groups["Coda"].Value;
+                    string v = m.Groups["V"].Value;
+                    string tone = m.Groups["Tone"].Value;
+
+                    string dropV = UnicodeNormalizer.FixLookalikeCharacters(onset + coda + "\u103A" + tone);
+                    string moveV = UnicodeNormalizer.FixLookalikeCharacters(onset + v + coda + "\u103A" + tone);
+
+                    // Check surrounding compound/verbal context first (e.g. 'စိတ်ဝနိ်စား' -> 'စိတ်ဝင်စား', 'အလုပ်စဝနိ်ကြ' -> 'စဝင်ကြ')
+                    if (onset == "ဝ" && coda == "န" && v == "\u102D" && tone.Length == 0)
+                    {
+                        int leftStart = Math.Max(0, m.Index - 6);
+                        string leftCtx = UnicodeNormalizer.NormalizeCanonicalOrder(text.Substring(leftStart, m.Index - leftStart));
+                        int rightEnd = Math.Min(text.Length, m.Index + m.Length + 6);
+                        string rightCtx = UnicodeNormalizer.NormalizeCanonicalOrder(text.Substring(m.Index + m.Length, rightEnd - (m.Index + m.Length)));
+                        if (leftCtx.EndsWith("စိတ်", StringComparison.Ordinal) ||
+                            leftCtx.EndsWith("စ", StringComparison.Ordinal) ||
+                            leftCtx.EndsWith("အလုပ်", StringComparison.Ordinal) ||
+                            rightCtx.StartsWith("စား", StringComparison.Ordinal) ||
+                            rightCtx.StartsWith("ကြ", StringComparison.Ordinal) ||
+                            rightCtx.StartsWith("လာ", StringComparison.Ordinal) ||
+                            rightCtx.StartsWith("ရောက်", StringComparison.Ordinal))
+                        {
+                            AddValidatorIssue(
+                                issues, m.Index, m.Length, raw, "ဝင်",
+                                $"အသတ်အတွင်း သရပို ရောနှောနေပါသည် — '{raw}' အစား 'ဝင်' ဟု ရေးသားရမည်။",
+                                "ဝင် (သတ်ပုံကျမ်း)");
+                            continue;
+                        }
+                    }
+
+                    int freqDrop = trie != null ? trie.GetWordFrequency(dropV) : 10;
+                    int freqMove = trie != null ? trie.GetWordFrequency(moveV) : 5;
+                    bool validDrop = trie == null || trie.IsValidSingleSyllable(dropV) || trie.ContainsExactWord(dropV);
+                    bool validMove = trie == null || trie.IsValidSingleSyllable(moveV) || trie.ContainsExactWord(moveV);
+                    if (!validDrop && !validMove)
+                        continue;
+
+                    string best = (validDrop && (!validMove || freqDrop >= freqMove)) ? dropV : moveV;
+                    AddValidatorIssue(
+                        issues, m.Index, m.Length, raw, best,
+                        $"အသတ်ဗျည်းနောက်တွင် သရမှားယွင်းရောနှောနေပါသည် — '{raw}' အစား '{best}' ဟု ရေးသားရမည်။",
+                        "စံဝဏ္ဏ စာလုံးပေါင်းအမှန်");
+                }
+            }
+
             // 1. Shattered stray asat inside a syllable or pat-sint word ('ကမ္ဘာ်' -> 'ကမ္ဘာ', 'ချိ်တ်' -> 'ချိတ်', 'အချိ်န်' -> 'အချိန်', 'ထို်း' -> 'ထိုး', 'ကြီ်း' -> 'ကြီး')
             if (hasStrayAsat)
             {
@@ -684,55 +758,6 @@ namespace MyanmarSpellChecker.Core.Nlp
                             $"အသတ်ဗျည်းနှင့် အသံပြောင်းသင်္ကေတ အစီအစဉ် မှားယွင်းနေပါသည် — '{raw}' အစား '{primary}' ဟု ရေးသားရမည်။",
                             "စံဝဏ္ဏ စာလုံးပေါင်းအမှန်");
                     }
-                }
-            }
-
-            // 6. Stray vowel inside coda ('ဟငိ်း' -> 'ဟင်း', 'စိတ်ဝနိ်စား' -> 'စိတ်ဝင်စား')
-            if (hasStrayVowelInCoda)
-            {
-                foreach (Match m in StrayVowelInsideCodaPattern.Matches(text))
-                {
-                    if (OverlapsAny(issues, m.Index, m.Length))
-                        continue;
-
-                    string raw = m.Value;
-                    string onset = m.Groups["Onset"].Value;
-                    string coda = m.Groups["Coda"].Value;
-                    string v = m.Groups["V"].Value;
-                    string tone = m.Groups["Tone"].Value;
-
-                    string dropV = UnicodeNormalizer.FixLookalikeCharacters(onset + coda + "\u103A" + tone);
-                    string moveV = UnicodeNormalizer.FixLookalikeCharacters(onset + v + coda + "\u103A" + tone);
-
-                    // Check surrounding compound context first (e.g. 'စိတ်ဝနိ်စား' -> 'စိတ်ဝင်စား')
-                    if (trie != null && m.Index >= 2)
-                    {
-                        int leftStart = Math.Max(0, m.Index - 4);
-                        string leftCtx = UnicodeNormalizer.NormalizeCanonicalOrder(text.Substring(leftStart, m.Index - leftStart));
-                        int rightEnd = Math.Min(text.Length, m.Index + m.Length + 4);
-                        string rightCtx = UnicodeNormalizer.NormalizeCanonicalOrder(text.Substring(m.Index + m.Length, rightEnd - (m.Index + m.Length)));
-                        if (leftCtx.EndsWith("စိတ်", StringComparison.Ordinal) && rightCtx.StartsWith("စား", StringComparison.Ordinal) && onset == "ဝ")
-                        {
-                            AddValidatorIssue(
-                                issues, m.Index, m.Length, raw, "ဝင်",
-                                $"အသတ်အတွင်း သရပို ရောနှောနေပါသည် — '{raw}' အစား 'ဝင်' ('စိတ်ဝင်စား') ဟု ရေးသားရမည်။",
-                                "စိတ်ဝင်စား (သတ်ပုံကျမ်း)");
-                            continue;
-                        }
-                    }
-
-                    int freqDrop = trie != null ? trie.GetWordFrequency(dropV) : 10;
-                    int freqMove = trie != null ? trie.GetWordFrequency(moveV) : 5;
-                    bool validDrop = trie == null || trie.IsValidSingleSyllable(dropV) || trie.ContainsExactWord(dropV);
-                    bool validMove = trie == null || trie.IsValidSingleSyllable(moveV) || trie.ContainsExactWord(moveV);
-                    if (!validDrop && !validMove)
-                        continue;
-
-                    string best = (validDrop && (!validMove || freqDrop >= freqMove)) ? dropV : moveV;
-                    AddValidatorIssue(
-                        issues, m.Index, m.Length, raw, best,
-                        $"အသတ်ဗျည်းနောက်တွင် သရမှားယွင်းရောနှောနေပါသည် — '{raw}' အစား '{best}' ဟု ရေးသားရမည်။",
-                        "စံဝဏ္ဏ စာလုံးပေါင်းအမှန်");
                 }
             }
 

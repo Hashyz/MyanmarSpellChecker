@@ -145,7 +145,13 @@ namespace MyanmarSpellChecker.Core.Dictionary
                 new DictionaryEntry { Word = "လောလောဆယ်", MeaningCue = "လတ်တလော၊ လက်ငင်းကာလ (မြန်မာအဘိဓာန်အမှန် - ယပက်လက်သတ် 'ဆယ်')", PosTag = "ADV", IsOfficialThatpon = true, Frequency = 145 },
                 new DictionaryEntry { Word = "လောလောဆယ်ဆယ်", MeaningCue = "လတ်တလော၊ ယခုလက်ငင်းအချိန် (မြန်မာအဘိဓာန်အမှန် - ယပက်လက်သတ် 'ဆယ်')", PosTag = "ADV", IsOfficialThatpon = true, Frequency = 95 },
                 new DictionaryEntry { Word = "လတ်တလော", MeaningCue = "လက်ငင်း၊ လောလောဆယ် (သတ်ပုံကျမ်းအမှန် - တဝမ်းပူသတ် 'လတ်')", PosTag = "ADV", IsOfficialThatpon = true, Frequency = 155 },
-                new DictionaryEntry { Word = "လောလောလတ်လတ်", MeaningCue = "မကြာသေးမီက ဖြစ်ပျက်ပြီးစ၊ ပူပူနွေးနွေး (သတ်ပုံကျမ်းအမှန် - တဝမ်းပူသတ် 'လတ်')", PosTag = "ADV", IsOfficialThatpon = true, Frequency = 115 }
+                new DictionaryEntry { Word = "လောလောလတ်လတ်", MeaningCue = "မကြာသေးမီက ဖြစ်ပျက်ပြီးစ၊ ပူပူနွေးနွေး (သတ်ပုံကျမ်းအမှန် - တဝမ်းပူသတ် 'လတ်')", PosTag = "ADV", IsOfficialThatpon = true, Frequency = 115 },
+                new DictionaryEntry { Word = "အသုံးများ", MeaningCue = "အသုံးပြုသူများပြားသည် / တွင်ကျယ်သည်", PosTag = "V", IsOfficialThatpon = true, Frequency = 185 },
+                new DictionaryEntry { Word = "အိုဟိုင်းယိုး", MeaningCue = "အမေရိကန်ပြည်ထောင်စုရှိ ပြည်နယ်အမည် (Ohio)", PosTag = "PROPN", IsOfficialThatpon = true, Frequency = 65 },
+                new DictionaryEntry { Word = "နိဿဂ္ဂိယပါစိတ်", MeaningCue = "ပါဠိဝိနည်းပိဋကတ်လာ နိဿဂ္ဂိယပါစိတ်အာပတ် (၃၀ ပါး)", PosTag = "N", IsOfficialThatpon = true, Frequency = 45 },
+                new DictionaryEntry { Word = "ပတ်ပလစ်", MeaningCue = "အများပြည်သူဆိုင်ရာ ကုမ္ပဏီအမည်သုံးပုဒ် (Public)", PosTag = "LOAN", IsOfficialThatpon = false, Frequency = 35 },
+                new DictionaryEntry { Word = "လိမီတက်", MeaningCue = "တာဝန်ကန့်သတ်ထားသော ကုမ္ပဏီအမည်သုံးပုဒ် မူကွဲ (Limited)", PosTag = "LOAN", IsOfficialThatpon = false, Frequency = 35 },
+                new DictionaryEntry { Word = "အာယနဲ", MeaningCue = "နိုင်ငံခြားလူပုဂ္ဂိုလ်အမည် (Ayane)", PosTag = "PROPN", IsOfficialThatpon = false, Frequency = 25 }
             };
         }
 
@@ -334,6 +340,76 @@ namespace MyanmarSpellChecker.Core.Dictionary
                     CorrectForm = "လက်မ",
                     Category = "Spelling",
                     Explanation = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ လက်မ/အတိုင်းအတာယူနစ်ကို ပါဌ်ဆင့် ('က္မ') မသုံးဘဲ ကကြီးသတ်ဖြင့် 'လက်မ' ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "ပဋိညာန်",
+                    CorrectForm = "ပဋိညာဉ်",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းနှင့် မြန်မာအဘိဓာန်အရ ပါဠိသက် 'ပဋိညာဉ်' (ဉကလေးသတ်) ဖြင့် ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "ပတိညာဉ်",
+                    CorrectForm = "ပဋိညာဉ်",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ ဋသံလျင်းချိတ်ဖြင့် 'ပဋိညာဉ်' ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "ပတိညာန်",
+                    CorrectForm = "ပဋိညာဉ်",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ ဋသံလျင်းချိတ်နှင့် ဉကလေးသတ်ဖြင့် 'ပဋိညာဉ်' ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "တစ်သမက်တည်း",
+                    CorrectForm = "တစ်သမတ်တည်း",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ အပြောင်းအလဲမရှိ တစ်ဖြောင့်တည်းကို တဝမ်းပူသတ်ဖြင့် 'တစ်သမတ်တည်း' ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "တသမက်တည်း",
+                    CorrectForm = "တစ်သမတ်တည်း",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ စသတ်နှင့် တဝမ်းပူသတ်ဖြင့် 'တစ်သမတ်တည်း' ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "အနှစ်နာခံ",
+                    CorrectForm = "အနစ်နာခံ",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ ကိုယ်ကျိုးစွန့်၍ နစ်နာခံခြင်းကို ဟထိုးမပါဘဲ 'အနစ်နာခံ' ဟု ရေးသားရမည် ('အနှစ်သာရ' ၌သာ ဟထိုးပါသည်)။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "အနှစ်နာ",
+                    CorrectForm = "အနစ်နာ",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ ဆုံးရှုံးနစ်နာမှုကို ဟထိုးမပါဘဲ 'အနစ်နာ' ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "ကွဲလွှဲ",
+                    CorrectForm = "ကွဲလွဲ",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ သဘောထား/အယူအဆ မတူညီခြင်းကို ဟထိုးမပါဘဲ 'ကွဲလွဲ' ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "နိုးဆော်",
+                    CorrectForm = "နှိုးဆော်",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ တိုက်တွန်းနှိုးဆော်ခြင်းကို ဟထိုးပါဝင်လျက် 'နှိုးဆော်' ဟု ရေးသားရမည် ('နိုးကြား' ၌သာ ဟထိုးမပါ)။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "နိဿဂ္ဂိပါစိတ်",
+                    CorrectForm = "နိဿဂ္ဂိယပါစိတ်",
+                    Category = "Spelling",
+                    Explanation = "ပါဠိဝိနည်းပိဋကတ် စံနှုန်းအရ 'နိဿဂ္ဂိယပါစိတ်' ('ယ' အက္ခရာပါ) ဟု ရေးသားရမည်။"
                 }
             };
         }

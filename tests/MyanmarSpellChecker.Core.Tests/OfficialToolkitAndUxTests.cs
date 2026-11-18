@@ -3476,5 +3476,123 @@ namespace MyanmarSpellChecker.Core.Tests
                 return sr.ReadToEnd();
             }
         }
+
+        [Fact]
+        public void V70_HardestStandardBenchmarkAndLinguisticBreakthrough_Gate()
+        {
+            var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
+            var trie = repo.LoadIntoTrie("MM-GOV-THATPON-SQLCIPHER-2026!");
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+
+            // 1. Adversarial Clean Controls (0% False-Positive Gate across Simplex Intransitives, Reciprocal MLC Pairs & Relational Postpositions)
+            (MyanmarProofingEngine Engine, string CleanSentence)[] cleanControls =
+            {
+                (formalEngine, "မုန်တိုင်းဒဏ်ကြောင့် ချောင်းကူးတံတားဟောင်း ပျက်စီးသွားခဲ့သည်။"),
+                (formalEngine, "လေပြင်းတိုက်ခတ်သဖြင့် လျှပ်စစ်မီးကြိုးများ ပြတ်တောက်သွားသည်။"),
+                (formalEngine, "သဘာဝရာသီဥတုဒဏ်ကြောင့် ကျောက်စာအချို့ ပျောက်ပျက်လုနီးပါး ဖြစ်နေသည်။"),
+                (formalEngine, "ဆောင်းရာသီ ရောက်ရှိလာသဖြင့် ညအပူချိန် တဖြည်းဖြည်း လျော့နည်းကျဆင်းလာသည်။"),
+                (formalEngine, "အမှုဆောင်အရာရှိချုပ်သည် မိမိသဘောဆန္ဒအလျောက် ရာထူးမှ နုတ်ထွက်သွားသည်။"),
+                (formalEngine, "ကော်မတီဝင်များအကြား သဘောထား ကွဲလွဲမှု အနည်းငယ် ရှိသော်လည်း အစဉ်တစိုက် ညှိနှိုင်းကြသည်။"),
+                (formalEngine, "တိုင်းရင်းသားပြည်သူများသည် အမျိုးသားရေးတာဝန်ကို နိုးကြားတက်ကြွစွာ ထမ်းဆောင်ကြသည်။"),
+                (formalEngine, "စာပေဗိမာန်စာတမ်းဖတ်ပွဲ၏ အနှစ်သာရမှာ အနစ်နာခံ ဆောင်ရွက်တတ်သော စိတ်ဓာတ်ဖြစ်သည်။"),
+                (formalEngine, "ကျောင်းဆိုင်ရာ စည်းကမ်းချက်များနှင့် သင်တန်းအကြောင်း အသေးစိတ် ရှင်းလင်းပြောကြားသည်။"),
+                (generalEngine, "အလုပ်မသွားခင် မနက်စာ အရင်စားလေ့ရှိပြီး အပြင်မထွက်တော့ဘူး လို့ ပြောတယ်။")
+            };
+
+            foreach (var (eng, clean) in cleanControls)
+            {
+                var fp = eng.CheckText(clean);
+                Assert.True(fp.Count == 0, $"Expected 0 false positives on '{clean}', got: {string.Join(", ", fp.Select(i => i.OriginalText + "->" + (i.Suggestions.Count > 0 ? i.Suggestions[0].Replacement : "")))}");
+            }
+
+            // 2. 1-Pass Multi-Error Top-1 Exact Reconstruction Gate on Hardest Standard Sentences
+            (MyanmarProofingEngine Engine, string RawInput, string ExpectedClean)[] standardHardestCases =
+            {
+                (
+                    formalEngine,
+                    "တရားမဝင် သစ်ခုတ်သူများသည် သဘာဝသစ်တောများကို ပျက်စီးခဲ့ကြပြီး သက်သေအထောက်အထားကို ပျောက်ဖျက်ရန် ကြိုးပမ်းသည်။",
+                    "တရားမဝင် သစ်ခုတ်သူများသည် သဘာဝသစ်တောများကို ဖျက်ဆီးခဲ့ကြပြီး သက်သေအထောက်အထားကို ဖျောက်ဖျက်ရန် ကြိုးပမ်းသည်။"
+                ),
+                (
+                    formalEngine,
+                    "တာဝန်ရှိသူများက တရားမဝင် ဖုန်းလိုင်းများကို ပြတ်တောက်ခဲ့ပြီး ဆက်သွယ်ရေး အရည်အသွေးကို မြင့်တင်ပေးခဲ့သည်။",
+                    "တာဝန်ရှိသူများက တရားမဝင် ဖုန်းလိုင်းများကို ဖြတ်တောက်ခဲ့ပြီး ဆက်သွယ်ရေး အရည်အသွေးကို မြှင့်တင်ပေးခဲ့သည်။"
+                ),
+                (
+                    formalEngine,
+                    "သူတို့၏ စွန့်လွှတ်အနှစ်နာခံမှုများသည် ဂုဏ်ယူဆရာပင်ဖြစ်ပြီး ဒီမိုကရေဆီ၏ အနစ်သာရကို ဖော်ညွှန်းသည်။",
+                    "သူတို့၏ စွန့်လွှတ်အနစ်နာခံမှုများသည် ဂုဏ်ယူစရာပင်ဖြစ်ပြီး ဒီမိုကရေစီ၏ အနှစ်သာရကို ဖော်ညွှန်းသည်။"
+                ),
+                (
+                    formalEngine,
+                    "နှစ်ဖက် အဖွဲ့အစည်းများသည် ပဋိညာန်စာချုပ်ပါ အချက်များကို တစ်သမက်တည်း အစင်တစိုက် လိုက်နာကြသည်။",
+                    "နှစ်ဖက် အဖွဲ့အစည်းများသည် ပဋိညာဉ်စာချုပ်ပါ အချက်များကို တစ်သမတ်တည်း အစဉ်တစိုက် လိုက်နာကြသည်။"
+                ),
+                (
+                    formalEngine,
+                    "ဧရာဝတီတိုင်းတွင် ကျောငးဆိုင်ရာနှင့် သက်တမးဆိုင်ရာ အစီရင်ခံစာများကို အစိုးရ အဖွဲ့ဆိုင်ရာ ကော်မတီသို့ တင်ပြသည်။",
+                    "ဧရာဝတီတိုင်းတွင် ကျောင်းဆိုင်ရာနှင့် သက်တမ်းဆိုင်ရာ အစီရင်ခံစာများကို အစိုးရအဖွဲ့ဆိုင်ရာ ကော်မတီသို့ တင်ပြသည်။"
+                ),
+                (
+                    generalEngine,
+                    "စာကြည့်တိုက်မှာ သငတန်းအကြောင်းနဲ့ ဖုနးအကြောင်း ဆွေးနွေးပြီး ကျမ်ကျင်အောင် လေ့လာကြတယ်။",
+                    "စာကြည့်တိုက်မှာ သင်တန်းအကြောင်းနဲ့ ဖုန်းအကြောင်း ဆွေးနွေးပြီး ကျွမ်းကျင်အောင် လေ့လာကြတယ်။"
+                ),
+                (
+                    generalEngine,
+                    "မိုးသည်းထန်စွာ ရွာလို့ အပြင်မထွတ်တော့ဘူး ဆိုပြီး ဆေးလိပ်နဲ့ အရက်ကိုလည်း လျှော့သာက်ပါတယ်။",
+                    "မိုးသည်းထန်စွာ ရွာလို့ အပြင်မထွက်တော့ဘူး ဆိုပြီး ဆေးလိပ်နဲ့ အရက်ကိုလည်း လျှော့သောက်ပါတယ်။"
+                ),
+                (
+                    generalEngine,
+                    "ရေခဲသေတ္တာထဲမှာ ထည့်သိမ်းတာက အသုံးမျာတဲ့နည်းလမ်းဖြစ်ပြီး အိုဟိုင်ယိုးပြည်နယ်မှာလည်း တွေရတယ်။",
+                    "ရေခဲသေတ္တာထဲမှာ ထည့်သိမ်းတာက အသုံးများတဲ့နည်းလမ်းဖြစ်ပြီး အိုဟိုင်းယိုးပြည်နယ်မှာလည်း တွေ့ရတယ်။"
+                ),
+                (
+                    formalEngine,
+                    "ပြုပြင်ထိန်းသိမ်းရေးအဖွဲ့သည် တောင်ဘက် တိုင် တိုင်ကို စစ်ဆေးပြီး စာချုပ် စာချုပ်တွင် လက်မှတ်ရေးထိုးသည်။",
+                    "ပြုပြင်ထိန်းသိမ်းရေးအဖွဲ့သည် တောင်ဘက် တိုင်ကို စစ်ဆေးပြီး စာချုပ်တွင် လက်မှတ်ရေးထိုးသည်။"
+                ),
+                (
+                    formalEngine,
+                    "အင်းလေးကန်သည် ရှမ်းပြည်နယ်က တည်ရှိပြီး လာမည်နှစ်တွင် ခရီးသွားဧည့်သည် တိုးတက်များပြားလာမည်။",
+                    "အင်းလေးကန်သည် ရှမ်းပြည်နယ်တွင် တည်ရှိပြီး လာမည့်နှစ်တွင် ခရီးသွားဧည့်သည် တိုးတက်များပြားလာမည်။"
+                ),
+                (
+                    generalEngine,
+                    "ယနဲ မနက်ပိုင်း အိမ်မှုကိစ္စတွေ လုပ်ပြီး အလုပ်စဝနိ်ကြရာ နိ်ှဦးစလုံး သက်တောင့်သက်သာ ရှိလှပါတယ်။",
+                    "ယနေ့ မနက်ပိုင်း အိမ်မှုကိစ္စတွေ လုပ်ပြီး အလုပ်စဝင်ကြရာ နှစ်ဦးစလုံး သက်သောင့်သက်သာ ရှိလှပါတယ်။"
+                )
+            };
+
+            foreach (var (eng, rawInput, expectedClean) in standardHardestCases)
+            {
+                var issues = eng.CheckText(rawInput, cacheParagraph: false);
+                Assert.NotEmpty(issues);
+
+                string patched = rawInput;
+                foreach (var iss in issues.OrderByDescending(i => i.StartIndex))
+                {
+                    Assert.NotEmpty(iss.Suggestions);
+                    patched = patched.Substring(0, iss.StartIndex) +
+                              iss.Suggestions[0].Replacement +
+                              patched.Substring(iss.StartIndex + iss.Length);
+                }
+
+                Assert.Equal(
+                    UnicodeNormalizer.NormalizeCanonicalOrder(expectedClean),
+                    UnicodeNormalizer.NormalizeCanonicalOrder(patched));
+            }
+
+            // 3. Early Compositional Tail-Latency Gate ('တုံ့ပျန်နိုင်သည် -> တုံ့ပြန်နိုင်သည်' < 25 ms uncached)
+            _ = formalEngine.CheckText("အရေးပေါ်အခြေအနေကို အချိန်မီ တုံ့ပြန်နိုင်သည်။", cacheParagraph: false); // JIT warmup
+            var swTail = System.Diagnostics.Stopwatch.StartNew();
+            var tailIssues = formalEngine.CheckText("အရေးပေါ်အခြေအနေကို အချိန်မီ တုံ့ပျန်နိုင်သည်။", cacheParagraph: false);
+            swTail.Stop();
+            Assert.NotEmpty(tailIssues);
+            Assert.Contains("တုံ့ပြန်", tailIssues[0].Suggestions[0].Replacement, StringComparison.Ordinal);
+            Assert.True(swTail.Elapsed.TotalMilliseconds < 35.0, $"Expected fast compositional synthesis < 35 ms, got {swTail.Elapsed.TotalMilliseconds:F2} ms.");
+        }
     }
 }

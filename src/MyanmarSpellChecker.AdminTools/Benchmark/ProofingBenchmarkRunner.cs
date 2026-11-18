@@ -34,7 +34,8 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             GrandmasterTorture = 6,
             AbyssalMythic = 7,
             GovernmentB2G = 8,
-            Top1Championship = 9
+            Top1Championship = 9,
+            StandardHardest = 10
         }
 
         private readonly struct ExpectedErrorSpan
@@ -123,7 +124,12 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
 
         public static int Run(string[] args)
         {
-            bool top1Only = args.Any(a =>
+            bool standardOnly = args.Any(a =>
+                string.Equals(a, "--standard", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(a, "standard", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(a, "--standard-hardest", StringComparison.OrdinalIgnoreCase));
+
+            bool top1Only = !standardOnly && args.Any(a =>
                 string.Equals(a, "--top1", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "top1", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "--optimised", StringComparison.OrdinalIgnoreCase) ||
@@ -131,24 +137,25 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                 string.Equals(a, "--optimized", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "optimized", StringComparison.OrdinalIgnoreCase));
 
-            bool govOnly = !top1Only && args.Any(a =>
+            bool govOnly = !standardOnly && !top1Only && args.Any(a =>
                 string.Equals(a, "--gov", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "gov", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "--government", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "government", StringComparison.OrdinalIgnoreCase));
 
-            bool abyssalOnly = !top1Only && !govOnly && args.Any(a =>
+            bool abyssalOnly = !standardOnly && !top1Only && !govOnly && args.Any(a =>
                 string.Equals(a, "--abyssal", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "abyssal", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "--extreme", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "extreme", StringComparison.OrdinalIgnoreCase));
 
-            bool hardestOnly = !top1Only && !govOnly && !abyssalOnly && args.Any(a =>
+            bool hardestOnly = !standardOnly && !top1Only && !govOnly && !abyssalOnly && args.Any(a =>
                 string.Equals(a, "--hardest", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "hardest", StringComparison.OrdinalIgnoreCase));
 
             string? explicitDbArg = args.Skip(1).FirstOrDefault(a =>
                 !a.StartsWith("-", StringComparison.Ordinal) &&
+                !string.Equals(a, "standard", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(a, "hardest", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(a, "abyssal", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(a, "extreme", StringComparison.OrdinalIgnoreCase) &&
@@ -186,45 +193,52 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             }
 
             List<BenchmarkCase> fullSuite = BuildCleanRoomProgressiveSuite();
-            List<BenchmarkCase> suite = top1Only
+            List<BenchmarkCase> suite = standardOnly
                 ? fullSuite.Where(c =>
                     c.Difficulty == BenchmarkDifficulty.CleanControl ||
-                    c.Difficulty == BenchmarkDifficulty.Top1Championship).ToList()
-                : govOnly
+                    c.Difficulty == BenchmarkDifficulty.StandardHardest).ToList()
+                : top1Only
                     ? fullSuite.Where(c =>
                         c.Difficulty == BenchmarkDifficulty.CleanControl ||
-                        c.Difficulty == BenchmarkDifficulty.GovernmentB2G).ToList()
-                    : abyssalOnly
+                        c.Difficulty == BenchmarkDifficulty.Top1Championship).ToList()
+                    : govOnly
                         ? fullSuite.Where(c =>
                             c.Difficulty == BenchmarkDifficulty.CleanControl ||
-                            c.Difficulty >= BenchmarkDifficulty.GrandmasterTorture).ToList()
-                        : hardestOnly
+                            c.Difficulty == BenchmarkDifficulty.GovernmentB2G).ToList()
+                        : abyssalOnly
                             ? fullSuite.Where(c =>
                                 c.Difficulty == BenchmarkDifficulty.CleanControl ||
-                                c.Difficulty >= BenchmarkDifficulty.Hardest).ToList()
-                            : fullSuite;
+                                c.Difficulty >= BenchmarkDifficulty.GrandmasterTorture).ToList()
+                            : hardestOnly
+                                ? fullSuite.Where(c =>
+                                    c.Difficulty == BenchmarkDifficulty.CleanControl ||
+                                    c.Difficulty >= BenchmarkDifficulty.Hardest).ToList()
+                                : fullSuite;
 
             var latenciesMs = new List<double>(suite.Count);
-            var tierOrder = top1Only
-                ? new[] { BenchmarkDifficulty.Top1Championship }
-                : govOnly
-                    ? new[] { BenchmarkDifficulty.GovernmentB2G }
-                    : abyssalOnly
-                        ? new[] { BenchmarkDifficulty.GrandmasterTorture, BenchmarkDifficulty.AbyssalMythic, BenchmarkDifficulty.GovernmentB2G, BenchmarkDifficulty.Top1Championship }
-                        : hardestOnly
-                            ? new[] { BenchmarkDifficulty.Hardest, BenchmarkDifficulty.Nightmare, BenchmarkDifficulty.GrandmasterTorture, BenchmarkDifficulty.AbyssalMythic, BenchmarkDifficulty.GovernmentB2G, BenchmarkDifficulty.Top1Championship }
-                            : new[]
-                            {
-                                BenchmarkDifficulty.Easy,
-                                BenchmarkDifficulty.Medium,
-                                BenchmarkDifficulty.Hard,
-                                BenchmarkDifficulty.Hardest,
-                                BenchmarkDifficulty.Nightmare,
-                                BenchmarkDifficulty.GrandmasterTorture,
-                                BenchmarkDifficulty.AbyssalMythic,
-                                BenchmarkDifficulty.GovernmentB2G,
-                                BenchmarkDifficulty.Top1Championship
-                            };
+            var tierOrder = standardOnly
+                ? new[] { BenchmarkDifficulty.StandardHardest }
+                : top1Only
+                    ? new[] { BenchmarkDifficulty.Top1Championship }
+                    : govOnly
+                        ? new[] { BenchmarkDifficulty.GovernmentB2G }
+                        : abyssalOnly
+                            ? new[] { BenchmarkDifficulty.GrandmasterTorture, BenchmarkDifficulty.AbyssalMythic, BenchmarkDifficulty.GovernmentB2G, BenchmarkDifficulty.Top1Championship, BenchmarkDifficulty.StandardHardest }
+                            : hardestOnly
+                                ? new[] { BenchmarkDifficulty.Hardest, BenchmarkDifficulty.Nightmare, BenchmarkDifficulty.GrandmasterTorture, BenchmarkDifficulty.AbyssalMythic, BenchmarkDifficulty.GovernmentB2G, BenchmarkDifficulty.Top1Championship, BenchmarkDifficulty.StandardHardest }
+                                : new[]
+                                {
+                                    BenchmarkDifficulty.Easy,
+                                    BenchmarkDifficulty.Medium,
+                                    BenchmarkDifficulty.Hard,
+                                    BenchmarkDifficulty.Hardest,
+                                    BenchmarkDifficulty.Nightmare,
+                                    BenchmarkDifficulty.GrandmasterTorture,
+                                    BenchmarkDifficulty.AbyssalMythic,
+                                    BenchmarkDifficulty.GovernmentB2G,
+                                    BenchmarkDifficulty.Top1Championship,
+                                    BenchmarkDifficulty.StandardHardest
+                                };
 
             var tierStats = new Dictionary<BenchmarkDifficulty, TierAccumulator>();
             foreach (var td in tierOrder)
@@ -331,6 +345,7 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                             else
                             {
                                 allSpansTop1InSentence = false;
+                                Console.WriteLine($"  [RANK-{foundRank}] [{tc.Difficulty}] ({tc.Domain}) '{gold.WrongSpan}' -> expected '{gold.TopCorrection}', got top1 '{(matched.Suggestions.Count > 0 ? matched.Suggestions[0].Replacement : "(none)")}'");
                             }
                             double rr = 1.0 / foundRank;
                             mrrSum += rr;
@@ -407,15 +422,17 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             double cellsPerSec = (rows * cols) / Math.Max(0.001, swExcel.Elapsed.TotalSeconds);
 
             long memBytes = GC.GetTotalMemory(forceFullCollection: false);
-            string modeBanner = top1Only
-                ? "OPTIMISED TOP-1 RANKING & SPEED CHAMPIONSHIP MODE (--top1 / --optimised: Whole-Stem Coalescer + Context Reranker)"
-                : govOnly
-                    ? "OFFICIAL B2G GOVERNMENT PORTAL & GAZETTE MODE (--gov: Live .gov.mm Ministry & Gazette Suite)"
-                    : abyssalOnly
-                        ? "ABYSSAL MYTHIC & TOP-1 TORTURE MODE (--abyssal: Grandmaster + Abyssal + Gov B2G + Top-1 Championship)"
-                        : hardestOnly
-                            ? "ULTRA-HARDEST STRESS MODE (--hardest: Hardest -> Nightmare -> Grandmaster -> Abyssal -> Gov B2G -> Top-1)"
-                            : "FULL PROGRESSIVE SUITE (Easy -> Medium -> Hard -> Hardest -> Nightmare -> Grandmaster -> Abyssal -> Gov B2G -> Top-1)";
+            string modeBanner = standardOnly
+                ? "HARDEST STANDARD ORTHOGRAPHY, SIMPLEX/CAUSATIVE & MLC CONFUSABLES (--standard)"
+                : top1Only
+                    ? "OPTIMISED TOP-1 RANKING & SPEED CHAMPIONSHIP MODE (--top1 / --optimised: Whole-Stem Coalescer + Context Reranker)"
+                    : govOnly
+                        ? "OFFICIAL B2G GOVERNMENT PORTAL & GAZETTE MODE (--gov: Live .gov.mm Ministry & Gazette Suite)"
+                        : abyssalOnly
+                            ? "ABYSSAL MYTHIC & HARDEST STANDARD MODE (--abyssal: Grandmaster -> Hardest Standard)"
+                            : hardestOnly
+                                ? "ULTRA-HARDEST STRESS MODE (--hardest: Hardest -> Hardest Standard)"
+                                : "FULL 10-TIER PROGRESSIVE SUITE (Easy -> Abyssal -> Gov B2G -> Top-1 -> Hardest Standard)";
 
             Console.WriteLine();
             Console.WriteLine("================================================================================================");
@@ -453,6 +470,11 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                 double t1Pct = (double)t1Acc.PerfectMultiFixSentences / t1Acc.Sentences * 100.0;
                 Console.WriteLine($" Optimised Top-1 Multi-Fix 1-Pass | {t1Acc.PerfectMultiFixSentences,2}/{t1Acc.Sentences,2} sentences ({t1Pct:F1}%) solved 100% simultaneously");
             }
+            if (tierStats.TryGetValue(BenchmarkDifficulty.StandardHardest, out var stdAcc) && stdAcc.Sentences > 0)
+            {
+                double stdPct = (double)stdAcc.PerfectMultiFixSentences / stdAcc.Sentences * 100.0;
+                Console.WriteLine($" Hardest Standard Multi-Fix 1-Pass| {stdAcc.PerfectMultiFixSentences,2}/{stdAcc.Sentences,2} sentences ({stdPct:F1}%) solved 100% simultaneously");
+            }
             Console.WriteLine("------------------------------------------------------------------------------------------------");
             Console.WriteLine($" Overall Precision     : {precision * 100.0:F2}%  (TP={tp}, FP={fp}, FN={fn})");
             Console.WriteLine($" Overall Recall        : {recall * 100.0:F2}%");
@@ -479,6 +501,7 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             BenchmarkDifficulty.AbyssalMythic => "Tier 7: Abyssal Mythic (5-6x)",
             BenchmarkDifficulty.GovernmentB2G => "Tier 8: Gov Portal B2G (.gov.mm)",
             BenchmarkDifficulty.Top1Championship => "Tier 9: Top-1 & Speed (--top1)",
+            BenchmarkDifficulty.StandardHardest => "Tier 10: Hardest Standard (MLC)",
             _ => "Tier 0: Clean Controls"
         };
 
@@ -639,6 +662,35 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                     "“ကျမလည်း ဒီသင်တန်းကို တက်ရောက်ချင်ပါတယ်” ဟု ပြောကြားသည်။"),
                 new BenchmarkCase("v66_clean_additive_lae", BenchmarkDifficulty.CleanControl, ProofingStyleMode.GeneralStandard,
                     "ဘယ်လို ဖွင့်ပေးတာလည်း ဆိုတာတော့ သေချာမသိသေးပါဘူး။"),
+                // 14 Adversarial V70 Hardest-Standard Evil-Twin Clean Controls (Simplex Intransitives, Reciprocal MLC Pairs, Relational Postpositions):
+                new BenchmarkCase("v70_clean_simplex_pyetsi", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "မုန်တိုင်းဒဏ်ကြောင့် ချောင်းကူးတံတားဟောင်း ပျက်စီးသွားခဲ့သည်။"),
+                new BenchmarkCase("v70_clean_simplex_pyattauk", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "လေပြင်းတိုက်ခတ်သဖြင့် လျှပ်စစ်မီးကြိုးများ ပြတ်တောက်သွားသည်။"),
+                new BenchmarkCase("v70_clean_simplex_pyaukpyet", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "သဘာဝရာသီဥတုဒဏ်ကြောင့် ကျောက်စာအချို့ ပျောက်ပျက်လုနီးပါး ဖြစ်နေသည်။"),
+                new BenchmarkCase("v70_clean_simplex_lyohnည်း", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ဆောင်းရာသီ ရောက်ရှိလာသဖြင့် ညအပူချိန် တဖြည်းဖြည်း လျော့နည်းကျဆင်းလာသည်။"),
+                new BenchmarkCase("v70_clean_resign_nokehtwet", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "အမှုဆောင်အရာရှိချုပ်သည် မိမိသဘောဆန္ဒအလျောက် ရာထူးမှ နုတ်ထွက်သွားသည်။"),
+                new BenchmarkCase("v70_clean_kwailwai_asintasaik", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ကော်မတီဝင်များအကြား သဘောထား ကွဲလွဲမှု အနည်းငယ် ရှိသော်လည်း အစဉ်တစိုက် ညှိနှိုင်းကြသည်။"),
+                new BenchmarkCase("v70_clean_simplex_nokyar", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "တိုင်းရင်းသားပြည်သူများသည် အမျိုးသားရေးတာဝန်ကို နိုးကြားတက်ကြွစွာ ထမ်းဆောင်ကြသည်။"),
+                new BenchmarkCase("v70_clean_reciprocal_nhitsayar_nitna", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "စာပေဗိမာန်စာတမ်းဖတ်ပွဲ၏ အနှစ်သာရမှာ အနစ်နာခံ ဆောင်ရွက်တတ်သော စိတ်ဓာတ်ဖြစ်သည်။"),
+                new BenchmarkCase("v70_clean_sayagyi_tathamat", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ဆရာကြီးများ၏ လမ်းညွှန်မှုသည် ကျောင်းသားအသီးသီးကို တစ်သမတ်တည်း တိုးတက်စေသည်။"),
+                new BenchmarkCase("v70_clean_letshi_htotepyan", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "လက်ရှိတွင် သက်ဆိုင်ရာဦးစီးဌာနက ကနဦးစစ်ဆေးချက်အစီရင်ခံစာကို ထုတ်ပြန်ခဲ့သည်။"),
+                new BenchmarkCase("v70_clean_parithat_sayadaw_pa", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ပရိသတ်များက ဆရာတော် သုံးပါးအား ဝတ္ထုငွေနှင့် လှူဖွယ်ပစ္စည်းများ ဆက်ကပ်ကြသည်။"),
+                new BenchmarkCase("v70_clean_limited_investment", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "မြန်မာသီလဝါ အထူးစီးပွားရေးဇုန် အများပိုင်ကုမ္ပဏီလီမိတက်တွင် ရင်းနှီးမြှုပ်နှံကြသည်။"),
+                new BenchmarkCase("v70_clean_neg_mahtwet", BenchmarkDifficulty.CleanControl, ProofingStyleMode.GeneralStandard,
+                    "အလုပ်မသွားခင် မနက်စာ အရင်စားလေ့ရှိပြီး အပြင်မထွက်တော့ဘူး လို့ ပြောတယ်။"),
+                new BenchmarkCase("v70_clean_relational_saingya_akyaung", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ကျောင်းဆိုင်ရာ စည်းကမ်းချက်များနှင့် သင်တန်းအကြောင်း အသေးစိတ် ရှင်းလင်းပြောကြားသည်။"),
 
                 // =========================================================================================
                 // TIER 1: EASY — Character, Encoding, Punctuation & UTN #11 Syllable Fundamentals (20 Cases)
@@ -1285,6 +1337,139 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                     ("ကဏ္တ", "ကဏ္ဍ"),
                     ("လုပ်ငန်းစင်", "လုပ်ငန်းစဉ်"),
                     ("ကြေငြာ", "ကြေညာ"),
+                    (".", "။")),
+
+                // =========================================================================================
+                // TIER 10: HARDEST STANDARD ORTHOGRAPHY, SIMPLEX/CAUSATIVE & MLC CONFUSABLES (--standard — 25 Cases)
+                // =========================================================================================
+                new BenchmarkCase("std_causative_destroy", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "တရားမဝင် သစ်ခုတ်သူများသည် သဘာဝသစ်တောများကို ပျက်စီးခဲ့ကြပြီး သက်သေအထောက်အထားကို ပျောက်ဖျက်ရန် ကြိုးပမ်းသည်။",
+                    ("ပျက်စီး", "ဖျက်ဆီး"),
+                    ("ပျောက်ဖျက်", "ဖျောက်ဖျက်")),
+                new BenchmarkCase("std_causative_cut_elevate", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "တာဝန်ရှိသူများက တရားမဝင် ဖုန်းလိုင်းများကို ပြတ်တောက်ခဲ့ပြီး ဆက်သွယ်ရေး အရည်အသွေးကို မြင့်တင်ပေးခဲ့သည်။",
+                    ("ပြတ်တောက်", "ဖြတ်တောက်"),
+                    ("မြင့်တင်", "မြှင့်တင်")),
+                new BenchmarkCase("std_causative_fulfill_divide", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "ဝန်ကြီးဋ္ဌာနသည် ဒေသခံပြည်သူများ၏ လိုအပ်ချက်ကို ပြည့်ဆည်းပေးပြီး လုပ်ငန်းတာဝန်များကို စနစ်တကျ ကွဲခြားသတ်မှတ်သည်။",
+                    ("ဝန်ကြီးဋ္ဌာန", "ဝန်ကြီးဌာန"),
+                    ("ပြည့်ဆည်း", "ဖြည့်ဆည်း"),
+                    ("ကွဲခြား", "ခွဲခြား")),
+                new BenchmarkCase("std_causative_urge_reduce", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "ကျန်းမာရေးဦးစီးဋ္ဌာနက ပြည်သူလူထုကို နိုးဆော်ထားပြီး ရောဂါ ကူးဆက်နှုန်း လျော့ချနိုင်ရေး ဆောင်ရွက်သည်။",
+                    ("ဦးစီးဋ္ဌာန", "ဦးစီးဌာန"),
+                    ("နိုးဆော်", "နှိုးဆော်"),
+                    ("ကူးဆက်", "ကူးစက်"),
+                    ("လျော့ချ", "လျှော့ချ")),
+                new BenchmarkCase("std_mlc_reciprocal_nhit_nit", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "သူတို့၏ စွန့်လွှတ်အနှစ်နာခံမှုများသည် ဂုဏ်ယူဆရာပင်ဖြစ်ပြီး ဒီမိုကရေဆီ၏ အနစ်သာရကို ဖော်ညွှန်းသည်။",
+                    ("အနှစ်နာခံ", "အနစ်နာခံ"),
+                    ("ဂုဏ်ယူဆရာ", "ဂုဏ်ယူစရာ"),
+                    ("ဒီမိုကရေဆီ", "ဒီမိုကရေစီ"),
+                    ("အနစ်သာရ", "အနှစ်သာရ")),
+                new BenchmarkCase("std_mlc_mining_resources", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "သတ္တုတွင်းလုပ်ငန်းမှ မြေအောက်သယံဇာတများကို တုဖော်ထုပ်ယူရာတွင် ပတ်ဝန်ကျင် မထိခိုက်စေရန် စီစစ်ရမည်။",
+                    ("တုဖော်", "တူးဖော်"),
+                    ("ထုပ်ယူ", "ထုတ်ယူ"),
+                    ("ပတ်ဝန်ကျင်", "ပတ်ဝန်းကျင်"),
+                    ("စီစစ်", "စိစစ်")),
+                new BenchmarkCase("std_mlc_pali_doublets_1", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "ခိုင်မာသော သန္နိဌာန်နှင့် အဓိဌာန်ထားရှိမှသာ လက်ရှိ ပစ္စုပန်နှင့် အနာဂါတ်တွင် အောင်မြင်မည်။",
+                    ("သန္နိဌာန်", "သန္နိဋ္ဌာန်"),
+                    ("အဓိဌာန်", "အဓိဋ္ဌာန်"),
+                    ("ပစ္စုပန်", "ပစ္စုပ္ပန်"),
+                    ("အနာဂါတ်", "အနာဂတ်")),
+                new BenchmarkCase("std_mlc_pali_doublets_2", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "နှစ်ဖက် အဖွဲ့အစည်းများသည် ပဋိညာန်စာချုပ်ပါ အချက်များကို တစ်သမက်တည်း အစင်တစိုက် လိုက်နာကြသည်။",
+                    ("ပဋိညာန်", "ပဋိညာဉ်"),
+                    ("တစ်သမက်တည်း", "တစ်သမတ်တည်း"),
+                    ("အစင်တစိုက်", "အစဉ်တစိုက်")),
+                new BenchmarkCase("std_mlc_pali_doublets_3", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "ပရိတ်သတ်များရှေ့တွင် သဘောထားကွဲလွှဲမှု ပြသနာများကို သံသရကင်းစင်စွာ ဖြေရှင်းပေးခဲ့သည်။",
+                    ("ပရိတ်သတ်", "ပရိသတ်"),
+                    ("ကွဲလွှဲ", "ကွဲလွဲ"),
+                    ("ပြသနာ", "ပြဿနာ"),
+                    ("သံသရ", "သံသယ")),
+                new BenchmarkCase("std_relational_postposition_guard_1", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "ဧရာဝတီတိုင်းတွင် ကျောငးဆိုင်ရာနှင့် သက်တမးဆိုင်ရာ အစီရင်ခံစာများကို အစိုးရ အဖွဲ့ဆိုင်ရာ ကော်မတီသို့ တင်ပြသည်။",
+                    ("ကျောငး", "ကျောင်း"),
+                    ("သက်တမး", "သက်တမ်း"),
+                    ("အစိုးရ အဖွဲ့", "အစိုးရအဖွဲ့")),
+                new BenchmarkCase("std_relational_postposition_guard_2", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.GeneralStandard,
+                    "စာကြည့်တိုက်မှာ သငတန်းအကြောင်းနဲ့ ဖုနးအကြောင်း ဆွေးနွေးပြီး ကျမ်ကျင်အောင် လေ့လာကြတယ်။",
+                    ("သငတန်း", "သင်တန်း"),
+                    ("ဖုနး", "ဖုန်း"),
+                    ("ကျမ်ကျင်", "ကျွမ်းကျင်")),
+                new BenchmarkCase("std_negation_prefix_preservation", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.GeneralStandard,
+                    "မိုးသည်းထန်စွာ ရွာလို့ အပြင်မထွတ်တော့ဘူး ဆိုပြီး ဆေးလိပ်နဲ့ အရက်ကိုလည်း လျှော့သာက်ပါတယ်။",
+                    ("မထွတ်", "မထွက်"),
+                    ("သာက်", "သောက်")),
+                new BenchmarkCase("std_context_compound_rerank", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.GeneralStandard,
+                    "ရေခဲသေတ္တာထဲမှာ ထည့်သိမ်းတာက အသုံးမျာတဲ့နည်းလမ်းဖြစ်ပြီး အိုဟိုင်ယိုးပြည်နယ်မှာလည်း တွေရတယ်။",
+                    ("မျာ", "များ"),
+                    ("ဟိုင်", "ဟိုင်း"),
+                    ("တွေ", "တွေ့")),
+                new BenchmarkCase("std_classifier_sacred_and_footwear", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "ရှေးဟောင်း စေတီတော် လေးခု၌ ဆရာတော် သုံးယောက်အား ဖိနပ် နှစ်စီးနှင့် သင်္ကန်းများ ဆက်ကပ်လှူဒါန်းသည်။",
+                    ("ခု", "ဆူ"),
+                    ("ယောက်", "ပါး"),
+                    ("စီး", "ရံ")),
+                new BenchmarkCase("std_numeral_ta_khunit_adversarial", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "ခုနှစ်ကြိမ်မြောက် ညီလာခံသို့ တနိုင်ငံလုံးမှ ကိုယ်စားလှယ်များ တစ်ဖြည်းဖြည်း ရောက်ရှိလာပြီး အမှတ်တစ်ရ မှတ်တမ်းတင်သည်။",
+                    ("ခုနှစ်", "ခုနစ်"),
+                    ("တနိုင်ငံလုံး", "တစ်နိုင်ငံလုံး"),
+                    ("တစ်ဖြည်းဖြည်း", "တဖြည်းဖြည်း"),
+                    ("အမှတ်တစ်ရ", "အမှတ်တရ")),
+                new BenchmarkCase("std_admin_orthography_directives", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "ဗဟိုဘဏ်မှ ထုတ်ပြန်သည့် ညွန်ကြားချက်နှင့် ရည်ညွန်းချက်များအရ ဝန်ထမ်းများ၏ စွမ်းဆောင်ရေကို အကဲဖြတ်သည်။",
+                    ("ညွန်ကြား", "ညွှန်ကြား"),
+                    ("ရည်ညွန်း", "ရည်ညွှန်း"),
+                    ("စွမ်းဆောင်ရေ", "စွမ်းဆောင်ရည်")),
+                new BenchmarkCase("std_policy_impact_practice", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "ချမှတ်ထားသော မူဝါဒ၏ အကျိုးသတ်ရောက်မှုကို လက်ခံကျင့်သုံပြီး ပူးပေါင်ဆောင်ရွက်သွားမည်။",
+                    ("သတ်ရောက်", "သက်ရောက်"),
+                    ("ကျင့်သုံ", "ကျင့်သုံး"),
+                    ("ပူးပေါင်", "ပူးပေါင်း")),
+                new BenchmarkCase("std_broken_compounds_standard", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "ပြည်ထောင်စု စာရင်း စစ်ချုပ်ရုံးနှင့် လူမှု ဖူလုံရေးအဖွဲ့တို့က ကျန်းမာရေး အာမခံအစီအစဉ်ကို အဆင့်မြှင့်တင်သည်။",
+                    ("စာရင်း စစ်ချုပ်", "စာရင်းစစ်ချုပ်"),
+                    ("လူမှု ဖူလုံရေး", "လူမှုဖူလုံရေး"),
+                    ("ကျန်းမာရေး အာမခံ", "ကျန်းမာရေးအာမခံ")),
+                new BenchmarkCase("std_stuttered_word_with_case", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "ပြုပြင်ထိန်းသိမ်းရေးအဖွဲ့သည် တောင်ဘက် တိုင် တိုင်ကို စစ်ဆေးပြီး စာချုပ် စာချုပ်တွင် လက်မှတ်ရေးထိုးသည်။",
+                    ("တိုင် တိုင်ကို", "တိုင်ကို"),
+                    ("စာချုပ် စာချုပ်တွင်", "စာချုပ်တွင်")),
+                new BenchmarkCase("std_unspaced_long_clause_1", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "သဘာဝပတ်ဝန်ကျင်ထိမ်းသိမ်းရေးကော်မတီအစည်းအဝေး၌ သစ်တောပြုန်းတီးမှုအန္တရယ်ကို ဆွေးနွေးကြသည်။",
+                    ("ပတ်ဝန်ကျင်", "ပတ်ဝန်းကျင်"),
+                    ("ထိမ်းသိမ်း", "ထိန်းသိမ်း"),
+                    ("အန္တရယ်", "အန္တရာယ်")),
+                new BenchmarkCase("std_unspaced_long_clause_2", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "အမျိုးသားပညာရေမဟာဗျူဟာစီမံကန်းအရ တက္ကသိုလ်အသီးသီး၌ သုတေသနစာတမ်းဖတ်ပွဲများ ကျင်းပလျှက်ရှိသည်။",
+                    ("ပညာရေ", "ပညာရေး"),
+                    ("စီမံကန်း", "စီမံကိန်း"),
+                    ("လျှက်", "လျက်")),
+                new BenchmarkCase("std_grammar_postposition_and_attributive", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "အင်းလေးကန်သည် ရှမ်းပြည်နယ်က တည်ရှိပြီး လာမည်နှစ်တွင် ခရီးသွားဧည့်သည် တိုးတက်များပြားလာမည်။",
+                    ("က", "တွင်"),
+                    ("လာမည်နှစ်", "လာမည့်နှစ်")),
+                new BenchmarkCase("std_judicial_withhold_and_resign", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "တရားရုံးသို့ သက်သေခံအချက်အလတ်များ မထိန်ချိန်ဘဲ တင်ပြရမည်ဖြစ်ပြီး တာဝန်မှ နှုတ်ထွက်ခွင့် လျှောက်ထားသည်။",
+                    ("အချက်အလတ်", "အချက်အလက်"),
+                    ("ထိန်ချိန်", "ထိမ်ချန်"),
+                    ("နှုတ်ထွက်", "နုတ်ထွက်")),
+                new BenchmarkCase("std_corrupted_syllable_clusters", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.GeneralStandard,
+                    "ယနဲ မနက်ပိုင်း အိမ်မှုကိစ္စတွေ လုပ်ပြီး အလုပ်စဝနိ်ကြရာ သက်တောင့်သက်သာ ရှိလှပါတယ်။",
+                    ("ယနဲ", "ယနေ့"),
+                    ("ဝနိ်", "ဝင်"),
+                    ("သက်တောင့်သက်သာ", "သက်သောင့်သက်သာ")),
+                new BenchmarkCase("std_boss_constitutional_gazette", BenchmarkDifficulty.StandardHardest, ProofingStyleMode.FormalOfficial,
+                    "ပြည်ထောင်စုလွှတ်တော်က အတည်ပြု ပြဌာန်းလိုက်သော ဉပဒေကြမ်းသည် နိုင်ငံတော်၏ အချုပ်အချာအာဏာ တည်တန့်ခိုင်မြဲရေးအတွက် အရေးပါသည့် ဝိသေသဏတစ်ရပ် ဖြစ်သည်.",
+                    ("ပြဌာန်း", "ပြဋ္ဌာန်း"),
+                    ("ဉပဒေ", "ဥပဒေ"),
+                    ("အချုပ်အချာ", "အချုပ်အခြာ"),
+                    ("တည်တန့်", "တည်တံ့"),
+                    ("ဝိသေသဏ", "ဝိသေသန"),
                     (".", "။"))
             };
         }

@@ -497,13 +497,13 @@ namespace MyanmarSpellChecker.Core.Nlp
                 {
                     string fixedIuk = UnicodeNormalizer.NormalizeCanonicalOrder(lookalikeFixed.Replace("\u102D\u1000\u103A", "\u102D\u102F\u1000\u103A"));
                     if (_trie.ContainsExactWord(fixedIuk))
-                        AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedIuk, 105.2);
+                        AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedIuk, 106.5);
                 }
                 if (isOovBase && lookalikeFixed.IndexOf("\u102C\u1000\u103A", StringComparison.Ordinal) >= 0)
                 {
                     string fixedAuk = UnicodeNormalizer.NormalizeCanonicalOrder(lookalikeFixed.Replace("\u102C\u1000\u103A", "\u1031\u102C\u1000\u103A"));
                     if (_trie.ContainsExactWord(fixedAuk))
-                        AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedAuk, 105.2);
+                        AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedAuk, 106.5);
                 }
                 if (isOovBase && lookalikeFixed.IndexOf("\u102D\u1014\u103A", StringComparison.Ordinal) >= 0)
                 {
@@ -603,6 +603,40 @@ namespace MyanmarSpellChecker.Core.Nlp
                         if (_trie.ContainsExactWord(fixedChaing))
                             AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedChaing, 103.6);
                     }
+                    // Stray creaky tone '\u1037' typed on an otherwise intact high-frequency closed syllable ('ဝယ့် -> ဝယ်')
+                    if (lookalikeFixed.Length >= 4 &&
+                        lookalikeFixed[lookalikeFixed.Length - 1] == '\u1037' &&
+                        lookalikeFixed[lookalikeFixed.Length - 2] == '\u103A')
+                    {
+                        string dropStrayCreaky = lookalikeFixed.Substring(0, lookalikeFixed.Length - 1);
+                        if (_trie.ContainsExactWord(dropStrayCreaky) && _trie.GetWordFrequency(dropStrayCreaky) >= 25)
+                            AddOrUpdateEnrichedCandidate(results, rawTrimmed, dropStrayCreaky, 103.8);
+                    }
+                    // Productive negative prefix 'မ-' preservation ('မထွတ် -> မထွက်', 'မသာက် -> မသောက်'):
+                    // Never invert sentence polarity by dropping 'မ' when the negated verb stem repairs cleanly!
+                    if (lookalikeFixed.Length >= 4 && lookalikeFixed.Length <= 10 &&
+                        lookalikeFixed[0] == '\u1019' &&
+                        lookalikeFixed[1] >= '\u1000' && lookalikeFixed[1] <= '\u1021')
+                    {
+                        string negRest = lookalikeFixed.Substring(1);
+                        if (!_trie.ContainsExactWord(negRest))
+                        {
+                            var negVerbCands = GetSuggestionsInternal(negRest, 2, allowCompositional: false);
+                            for (int nv = 0; nv < negVerbCands.Count; nv++)
+                            {
+                                var vc = negVerbCands[nv];
+                                if (vc.Score >= 96.0 &&
+                                    (_trie.HasPosTag(vc.Replacement, "V") || (vc.IsOfficialThatpon && _trie.GetWordFrequency(vc.Replacement) >= 15)))
+                                {
+                                    string negFixed = "\u1019" + vc.Replacement;
+                                    AddOrUpdateEnrichedCandidate(
+                                        results, rawTrimmed, negFixed, 104.8,
+                                        fallbackCue: $"အငြင်းကြိယာပုဒ် (မ + {vc.Replacement})");
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
                 if (lookalikeFixed.IndexOf("\u1005\u103C", StringComparison.Ordinal) >= 0)
                 {
@@ -626,12 +660,13 @@ namespace MyanmarSpellChecker.Core.Nlp
                     if (lookalikeFixed[vi] == '\u1038')
                     {
                         char prevC = lookalikeFixed[vi - 1];
-                        if (prevC == '\u1004' || prevC == '\u1014' || prevC == '\u1019' || prevC == '\u101A')
+                        if (prevC == '\u1004' || prevC == '\u1009' || prevC == '\u100A' ||
+                            prevC == '\u100F' || prevC == '\u1014' || prevC == '\u1019' || prevC == '\u101A')
                         {
                             string withAsat = UnicodeNormalizer.NormalizeCanonicalOrder(
                                 lookalikeFixed.Substring(0, vi) + "\u103A" + lookalikeFixed.Substring(vi));
                             if (_trie.ContainsExactWord(withAsat))
-                                AddOrUpdateEnrichedCandidate(results, rawTrimmed, withAsat, 101.5);
+                                AddOrUpdateEnrichedCandidate(results, rawTrimmed, withAsat, 104.8);
                         }
                     }
                 }
@@ -723,8 +758,25 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
+            // 4b. Early Compositional Multi-Syllable Synthesis for >= 3-syllable inflected/concatenated forms
+            //     (e.g. 'တုံ့ပျန်နိုင်သည် -> တုံ့ပြန်နိုင်သည်') BEFORE exhaustive 5-bucket scan to slash p99 tail latency!
+            double earlyTopScore = 0.0;
+            for (int rIdx = 0; rIdx < results.Count; rIdx++)
+            {
+                if (results[rIdx].Score > earlyTopScore)
+                    earlyTopScore = results[rIdx].Score;
+            }
+            bool ranCompositionalEarly = false;
+            if (allowCompositional && !hasExplicitWrongRule && !hasExactLookalikeFix &&
+                spanSyllables.Count >= 3 && spanSyllables.Count <= 6 &&
+                earlyTopScore < 94.0)
+            {
+                SynthesizeCompositionalCandidates(results, rawTrimmed, normalized, spanSyllables);
+                ranCompositionalEarly = true;
+            }
+
             // 5. Fast Bucketed Weighted Edit Distance using Center-Outward Branch-and-Bound + 45-bit Base Pre-Filtering
-            //    Skip exhaustive 5-bucket scan when Steps 1..4 already filled `computeCap` with high-confidence homophone/anchor matches!
+            //    Skip exhaustive 5-bucket scan when Steps 1..4b already filled `computeCap` with high-confidence homophone/anchor/compositional matches!
             double bestPreBucketScore = 0.0;
             for (int rIdx = 0; rIdx < results.Count; rIdx++)
             {
@@ -733,6 +785,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
             double preBucketFloor = ComputeSafeFloorScore(results, computeCap);
             bool skipExhaustiveBuckets =
+                (ranCompositionalEarly && results.Count >= 1 && bestPreBucketScore >= 93.0) ||
                 (!allowCompositional && ((results.Count >= 1 && bestPreBucketScore >= 92.0) || spanSyllables.Count >= 4)) ||
                 (results.Count >= computeCap &&
                  (hasExplicitWrongRule ||
@@ -893,7 +946,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                  (!_trie.ContainsExactWord(normalized) && spanSyllables.Count == 2 &&
                   (_trie.IsStandaloneWord(spanSyllables[0]) ^ _trie.IsStandaloneWord(spanSyllables[1]))));
 
-            if (allowCompositional && !hasExplicitWrongRule && !hasExactLookalikeFix &&
+            if (!ranCompositionalEarly && allowCompositional && !hasExplicitWrongRule && !hasExactLookalikeFix &&
                 (!hasAuthoritativeTopMatch || results.Count < 2 || hasColloquialOrAnchoredCompound) &&
                 (results.Count < computeCap || hasColloquialOrAnchoredCompound) &&
                 spanSyllables.Count >= 2 && spanSyllables.Count <= 6)

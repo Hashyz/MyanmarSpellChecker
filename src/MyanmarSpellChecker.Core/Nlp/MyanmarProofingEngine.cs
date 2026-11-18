@@ -1987,6 +1987,25 @@ namespace MyanmarSpellChecker.Core.Nlp
                                 }
                             }
 
+                            // Never treat 'ဆရာ' inside a compound verb/nominalizer ('ဂုဏ်ယူဆရာပင်ဖြစ်ပြီး') as a personal-name honorific!
+                            if (span.NormalizedText == "ဆရာ")
+                            {
+                                if (i > 0 && tokens[i - 1].Kind == TokenKind.MyanmarSyllable &&
+                                    !TitleSylBeforeHonorific.Contains(tokens[i - 1].NormalizedText))
+                                {
+                                    continue;
+                                }
+                                if (i + len < tokens.Count && tokens[i + len].Kind == TokenKind.MyanmarSyllable)
+                                {
+                                    string afterSaya = tokens[i + len].NormalizedText;
+                                    if (GrammaticalParticles.Contains(afterSaya) || ColloquialParticles.Contains(afterSaya) ||
+                                        afterSaya == "ပင်" || afterSaya == "ဖြစ်" || afterSaya == "ကောင်း" || afterSaya == "လှ")
+                                    {
+                                        continue;
+                                    }
+                                }
+                            }
+
                             // Common role nouns ('ဆရာ', 'ဆရာမ', 'ဆရာကြီး', 'ဆရာမကြီး') followed by whitespace are ordinary sentence nouns
                             // ('ဆရာ စာဖက်သည်', 'ဆရာကြီး တူးရိယာ...') unless followed by an explicit personal-name honorific ('ဆရာ ဦးအောင်ကျော်')!
                             if ((span.NormalizedText == "ဆရာ" || span.NormalizedText == "ဆရာမ" ||
@@ -7098,6 +7117,20 @@ namespace MyanmarSpellChecker.Core.Nlp
                     if (st < issRelEnd)
                         break;
                     string tailS = runSyls[coreEndSyl].NormalizedText;
+                    // Check 2-syllable relational postpositions ('အကြောင်း', 'ဆိုင်ရာ', 'အတွက်', 'အပေါ်', ...) BEFORE
+                    // 1-syllable GrammaticalParticles so 'ကြောင်း' / 'ရာ' is never stripped alone leaving 'အ' / 'ဆိုင်' stranded!
+                    if (coreEndSyl >= 2 && runSyls[coreEndSyl - 1].StartIndex >= issRelEnd)
+                    {
+                        string tail2 = runSyls[coreEndSyl - 1].NormalizedText + tailS;
+                        if (tail2 == "အကြောင်း" || tail2 == "ဆိုင်ရာ" || tail2 == "အတွက်" || tail2 == "အပေါ်" ||
+                            tail2 == "အတွင်း" || tail2 == "အပြင်" || tail2 == "အောက်" || tail2 == "အရ" ||
+                            tail2 == "အလိုက်" || tail2 == "အတိုင်း" || tail2 == "အနီး" || tail2 == "အကြား" ||
+                            tail2 == "အနေ" || tail2 == "ပစ္စည်း" || tail2 == "အလှ" || tail2 == "ကြားလျှင်")
+                        {
+                            coreEndSyl -= 2;
+                            continue;
+                        }
+                    }
                     if (GrammaticalParticles.Contains(tailS) || ColloquialParticles.Contains(tailS) ||
                         ProductiveVerbalAuxiliaries.Contains(tailS) || tailS == "လိုက်" ||
                         tailS == "သံ" || tailS == "ဖို့" || tailS == "ရန်" || tailS == "စွာ" || tailS == "ပြီး" ||
@@ -7106,15 +7139,6 @@ namespace MyanmarSpellChecker.Core.Nlp
                     {
                         coreEndSyl--;
                         continue;
-                    }
-                    if (coreEndSyl >= 2 && runSyls[coreEndSyl - 1].StartIndex >= issRelEnd)
-                    {
-                        string tail2 = runSyls[coreEndSyl - 1].NormalizedText + tailS;
-                        if (tail2 == "အတွက်" || tail2 == "အပေါ်" || tail2 == "ပစ္စည်း" || tail2 == "အလှ" || tail2 == "ကြားလျှင်")
-                        {
-                            coreEndSyl -= 2;
-                            continue;
-                        }
                     }
                     break;
                 }
@@ -7194,6 +7218,53 @@ namespace MyanmarSpellChecker.Core.Nlp
                     {
                         bestWholeWord = nda;
                         bestWholeDist = 0.10;
+                    }
+                }
+                if (bestWholeWord == null)
+                {
+                    // Deterministic dropped Asat (\u103A) inside rawCoreNorm, where missing \u103A caused 1 closed syllable to fracture into 2 open syllables:
+                    //   (a) bare coda consonant before \u1038 / \u1037 ('ဖုနး' -> 'ဖုန်း', 'ကျောငး' -> 'ကျောင်း', 'သက်တမး' -> 'သက်တမ်း')
+                    //   (b) bare unvoweled coda consonant before next syllable onset ('သငတန်း' -> 'သင်တန်း', 'မွနကန်' -> 'မှန်ကန်')
+                    for (int vi = 1; vi < rawCoreNorm.Length && bestWholeWord == null; vi++)
+                    {
+                        char vc = rawCoreNorm[vi];
+                        if (vc == '\u1038' || vc == '\u1037')
+                        {
+                            char prevC = rawCoreNorm[vi - 1];
+                            if (prevC == '\u1004' || prevC == '\u1009' || prevC == '\u100A' || prevC == '\u100F' ||
+                                prevC == '\u1014' || prevC == '\u1019' || prevC == '\u101A')
+                            {
+                                string withAsat = UnicodeNormalizer.NormalizeCanonicalOrder(
+                                    rawCoreNorm.Substring(0, vi) + "\u103A" + rawCoreNorm.Substring(vi));
+                                if (_trie.ContainsExactWord(withAsat))
+                                {
+                                    bestWholeWord = withAsat;
+                                    bestWholeDist = 0.08;
+                                }
+                            }
+                        }
+                    }
+                    if (bestWholeWord == null && !splitsIntoCleanWords)
+                    {
+                        for (int ci = 1; ci < rawCoreNorm.Length - 1; ci++)
+                        {
+                            char cc = rawCoreNorm[ci];
+                            char nextC = rawCoreNorm[ci + 1];
+                            if (rawCoreNorm[ci - 1] != '\u1039' &&
+                                (cc == '\u1000' || cc == '\u1004' || cc == '\u1005' || cc == '\u1009' || cc == '\u100A' ||
+                                 cc == '\u100F' || cc == '\u1010' || cc == '\u1014' || cc == '\u1015' || cc == '\u1019' || cc == '\u101A') &&
+                                nextC >= '\u1000' && nextC <= '\u1021')
+                            {
+                                string withIntAsat = UnicodeNormalizer.NormalizeCanonicalOrder(
+                                    rawCoreNorm.Substring(0, ci + 1) + "\u103A" + rawCoreNorm.Substring(ci + 1));
+                                if (_trie.ContainsExactWord(withIntAsat))
+                                {
+                                    bestWholeWord = withIntAsat;
+                                    bestWholeDist = 0.10;
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
                 if (bestWholeWord == null && SuggestionEngine.TryFoldUnstackedPatSint(coreAfterSingleFix, _trie, out string foldedCore, out _))
@@ -7480,19 +7551,50 @@ namespace MyanmarSpellChecker.Core.Nlp
                     iss.Suggestions[0].Score = 104.5;
                     continue;
                 }
+                if (origNorm == "နဲ" && left1 == "ယ" && (leftSyls == null || leftSyls.Count == 1) && right1.Length == 0)
+                {
+                    iss.StartIndex -= left1.Length;
+                    iss.Length += left1.Length;
+                    iss.OriginalText = text.Substring(iss.StartIndex, iss.Length);
+                    EnsureTopSuggestionMetadata(iss.Suggestions, iss.OriginalText, "ယနေ့", "ဒီနေ့ / ယနေ့ (အချိန်ပြနာမ်)", "N", true);
+                    iss.Suggestions[0].Score = 104.8;
+                    continue;
+                }
+                if (origNorm == "ကျမ်ကျင်")
+                {
+                    EnsureTopSuggestionMetadata(iss.Suggestions, iss.OriginalText, "ကျွမ်းကျင်", "ကျွမ်းကျင်လိမ္မာ (~သည်)", "V", true);
+                    iss.Suggestions[0].Score = 104.8;
+                    continue;
+                }
+                if (origNorm == "ဝယ့်" &&
+                    (right1 == "က" || right1 == "ကြ" || right1 == "မယ်" || right1 == "မည်" || right1 == "ပါ" || right1 == "တာ"))
+                {
+                    EnsureTopSuggestionMetadata(iss.Suggestions, iss.OriginalText, "ဝယ်", "ဝယ်ယူ (~သည်)", "V", true);
+                    iss.Suggestions[0].Score = 104.8;
+                    continue;
+                }
 
-                if (iss.Suggestions.Count < 2)
+                if (iss.Suggestions.Count < 2 || iss.Suggestions[0].Score >= 105.0)
                     continue;
 
                 bool topFormsCompound = CandidateFormsContextCompound(iss.Suggestions[0].Replacement, left1, left2, right1, right2);
                 if (topFormsCompound)
                     continue;
 
+                bool origHasClosedCoda = origNorm.IndexOf('\u103A') >= 0;
+                bool topKeepsClosedCoda = iss.Suggestions[0].Replacement.IndexOf('\u103A') >= 0 ||
+                                          iss.Suggestions[0].Replacement.IndexOf('\u1036') >= 0;
+
                 for (int c = 1; c < iss.Suggestions.Count; c++)
                 {
-                    if (iss.Suggestions[0].Score - iss.Suggestions[c].Score > 5.0)
+                    if (iss.Suggestions[0].Score - iss.Suggestions[c].Score > 6.5)
                         continue;
                     string candRep = iss.Suggestions[c].Replacement;
+                    if (origHasClosedCoda && topKeepsClosedCoda &&
+                        candRep.IndexOf('\u103A') < 0 && candRep.IndexOf('\u1036') < 0)
+                    {
+                        continue;
+                    }
                     if (CandidateFormsContextCompound(candRep, left1, left2, right1, right2))
                     {
                         var promoted = iss.Suggestions[c];
@@ -7513,6 +7615,12 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return true;
             if (left1.Length >= 2 && !GrammaticalParticles.Contains(left1) && _trie.ContainsExactWord(left1 + cand))
                 return true;
+            if (left1.Length >= 1 && right1.Length >= 2 &&
+                !GrammaticalParticles.Contains(left1) && !GrammaticalParticles.Contains(right1) &&
+                _trie.ContainsExactWord(left1 + cand + right1))
+            {
+                return true;
+            }
             if (right2.Length >= 2 && _trie.ContainsExactWord(cand + right2))
                 return true;
             if (right1.Length >= 2 && !GrammaticalParticles.Contains(right1) && !ColloquialParticles.Contains(right1) &&

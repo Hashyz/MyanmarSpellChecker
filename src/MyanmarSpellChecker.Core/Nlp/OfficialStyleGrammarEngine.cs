@@ -478,6 +478,14 @@ namespace MyanmarSpellChecker.Core.Nlp
         private static readonly Regex RegionKoBeforeNominalizedInspectionPattern = new Regex(
             @"(?:ပြည်နယ်|တိုင်းဒေသကြီး|မြို့နယ်)(?<Target>ကို)\s+(?=စစ်ဆေးမှု\s+ပြုလုပ်)");
 
+        private static readonly Regex RegionKaBeforeTashiPattern = new Regex(
+            @"(?:ပြည်နယ်|တိုင်းဒေသကြီး|မြို့နယ်|ခရိုင်)(?<Target>က)(?=\s+တည်ရှိ(?:ပါ)?(?:သည်|တယ်|ပြီး|၍))",
+            RegexOptions.Compiled);
+
+        private static readonly Regex MissingCreakyAttributiveLamyiPattern = new Regex(
+            @"(?<![\u1000-\u103F])(?<Target>လာမည်(?<Unit>နှစ်|လ|အပတ်|ရက်|ဘဏ္ဍာနှစ်))",
+            RegexOptions.Compiled);
+
         private static readonly Regex BenefactiveMhaInsteadOfAtwetPattern = new Regex(
             @"(?:စာမေးပွဲ|ပြိုင်ပွဲ|ကော်မတီ)(?<Target>မှာ)\s+(?=(?:လေ့ကျင့်ခန်း|အစီရင်ခံစာ)\s+(?:ပေးခဲ့|တင်သွင်းခဲ့))");
 
@@ -505,7 +513,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             RegexOptions.Compiled);
 
         private static readonly Regex BoundStemBrokenCompoundPattern = new Regex(
-            @"(?:(?<Left>အထိမ်း)[ \t]+(?<Right>အမှတ်)|(?<Left>အစည်း)[ \t]+(?<Right>အဝေး)|(?<Left>အခမ်း)[ \t]+(?<Right>အနား)|(?<Left>အစီ)[ \t]+(?<Right>အစဉ်)|(?<Left>အဆောက်)[ \t]+(?<Right>အအုံ)|(?<Left>အချက်)[ \t]+(?<Right>အလက်)|(?<Left>အကူ)[ \t]+(?<Right>အညီ)|(?<Left>အရည်)[ \t]+(?<Right>အချင်း)|(?<Left>အခက်)[ \t]+(?<Right>အခဲ)|(?<Left>အထောက်)[ \t]+(?<Right>အကူ)|(?<Left>အလွယ်)[ \t]+(?<Right>တကူ)|(?<Left>အစာ)[ \t]+(?<Right>အိမ်)|(?<Left>အသုံး)[ \t]+(?<Right>ဝင်)|(?<Left>အရေး)[ \t]+(?<Right>ကြီး)|(?<Left>ပတ်)[ \t]+(?<Right>ဝန်းကျင်)|(?<Left>စိတ်)[ \t]+(?<Right>နှလုံး)|(?<Left>မူးယစ်)[ \t]+(?<Right>ဆေးဝါး)|(?<Left>မင်္ဂလာ)[ \t]+(?<Right>ဆောင်)|(?<Left>ဆင်းရဲ)[ \t]+(?<Right>ဒုက္ခ)|(?<Left>ကျောင်း)[ \t]+(?<Right>တိုက်)|(?<Left>ကမ်း)[ \t]+(?<Right>ခြေ)|(?<Left>သဲသောင်)[ \t]+(?<Right>ပြင်)|(?<Left>စိတ်ဖိ)[ \t]+(?<Right>စီး)|(?<Left>ပေါင်)[ \t]+(?<Right>မုန့်|မုန့်)|(?<Left>နံနက်|မနက်|ညနေ|နေ့လယ်)[ \t]+(?<Right>စာ)|(?<Left>နည်း)[ \t]+(?<Right>လမ်း)|(?<Left>သမိုင်း)[ \t]+(?<Right>ကြောင်း)|(?<Left>ချက်)[ \t]+(?<Right>ပြုတ်)|(?<Left>နား)[ \t]+(?<Right>ထောင်)|(?<Left>ထိန်း)[ \t]+(?<Right>ချုပ်)|(?<Left>လက်ဖက်)[ \t]+(?<Right>သုပ်)|(?<Left>ပင်လယ်)[ \t]+(?<Right>စာ)|(?<Left>စိတ်ရှည်)[ \t]+(?<Right>သည်းခံ)|(?<Left>စာရွက်)[ \t]+(?<Right>စာတမ်း)|(?<Left>စည်း)[ \t]+(?<Right>ကမ်း)|(?<Left>လုပ်ငန်း)[ \t]+(?<Right>စဉ်)|(?<Left>တရား)[ \t]+(?<Right>စခန်း)|(?<Left>ထမင်း)[ \t]+(?<Right>ကြော်)|(?<Left>ပျော်ပျော်)[ \t]+(?<Right>ပါးပါး)|(?<Left>ခပ်လှမ်း)[ \t]+(?<Right>လှမ်း)|(?<Left>သန့်|သန့်)[ \t]+(?<Right>ရှင်း)|(?<Left>ကိုယ်စား)[ \t]+(?<Right>လှယ်)|(?<Left>တက္က)[ \t]+(?<Right>သိုလ်)|(?<Left>ကွန်ပျူ)[ \t]+(?<Right>တာ)|(?<Left>ပလတ်)[ \t]+(?<Right>စတစ်)|(?<Left>မြင့်)[ \t]+(?<Right>မိုရ်))(?![\u102B-\u103E]|[\u1000-\u1021]\u103B?[\u1039\u103A])",
+            @"(?:(?<Left>အထိမ်း)[ \t]+(?<Right>အမှတ်)|(?<Left>အစည်း)[ \t]+(?<Right>အဝေး)|(?<Left>အခမ်း)[ \t]+(?<Right>အနား)|(?<Left>အစီ)[ \t]+(?<Right>အစဉ်)|(?<Left>အဆောက်)[ \t]+(?<Right>အအုံ)|(?<Left>အချက်)[ \t]+(?<Right>အလက်)|(?<Left>အကူ)[ \t]+(?<Right>အညီ)|(?<Left>အရည်)[ \t]+(?<Right>အချင်း)|(?<Left>အခက်)[ \t]+(?<Right>အခဲ)|(?<Left>အထောက်)[ \t]+(?<Right>အကူ)|(?<Left>အလွယ်)[ \t]+(?<Right>တကူ)|(?<Left>အစာ)[ \t]+(?<Right>အိမ်)|(?<Left>အသုံး)[ \t]+(?<Right>ဝင်)|(?<Left>အရေး)[ \t]+(?<Right>ကြီး)|(?<Left>ပတ်)[ \t]+(?<Right>ဝန်းကျင်)|(?<Left>စိတ်)[ \t]+(?<Right>နှလုံး)|(?<Left>မူးယစ်)[ \t]+(?<Right>ဆေးဝါး)|(?<Left>မင်္ဂလာ)[ \t]+(?<Right>ဆောင်)|(?<Left>ဆင်းရဲ)[ \t]+(?<Right>ဒုက္ခ)|(?<Left>ကျောင်း)[ \t]+(?<Right>တိုက်)|(?<Left>ကမ်း)[ \t]+(?<Right>ခြေ)|(?<Left>သဲသောင်)[ \t]+(?<Right>ပြင်)|(?<Left>စိတ်ဖိ)[ \t]+(?<Right>စီး)|(?<Left>ပေါင်)[ \t]+(?<Right>မုန့်|မုန့်)|(?<Left>နံနက်|မနက်|ညနေ|နေ့လယ်)[ \t]+(?<Right>စာ)|(?<Left>နည်း)[ \t]+(?<Right>လမ်း)|(?<Left>သမိုင်း)[ \t]+(?<Right>ကြောင်း)|(?<Left>ချက်)[ \t]+(?<Right>ပြုတ်)|(?<Left>နား)[ \t]+(?<Right>ထောင်)|(?<Left>ထိန်း)[ \t]+(?<Right>ချုပ်)|(?<Left>လက်ဖက်)[ \t]+(?<Right>သုပ်)|(?<Left>ပင်လယ်)[ \t]+(?<Right>စာ)|(?<Left>စိတ်ရှည်)[ \t]+(?<Right>သည်းခံ)|(?<Left>စာရွက်)[ \t]+(?<Right>စာတမ်း)|(?<Left>စည်း)[ \t]+(?<Right>ကမ်း)|(?<Left>လုပ်ငန်း)[ \t]+(?<Right>စဉ်)|(?<Left>တရား)[ \t]+(?<Right>စခန်း)|(?<Left>ထမင်း)[ \t]+(?<Right>ကြော်)|(?<Left>ပျော်ပျော်)[ \t]+(?<Right>ပါးပါး)|(?<Left>ခပ်လှမ်း)[ \t]+(?<Right>လှမ်း)|(?<Left>သန့်|သန့်)[ \t]+(?<Right>ရှင်း)|(?<Left>ကိုယ်စား)[ \t]+(?<Right>လှယ်)|(?<Left>တက္က)[ \t]+(?<Right>သိုလ်)|(?<Left>ကွန်ပျူ)[ \t]+(?<Right>တာ)|(?<Left>ပလတ်)[ \t]+(?<Right>စတစ်)|(?<Left>မြင့်)[ \t]+(?<Right>မိုရ်)|(?<Left>ကျန်းမာရေး)[ \t]+(?<Right>အာမခံ)|(?<Left>လူမှု)[ \t]+(?<Right>ဖူလုံရေး)|(?<Left>စာရင်း)[ \t]+(?<Right>စစ်ချုပ်))(?![\u102B-\u103E]|[\u1000-\u1021]\u103B?[\u1039\u103A])",
             RegexOptions.Compiled);
 
         private static readonly (Regex Pattern, string Target, string Cue)[] CuratedAddressAndHistoricalBrokenCompounds =
@@ -554,7 +562,8 @@ namespace MyanmarSpellChecker.Core.Nlp
             "ပတ်ဝန်းကျင်", "စိတ်နှလုံး", "မူးယစ်ဆေးဝါး", "မင်္ဂလာဆောင်", "ဆင်းရဲဒုက္ခ", "ကျောင်းတိုက်", "ကမ်းခြေ",
             "သဲသောင်ပြင်", "စိတ်ဖိစီး", "ပေါင်မုန့်", "နံနက်စာ", "မနက်စာ", "ညနေစာ", "နေ့လယ်စာ", "နည်းလမ်း",
             "သမိုင်းကြောင်း", "ချက်ပြုတ်", "နားထောင်", "ထိန်းချုပ်", "လက်ဖက်သုပ်", "ပင်လယ်စာ", "စိတ်ရှည်သည်းခံ",
-            "စာရွက်စာတမ်း", "စည်းကမ်း", "လုပ်ငန်းစဉ်", "တရားစခန်း", "ထမင်းကြော်", "ပျော်ပျော်ပါးပါး", "ခပ်လှမ်းလှမ်း", "သန့်ရှင်း"
+            "စာရွက်စာတမ်း", "စည်းကမ်း", "လုပ်ငန်းစဉ်", "တရားစခန်း", "ထမင်းကြော်", "ပျော်ပျော်ပါးပါး", "ခပ်လှမ်းလှမ်း", "သန့်ရှင်း",
+            "ကျန်းမာရေးအာမခံ", "လူမှုဖူလုံရေး", "စာရင်းစစ်ချုပ်"
         );
 
         private static readonly Regex SpaceSplitPairCandidateRegex = new Regex(
@@ -915,9 +924,13 @@ namespace MyanmarSpellChecker.Core.Nlp
             "နေရာ", "အံဝင်ခွင်", "ယုတ္တိ", "အဓိပ္ပာယ်", "စည်းကမ်း", "အကွက်"
         };
 
-        // 4n. Smart space-separated multi-syllable duplicate words (e.g. 'ဝန်ကြီးဌာန ဝန်ကြီးဌာန -> ဝန်ကြီးဌာန') & English function words ('the the -> the')
+        // 4n. Smart space-separated multi-syllable duplicate words (e.g. 'ဝန်ကြီးဌာန ဝန်ကြီးဌာန -> ဝန်ကြီးဌာန', 'တိုင် တိုင်ကို -> တိုင်ကို') & English function words ('the the -> the')
         private static readonly Regex DuplicatedMultiSyllableMyanmarWordPattern = new Regex(
             @"(?<![\u1000-\u104F])(?<Word>[\u1000-\u103F]{4,36})(?<Dup>[ \t]+\k<Word>)(?![\u1000-\u104F])",
+            RegexOptions.Compiled);
+
+        private static readonly Regex DuplicatedMyanmarWordWithCasePattern = new Regex(
+            @"(?<![\u1000-\u104F])(?<Word>[\u1000-\u103F]{4,30})[ \t]+\k<Word>(?<Case>ကို|တွင်|၌|မှာ|သို့|မှ|အား|၏|နှင့်|နှင့်|နဲ့)(?![\u1000-\u104F])",
             RegexOptions.Compiled);
 
         private static readonly Regex DuplicatedEnglishFunctionWordPattern = new Regex(
@@ -2274,6 +2287,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     foreach (Match m in cRule.Pattern.Matches(text))
                     {
                         Group wrongGrp = m.Groups["Wrong"];
+                        int beforeCnt = issues.Count;
                         AddGrammarOrSpellingIssue(
                             issues, wrongGrp.Index, wrongGrp.Length, wrongGrp.Value, cRule.CorrectClassifier,
                             ProofingIssueType.NumeralClassifierError,
@@ -2281,6 +2295,17 @@ namespace MyanmarSpellChecker.Core.Nlp
                             cRule.CategoryLabel, "CLF", true,
                             $"မြန်မာသဒ္ဒါ (နာမ်ပစ္စည်း — မျိုးပြပစ္စည်း) အရ သင်္ချာဂဏန်းနောက်ရှိ မျိုးပြပစ္စည်းသည် ရှေ့နာမ်ပုဒ်၏ သက်ရှိ/သက်မဲ့၊ ပုံသဏ္ဌာန်၊ အမျိုးအစားနှင့် ကိုက်ညီရမည်ဖြစ်ရာ '{cRule.CorrectClassifier}' ကို သုံးရမည်။",
                             "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (နာမ်ပစ္စည်း ၉ မျိုး — မျိုးပြပစ္စည်း)");
+                        if (cRule.CorrectClassifier == "ရံ" && issues.Count > beforeCnt)
+                        {
+                            issues[issues.Count - 1].Suggestions.Add(new SuggestionCandidate
+                            {
+                                Replacement = "စုံ",
+                                MeaningCue = "အပြော/အရေး အစုံလိုက်ပြ မျိုးပြပစ္စည်း ('~စုံ')",
+                                PosTag = "CLF",
+                                IsOfficialThatpon = true,
+                                Score = 95.0
+                            });
+                        }
                     }
                 }
 
@@ -2831,6 +2856,43 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
+            if (ContainsMm(text, mmMask, "တည်ရှိ"))
+            {
+                foreach (Match m in RegionKaBeforeTashiPattern.Matches(text))
+                {
+                    Group g = m.Groups["Target"];
+                    if (OverlapsExistingIssue(issues, g.Index, g.Length))
+                        continue;
+                    string locFix = styleMode == ProofingStyleMode.FormalOfficial ? "တွင်" : "မှာ";
+                    AddGrammarOrSpellingIssue(
+                        issues, g.Index, g.Length, g.Value, locFix,
+                        ProofingIssueType.OfficialStyleGrammarError,
+                        $"'တည်ရှိ-' ကြိယာရှေ့ရှိ ပြည်နယ်/တိုင်းဒေသကြီး/မြို့နယ် တည်နေရာပုဒ်နောက်တွင် 'က' အစား နေရာပြဝိဘတ် '{locFix}' ကို သုံးနှုန်းရမည်။",
+                        $"နေရာပြဝိဘတ် ('~{locFix}')", "PART", true,
+                        "'တည်ရှိသည်' သည် တစ်နေရာ၌ တည်နေခြင်းကိုပြသော ကြိယာဖြစ်သဖြင့် ဒေသအမည်နောက်တွင် ထွက်ခွာရာ/ကတ္တားဝိဘတ် 'က' အစား နေရာပြဝိဘတ် 'တွင်/၌/မှာ' ကို သုံးရမည်။",
+                        "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (နေရာပြဝိဘတ် 'တွင်/၌/မှာ')");
+                }
+            }
+
+            if (ContainsMm(text, mmMask, "လာမည်"))
+            {
+                foreach (Match m in MissingCreakyAttributiveLamyiPattern.Matches(text))
+                {
+                    Group g = m.Groups["Target"];
+                    if (OverlapsExistingIssue(issues, g.Index, g.Length))
+                        continue;
+                    string unit = m.Groups["Unit"].Value;
+                    string fixedAttr = "လာမည့်" + unit;
+                    AddGrammarOrSpellingIssue(
+                        issues, g.Index, g.Length, g.Value, fixedAttr,
+                        ProofingIssueType.SpellingError,
+                        $"အချိန်ကာလပြနာမ် '{unit}' ရှေ့ရှိ အနာဂတ် နာမဝိသေသနပုဒ်တွင် အောက်မြစ်ပါဝင်လျက် '{fixedAttr}' ဟု ရေးသားရမည်။",
+                        $"နာမဝိသေသနပြု အောက်မြစ် ('{fixedAttr}')", "ADJ", true,
+                        $"နောက်ကပ်လျက် နာမ်ပုဒ် '{unit}' ကို အထူးပြုသော အနာဂတ်ပြပစ္စည်းဖြစ်သဖြင့် ဝါကျအဆုံးသတ် 'မည်' မဟုတ်ဘဲ နာမဝိသေသနပြု 'မည့်' ('လာမည့်{unit}') ဟု အောက်မြစ်ထည့်ရမည်။",
+                        "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ နှင့် မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း");
+                }
+            }
+
             if (hasMhar && hasKhae)
             {
                 foreach (Match m in BenefactiveMhaInsteadOfAtwetPattern.Matches(text))
@@ -3042,7 +3104,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 ScanMisusedKyaPluralVerb(text, trie, issues);
             }
 
-            // 4n. V42 Smart Accidental Repeated-Word Detection (Myanmar multi-syllable words & English function words)
+            // 4n. V42 Smart Accidental Repeated-Word Detection (Myanmar multi-syllable words, stuttered noun+case, & English function words)
             if (hasMyanmarSpaceMyanmar && MayContainAdjacentDuplicateMyanmarWord(text))
             {
                 foreach (Match m in DuplicatedMultiSyllableMyanmarWordPattern.Matches(text))
@@ -3054,6 +3116,16 @@ namespace MyanmarSpellChecker.Core.Nlp
                     if (!IsAccidentalDuplicateMyanmarWord(singleWord, trie))
                         continue;
 
+                    // Exempt measurement range expressions where digits were omitted/stripped before 'ခန့်/လောက်' (e.g. 'လက်မ လက်မ ခန့်')
+                    if (singleWord == "လက်မ" || singleWord == "မီတာ" || singleWord == "ကီလို")
+                    {
+                        int afterDup = m.Index + m.Length;
+                        while (afterDup < text.Length && (text[afterDup] == ' ' || text[afterDup] == '\t'))
+                            afterDup++;
+                        if (MatchesSliceAt(text, afterDup, "ခန့်") || MatchesSliceAt(text, afterDup, "ခန့်") || MatchesSliceAt(text, afterDup, "လောက်"))
+                            continue;
+                    }
+
                     AddGrammarOrSpellingIssue(
                         issues, m.Index, m.Length, m.Value, singleWord,
                         ProofingIssueType.OfficialStyleGrammarError,
@@ -3061,6 +3133,39 @@ namespace MyanmarSpellChecker.Core.Nlp
                         $"နှစ်ထပ်စာလုံး ဖယ်ရှားရန် ('{singleWord}')", "DUP", true,
                         $"စာရိုက်ရာတွင် သို့မဟုတ် ကူးယူရာတွင် '{singleWord}' ကို Space ခြား၍ နှစ်ကြိမ်ဆက်တိုက် ထပ်ရေးမိထားခြင်း ဖြစ်ပါသည်။",
                         "စာတမ်းတည်းဖြတ်ရေးနှင့် ရုံးသုံးမြန်မာစာ စံနှုန်း");
+                }
+
+                foreach (Match m in DuplicatedMyanmarWordWithCasePattern.Matches(text))
+                {
+                    if (OverlapsExistingIssue(issues, m.Index, m.Length))
+                        continue;
+
+                    string singleWord = m.Groups["Word"].Value;
+                    string singleNorm = UnicodeNormalizer.NormalizeCanonicalOrder(singleWord);
+                    if (singleNorm.StartsWith("တစ်", StringComparison.Ordinal) ||
+                        singleNorm.StartsWith("တ", StringComparison.Ordinal) && (singleNorm == "တဦး" || singleNorm == "တယောက်" || singleNorm == "တခု") ||
+                        singleNorm.StartsWith("အချင်း", StringComparison.Ordinal) ||
+                        singleNorm.StartsWith("အသီး", StringComparison.Ordinal) ||
+                        singleNorm.StartsWith("အမျိုး", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+                    bool okDupWithCase = IsAccidentalDuplicateMyanmarWord(singleWord, trie) ||
+                        (singleNorm.Length >= 4 && trie != null &&
+                         (trie.IsStandaloneWord(singleNorm) || trie.ContainsExactWord(singleNorm)) &&
+                         !SpaceSplitBoundaryParticles.Contains(singleNorm));
+                    if (!okDupWithCase)
+                        continue;
+
+                    string casePart = m.Groups["Case"].Value;
+                    string dedupWithCase = singleWord + casePart;
+                    AddGrammarOrSpellingIssue(
+                        issues, m.Index, m.Length, m.Value, dedupWithCase,
+                        ProofingIssueType.OfficialStyleGrammarError,
+                        $"နာမ်ပုဒ် '{singleWord}' ကို မတော်တဆ နှစ်ကြိမ်ထပ်ရိုက်မိနေပါသည် — '{dedupWithCase}' ဟု တစ်ကြိမ်သာ ရေးသားရမည်။",
+                        $"နှစ်ထပ်နာမ်ပုဒ် ဖယ်ရှားရန် ('{dedupWithCase}')", "DUP", true,
+                        $"နာမ်ဝိဘတ် '{casePart}' မတွဲမီ ရှေ့နာမ်ပုဒ် '{singleWord}' ကို Space ခြား၍ နှစ်ကြိမ်ထပ်ရေးမိထားခြင်း ဖြစ်ပါသည်။",
+                        "စာတမ်းတည်းဖြတ်ရေးနှင့် မြန်မာသဒ္ဒါ စံနှုန်း");
                 }
             }
 
@@ -3621,10 +3726,15 @@ namespace MyanmarSpellChecker.Core.Nlp
                         "တစ်ဆက်တည်းရေးရမည့် နောက်ဆက်တွဲပုဒ်", "PART", true);
                 }
 
-                if (styleMode == ProofingStyleMode.FormalOfficial && ContainsMm(text, mmMask, "အစိုးရ"))
+                if (ContainsMm(text, mmMask, "အစိုးရ"))
                 {
                     foreach (Match mGov in FormalCabinetBrokenCompoundPattern.Matches(text))
                     {
+                        if (styleMode != ProofingStyleMode.FormalOfficial &&
+                            !MatchesSliceAt(text, mGov.Index + mGov.Length, "ဆိုင်ရာ"))
+                        {
+                            continue;
+                        }
                         if (!OverlapsExistingIssue(issues, mGov.Index, mGov.Length))
                         {
                             AddGrammarOrSpellingIssue(
@@ -4967,8 +5077,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                     while (i < len && text[i] >= '\u1000' && text[i] <= '\u103F')
                         i++;
                     int wLen = i - start;
-                    if (wLen >= 4 && wLen == prevLen && text[start] == text[prevStart] &&
-                        string.CompareOrdinal(text, prevStart, text, start, wLen) == 0)
+                    if (prevLen >= 4 && wLen >= prevLen && text[start] == text[prevStart] &&
+                        string.CompareOrdinal(text, prevStart, text, start, prevLen) == 0)
                     {
                         return true;
                     }
