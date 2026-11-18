@@ -3790,5 +3790,34 @@ namespace MyanmarSpellChecker.Core.Tests
                 Assert.DoesNotContain("Myanmar Official Spell & Grammar Checker", psText, StringComparison.Ordinal);
             }
         }
+
+        [Fact]
+        public void V73_PowerPointCrossMachineResilienceAndStaApartment_Gate()
+        {
+            // 1. STA Apartment registration & DoNotDisableAddinList resiliency check
+            foreach (string installerRel in new[] { @"installer\Easy-Setup.ps1", @"installer\Register-DevAddIn.ps1" })
+            {
+                string ps = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, installerRel));
+                Assert.Contains("\"ThreadingModel\", \"Apartment\"", ps, StringComparison.Ordinal);
+                Assert.DoesNotContain("\"ThreadingModel\", \"Both\"", ps, StringComparison.Ordinal);
+                Assert.Contains("DoNotDisableAddinList", ps, StringComparison.Ordinal);
+            }
+
+            // 2. Self-healing UI-thread engine attachment, FRestricted HWND fallback, CreateCTP Type.Missing fallback & Protected View toast
+            string pptAddIn = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, @"src\MyanmarSpellChecker.PowerPointAddIn\PowerPointThisAddIn.cs"));
+            Assert.Contains("EnsureEngineAttachedOnUiThread", pptAddIn, StringComparison.Ordinal);
+            Assert.Contains("StartUiThreadEngineAttachWatchdog", pptAddIn, StringComparison.Ordinal);
+            Assert.Contains("ResolveWindowPaneSlotId", pptAddIn, StringComparison.Ordinal);
+            Assert.Contains("Type.Missing", pptAddIn, StringComparison.Ordinal);
+            Assert.Contains("IsProtectedViewOnly", pptAddIn, StringComparison.Ordinal);
+
+            // 3. 4-tier TryResolveActiveSlide & x64 zero-extended ToSafeHwnd check
+            string pptScanner = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, @"src\MyanmarSpellChecker.PowerPointAddIn\Interop\PowerPointDeckScannerAndToolkit.cs"));
+            Assert.Contains("TryResolveActiveSlide", pptScanner, StringComparison.Ordinal);
+
+            string pptGeom = File.ReadAllText(Path.Combine(TestPaths.RepoRoot, @"src\MyanmarSpellChecker.PowerPointAddIn\Interop\PowerPointSlideGeometryHelper.cs"));
+            Assert.Contains("ToSafeHwnd", pptGeom, StringComparison.Ordinal);
+            Assert.Contains("unchecked((long)(uint)rawHwnd)", pptGeom, StringComparison.Ordinal);
+        }
     }
 }

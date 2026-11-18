@@ -103,7 +103,8 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
                     return;
                 }
 
-                if (!(win?.View?.Slide is PowerPoint.Slide curSlide))
+                PowerPoint.Slide? curSlide = PowerPointDeckScannerAndToolkit.TryResolveActiveSlide(_pptApp);
+                if (curSlide == null)
                 {
                     CloseActivePopup();
                     return;

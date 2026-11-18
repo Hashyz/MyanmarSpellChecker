@@ -247,7 +247,7 @@ namespace MyanmarSpellChecker.ExcelAddIn
 
             _databaseFilePath = candidateDbs.Count > 0
                 ? candidateDbs[0].FullName
-                : Path.Combine(_appDataFolder, "mlc_thatpon.db");
+                : localAppDb;
 
             _pendingStyleMode = LoadSavedStyleMode();
             _pendingVisualUnderlines = LoadSavedVisualUnderlineSetting();

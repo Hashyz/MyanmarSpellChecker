@@ -35,6 +35,54 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
         [DllImport("user32.dll")]
         private static extern bool IsIconic(IntPtr hWnd);
 
+        public static IntPtr ToSafeHwnd(int rawHwnd)
+        {
+            if (rawHwnd == 0)
+                return IntPtr.Zero;
+
+            // Zero-extend 32-bit Win32 HWND handles on x64 Windows (never sign-extend negative Int32 handles >= 0x80000000!)
+            return IntPtr.Size == 8
+                ? new IntPtr(unchecked((long)(uint)rawHwnd))
+                : new IntPtr(rawHwnd);
+        }
+
+        public static IntPtr TryGetDocumentWindowHwnd(PowerPoint.Application? app, PowerPoint.DocumentWindow? win = null)
+        {
+            try
+            {
+                PowerPoint.DocumentWindow? targetWin = win ?? app?.ActiveWindow;
+                if (targetWin != null)
+                {
+                    int raw = targetWin.HWND;
+                    if (raw != 0)
+                        return ToSafeHwnd(raw);
+                }
+            }
+            catch
+            {
+                // DocumentWindow.HWND is marked FRestricted in PowerPoint's TypeLib and can throw on certain Office builds / x64 handles
+            }
+
+            try
+            {
+                uint currentPid = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+                IntPtr fg = GetForegroundWindow();
+                if (fg != IntPtr.Zero)
+                {
+                    GetWindowThreadProcessId(fg, out uint fgPid);
+                    if (fgPid == currentPid)
+                        return fg;
+                }
+
+                IntPtr mainHwnd = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+                if (mainHwnd != IntPtr.Zero)
+                    return mainHwnd;
+            }
+            catch { }
+
+            return IntPtr.Zero;
+        }
+
         public static bool IsPowerPointWindowForegroundAndNormal(PowerPoint.Application app, out IntPtr docWindowHwnd, out Rectangle windowScreenRect)
         {
             docWindowHwnd = IntPtr.Zero;
@@ -57,7 +105,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
                 if (vt != PowerPoint.PpViewType.ppViewNormal && vt != PowerPoint.PpViewType.ppViewSlide)
                     return false;
 
-                docWindowHwnd = new IntPtr(win.HWND);
+                docWindowHwnd = TryGetDocumentWindowHwnd(app, win);
                 if (docWindowHwnd == IntPtr.Zero || IsIconic(docWindowHwnd))
                     return false;
 
@@ -109,7 +157,8 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
             try
             {
                 PowerPoint.DocumentWindow win = app.ActiveWindow;
-                if (win == null || !(win.View?.Slide is PowerPoint.Slide curSlide) || curSlide.SlideID != item.SlideId)
+                PowerPoint.Slide? curSlide = PowerPointDeckScannerAndToolkit.TryResolveActiveSlide(app);
+                if (win == null || curSlide == null || curSlide.SlideID != item.SlideId)
                     return false;
 
                 if (!scanner.TryResolveLiveTextRange(item.Target, out _, out _, out var tr) || tr == null)
@@ -151,9 +200,12 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
                 if (win == null)
                     return string.Empty;
 
-                IntPtr hwnd = new IntPtr(win.HWND);
-                GetWindowRect(hwnd, out RECT r);
-                int slideId = (win.View?.Slide is PowerPoint.Slide sl) ? sl.SlideID : 0;
+                IntPtr hwnd = TryGetDocumentWindowHwnd(app, win);
+                RECT r = default;
+                if (hwnd != IntPtr.Zero)
+                    GetWindowRect(hwnd, out r);
+                PowerPoint.Slide? sl = PowerPointDeckScannerAndToolkit.TryResolveActiveSlide(app);
+                int slideId = sl != null ? sl.SlideID : 0;
                 int zoom = 100;
                 try { if (win.View != null) zoom = win.View.Zoom; } catch { }
                 int pxOriginX = 0, pxOriginY = 0;

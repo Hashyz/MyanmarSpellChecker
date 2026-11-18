@@ -389,7 +389,7 @@ try {
 
                 $inprocKey = $hkcuBase.CreateSubKey("Software\Classes\CLSID\$($c.Clsid)\InprocServer32")
                 $inprocKey.SetValue("", "mscoree.dll")
-                $inprocKey.SetValue("ThreadingModel", "Both")
+                $inprocKey.SetValue("ThreadingModel", "Apartment")
                 $inprocKey.SetValue("Class", $c.TypeName)
                 $inprocKey.SetValue("Assembly", $c.AsmFullName)
                 $inprocKey.SetValue("RuntimeVersion", "v4.0.30319")
@@ -441,9 +441,19 @@ try {
     }
 
     foreach ($ver in @("16.0", "15.0", "14.0")) {
-        foreach ($appName in @("Word", "Excel", "PowerPoint")) {
+        foreach ($appSpec in @(
+            @{ App = "Word";       ProgId = "MyanmarSpellChecker.WordAddIn" },
+            @{ App = "Excel";      ProgId = "MyanmarSpellChecker.ExcelAddIn" },
+            @{ App = "PowerPoint"; ProgId = "MyanmarSpellChecker.PowerPointAddIn" }
+        )) {
+            $appName = $appSpec.App
             Remove-Item -Path "HKCU:\Software\Microsoft\Office\$ver\$appName\Resiliency\DisabledItems" -Recurse -Force -ErrorAction SilentlyContinue
             Remove-Item -Path "HKCU:\Software\Microsoft\Office\$ver\$appName\Resiliency\CrashingAddinList" -Recurse -Force -ErrorAction SilentlyContinue
+            try {
+                $doNotDisable = "HKCU:\Software\Microsoft\Office\$ver\$appName\Resiliency\DoNotDisableAddinList"
+                New-Item -Path $doNotDisable -Force -ErrorAction SilentlyContinue | Out-Null
+                Set-ItemProperty -Path $doNotDisable -Name $appSpec.ProgId -Value 1 -Type DWord -ErrorAction SilentlyContinue
+            } catch { }
         }
     }
 

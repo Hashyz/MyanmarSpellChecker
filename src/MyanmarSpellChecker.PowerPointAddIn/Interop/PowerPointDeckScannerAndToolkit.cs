@@ -173,6 +173,75 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
             }
         }
 
+        public static bool IsProtectedViewOnly(PowerPoint.Application? app)
+        {
+            if (app == null)
+                return false;
+
+            try
+            {
+                int normalCount = app.Presentations != null ? app.Presentations.Count : 0;
+                if (normalCount > 0)
+                    return false;
+
+                return app.ProtectedViewWindows != null && app.ProtectedViewWindows.Count > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 4-tier active slide resolver across all PowerPoint views (Normal, Thumbnail rail, Notes, Slide Sorter, Outline)
+        /// so <c>View.Slide</c> throwing <c>0x80048240</c> when focus is in Thumbnails/Sorter never returns 0 targets.
+        /// </summary>
+        public static PowerPoint.Slide? TryResolveActiveSlide(PowerPoint.Application? app, PowerPoint.Presentation? pres = null)
+        {
+            if (app == null)
+                return null;
+
+            try
+            {
+                PowerPoint.DocumentWindow? win = null;
+                try { win = app.ActiveWindow; } catch { }
+
+                if (win != null)
+                {
+                    try
+                    {
+                        object? viewSlideObj = win.View?.Slide;
+                        if (viewSlideObj is PowerPoint.Slide directSlide)
+                            return directSlide;
+                        if (viewSlideObj is PowerPoint.SlideRange viewSlideRange && viewSlideRange.Count >= 1)
+                            return viewSlideRange[1];
+                    }
+                    catch { }
+
+                    try
+                    {
+                        PowerPoint.SlideRange? selSlides = win.Selection?.SlideRange;
+                        if (selSlides != null && selSlides.Count >= 1)
+                            return selSlides[1];
+                    }
+                    catch { }
+                }
+
+                PowerPoint.Presentation? targetPres = pres;
+                if (targetPres == null)
+                {
+                    try { targetPres = app.ActivePresentation; } catch { }
+                }
+                if (targetPres?.Slides != null && targetPres.Slides.Count >= 1)
+                {
+                    try { return targetPres.Slides[1]; } catch { }
+                }
+            }
+            catch { }
+
+            return null;
+        }
+
         public static bool IsPowerPointReadyForInterop(PowerPoint.Application? app)
         {
             if (app == null)
@@ -391,7 +460,8 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
                     return;
                 }
 
-                int slideId = (win?.View?.Slide is PowerPoint.Slide curSlide) ? curSlide.SlideID : 0;
+                PowerPoint.Slide? activePollSlide = TryResolveActiveSlide(_pptApp);
+                int slideId = activePollSlide != null ? activePollSlide.SlideID : 0;
                 PowerPoint.ShapeRange? sr = null;
                 try { sr = sel.HasChildShapeRange ? sel.ChildShapeRange : sel.ShapeRange; } catch { }
                 if (sr == null || sr.Count < 1)
@@ -634,10 +704,8 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
             {
                 if (!IsPowerPointReadyForInterop(_pptApp))
                     return 0;
-                PowerPoint.DocumentWindow win = _pptApp.ActiveWindow;
-                if (win == null || win.View == null)
-                    return 0;
-                if (win.View.Slide is PowerPoint.Slide slide)
+                PowerPoint.Slide? slide = TryResolveActiveSlide(_pptApp);
+                if (slide != null)
                     return slide.SlideID;
             }
             catch { }
@@ -668,9 +736,10 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
                         PowerPoint.PpSelectionType selType = PowerPoint.PpSelectionType.ppSelectionNone;
                         try { selType = sel.Type; } catch { }
 
+                        PowerPoint.Slide? curSlide = TryResolveActiveSlide(_pptApp, pres);
                         if ((selType == PowerPoint.PpSelectionType.ppSelectionText ||
                              selType == PowerPoint.PpSelectionType.ppSelectionShapes) &&
-                            win?.View?.Slide is PowerPoint.Slide curSlide)
+                            curSlide != null)
                         {
                             string slideTitle = GetSlideTitleSafe(curSlide);
                             PowerPoint.ShapeRange? sr = null;
@@ -715,7 +784,8 @@ namespace MyanmarSpellChecker.PowerPointAddIn.Interop
 
                 if (scope == PresentationScanScope.ActiveSlide)
                 {
-                    if (_pptApp.ActiveWindow?.View?.Slide is PowerPoint.Slide activeSlide)
+                    PowerPoint.Slide? activeSlide = TryResolveActiveSlide(_pptApp, pres);
+                    if (activeSlide != null)
                     {
                         ExtractAllFromSlide(activeSlide, presKey, targets);
                     }

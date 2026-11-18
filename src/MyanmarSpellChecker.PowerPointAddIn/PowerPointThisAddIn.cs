@@ -58,6 +58,11 @@ namespace MyanmarSpellChecker.PowerPointAddIn
         private int _startupTaskPaneRetries;
 
         private MyanmarProofingEngine? _proofingEngine;
+        private volatile MyanmarProofingEngine? _readyEngineFromWarmup;
+        private volatile string? _warmupErrorSummary;
+        private volatile bool _warmupCompleted;
+        private PresentationScanScope? _queuedScanAfterWarmup;
+        private Timer? _uiEngineAttachTimer;
         private PowerPointDeckScannerAndToolkit? _scannerToolkit;
         private PowerPointQuickFixController? _quickFixController;
         private PowerPointWavyUnderlineOverlay? _wavyOverlay;
@@ -250,9 +255,10 @@ namespace MyanmarSpellChecker.PowerPointAddIn
                 .ThenByDescending(fi => fi.Length)
                 .ToList();
 
+            // Always fall back to writable per-user %LocalAppData% (never read-only C:\ProgramData) if no pre-deployed DB was found
             _databaseFilePath = candidateDbs.Count > 0
                 ? candidateDbs[0].FullName
-                : Path.Combine(_appDataFolder, "mlc_thatpon.db");
+                : localAppDb;
 
             _pendingStyleMode = LoadSavedStyleMode();
             _pendingVisualUnderlines = LoadSavedBoolSetting(_visualUnderlineConfigPath, defaultVal: true);
@@ -266,7 +272,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
 
             Task.Run(() =>
             {
-                AddInDiagnostics.SafeExecute("AsyncEngineWarmup", () =>
+                try
                 {
                     SuppressOfficeMissingBurmeseBannerRegistry();
 
@@ -305,17 +311,36 @@ namespace MyanmarSpellChecker.PowerPointAddIn
 
                     _ = engine.CheckText("မြန်မာစာ ပီးပီ။");
 
-                    Control? marshaller = _uiMarshaller;
+                    // Publish ready engine BEFORE UI marshaling so self-healing UI-thread checkpoints attach even if _uiMarshaller was created on an MTA preloader thread!
+                    _activeDatabaseKey = activeDbKey;
+                    _loadedDbLastWriteUtc = loadedStampUtc;
+                    _readyEngineFromWarmup = engine;
+                    _warmupCompleted = true;
+
+                    Control? paneCtrl = null;
+                    try { paneCtrl = _windowTaskPanes.Values.FirstOrDefault().Control; } catch { }
+                    Control? marshaller = (paneCtrl != null && paneCtrl.IsHandleCreated && !paneCtrl.IsDisposed)
+                        ? paneCtrl
+                        : _uiMarshaller;
+
                     if (marshaller != null && marshaller.IsHandleCreated && !marshaller.IsDisposed)
                     {
-                        marshaller.BeginInvoke(new Action(() =>
+                        try
                         {
-                            _activeDatabaseKey = activeDbKey;
-                            _loadedDbLastWriteUtc = loadedStampUtc;
-                            AddInDiagnostics.SafeExecute("AttachEngineOnStaThread", () => AttachEngineOnStaThread(engine));
-                        }));
+                            marshaller.BeginInvoke(new Action(() =>
+                            {
+                                AddInDiagnostics.SafeExecute("AttachEngineOnStaThread", () => AttachEngineOnStaThread(engine));
+                            }));
+                        }
+                        catch { }
                     }
-                });
+                }
+                catch (Exception ex)
+                {
+                    _warmupErrorSummary = ex.Message;
+                    _warmupCompleted = true;
+                    AddInDiagnostics.LogException("AsyncEngineWarmup", ex);
+                }
             });
         }
 
@@ -336,9 +361,77 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             return string.Empty;
         }
 
+        private bool EnsureEngineAttachedOnUiThread(bool showFeedbackIfNotReady = false, PresentationScanScope? requestedScope = null)
+        {
+            if (_proofingEngine != null && _scannerToolkit != null)
+                return true;
+
+            MyanmarProofingEngine? ready = _readyEngineFromWarmup;
+            if (ready != null)
+            {
+                AddInDiagnostics.SafeExecute("EnsureEngineAttachedOnUiThread", () => AttachEngineOnStaThread(ready));
+                return _proofingEngine != null && _scannerToolkit != null;
+            }
+
+            if (!_warmupCompleted)
+            {
+                if (requestedScope.HasValue)
+                    _queuedScanAfterWarmup = requestedScope.Value;
+
+                if (showFeedbackIfNotReady)
+                {
+                    var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+                    ctrl?.ShowToastBanner(UiLocalizer.Pick(
+                        "⏳ Preparing offline Myanmar dictionary (1–2 seconds)... your action will run automatically!",
+                        "⏳ မြန်မာအဘိဓာန် အသင့်ပြင်နေပါသည် (၁-၂ စက္ကန့်)... ပြီးသည်နှင့် အလိုအလျောက် စစ်ဆေးပေးပါမည်။"));
+                }
+                return false;
+            }
+
+            // Synchronous emergency recovery on UI thread if background warmup failed earlier
+            try
+            {
+                if (!string.IsNullOrEmpty(_databaseFilePath) && File.Exists(_databaseFilePath))
+                {
+                    string key = !string.IsNullOrWhiteSpace(_activeDatabaseKey)
+                        ? _activeDatabaseKey
+                        : AntiTamperGuard.ReconstructProtectedFallbackKey();
+                    var repo = new EncryptedDictionaryRepository(_databaseFilePath);
+                    MyanmarTrie trie = repo.LoadIntoTrie(key);
+                    var recovered = new MyanmarProofingEngine(trie, _pendingStyleMode);
+                    recovered.LoadCustomDictionaryFile(_customDictFilePath);
+                    _activeDatabaseKey = key;
+                    _loadedDbLastWriteUtc = File.GetLastWriteTimeUtc(_databaseFilePath);
+                    _readyEngineFromWarmup = recovered;
+                    AttachEngineOnStaThread(recovered);
+                    if (_proofingEngine != null && _scannerToolkit != null)
+                        return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                _warmupErrorSummary = ex.Message;
+                AddInDiagnostics.LogException("EmergencySyncEngineLoad", ex);
+            }
+
+            if (showFeedbackIfNotReady)
+            {
+                var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
+                string detail = string.IsNullOrWhiteSpace(_warmupErrorSummary) ? _databaseFilePath : _warmupErrorSummary!;
+                ctrl?.ShowToastBanner(
+                    UiLocalizer.Pick(
+                        $"⚠ Offline dictionary (mlc_thatpon.db) could not be loaded ({detail}). Please re-run Install-EasyUser.bat.",
+                        $"⚠ အဘိဓာန်ဖိုင် (mlc_thatpon.db) ဖတ်ရှု၍မရပါ ({detail})။ Install-EasyUser.bat ကို ပြန်လည် Run ပေးပါ။"),
+                    isSuccess: false);
+            }
+            return false;
+        }
+
         private void AttachEngineOnStaThread(MyanmarProofingEngine engine)
         {
             if (!_isPrimaryInstance || _pptApp == null)
+                return;
+            if (_proofingEngine != null && _scannerToolkit != null)
                 return;
 
             engine.StyleMode = _pendingStyleMode;
@@ -361,12 +454,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
                 item => GetOrCreateActiveWindowTaskPaneControl(autoShow: false)?.HighlightCellIssueFromSheet(item),
                 () => _wavyOverlay?.NotifyPopupBoundsChanged());
 
-            _wavyOverlay = new PowerPointWavyUnderlineOverlay(
-                _pptApp,
-                _scannerToolkit,
-                () => _quickFixController?.ActivePopupScreenBounds);
-            IntPtr _ = _wavyOverlay.Handle;
-
+            // Wire scanner events BEFORE creating layered overlay so RDP / display-driver quirks never break Task Pane scanning!
             _scannerToolkit.ScanStarted += () =>
             {
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
@@ -398,6 +486,20 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             };
             _scannerToolkit.UndoStateChanged += SyncUndoStateAcrossTaskPanes;
             _scannerToolkit.RefreshEcoActiveState();
+
+            try
+            {
+                _wavyOverlay = new PowerPointWavyUnderlineOverlay(
+                    _pptApp,
+                    _scannerToolkit,
+                    () => _quickFixController?.ActivePopupScreenBounds);
+                IntPtr _ = _wavyOverlay.Handle;
+            }
+            catch (Exception overlayEx)
+            {
+                AddInDiagnostics.LogException("PowerPointWavyUnderlineOverlayInit", overlayEx);
+                _wavyOverlay = null;
+            }
 
             foreach (var kvp in _windowTaskPanes.Values)
             {
@@ -438,7 +540,16 @@ namespace MyanmarSpellChecker.PowerPointAddIn
 
             try
             {
-                if (PowerPointDeckScannerAndToolkit.IsPowerPointReadyForInterop(_pptApp))
+                if (_queuedScanAfterWarmup.HasValue)
+                {
+                    PresentationScanScope queued = _queuedScanAfterWarmup.Value;
+                    _queuedScanAfterWarmup = null;
+                    if (PowerPointDeckScannerAndToolkit.IsPowerPointReadyForInterop(_pptApp))
+                    {
+                        _scannerToolkit.RunScan(queued);
+                    }
+                }
+                else if (PowerPointDeckScannerAndToolkit.IsPowerPointReadyForInterop(_pptApp))
                 {
                     _scannerToolkit.QueueLiveActiveSlideScan();
                 }
@@ -451,20 +562,23 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             if (_pptApp == null)
                 return;
 
-            _pptApp.WindowSelectionChange += OnWindowSelectionChange;
-            _pptApp.WindowActivate += OnWindowActivate;
-            _pptApp.WindowDeactivate += OnWindowDeactivate;
-            _pptApp.PresentationOpen += OnPresentationOpen;
-            _pptApp.AfterNewPresentation += OnAfterNewPresentation;
-            _pptApp.PresentationClose += OnPresentationClose;
-            _pptApp.SlideShowBegin += OnSlideShowBegin;
-            _pptApp.SlideShowEnd += OnSlideShowEnd;
+            // Subscribe each dispinterface event independently so older Office / PIA versions missing newer events never abort the rest!
+            try { _pptApp.WindowSelectionChange += OnWindowSelectionChange; } catch { }
+            try { _pptApp.WindowActivate += OnWindowActivate; } catch { }
+            try { _pptApp.WindowDeactivate += OnWindowDeactivate; } catch { }
+            try { _pptApp.PresentationOpen += OnPresentationOpen; } catch { }
+            try { _pptApp.AfterNewPresentation += OnAfterNewPresentation; } catch { }
+            try { _pptApp.PresentationNewSlide += _ => OnWindowSelectionChange(null!); } catch { }
+            try { _pptApp.PresentationClose += OnPresentationClose; } catch { }
+            try { _pptApp.SlideShowBegin += OnSlideShowBegin; } catch { }
+            try { _pptApp.SlideShowEnd += OnSlideShowEnd; } catch { }
         }
 
         private void OnWindowSelectionChange(PowerPoint.Selection sel)
         {
             AddInDiagnostics.SafeExecute("OnWindowSelectionChange", () =>
             {
+                EnsureEngineAttachedOnUiThread();
                 if (_scannerToolkit == null || _scannerToolkit.IsSlideShowRunning)
                     return;
 
@@ -521,11 +635,17 @@ namespace MyanmarSpellChecker.PowerPointAddIn
                     }
                 }
 
+                EnsureEngineAttachedOnUiThread();
                 _scannerToolkit?.RefreshEcoActiveState();
                 _scannerToolkit?.NotifyVisualUnderlinesInvalidated();
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: false);
-                int winHwnd = 0;
-                try { winHwnd = wn?.HWND ?? _pptApp?.ActiveWindow?.HWND ?? 0; } catch { }
+                int winHwnd = ResolveWindowPaneSlotId(wn);
+                if (winHwnd == 0)
+                {
+                    PowerPoint.DocumentWindow? aw = null;
+                    try { aw = _pptApp?.ActiveWindow; } catch { }
+                    winHwnd = ResolveWindowPaneSlotId(aw);
+                }
                 if (winHwnd != 0 && _windowTaskPanes.TryGetValue(winHwnd, out var paneEntry) && !_settledPaneWidthHwnds.Contains(winHwnd))
                 {
                     ScheduleStartupPaneWidthEnforcement(winHwnd, paneEntry.Pane, paneEntry.Control, forceIfNarrow: false);
@@ -620,6 +740,31 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             _ribbonUi?.InvalidateControl("BtnUndoLastFix");
         }
 
+        private const int FallbackPaneSlotId = -1;
+
+        private int ResolveWindowPaneSlotId(PowerPoint.DocumentWindow? win)
+        {
+            if (win != null)
+            {
+                try
+                {
+                    int raw = win.HWND;
+                    if (raw != 0)
+                        return raw;
+                }
+                catch
+                {
+                    // DocumentWindow.HWND is FRestricted in PowerPoint TypeLib and can throw on certain Office builds / x64 handles
+                }
+                return FallbackPaneSlotId;
+            }
+
+            if (HasOpenPresentation())
+                return FallbackPaneSlotId;
+
+            return 0;
+        }
+
         private void PruneClosedWindowTaskPanes()
         {
             if (_pptApp == null || _windowTaskPanes.Count == 0)
@@ -627,13 +772,26 @@ namespace MyanmarSpellChecker.PowerPointAddIn
 
             try
             {
-                var liveHwnds = new HashSet<int>();
+                if (!HasOpenPresentation())
+                {
+                    var allKeys = _windowTaskPanes.Keys.ToList();
+                    foreach (int h in allKeys)
+                    {
+                        _windowTaskPanes.Remove(h);
+                        _settledPaneWidthHwnds.Remove(h);
+                        StopAndRemovePaneWidthTimer(h);
+                    }
+                    return;
+                }
+
+                var liveHwnds = new HashSet<int> { FallbackPaneSlotId };
                 foreach (PowerPoint.DocumentWindow win in _pptApp.Windows)
                 {
                     try
                     {
-                        if (win.HWND != 0)
-                            liveHwnds.Add(win.HWND);
+                        int id = ResolveWindowPaneSlotId(win);
+                        if (id != 0)
+                            liveHwnds.Add(id);
                     }
                     catch { }
                 }
@@ -679,10 +837,12 @@ namespace MyanmarSpellChecker.PowerPointAddIn
         {
             try
             {
-                int hwnd = _pptApp?.ActiveWindow?.HWND ?? 0;
-                if (hwnd != 0 && _windowTaskPanes.TryGetValue(hwnd, out var entry))
+                PowerPoint.DocumentWindow? win = null;
+                try { win = _pptApp?.ActiveWindow; } catch { }
+                int slotId = ResolveWindowPaneSlotId(win);
+                if (slotId != 0 && _windowTaskPanes.TryGetValue(slotId, out var entry))
                 {
-                    ScheduleStartupPaneWidthEnforcement(hwnd, entry.Pane, entry.Control, forceIfNarrow);
+                    ScheduleStartupPaneWidthEnforcement(slotId, entry.Pane, entry.Control, forceIfNarrow);
                 }
             }
             catch { }
@@ -696,8 +856,36 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             AddInDiagnostics.SafeExecute("CTPFactoryAvailable", () =>
             {
                 _ctpFactory = ctpFactoryInst;
+                EnsureEngineAttachedOnUiThread();
+                StartUiThreadEngineAttachWatchdog();
                 GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
             });
+        }
+
+        private void StartUiThreadEngineAttachWatchdog()
+        {
+            if (_proofingEngine != null && _scannerToolkit != null)
+                return;
+            if (_uiEngineAttachTimer != null)
+                return;
+
+            int ticks = 0;
+            _uiEngineAttachTimer = new Timer { Interval = 300 };
+            _uiEngineAttachTimer.Tick += (s, e) =>
+            {
+                ticks++;
+                try
+                {
+                    if (EnsureEngineAttachedOnUiThread() || ticks >= 60)
+                    {
+                        _uiEngineAttachTimer?.Stop();
+                        _uiEngineAttachTimer?.Dispose();
+                        _uiEngineAttachTimer = null;
+                    }
+                }
+                catch { }
+            };
+            _uiEngineAttachTimer.Start();
         }
 
         private PowerPointProofingTaskPaneControl? GetOrCreateActiveWindowTaskPaneControl(bool autoShow)
@@ -707,15 +895,24 @@ namespace MyanmarSpellChecker.PowerPointAddIn
 
             try
             {
+                EnsureEngineAttachedOnUiThread();
+
                 PowerPoint.DocumentWindow? activeWin = null;
                 try { activeWin = _pptApp.ActiveWindow; } catch { }
-                int hwnd = activeWin?.HWND ?? 0;
+                int hwnd = ResolveWindowPaneSlotId(activeWin);
 
-                if (activeWin == null || hwnd == 0)
+                if (hwnd == 0)
                 {
-                    if (autoShow)
+                    // If user explicitly clicked Show/Open on the Ribbon while in Protected View or empty shell, still create global pane if possible
+                    if (!autoShow)
+                        return null;
+
+                    if (!PowerPointDeckScannerAndToolkit.IsProtectedViewOnly(_pptApp))
+                    {
                         ScheduleDeferredTaskPaneCreation();
-                    return null;
+                        return null;
+                    }
+                    hwnd = FallbackPaneSlotId;
                 }
 
                 if (_windowTaskPanes.TryGetValue(hwnd, out var existing))
@@ -731,12 +928,22 @@ namespace MyanmarSpellChecker.PowerPointAddIn
                     return existing.Control;
                 }
 
-                Office.CustomTaskPane pane = _ctpFactory.CreateCTP(
-                    "MyanmarSpellChecker.PowerPointTaskPaneControl",
-                    UiLocalizer.Pick("Myanmar Spell Checker", "မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး"),
-                    activeWin);
+                string paneTitle = UiLocalizer.Pick("Myanmar Spell Checker", "မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး");
+                Office.CustomTaskPane pane;
+                try
+                {
+                    pane = activeWin != null
+                        ? _ctpFactory.CreateCTP("MyanmarSpellChecker.PowerPointTaskPaneControl", paneTitle, activeWin)
+                        : _ctpFactory.CreateCTP("MyanmarSpellChecker.PowerPointTaskPaneControl", paneTitle, Type.Missing);
+                }
+                catch
+                {
+                    // Fallback for PowerPoint 2013/2016/LTSC builds that reject DocumentWindow as ctpParentWindow
+                    pane = _ctpFactory.CreateCTP("MyanmarSpellChecker.PowerPointTaskPaneControl", paneTitle, Type.Missing);
+                }
 
                 var ctrl = (PowerPointProofingTaskPaneControl)pane.ContentControl;
+                StartUiThreadEngineAttachWatchdog();
                 if (_proofingEngine != null)
                 {
                     ctrl.SetLexiconStats(
@@ -848,7 +1055,9 @@ namespace MyanmarSpellChecker.PowerPointAddIn
                 if (!pane.Visible)
                     return;
 
-                IntPtr hostPtr = new IntPtr(winHwnd);
+                IntPtr hostPtr = winHwnd > 0
+                    ? PowerPointSlideGeometryHelper.ToSafeHwnd(winHwnd)
+                    : PowerPointSlideGeometryHelper.TryGetDocumentWindowHwnd(_pptApp);
                 int dpi = Math.Max(UiFontCache.GetWindowDpi(hostPtr), UiFontCache.GetEffectiveDpi(ctrl));
                 float dpiScale = Math.Max(1.0f, dpi / 96.0f);
                 int hostPhysicalWidth = UiFontCache.GetWindowWidthPx(hostPtr);
@@ -912,15 +1121,17 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             _startupTaskPaneTimer.Tick += (s, e) =>
             {
                 _startupTaskPaneRetries++;
+                EnsureEngineAttachedOnUiThread();
                 PowerPoint.DocumentWindow? win = null;
                 try { win = _pptApp?.ActiveWindow; } catch { }
-                if ((win != null && win.HWND != 0) || _startupTaskPaneRetries >= 25)
+                int slotId = ResolveWindowPaneSlotId(win);
+                if (slotId != 0 || _startupTaskPaneRetries >= 40)
                 {
                     _startupTaskPaneTimer?.Stop();
                     _startupTaskPaneTimer?.Dispose();
                     _startupTaskPaneTimer = null;
 
-                    if (win != null && win.HWND != 0)
+                    if (slotId != 0)
                     {
                         GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
                     }
@@ -1052,9 +1263,15 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             ctrl.RequestAddToDictionary += AddIssueWordToDictionaryFromUi;
 
             ctrl.RequestDictionarySearch += query =>
-                _proofingEngine?.SearchDictionary(query, 45) ?? new List<DictionaryEntry>();
+            {
+                EnsureEngineAttachedOnUiThread();
+                return _proofingEngine?.SearchDictionary(query, 45) ?? new List<DictionaryEntry>();
+            };
             ctrl.RequestIsEngineReady += () =>
-                _proofingEngine != null;
+            {
+                EnsureEngineAttachedOnUiThread();
+                return _proofingEngine != null;
+            };
             ctrl.RequestGetEngineMutationVersion += () =>
                 _proofingEngine?.MutationVersion ?? 0L;
             ctrl.RequestPrewarmDictionary += () =>
@@ -1129,7 +1346,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             // Presentation Toolkit Actions
             ctrl.RequestConvertLegacyFonts += selectionOnly =>
             {
-                if (_scannerToolkit == null) return;
+                if (!EnsureEngineAttachedOnUiThread(showFeedbackIfNotReady: true) || _scannerToolkit == null) { ctrl.SetScanningState(false); return; }
                 PowerPointToolkitOutcome res;
                 try { res = _scannerToolkit.ConvertLegacyFontsAndUnifyPyidaungsu(selectionOnly, convertLegacyEncoding: true); }
                 finally { ctrl.SetScanningState(false); }
@@ -1138,7 +1355,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             };
             ctrl.RequestUnifyMyanmarFonts += selectionOnly =>
             {
-                if (_scannerToolkit == null) return;
+                if (!EnsureEngineAttachedOnUiThread(showFeedbackIfNotReady: true) || _scannerToolkit == null) { ctrl.SetScanningState(false); return; }
                 PowerPointToolkitOutcome res;
                 try { res = _scannerToolkit.ConvertLegacyFontsAndUnifyPyidaungsu(selectionOnly, convertLegacyEncoding: false); }
                 finally { ctrl.SetScanningState(false); }
@@ -1147,7 +1364,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             };
             ctrl.RequestInjectSmartSlideZwsp += selectionOnly =>
             {
-                if (_scannerToolkit == null) return;
+                if (!EnsureEngineAttachedOnUiThread(showFeedbackIfNotReady: true) || _scannerToolkit == null) { ctrl.SetScanningState(false); return; }
                 PowerPointToolkitOutcome res;
                 try { res = _scannerToolkit.ApplySmartSlideLineWrapZwsp(selectionOnly, stripAllInsteadOfInject: false); }
                 finally { ctrl.SetScanningState(false); }
@@ -1156,7 +1373,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             };
             ctrl.RequestStripAllZwsp += selectionOnly =>
             {
-                if (_scannerToolkit == null) return;
+                if (!EnsureEngineAttachedOnUiThread(showFeedbackIfNotReady: true) || _scannerToolkit == null) { ctrl.SetScanningState(false); return; }
                 PowerPointToolkitOutcome res;
                 try { res = _scannerToolkit.ApplySmartSlideLineWrapZwsp(selectionOnly, stripAllInsteadOfInject: true); }
                 finally { ctrl.SetScanningState(false); }
@@ -1165,7 +1382,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             };
             ctrl.RequestRepairBrokenPdfText += selectionOnly =>
             {
-                if (_scannerToolkit == null) return;
+                if (!EnsureEngineAttachedOnUiThread(showFeedbackIfNotReady: true) || _scannerToolkit == null) { ctrl.SetScanningState(false); return; }
                 PowerPointToolkitOutcome res;
                 try { res = _scannerToolkit.RepairBrokenPdfInScope(selectionOnly); }
                 finally { ctrl.SetScanningState(false); }
@@ -1174,13 +1391,13 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             };
             ctrl.RequestPasteCleanClipboard += () =>
             {
-                if (_scannerToolkit == null) return;
+                if (!EnsureEngineAttachedOnUiThread(showFeedbackIfNotReady: true) || _scannerToolkit == null) return;
                 PowerPointToolkitOutcome res = _scannerToolkit.PasteAndRepairClipboardIntoActiveSlide();
                 ctrl.ShowToastBanner(res.UserMessage, res.Success);
             };
             ctrl.RequestFormatNumerals += (toMyanmar, selectionOnly) =>
             {
-                if (_scannerToolkit == null) return;
+                if (!EnsureEngineAttachedOnUiThread(showFeedbackIfNotReady: true) || _scannerToolkit == null) { ctrl.SetScanningState(false); return; }
                 PowerPointToolkitOutcome res;
                 try { res = _scannerToolkit.ApplySlideNumeralStyle(selectionOnly, toMyanmar); }
                 finally { ctrl.SetScanningState(false); }
@@ -1188,7 +1405,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             };
             ctrl.RequestRewriteToOfficialStyle += selectionOnly =>
             {
-                if (_scannerToolkit == null) return;
+                if (!EnsureEngineAttachedOnUiThread(showFeedbackIfNotReady: true) || _scannerToolkit == null) { ctrl.SetScanningState(false); return; }
                 PowerPointToolkitOutcome res;
                 try { res = _scannerToolkit.RewriteOfficialProseInScope(selectionOnly); }
                 finally { ctrl.SetScanningState(false); }
@@ -1197,7 +1414,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             };
             ctrl.RequestFormatPunctuation += selectionOnly =>
             {
-                if (_scannerToolkit == null) return;
+                if (!EnsureEngineAttachedOnUiThread(showFeedbackIfNotReady: true) || _scannerToolkit == null) { ctrl.SetScanningState(false); return; }
                 PowerPointToolkitOutcome res;
                 try { res = _scannerToolkit.ApplyOfficialSlideTypography(selectionOnly, convertDigitsToMyanmar: false); }
                 finally { ctrl.SetScanningState(false); }
@@ -1205,7 +1422,10 @@ namespace MyanmarSpellChecker.PowerPointAddIn
                 ctrl.ShowToastBanner(res.UserMessage, res.Success);
             };
             ctrl.RequestRefreshQualityReport += () =>
-                _scannerToolkit?.BuildActivePresentationQualityReport(forceRefresh: true) ?? new DocumentQualityReport();
+            {
+                EnsureEngineAttachedOnUiThread();
+                return _scannerToolkit?.BuildActivePresentationQualityReport(forceRefresh: true) ?? new DocumentQualityReport();
+            };
             ctrl.RequestExportAuditWorkbook += () =>
                 ExecuteExportPowerPointProofingReport(ProofingReportExportFormat.PrintableA4WordDocument);
             ctrl.RequestExportProofingReport += ExecuteExportPowerPointProofingReport;
@@ -1517,7 +1737,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
 
         private void ExecuteFixAllInActiveScope(IssueFilterMode filterMode = IssueFilterMode.All)
         {
-            if (_scannerToolkit == null)
+            if (!EnsureEngineAttachedOnUiThread(showFeedbackIfNotReady: true) || _scannerToolkit == null)
                 return;
 
             _activeReviewFilterMode = filterMode;
@@ -1656,11 +1876,35 @@ namespace MyanmarSpellChecker.PowerPointAddIn
 
         private void TriggerScanWithDbHotReload(PresentationScanScope scope)
         {
-            if (_proofingEngine == null || _scannerToolkit == null)
-                return;
-
             var activeCtrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
             activeCtrl?.SetScanScope(scope);
+
+            if (!EnsureEngineAttachedOnUiThread(showFeedbackIfNotReady: true, requestedScope: scope) ||
+                _proofingEngine == null ||
+                _scannerToolkit == null)
+            {
+                return;
+            }
+
+            if (PowerPointDeckScannerAndToolkit.IsProtectedViewOnly(_pptApp))
+            {
+                activeCtrl?.ShowToastBanner(
+                    UiLocalizer.Pick(
+                        "⚠ Presentation is open in Protected View (Read-Only). Click 'Enable Editing' on PowerPoint's yellow bar at the top, then click Scan!",
+                        "⚠ ဆလိုက်ဖိုင်သည် Protected View (Read-Only) ဖြင့် ပွင့်နေပါသည်။ PowerPoint အပေါ်ဘက်ရှိ 'Enable Editing' ကို အရင်နှိပ်ပြီးမှ Scan ပြန်နှိပ်ပါ။"),
+                    isSuccess: false);
+                return;
+            }
+
+            if (!PowerPointDeckScannerAndToolkit.IsPowerPointReadyForInterop(_pptApp))
+            {
+                activeCtrl?.ShowToastBanner(
+                    UiLocalizer.Pick(
+                        "⚠ Please open or create a PowerPoint presentation slide first (and exit Slide Show if active), then click Scan.",
+                        "⚠ ကျေးဇူးပြု၍ PowerPoint ဆလိုက်တစ်ခု အရင်ဖွင့်ပြီးမှ Scan နှိပ်ပါ။"),
+                    isSuccess: false);
+                return;
+            }
 
             if (!string.IsNullOrEmpty(_customDictFilePath) && File.Exists(_customDictFilePath))
             {
@@ -2448,9 +2692,13 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             if (_pptApp == null)
                 return false;
 
-            int hwnd = 0;
-            try { hwnd = _pptApp.ActiveWindow?.HWND ?? 0; } catch { }
-            return hwnd != 0 && _windowTaskPanes.TryGetValue(hwnd, out var entry) && entry.Pane.Visible;
+            PowerPoint.DocumentWindow? win = null;
+            try { win = _pptApp.ActiveWindow; } catch { }
+            int hwnd = ResolveWindowPaneSlotId(win);
+            if (hwnd != 0 && _windowTaskPanes.TryGetValue(hwnd, out var entry))
+                return entry.Pane.Visible;
+
+            return _windowTaskPanes.TryGetValue(FallbackPaneSlotId, out var fallbackEntry) && fallbackEntry.Pane.Visible;
         }
 
         public void OnRibbonScanActiveSlide(Office.IRibbonControl control)
@@ -2493,15 +2741,25 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             AddInDiagnostics.SafeExecute("OnRibbonToggleTaskPane", () =>
             {
                 if (_pptApp == null) return;
-                int hwnd = 0;
-                try { hwnd = _pptApp.ActiveWindow?.HWND ?? 0; } catch { }
+                EnsureEngineAttachedOnUiThread();
+                PowerPoint.DocumentWindow? win = null;
+                try { win = _pptApp.ActiveWindow; } catch { }
+                int hwnd = ResolveWindowPaneSlotId(win);
 
-                if (_windowTaskPanes.TryGetValue(hwnd, out var entry))
+                if (hwnd != 0 && _windowTaskPanes.TryGetValue(hwnd, out var entry))
                 {
                     entry.Pane.Visible = pressed;
                     if (pressed)
                     {
                         ScheduleStartupPaneWidthEnforcement(hwnd, entry.Pane, entry.Control, forceIfNarrow: true);
+                    }
+                }
+                else if (_windowTaskPanes.TryGetValue(FallbackPaneSlotId, out var fbEntry))
+                {
+                    fbEntry.Pane.Visible = pressed;
+                    if (pressed)
+                    {
+                        ScheduleStartupPaneWidthEnforcement(FallbackPaneSlotId, fbEntry.Pane, fbEntry.Control, forceIfNarrow: true);
                     }
                 }
                 else if (pressed)
@@ -2531,7 +2789,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
         {
             AddInDiagnostics.SafeExecute("OnRibbonConvertFonts", () =>
             {
-                if (_scannerToolkit == null) return;
+                if (!EnsureEngineAttachedOnUiThread(showFeedbackIfNotReady: true) || _scannerToolkit == null) return;
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
                 var res = _scannerToolkit.ConvertLegacyFontsAndUnifyPyidaungsu(selectionOnly: false, convertLegacyEncoding: true);
                 ctrl?.UpdateQualityReport(null);
@@ -2543,7 +2801,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
         {
             AddInDiagnostics.SafeExecute("OnRibbonUnifyMyanmarFonts", () =>
             {
-                if (_scannerToolkit == null) return;
+                if (!EnsureEngineAttachedOnUiThread(showFeedbackIfNotReady: true) || _scannerToolkit == null) return;
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
                 var res = _scannerToolkit.ConvertLegacyFontsAndUnifyPyidaungsu(selectionOnly: false, convertLegacyEncoding: false);
                 ctrl?.UpdateQualityReport(null);
@@ -2555,7 +2813,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
         {
             AddInDiagnostics.SafeExecute("OnRibbonSmartSlideZwsp", () =>
             {
-                if (_scannerToolkit == null) return;
+                if (!EnsureEngineAttachedOnUiThread(showFeedbackIfNotReady: true) || _scannerToolkit == null) return;
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
                 var res = _scannerToolkit.ApplySmartSlideLineWrapZwsp(selectionOnly: false, stripAllInsteadOfInject: false);
                 ctrl?.UpdateQualityReport(null);
@@ -2567,7 +2825,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
         {
             AddInDiagnostics.SafeExecute("OnRibbonRepairBrokenPdf", () =>
             {
-                if (_scannerToolkit == null) return;
+                if (!EnsureEngineAttachedOnUiThread(showFeedbackIfNotReady: true) || _scannerToolkit == null) return;
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
                 var res = _scannerToolkit.RepairBrokenPdfInScope(selectionOnly: false);
                 ctrl?.UpdateQualityReport(null);
@@ -2579,7 +2837,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
         {
             AddInDiagnostics.SafeExecute("OnRibbonNumeralsToMyanmar", () =>
             {
-                if (_scannerToolkit == null) return;
+                if (!EnsureEngineAttachedOnUiThread(showFeedbackIfNotReady: true) || _scannerToolkit == null) return;
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
                 var res = _scannerToolkit.ApplySlideNumeralStyle(selectionOnly: false, toMyanmarDigits: true);
                 ctrl?.ShowToastBanner(res.UserMessage, res.Success);
@@ -2590,7 +2848,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
         {
             AddInDiagnostics.SafeExecute("OnRibbonCleanPunctuation", () =>
             {
-                if (_scannerToolkit == null) return;
+                if (!EnsureEngineAttachedOnUiThread(showFeedbackIfNotReady: true) || _scannerToolkit == null) return;
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
                 var res = _scannerToolkit.ApplyOfficialSlideTypography(selectionOnly: false, convertDigitsToMyanmar: false);
                 ctrl?.UpdateQualityReport(null);
@@ -2602,6 +2860,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
         {
             AddInDiagnostics.SafeExecute("OnRibbonOpenToolkitPane", () =>
             {
+                EnsureEngineAttachedOnUiThread();
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
                 ctrl?.OpenToolkitTab();
             });
@@ -2611,7 +2870,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
         {
             AddInDiagnostics.SafeExecute("OnRibbonRewriteOfficialProse", () =>
             {
-                if (_scannerToolkit == null) return;
+                if (!EnsureEngineAttachedOnUiThread(showFeedbackIfNotReady: true) || _scannerToolkit == null) return;
                 var ctrl = GetOrCreateActiveWindowTaskPaneControl(autoShow: true);
                 var res = _scannerToolkit.RewriteOfficialProseInScope(selectionOnly: false);
                 ctrl?.UpdateQualityReport(null);
@@ -2673,6 +2932,10 @@ namespace MyanmarSpellChecker.PowerPointAddIn
                 _startupTaskPaneTimer?.Dispose();
                 _startupTaskPaneTimer = null;
 
+                _uiEngineAttachTimer?.Stop();
+                _uiEngineAttachTimer?.Dispose();
+                _uiEngineAttachTimer = null;
+
                 foreach (int h in _paneWidthTimers.Keys.ToList())
                 {
                     StopAndRemovePaneWidthTimer(h);
@@ -2712,7 +2975,10 @@ namespace MyanmarSpellChecker.PowerPointAddIn
         }
 
         public void OnAddInsUpdate(ref Array custom) { }
-        public void OnStartupComplete(ref Array custom) { }
+        public void OnStartupComplete(ref Array custom)
+        {
+            AddInDiagnostics.SafeExecute("OnStartupComplete", () => EnsureEngineAttachedOnUiThread());
+        }
         public void OnBeginShutdown(ref Array custom) { }
     }
 }
