@@ -142,6 +142,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         private readonly TableLayoutPanel _customToolbar;
 
         // Proofing Toolbar Controls
+        private readonly Button _btnStyleCasual;
         private readonly Button _btnStyleGeneral;
         private readonly Button _btnStyleFormal;
         private readonly Label _lblStyleHint;
@@ -512,28 +513,32 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             for (int i = 0; i < 8; i++)
                 _proofingToolbar.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            // Style mode toggle row
+            // Style mode toggle row (Casual | Standard | Official)
             _styleRow = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 2,
+                ColumnCount = 3,
                 RowCount = 1,
                 BackColor = Color.FromArgb(241, 244, 250),
                 Padding = new Padding(2),
                 Margin = new Padding(0, 0, 0, 2)
             };
-            _styleRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-            _styleRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            _styleRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
+            _styleRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.34F));
+            _styleRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
             _styleRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            _btnStyleGeneral = CreateTabSegmentButton("အထွေထွေ စံသတ်ပုံ");
-            _btnStyleFormal = CreateTabSegmentButton("ရုံးသုံး / စာပေဟန်");
+            _btnStyleCasual = CreateTabSegmentButton("အရပ်သုံး");
+            _btnStyleGeneral = CreateTabSegmentButton("စံသတ်ပုံ");
+            _btnStyleFormal = CreateTabSegmentButton("ရုံးသုံး");
+            _btnStyleCasual.Click += (s, e) => OnUserSelectedStyleMode(ProofingStyleMode.ColloquialPermissive);
             _btnStyleGeneral.Click += (s, e) => OnUserSelectedStyleMode(ProofingStyleMode.GeneralStandard);
             _btnStyleFormal.Click += (s, e) => OnUserSelectedStyleMode(ProofingStyleMode.FormalOfficial);
-            _styleRow.Controls.Add(_btnStyleGeneral, 0, 0);
-            _styleRow.Controls.Add(_btnStyleFormal, 1, 0);
+            _styleRow.Controls.Add(_btnStyleCasual, 0, 0);
+            _styleRow.Controls.Add(_btnStyleGeneral, 1, 0);
+            _styleRow.Controls.Add(_btnStyleFormal, 2, 0);
 
             _lblStyleHint = new Label
             {
@@ -1363,8 +1368,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _btnTabToolkit.Text = UiLocalizer.Pick("Toolkit", "ကိရိယာ");
             _btnTabCustom.Text = UiLocalizer.Pick("Custom", "မှတ်သားစာ");
 
-            _btnStyleGeneral.Text = UiLocalizer.Pick("General Standard", "အထွေထွေ စံသတ်ပုံ");
-            _btnStyleFormal.Text = UiLocalizer.Pick("Formal / Official", "ရုံးသုံး / စာပေဟန်");
+            _btnStyleCasual.Text = UiLocalizer.Pick("Casual", "အရပ်သုံး");
+            _btnStyleGeneral.Text = UiLocalizer.Pick("Standard", "စံသတ်ပုံ");
+            _btnStyleFormal.Text = UiLocalizer.Pick("Official", "ရုံးသုံး");
 
             _btnScopeSheet.Text = UiLocalizer.Pick("Active Sheet", "လက်ရှိ Sheet");
             _btnScopeSelection.Text = UiLocalizer.Pick("Selection", "ရွေးထားကွက်");
@@ -1963,6 +1969,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 _btnTabCustom.Height = tabBtnH;
 
                 int segBtnH = MeasureSingleLineButtonHeight(_fontSmallBold, 11);
+                _btnStyleCasual.Height = segBtnH;
                 _btnStyleGeneral.Height = segBtnH;
                 _btnStyleFormal.Height = segBtnH;
                 _lblStyleHint.Height = MeasureSingleLineLabelHeight(_fontBrandStats, 5);

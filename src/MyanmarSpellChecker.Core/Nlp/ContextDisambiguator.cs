@@ -901,6 +901,20 @@ namespace MyanmarSpellChecker.Core.Nlp
                 "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ စသတ် ('စ်') ဖြင့် 'ဘတ်စ်ကား' ဟု ရေးသားရမည်။"
             ),
             new CollocationRule(
+                @"(?:(?<=(?:စာတိုက်|လျှို့ဝှက်|ဘား|ကျူအာ|သင်္ကေတ|ဧရိယာ)[ \t]*)(?<Target>ကုတ်)(?!အင်္ကျီ|ခြစ်|ဖဲ့|ကော်|ဟည်း)|(?<![\u1000-\u103F])(?<Target>ကုတ်)(?=[ \t]*နံပါတ်))",
+                "Target",
+                "ကုဒ်",
+                "ကုဒ် (သင်္ကေတအမှတ် Code)",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ သင်္ကေတအမှတ်အသား (Code) အနက်တွင် ဒထွေးသတ်ဖြင့် 'ကုဒ်' ဟု ရေးသားရမည် ('ကုတ်' သည် ကုတ်အင်္ကျီ/ကုတ်ခြစ်သည် ဖြစ်သည်)။"
+            ),
+            new CollocationRule(
+                @"(?<Target>(?:(?:တစ်ယောက်|တယောက်|တစ်ဦး|တဦး|တစ်ခါ|တခါ|တစ်မျိုး|တမျိုး|တစ်သံ|တစ်သဘော)ထဲ(?!မှာ|တွင်|၌|သို့|ကနေ|မှ)|(?:ငယ်ငယ်|ဟိုးအရင်|အရင်|ရှေး|မနက်|မနေ့|အစ|စစချင်း)က?ထဲက(?![\u1000-\u103F])))",
+                "Target",
+                "",
+                "တည်း (အနက်ကန့်သတ်ပစ္စည်း '~တည်း' / '~ကတည်းက')",
+                "မြန်မာသဒ္ဒါနှင့် သတ်ပုံကျမ်းအရ တစ်ခု/တစ်ဦးသာ ဟူသော ကန့်သတ်အနက်နှင့် အချိန်အစပြ '~ကတည်းက' အနက်တို့တွင် 'တည်း' ဟု ရေးသားရမည် ('ထဲ' သည် အတွင်းနေရာပြပုဒ် ဖြစ်သည်)။"
+            ),
+            new CollocationRule(
                 @"(?<![\u1000-\u103F])(?<Target>ဘန်)(?=မှာ\s*ငွေ|အကောင့်|လုပ်ငန်း)",
                 "Target",
                 "ဘဏ်",
@@ -4137,6 +4151,332 @@ namespace MyanmarSpellChecker.Core.Nlp
                     }
                 }
             }
+
+            // Tier 3 (v71 Hybrid): Two-Tier Statistical Bigram + UPOS-Trigram Intruder-Word Detector (Review-Only Warning ☐)
+            DetectStatisticalIntruderWords(text, trie, wordTokens, existingIssues, issues);
+        }
+
+        private static readonly HashSet<string> IntruderBareActionVerbs = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "စား", "သောက်", "ထိုင်", "အိပ်", "ခုန်", "ကိုက်", "ကန်"
+        };
+
+        private static readonly HashSet<string> IntruderConcreteCountNouns = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "ကြောင်", "ခွေး", "ပန်းသီး", "စားပွဲ", "ထိုင်ခုံ", "ကုလားထိုင်", "ဖိနပ်", "ဦးထုပ်", "ထမင်း", "ကျောင်း", "ပွဲ", "ကား", "မြို့"
+        };
+
+        private static HashSet<string> BuildCanonicalSet(params string[] items)
+        {
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < items.Length; i++)
+            {
+                set.Add(UnicodeNormalizer.NormalizeCanonicalOrder(items[i]));
+            }
+            return set;
+        }
+
+        private static readonly HashSet<string> AbstractTopicHeadNouns = BuildCanonicalSet(
+            "နည်းပညာ", "စွမ်းအင်", "စွမ်းအင်သစ်", "သိပ္ပံ", "သိပ္ပံပညာ", "ဒီမိုကရေစီ", "စီးပွားရေး", "ကျန်းမာရေး",
+            "ပညာရေး", "ယဉ်ကျေးမှု", "စာနာမှု", "မေတ္တာတရား", "လစာ", "သတ္တုလုပ်ငန်း", "ခံစားချက်", "ပျော်ရွှင်မှု"
+        );
+
+        private static readonly HashSet<string> NonSelectingIntransitiveOrMentalHeads = BuildCanonicalSet(
+            "နာကျင်", "နုတ်ထွက်", "ထွက်ပြေး", "သစ္စာရှိ", "စိတ်ဝင်စား", "စိတ်ဝင်စားစရာ", "မျှော်လင့်", "မျှော်လင့်ချက်",
+            "အားတက်", "စိတ်လှုပ်ရှား", "ဝမ်းသာ", "ဝမ်းနည်း", "ပျော်ရွှင်", "စာရေးစွမ်းရည်", "အသစ်", "အဟောင်း",
+            "ထားရှိ", "ခံစား", "ရေရှည်", "ရေရှည်တည်တံ့", "သိရှိ", "နားလည်", "သိရှိနားလည်"
+        );
+
+        private static bool IsPureHorizontalSpaceBetween(string text, ClauseWordToken left, ClauseWordToken right)
+        {
+            int st = left.EndIndex;
+            int en = right.StartIndex;
+            if (en <= st || en - st > 3)
+                return false;
+            for (int k = st; k < en; k++)
+            {
+                char c = text[k];
+                if (c != ' ' && c != '\t')
+                    return false;
+            }
+            return true;
+        }
+
+        private static bool EndsWithClosedCaseOrClauseLinker(string norm)
+        {
+            if (string.IsNullOrEmpty(norm))
+                return false;
+            return norm == "က" || norm == "ဟာ" || norm == "သည်" || norm == "ကို" || norm == "ကနေ" || norm == "မှ" ||
+                   norm == "မှာ" || norm == "တွင်" || norm == "၌" || norm == "ပါက" || norm == "လျှင်" || norm == "ရင်" ||
+                   norm == "ပြီး" || norm == "၍" || norm == "ဖြင့်" || norm == "အတွက်" || norm == "ကြောင့်" ||
+                   norm == "တဲ့" || norm == "သော" || norm == "သည့်" ||
+                   (norm.Length >= 3 && (
+                       norm.EndsWith("ကနေ", StringComparison.Ordinal) ||
+                       norm.EndsWith("ပါက", StringComparison.Ordinal) ||
+                       norm.EndsWith("ပြီး", StringComparison.Ordinal) ||
+                       norm.EndsWith("ဖြင့်", StringComparison.Ordinal) ||
+                       norm.EndsWith("တွေ", StringComparison.Ordinal) ||
+                       norm.EndsWith("များ", StringComparison.Ordinal)));
+        }
+
+        private static bool IsVerbalFollowerOrTemporalNominal(string norm)
+        {
+            if (string.IsNullOrEmpty(norm))
+                return false;
+            return norm == "ပြီး" || norm == "နေ" || norm == "တယ်" || norm == "သည်" || norm == "မယ်" || norm == "မည်" ||
+                   norm == "ပါ" || norm == "ပါတယ်" || norm == "ပါသည်" || norm == "ကြ" || norm == "နိုင်" || norm == "ချင်" ||
+                   norm == "ဖို့" || norm == "ရန်" || norm == "စရာ" || norm == "ဘူး" || norm == "တော့" || norm == "သေး" ||
+                   norm == "လျက်" || norm == "ရင်း" || norm == "ကာ" || norm == "၍" || norm == "သော" || norm == "သည့်" ||
+                   norm == "တဲ့" || norm == "အပြီး" || norm == "အပြန်" || norm == "အထွက်" || norm == "အဝင်" ||
+                   norm == "စဉ်" || norm == "ခိုက်" || norm == "သောက်" || norm == "စား";
+        }
+
+        private static bool MatchesNonSelectingHead(string norm)
+        {
+            if (string.IsNullOrEmpty(norm))
+                return false;
+            if (NonSelectingIntransitiveOrMentalHeads.Contains(norm))
+                return true;
+            foreach (string head in NonSelectingIntransitiveOrMentalHeads)
+            {
+                if (norm.StartsWith(head, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
+        private static void DetectStatisticalIntruderWords(
+            string text,
+            MyanmarTrie trie,
+            List<ClauseWordToken> wordTokens,
+            List<ProofingIssue> existingIssues,
+            List<ProofingIssue> issues)
+        {
+            int n = wordTokens.Count;
+            if (n < 3)
+                return;
+
+            for (int i = 1; i < n - 1; i++)
+            {
+                ClauseWordToken wPrev = wordTokens[i - 1];
+                ClauseWordToken wCur = wordTokens[i];
+                ClauseWordToken wNext = wordTokens[i + 1];
+
+                if (wCur.IsProtectedName || wNext.IsProtectedName ||
+                    wPrev.ClauseId != wCur.ClauseId || wCur.ClauseId != wNext.ClauseId ||
+                    wCur.SyllableCount > 2 ||
+                    OverlapsExisting(existingIssues, wCur.StartIndex, wCur.Length) ||
+                    OverlapsExisting(issues, wCur.StartIndex, wCur.Length))
+                {
+                    continue;
+                }
+
+                // Never flag if wCur has any content-word corpus bigram or lexical compound with either neighbor
+                bool prevGluedToLeft = i >= 2 &&
+                                       wordTokens[i - 2].ClauseId == wCur.ClauseId &&
+                                       wordTokens[i - 2].EndIndex == wPrev.StartIndex;
+                bool nextGluedToRight = i + 2 < n &&
+                                        wordTokens[i + 2].ClauseId == wCur.ClauseId &&
+                                        wNext.EndIndex == wordTokens[i + 2].StartIndex;
+
+                int leftBackIdx = i - 1;
+                while (leftBackIdx > 0 &&
+                       wordTokens[leftBackIdx - 1].ClauseId == wCur.ClauseId &&
+                       (wordTokens[leftBackIdx].NormText == "က" || wordTokens[leftBackIdx].NormText == "ကို" ||
+                        wordTokens[leftBackIdx].NormText == "မှာ" || wordTokens[leftBackIdx].NormText == "တွင်" ||
+                        wordTokens[leftBackIdx].NormText == "နေ" || wordTokens[leftBackIdx].NormText == "ကနေ" ||
+                        wordTokens[leftBackIdx].NormText == "ပါ" || wordTokens[leftBackIdx].NormText == "ပါက" ||
+                        wordTokens[leftBackIdx].NormText == "တဲ့" || wordTokens[leftBackIdx].NormText == "သော" ||
+                        wordTokens[leftBackIdx].NormText == "သည့်" || wordTokens[leftBackIdx].NormText == "တွေ" ||
+                        wordTokens[leftBackIdx].NormText == "များ"))
+                {
+                    leftBackIdx--;
+                }
+                string leftBigramCheck = wordTokens[leftBackIdx].NormText;
+
+                int rightFwdIdx = i + 1;
+                while (rightFwdIdx + 1 < n &&
+                       wordTokens[rightFwdIdx + 1].ClauseId == wCur.ClauseId &&
+                       (wordTokens[rightFwdIdx].NormText == "အရမ်း" || wordTokens[rightFwdIdx].NormText == "အလွန်" ||
+                        wordTokens[rightFwdIdx].NormText == "သိပ်" || wordTokens[rightFwdIdx].NormText == "အမြန်" ||
+                        wordTokens[rightFwdIdx].NormText == "အမြန်ဆုံး" || wordTokens[rightFwdIdx].NormText == "ဆုံး"))
+                {
+                    rightFwdIdx++;
+                }
+                string rightBigramCheck = wordTokens[rightFwdIdx].NormText;
+
+                if (trie.GetBigramCount(leftBigramCheck, wCur.NormText) > 0 ||
+                    trie.GetBigramCount(wCur.NormText, rightBigramCheck) > 0 ||
+                    (!prevGluedToLeft && trie.ContainsExactWord(wPrev.NormText + wCur.NormText)) ||
+                    (!nextGluedToRight && trie.ContainsExactWord(wCur.NormText + wNext.NormText)))
+                {
+                    continue;
+                }
+
+                // Collect contiguous right-side word phrase (up to 4 tokens with no intervening space) for multi-morpheme predicates like 'အရမ်းသစ္စာရှိပြီး', 'အမြန်ဆုံးထွက်ပြေးပြီး'
+                int rightLastIdx = i + 1;
+                string rightConcatNorm = wNext.NormText;
+                while (rightLastIdx + 1 < n &&
+                       wordTokens[rightLastIdx + 1].ClauseId == wCur.ClauseId &&
+                       wordTokens[rightLastIdx].EndIndex == wordTokens[rightLastIdx + 1].StartIndex &&
+                       rightLastIdx - (i + 1) < 4)
+                {
+                    rightLastIdx++;
+                    rightConcatNorm += wordTokens[rightLastIdx].NormText;
+                }
+                int rightPhraseEnd = wordTokens[rightLastIdx].EndIndex;
+                string rightPhraseRaw = text.Substring(wNext.StartIndex, rightPhraseEnd - wNext.StartIndex);
+
+                bool rightHasNonSelectingHead = MatchesNonSelectingHead(wNext.NormText) || MatchesNonSelectingHead(rightConcatNorm);
+                if (!rightHasNonSelectingHead)
+                {
+                    foreach (string head in NonSelectingIntransitiveOrMentalHeads)
+                    {
+                        if (head.Length >= 4 && rightConcatNorm.IndexOf(head, StringComparison.Ordinal) > 0)
+                        {
+                            rightHasNonSelectingHead = true;
+                            break;
+                        }
+                    }
+                }
+
+                // Exclude determiners, numerals, possessives, and conjunctions immediately before wCur
+                if (wPrev.NormText == "ဤ" || wPrev.NormText == "ထို" || wPrev.NormText == "ယင်း" ||
+                    wPrev.NormText == "ဒီ" || wPrev.NormText == "ဟို" || wPrev.NormText == "အဆိုပါ" ||
+                    wPrev.NormText == "၏" || wPrev.NormText == "ရဲ့" || wPrev.NormText == "နှင့်" || wPrev.NormText == "နဲ့" ||
+                    (wPrev.NormText.EndsWith("\u1037", StringComparison.Ordinal) &&
+                     !wPrev.NormText.EndsWith("\u103A\u1037", StringComparison.Ordinal) &&
+                     wPrev.NormText != "သို့"))
+                {
+                    continue;
+                }
+
+                bool leftSpace = IsPureHorizontalSpaceBetween(text, wPrev, wCur);
+                bool rightSpace = IsPureHorizontalSpaceBetween(text, wCur, wNext);
+                bool isIntruder = false;
+
+                // Case 1: Bare monosyllabic action/postural verb wedged before non-verbal/degree/mental head
+                if (IntruderBareActionVerbs.Contains(wCur.NormText))
+                {
+                    if (leftSpace && rightSpace && !IsVerbalFollowerOrTemporalNominal(wNext.NormText))
+                    {
+                        if (rightHasNonSelectingHead ||
+                            (AbstractTopicHeadNouns.Contains(wPrev.NormText) && wNext.NormText.StartsWith("အ", StringComparison.Ordinal)))
+                        {
+                            isIntruder = true;
+                        }
+                    }
+                    else if (leftSpace && wCur.EndIndex == wNext.StartIndex &&
+                             (wCur.NormText == "ထိုင်" || wCur.NormText == "ခုန်") &&
+                             rightConcatNorm.StartsWith("ခံစား", StringComparison.Ordinal) &&
+                             EndsWithClosedCaseOrClauseLinker(wPrev.NormText))
+                    {
+                        isIntruder = true;
+                    }
+                }
+                // Case 2: Unmarked concrete count noun wedged in an already-closed or abstract frame before an incompatible predicate
+                else if (IntruderConcreteCountNouns.Contains(wCur.NormText))
+                {
+                    if (leftSpace && rightSpace)
+                    {
+                        bool prevIsGaNay = wPrev.NormText == "နေ" && i >= 2 && wordTokens[i - 2].NormText.EndsWith("က", StringComparison.Ordinal);
+                        bool closedOrAbstractLeft = EndsWithClosedCaseOrClauseLinker(wPrev.NormText) ||
+                                                    prevIsGaNay ||
+                                                    AbstractTopicHeadNouns.Contains(wPrev.NormText);
+                        if (closedOrAbstractLeft)
+                        {
+                            if (rightHasNonSelectingHead ||
+                                (wCur.NormText == "မြို့" && wPrev.NormText == "တဲ့" && rightConcatNorm.StartsWith("အလုပ်", StringComparison.Ordinal)))
+                            {
+                                isIntruder = true;
+                            }
+                        }
+                    }
+                    else if (leftSpace && wCur.EndIndex == wNext.StartIndex)
+                    {
+                        if ((wNext.NormText == "လို့" || wNext.NormText == "ဟု") && AbstractTopicHeadNouns.Contains(wPrev.NormText))
+                        {
+                            isIntruder = true;
+                        }
+                        else if (wCur.NormText == "ထမင်း" && wNext.NormText.StartsWith("ရေရှည်", StringComparison.Ordinal))
+                        {
+                            isIntruder = true;
+                        }
+                    }
+                    else if (wPrev.EndIndex == wCur.StartIndex && wCur.EndIndex == wNext.StartIndex &&
+                             wPrev.NormText == "လစာ" && wCur.NormText == "ကျောင်း" && wNext.NormText.StartsWith("ကောင်း", StringComparison.Ordinal))
+                    {
+                        isIntruder = true;
+                    }
+                }
+                // Case 3: Post-object stranded 'တစ်ခု' before cognitive predicate, or stranded space-isolated 'များ' after reciprocal 'တစ်ယောက်ကိုတစ်ယောက်'
+                else if (leftSpace && rightSpace)
+                {
+                    if (wCur.NormText == "တစ်ခု" &&
+                        i >= 2 && wPrev.NormText == "ကို" && wordTokens[i - 2].SyllableCount >= 2 &&
+                        MatchesNonSelectingHead(wNext.NormText))
+                    {
+                        isIntruder = true;
+                    }
+                    else if (wCur.NormText == "များ" &&
+                             i >= 2 && wPrev.NormText.EndsWith("ယောက်", StringComparison.Ordinal) &&
+                             wordTokens[i - 2].NormText == "ကို" &&
+                             !wNext.NormText.StartsWith("သည်", StringComparison.Ordinal) &&
+                             !wNext.NormText.StartsWith("စွာ", StringComparison.Ordinal))
+                    {
+                        isIntruder = true;
+                    }
+                }
+
+                if (!isIntruder)
+                    continue;
+
+                // Build clean single-space replacement span so 1-click user confirmation never leaves double spaces
+                int repStart;
+                int repLen;
+                string repSuggestion;
+                if (leftSpace && wCur.EndIndex == wNext.StartIndex && (wNext.NormText == "လို့" || wNext.NormText == "ဟု"))
+                {
+                    repStart = wPrev.StartIndex;
+                    repLen = wCur.EndIndex - wPrev.StartIndex;
+                    repSuggestion = wPrev.RawText;
+                }
+                else
+                {
+                    repStart = wCur.StartIndex;
+                    repLen = rightPhraseEnd - wCur.StartIndex;
+                    repSuggestion = rightPhraseRaw;
+                }
+
+                if (OverlapsExisting(existingIssues, repStart, repLen) || OverlapsExisting(issues, repStart, repLen))
+                    continue;
+
+                string origSpan = text.Substring(repStart, repLen);
+                AddNonOverlapping(issues, new ProofingIssue
+                {
+                    StartIndex = repStart,
+                    Length = repLen,
+                    OriginalText = origSpan,
+                    IssueType = ProofingIssueType.ContextualMeaningWarning,
+                    RequiresReviewBeforeBatchFix = true,
+                    Message = $"ဝါကျစကားစပ်နှင့် မဆီလျော်သော စကားလုံးအပို ('{wCur.RawText}') ဝင်ရောက်နေနိုင်ပါသည် — စိစစ်ဖယ်ရှားရန် အကြံပြုပါသည်။",
+                    GrammaticalReasoning = $"ရှေ့နောက်ဝါကျအစိတ်အပိုင်း ('{wPrev.RawText} ... {wNext.RawText}') အကြားတွင် '{wCur.RawText}' သည် တွဲဖက်သုံးစွဲလေ့ရှိသော Bigram အထောက်အထားနှင့် သဒ္ဒါဆက်စပ်မှု မရှိသဖြင့် မှားယွင်းဝင်ရောက်နေသော ပိုလျှံစကားလုံး (Intruder Word) ဖြစ်နိုင်ပါသည်။",
+                    AuthoritativeSource = "မြန်မာဝါကျဖွဲ့ထုံးနှင့် ကိန်းဂဏန်းအခြေပြု စကားစပ်စိစစ်ချက် (Hybrid N-Gram Model)",
+                    Suggestions = new List<SuggestionCandidate>
+                    {
+                        new SuggestionCandidate
+                        {
+                            Replacement = repSuggestion,
+                            MeaningCue = $"အပိုစကားလုံး '{wCur.RawText}' ကို ဖယ်ရှားမည်",
+                            PosTag = "SYN",
+                            IsOfficialThatpon = true,
+                            SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(repSuggestion),
+                            DiagnosticDetail = $"စကားစပ်မကိုက်ညီသော '{wCur.RawText}' ကို ဖယ်ရှားခြင်း",
+                            Score = 92.0
+                        }
+                    }
+                });
+            }
         }
 
         private static DictionaryEntry? TryFindTier1DeterministicCompoundSlip(
@@ -4843,6 +5183,10 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (raw == "မန်") return "မြန်";
             if (raw == "ပီ") return "ပြီ";
             if (raw == "ရှင်" || raw == "ကာ" || raw == "ပြီ") return raw + "\u1038";
+            if (raw.EndsWith("ထဲက", StringComparison.Ordinal) && raw.Length > 3)
+                return raw.Substring(0, raw.Length - 3) + "တည်းက";
+            if (raw.EndsWith("ထဲ", StringComparison.Ordinal) && raw.Length > 2)
+                return raw.Substring(0, raw.Length - 2) + "တည်း";
 
             return raw;
         }

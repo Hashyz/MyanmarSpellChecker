@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -273,6 +274,10 @@ namespace MyanmarSpellChecker.Core.Nlp
         private readonly Dictionary<string, List<ContextualRule>> _contextualRuleIndex = new Dictionary<string, List<ContextualRule>>(StringComparer.Ordinal);
         private readonly HashSet<string> _contextualRuleFirstSyllables = new HashSet<string>(StringComparer.Ordinal);
         private readonly Dictionary<(string Left, string Right), int> _wordBigramIndex;
+        private ulong[] _fastBigramKeys;
+        private byte[] _fastBigramLogScores;
+        private int _fastBigramMask;
+        private int _fastBigramCount;
         private readonly ConcurrentDictionary<string, string> _syllablePhoneticCache = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, string> _homophoneSummaryCache = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
         private readonly HashSet<string> _validSyllables = new HashSet<string>(StringComparer.Ordinal);
@@ -295,6 +300,10 @@ namespace MyanmarSpellChecker.Core.Nlp
             _strictHomophoneIndex = new Dictionary<string, object>(bulkCapacity ? 96000 : 0, StringComparer.Ordinal);
             _wrongFormIndex = new Dictionary<string, OrthographyRule>(bulkCapacity ? 1800 : 0, StringComparer.Ordinal);
             _wordBigramIndex = new Dictionary<(string Left, string Right), int>(bulkCapacity ? 112000 : 0, OrdinalStringPairComparer.Instance);
+            int fastSlots = bulkCapacity ? 262144 : 1024;
+            _fastBigramKeys = new ulong[fastSlots];
+            _fastBigramLogScores = new byte[fastSlots];
+            _fastBigramMask = fastSlots - 1;
             if (bulkCapacity)
             {
                 for (int sCount = 2; sCount <= 5; sCount++)
@@ -1102,6 +1111,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 if (prev == 0)
                     BigramCount++;
                 _wordBigramIndex[key] = count;
+                PutFastBigram(normLeft, normRight, count);
                 _collocationIndexBuilt = false;
                 Interlocked.Increment(ref _mutationVersion);
             }
@@ -1124,6 +1134,100 @@ namespace MyanmarSpellChecker.Core.Nlp
                 if (prev == 0)
                     BigramCount++;
                 _wordBigramIndex[key] = count;
+                PutFastBigram(normLeft, normRight, count);
+            }
+        }
+
+        private void PutFastBigram(string normLeft, string normRight, int count)
+        {
+            ulong leftH = MyanmarCompactLanguageModel.ComputeWordHash(normLeft);
+            ulong rightH = MyanmarCompactLanguageModel.ComputeWordHash(normRight);
+            ulong h = MyanmarCompactLanguageModel.CombineBigramHash(leftH, rightH);
+            if (h == 0UL)
+                return;
+
+            byte q = (byte)Math.Min(255, Math.Max(1, (int)Math.Round(Math.Log(count + 1.0) * 20.0)));
+            if (_fastBigramCount * 10 >= _fastBigramKeys.Length * 7)
+            {
+                GrowFastBigramTable();
+            }
+
+            ulong[] keys = _fastBigramKeys;
+            byte[] scores = _fastBigramLogScores;
+            int mask = _fastBigramMask;
+            int idx = (int)(h & (ulong)mask);
+            while (true)
+            {
+                ulong cur = keys[idx];
+                if (cur == 0UL)
+                {
+                    keys[idx] = h;
+                    scores[idx] = q;
+                    _fastBigramCount++;
+                    return;
+                }
+                if (cur == h)
+                {
+                    if (q > scores[idx])
+                        scores[idx] = q;
+                    return;
+                }
+                idx = (idx + 1) & mask;
+            }
+        }
+
+        private void GrowFastBigramTable()
+        {
+            int newSize = _fastBigramKeys.Length << 1;
+            ulong[] newKeys = new ulong[newSize];
+            byte[] newScores = new byte[newSize];
+            int newMask = newSize - 1;
+
+            ulong[] oldKeys = _fastBigramKeys;
+            byte[] oldScores = _fastBigramLogScores;
+            for (int i = 0; i < oldKeys.Length; i++)
+            {
+                ulong h = oldKeys[i];
+                if (h == 0UL)
+                    continue;
+                int idx = (int)(h & (ulong)newMask);
+                while (newKeys[idx] != 0UL)
+                {
+                    idx = (idx + 1) & newMask;
+                }
+                newKeys[idx] = h;
+                newScores[idx] = oldScores[i];
+            }
+
+            _fastBigramKeys = newKeys;
+            _fastBigramLogScores = newScores;
+            _fastBigramMask = newMask;
+        }
+
+        /// <summary>
+        /// Zero-allocation O(1) word-bigram transition bonus in [0.0 .. 0.18] for K=3 Beam Viterbi lattice paths.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal double GetFastBigramLogBonus(ulong leftWordHash, ulong rightWordHash)
+        {
+            ulong h = MyanmarCompactLanguageModel.CombineBigramHash(leftWordHash, rightWordHash);
+            if (h == 0UL)
+                return 0.0;
+
+            ulong[] keys = _fastBigramKeys;
+            int mask = _fastBigramMask;
+            int idx = (int)(h & (ulong)mask);
+            while (true)
+            {
+                ulong cur = keys[idx];
+                if (cur == 0UL)
+                    return 0.0;
+                if (cur == h)
+                {
+                    double bonus = _fastBigramLogScores[idx] * 0.0016;
+                    return bonus > 0.18 ? 0.18 : bonus;
+                }
+                idx = (idx + 1) & mask;
             }
         }
 

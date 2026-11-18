@@ -7213,6 +7213,9 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
+            // 6j. v71 Hybrid SOV Clause-Final Extraposition Parser, Phrase-Order Syntax & Majority-Register Intra-Clause Concord
+            ScanHybridSovClauseAndRegisterConcord(text, mmMask, styleMode, trie, issues);
+
             // 6k. V66 Bidirectional Intra-Sentence Register Harmony, Case-Role & Tense-Aspect Repairs
             ScanV66RegisterAndCaseHarmony(text, mmMask, issues);
 
@@ -7305,6 +7308,390 @@ namespace MyanmarSpellChecker.Core.Nlp
                         r.Reason, auth);
                 }
             }
+        }
+
+        private static readonly Regex HybridSovPostVerbalExtrapositionPattern = new Regex(
+            @"(?<![\u1000-\u103F])(?<Verb>[\u1000-\u103F]{2,22}(?:ပါ)?(?:တယ်|မယ်))[ \t]+(?<Leaked>(?:[\u1000-\u103F]{1,18}(?:မှာ|တွင်|ကို|နဲ့)(?:[ \t]+(?:ခဏ|စောစော|အမြန်|ကောင်းကောင်း|သေချာ))?|[\u1000-\u103F]{2,20}(?:ရတာ|ရင်း|ပေမဲ့|ပေမယ့်|ပေမယ့်)))(?=\s*(?:။|ဆိုတာ(?:\s|$)|လို့(?:\s|$)|ဟု(?:\s|$)))",
+            RegexOptions.Compiled);
+
+        private static readonly Regex HybridPreVerbalSyntaxOrderPattern = new Regex(
+            @"(?:(?<CompInv>ပိုပြီး[ \t]+(?<CompStd>[\u1000-\u103F]{2,22}?ထက်))(?=[ \t]+[\u1000-\u103F])|(?<QuantInv>အများကြီး[ \t]+(?<QuantNp>[\u1000-\u103F]{3,26}?(?:တွေ|များ)))(?=[ \t]+ရှိ(?:တယ်|သည်|ပါ|ပြီး|ကြ|နေ|လာ))|(?<![\u1000-\u103F])(?<PostpInv>(?<PostpStem>[\u1000-\u103F]{3,20})အကြောင်း[ \t]+(?<PostpHead>အန္တရာယ်|အကျိုးကျေးဇူး|ပြဿနာ))(?=[ \t]+)|(?<![\u1000-\u103F])(?<StackedPostp>(?<PossBase>[\u1000-\u103F]{2,18}(?:ရဲ့|၏))[ \t]+(?:နဲ့|နှင့်|နှင့်))(?=[ \t]+)|(?<=\s)(?<VerbKoPay>(?<VRoot>ဝယ်|ယူ|ချက်|ဖတ်|ရေး)ကို)(?=[ \t]+ပေး(?:တယ်|သည်|ပါ))|(?:^|[\u104A\u104B]\s*|(?:တွင်|မှာ|၌)\s+)(?<InanimDoubleKo>(?<InanimStem>[\u1000-\u103F]{4,28}?(?:နည်းပညာ|စနစ်|ပညာရေး|စီးပွားရေး|လုပ်ငန်း|စီမံကိန်း)(?:တွေ|များ)?)ကို)(?=[ \t]+[\u1000-\u103F]{2,22}?ကို[ \t]+(?:တိုးမြှင့်|မြှင့်တင်|လျှော့ချ|ပြောင်းလဲ|ဖန်တီး)ပေး))",
+            RegexOptions.Compiled);
+
+        private static readonly string[] ClauseLiteraryMarkers =
+        {
+            "နှင့်", "နှင့်", "၌", "၏", "သော်လည်း", "သဖြင့်", "သဖြင့်", "ဖြစ်သော", "ဟူသော"
+        };
+
+        private static readonly string[] ClauseColloquialMarkers =
+        {
+            "တွေ", "နဲ့", "မှာ", "တဲ့", "ဖို့", "လို့", "ရင်", "ပေမဲ့", "ပေမယ့်", "ပေမယ့်", "အဲဒီ", "အရမ်း"
+        };
+
+        private static void ScanHybridSovClauseAndRegisterConcord(
+            string text,
+            ulong mmMask,
+            ProofingStyleMode styleMode,
+            MyanmarTrie? trie,
+            List<ProofingIssue> issues)
+        {
+            if (string.IsNullOrEmpty(text) || text.Length < 6)
+                return;
+
+            bool[]? quoteMask = MyanmarCompactLanguageModel.BuildQuotedDialogueMask(text);
+
+            // 9A. Pre-verbal comparative/quantifier/postposition inversions & stacked/colliding case particles
+            if ((text.IndexOf(' ') >= 0 || text.IndexOf('\t') >= 0) &&
+                (ContainsMm(text, mmMask, "ပိုပြီး") ||
+                 ContainsMm(text, mmMask, "အများကြီး") ||
+                 ContainsMm(text, mmMask, "အကြောင်း") ||
+                 ContainsMm(text, mmMask, "ရဲ့") ||
+                 ContainsMm(text, mmMask, "၏") ||
+                 ContainsMm(text, mmMask, "ကို")))
+            {
+                foreach (Match mSyn in HybridPreVerbalSyntaxOrderPattern.Matches(text))
+                {
+                    if (mSyn.Groups["CompInv"].Success)
+                    {
+                        Group g = mSyn.Groups["CompInv"];
+                        if (!OverlapsExistingIssue(issues, g.Index, g.Length))
+                        {
+                            string rep = mSyn.Groups["CompStd"].Value + " ပိုပြီး";
+                            issues.Add(new ProofingIssue
+                            {
+                                StartIndex = g.Index,
+                                Length = g.Length,
+                                OriginalText = g.Value,
+                                IssueType = ProofingIssueType.OfficialStyleGrammarError,
+                                RequiresReviewBeforeBatchFix = true,
+                                Message = $"နှိုင်းယှဉ်ပြဝါကျဖွဲ့ထုံးအရ '~ထက်' ပါပုဒ်စုသည် 'ပိုပြီး' ၏ ရှေ့၌ တည်ရှိရမည် — '{rep}' ဟု စီစဉ်သင့်ပါသည်။",
+                                GrammaticalReasoning = "မြန်မာသဒ္ဒါ နှိုင်းယှဉ်ပြဖွဲ့ထုံးတွင် နှိုင်းယှဉ်ခံစံပုဒ် ('~ထက်') ကို ရှေ့မှထား၍ အထူးပြုပုဒ် ('ပိုပြီး/ပို၍') ကို နောက်မှ ကပ်လျက်လိုက်ရသည်။",
+                                AuthoritativeSource = "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (နှိုင်းယှဉ်ပြဝိဘတ် 'ထက်' နှင့် ပုဒ်အစီအစဉ်)",
+                                Suggestions = new List<SuggestionCandidate>
+                                {
+                                    new SuggestionCandidate
+                                    {
+                                        Replacement = rep,
+                                        MeaningCue = "နှိုင်းယှဉ်ပြ ပုဒ်အစီအစဉ်မှန် ('~ထက် ပိုပြီး')",
+                                        PosTag = "SYNTAX",
+                                        IsOfficialThatpon = true,
+                                        SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(rep),
+                                        DiagnosticDetail = "နှိုင်းယှဉ်ပြပုဒ်အစီအစဉ် ပြင်ဆင်ချက်",
+                                        Score = 96.0
+                                    }
+                                }
+                            });
+                        }
+                    }
+                    else if (mSyn.Groups["QuantInv"].Success)
+                    {
+                        Group g = mSyn.Groups["QuantInv"];
+                        if (!OverlapsExistingIssue(issues, g.Index, g.Length))
+                        {
+                            string rep = mSyn.Groups["QuantNp"].Value + " အများကြီး";
+                            issues.Add(new ProofingIssue
+                            {
+                                StartIndex = g.Index,
+                                Length = g.Length,
+                                OriginalText = g.Value,
+                                IssueType = ProofingIssueType.OfficialStyleGrammarError,
+                                RequiresReviewBeforeBatchFix = true,
+                                Message = $"ပမာဏပြပုဒ် 'အများကြီး' ကို အများပြနာမ်ပုဒ်၏ နောက်၌ ထားသင့်ပါသည် — '{rep}' ဟု စီစဉ်သင့်ပါသည်။",
+                                GrammaticalReasoning = "မြန်မာဝါကျဖွဲ့ထုံးတွင် အများပြနာမ်ပုဒ် ('~တွေ/~များ') ၏ နောက်မှ ပမာဏပြ 'အများကြီး' လိုက်ပြီးမှ တည်ရှိခြင်းပြကြိယာ 'ရှိသည်/ရှိတယ်' လိုက်ရသည်။",
+                                AuthoritativeSource = "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (နာမ်အထူးပြု ပမာဏပြပုဒ် အစီအစဉ်)",
+                                Suggestions = new List<SuggestionCandidate>
+                                {
+                                    new SuggestionCandidate
+                                    {
+                                        Replacement = rep,
+                                        MeaningCue = "နာမ်ပုဒ် + ပမာဏပြ အစီအစဉ်မှန်",
+                                        PosTag = "SYNTAX",
+                                        IsOfficialThatpon = false,
+                                        SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(rep),
+                                        DiagnosticDetail = "ပမာဏပြပုဒ် အစီအစဉ် ပြင်ဆင်ချက်",
+                                        Score = 96.0
+                                    }
+                                }
+                            });
+                        }
+                    }
+                    else if (mSyn.Groups["PostpInv"].Success)
+                    {
+                        Group g = mSyn.Groups["PostpInv"];
+                        if (!OverlapsExistingIssue(issues, g.Index, g.Length))
+                        {
+                            string rep = mSyn.Groups["PostpStem"].Value + mSyn.Groups["PostpHead"].Value + "အကြောင်း";
+                            issues.Add(new ProofingIssue
+                            {
+                                StartIndex = g.Index,
+                                Length = g.Length,
+                                OriginalText = g.Value,
+                                IssueType = ProofingIssueType.OfficialStyleGrammarError,
+                                RequiresReviewBeforeBatchFix = true,
+                                Message = $"နောက်ဆက်ပုဒ် 'အကြောင်း' သည် အဓိကနာမ်ပုဒ်၏ နောက်ဆုံး၌ တည်ရှိရမည် — '{rep}' ဟု စီစဉ်သင့်ပါသည်။",
+                                GrammaticalReasoning = "ပေါင်းစပ်နာမ်ပုဒ်ကို ရည်ညွှန်းရာတွင် အဓိကနာမ်ပုဒ်ပြီးမှသာ 'အကြောင်း' ကို နောက်ဆက်တွဲရသည်။",
+                                AuthoritativeSource = "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (နာမ်ပေါင်းစပ်ပုံနှင့် ဝိဘတ်အစီအစဉ်)",
+                                Suggestions = new List<SuggestionCandidate>
+                                {
+                                    new SuggestionCandidate
+                                    {
+                                        Replacement = rep,
+                                        MeaningCue = "နာမ်ပေါင်းစပ်ပုဒ် အစီအစဉ်မှန်",
+                                        PosTag = "SYNTAX",
+                                        IsOfficialThatpon = true,
+                                        SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(rep),
+                                        DiagnosticDetail = "'အကြောင်း' နောက်ဆက်အစီအစဉ် ပြင်ဆင်ချက်",
+                                        Score = 96.0
+                                    }
+                                }
+                            });
+                        }
+                    }
+                    else if (mSyn.Groups["StackedPostp"].Success)
+                    {
+                        Group g = mSyn.Groups["StackedPostp"];
+                        if (!OverlapsExistingIssue(issues, g.Index, g.Length))
+                        {
+                            string rep = mSyn.Groups["PossBase"].Value;
+                            AddGrammarOrSpellingIssue(
+                                issues, g.Index, g.Length, g.Value, rep,
+                                ProofingIssueType.OfficialStyleGrammarError,
+                                $"ပိုင်ဆိုင်မှုပြဝိဘတ်နောက်၌ 'နဲ့/နှင့်' ထပ်ဆင့်ပိုနေပါသည် — '{rep}' ဟုသာ သုံးနှုန်းရမည်။",
+                                "ပိုင်ဆိုင်မှုပြ နာမ်ဝိဘတ်", "PART", styleMode == ProofingStyleMode.FormalOfficial,
+                                "ပိုင်ဆိုင်မှုပြဝိဘတ် ('ရဲ့/၏') နှင့် ယှဉ်တွဲပြသမ္ဗန္ဓ ('နဲ့/နှင့်') တို့ကို ကြားခံနာမ်ပုဒ်မပါဘဲ ဆက်တိုက်တွဲစပ်ခွင့် မရှိပါ။",
+                                "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (နာမ်ဝိဘတ် စည်းမျဉ်း)");
+                        }
+                    }
+                    else if (mSyn.Groups["VerbKoPay"].Success)
+                    {
+                        Group g = mSyn.Groups["VerbKoPay"];
+                        if (!OverlapsExistingIssue(issues, g.Index, g.Length))
+                        {
+                            string rep = mSyn.Groups["VRoot"].Value + "ပြီး";
+                            AddGrammarOrSpellingIssue(
+                                issues, g.Index, g.Length, g.Value, rep,
+                                ProofingIssueType.OfficialStyleGrammarError,
+                                $"ကြိယာနောက်၌ ကံဝိဘတ် 'ကို' မလိုက်ရပါ — '{rep}' ဟု သုံးနှုန်းရမည်။",
+                                "ရှေ့နောက်ကြိယာ ဆက်စပ်ပစ္စည်း ('~ပြီး')", "PART", false,
+                                "ပင်မကြိယာအမြစ်နောက်တွင် နာမ်ဝိဘတ် 'ကို' မလိုက်နိုင်ဘဲ ကြိယာဆက်ပစ္စည်း 'ပြီး' ဖြင့် ဆက်စပ်ရသည်။",
+                                "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (ကြိယာပစ္စည်းနှင့် နာမ်ဝိဘတ် ခွဲခြားပုံ)");
+                        }
+                    }
+                    else if (mSyn.Groups["InanimDoubleKo"].Success)
+                    {
+                        Group g = mSyn.Groups["InanimDoubleKo"];
+                        if (!OverlapsExistingIssue(issues, g.Index, g.Length))
+                        {
+                            string rep = mSyn.Groups["InanimStem"].Value + "က";
+                            AddGrammarOrSpellingIssue(
+                                issues, g.Index, g.Length, g.Value, rep,
+                                ProofingIssueType.OfficialStyleGrammarError,
+                                $"ပြုလုပ်စေတတ်သော ရှေ့နာမ်ပုဒ်တွင် ကံဝိဘတ် 'ကို' နှစ်ထပ်ဖြစ်နေပါသည် — ကတ္တားဝိဘတ်ဖြင့် '{rep}' ဟု သုံးနှုန်းရမည်။",
+                                "ကတ္တားဝိဘတ် ('~က')", "PART", true,
+                                "နောက်၌ ကံပုဒ် ('~ကို') နှင့် အကျိုးပြုကြိယာ ပါရှိနေသဖြင့် အကြောင်းရင်းခံ ရှေ့နာမ်ပုဒ်တွင် ကတ္တားဝိဘတ် 'က' ကို သုံးရသည်။",
+                                "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (ကတ္တားဝိဘတ် နှင့် ကံဝိဘတ်)");
+                        }
+                    }
+                }
+            }
+
+            // 9B. Finite-Verb-Final SOV Post-Verbal Extraposition Detector (Standard & Formal prose outside quotes)
+            if (styleMode != ProofingStyleMode.ColloquialPermissive &&
+                (ContainsMm(text, mmMask, "တယ်") || ContainsMm(text, mmMask, "မယ်")) &&
+                HasPostVerbalLeakedCandidateAfterSfp(text))
+            {
+                foreach (Match mExtSov in HybridSovPostVerbalExtrapositionPattern.Matches(text))
+                {
+                    Group gVerb = mExtSov.Groups["Verb"];
+                    Group gLeaked = mExtSov.Groups["Leaked"];
+                    int spanStart = gVerb.Index;
+                    int spanLen = (gLeaked.Index + gLeaked.Length) - spanStart;
+
+                    if (quoteMask != null && spanStart < quoteMask.Length && quoteMask[spanStart])
+                        continue;
+
+                    if (OverlapsExistingIssue(issues, spanStart, spanLen))
+                        continue;
+
+                    string verbRaw = gVerb.Value.Trim();
+                    string sfpLenCheck = verbRaw.EndsWith("ပါတယ်", StringComparison.Ordinal) || verbRaw.EndsWith("ပါမယ်", StringComparison.Ordinal)
+                        ? verbRaw.Substring(0, verbRaw.Length - 5)
+                        : verbRaw.Substring(0, verbRaw.Length - 3);
+                    string normStem = UnicodeNormalizer.NormalizeCanonicalOrder(sfpLenCheck);
+                    if (normStem.Length < 2)
+                        continue;
+
+                    if (trie != null &&
+                        !HasTrailingLexiconVerbOrAdj(trie, normStem, allowAdj: true) &&
+                        !normStem.EndsWith("သွား", StringComparison.Ordinal) &&
+                        !normStem.EndsWith("လာ", StringComparison.Ordinal) &&
+                        !normStem.EndsWith("လို", StringComparison.Ordinal) &&
+                        !normStem.EndsWith("ယူ", StringComparison.Ordinal) &&
+                        !normStem.EndsWith("သာ", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    string leakedRaw = gLeaked.Value.Trim();
+                    string rawSpan = text.Substring(spanStart, spanLen);
+                    string restored = $"{leakedRaw} {verbRaw}";
+
+                    issues.Add(new ProofingIssue
+                    {
+                        StartIndex = spanStart,
+                        Length = spanLen,
+                        OriginalText = rawSpan,
+                        IssueType = ProofingIssueType.OfficialStyleGrammarError,
+                        RequiresReviewBeforeBatchFix = true,
+                        Message = $"မြန်မာစံဝါကျဖွဲ့ထုံး (SOV) အရ အဆုံးသတ်ကြိယာ '{verbRaw}' ကို ဝါကျအဆုံး၌ ထားရှိသင့်ပါသည် — '{restored}' ဟု ပြန်လည်စီစဉ်ရန် အကြံပြုပါသည်။",
+                        GrammaticalReasoning = $"မြန်မာအရေးအသား စံဝါကျအစီအစဉ်တွင် ဝိဘတ်တွဲပုဒ်နှင့် လက်အောက်ခံဝါကျငယ် ('{leakedRaw}') သည် အဆုံးသတ်ကြိယာ ('{verbRaw}') ၏ ရှေ့တွင် တည်ရှိရသည်။",
+                        AuthoritativeSource = "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (SOV ဝါကျအဆုံးသတ်ကြိယာ စည်းမျဉ်း)",
+                        Suggestions = new List<SuggestionCandidate>
+                        {
+                            new SuggestionCandidate
+                            {
+                                Replacement = restored,
+                                MeaningCue = "မြန်မာစံဝါကျအစီအစဉ် (SOV)",
+                                PosTag = "SYNTAX",
+                                IsOfficialThatpon = false,
+                                SyllableBreakdown = OrthographicDiffExplainer.FormatSyllableBreakdown(restored),
+                                DiagnosticDetail = "အဆုံးသတ်ကြိယာကို ဝါကျနောက်ဆုံးသို့ ပို့ခြင်း",
+                                Score = 96.0
+                            }
+                        }
+                    });
+                }
+            }
+
+            // 9C. Intra-Clause Majority-Register Concord in GeneralStandard Mode (outside quoted dialogue)
+            //     Flags abrupt bare colloquial 'တယ်။ / ဖြစ်တယ်။' ONLY when the clause has an explicit literary plural/nominative subject ('များသည်'/'တို့သည်'),
+            //     >= 2 strong literary markers, and ZERO colloquial markers.
+            if (styleMode == ProofingStyleMode.GeneralStandard &&
+                ContainsMm(text, mmMask, "တယ်") &&
+                ContainsMm(text, mmMask, "သည်"))
+            {
+                int cStart = 0;
+                for (int idx = 0; idx < text.Length; idx++)
+                {
+                    char ch = text[idx];
+                    if (ch != '\u104A' && ch != '\u104B' && ch != '\n' && ch != '\r')
+                        continue;
+
+                    if (ch == '\u104B' && idx - cStart >= 12)
+                    {
+                        if (quoteMask == null || !quoteMask[idx - 1])
+                        {
+                            int trimEnd = idx;
+                            while (trimEnd > cStart && (text[trimEnd - 1] == ' ' || text[trimEnd - 1] == '\t'))
+                                trimEnd--;
+
+                            if (trimEnd - cStart >= 12 &&
+                                trimEnd >= 3 &&
+                                string.CompareOrdinal(text, trimEnd - 3, "တယ်", 0, 3) == 0 &&
+                                !(trimEnd >= 5 && string.CompareOrdinal(text, trimEnd - 5, "ပါတယ်", 0, 5) == 0))
+                            {
+                                string clauseSlice = text.Substring(cStart, trimEnd - cStart);
+                                bool hasLiteraryPluralSubj =
+                                    clauseSlice.IndexOf("များသည်", StringComparison.Ordinal) >= 0 ||
+                                    clauseSlice.IndexOf("တို့သည်", StringComparison.Ordinal) >= 0;
+
+                                if (hasLiteraryPluralSubj)
+                                {
+                                    bool hasAnyColloq = false;
+                                    for (int cm = 0; cm < ClauseColloquialMarkers.Length; cm++)
+                                    {
+                                        string m = ClauseColloquialMarkers[cm];
+                                        int searchAt = 0;
+                                        while (searchAt < clauseSlice.Length)
+                                        {
+                                            int hit = clauseSlice.IndexOf(m, searchAt, StringComparison.Ordinal);
+                                            if (hit < 0)
+                                                break;
+                                            int afterHit = hit + m.Length;
+                                            // Do not confuse 'တွေ'/'ရင်' with tone-inflected 'တွေ့'/'တွေး'/'ရင်း'/'ရင့်' (e.g. 'စာရင်း', 'တွေ့ရှိ')
+                                            if ((m == "တွေ" || m == "ရင်") &&
+                                                afterHit < clauseSlice.Length &&
+                                                (clauseSlice[afterHit] == '\u1037' || clauseSlice[afterHit] == '\u1038'))
+                                            {
+                                                searchAt = afterHit + 1;
+                                                continue;
+                                            }
+                                            hasAnyColloq = true;
+                                            break;
+                                        }
+                                        if (hasAnyColloq)
+                                            break;
+                                    }
+
+                                    if (!hasAnyColloq)
+                                    {
+                                        int litCount = 1; // 'များသည်' / 'တို့သည်'
+                                        for (int lm = 0; lm < ClauseLiteraryMarkers.Length; lm++)
+                                        {
+                                            if (clauseSlice.IndexOf(ClauseLiteraryMarkers[lm], StringComparison.Ordinal) >= 0)
+                                                litCount++;
+                                        }
+
+                                        if (litCount >= 2)
+                                        {
+                                            bool isPhitTae = trimEnd >= 8 &&
+                                                             text[trimEnd - 8] == ' ' &&
+                                                             string.CompareOrdinal(text, trimEnd - 7, "ဖြစ်တယ်", 0, 7) == 0;
+                                            int flagStart = isPhitTae ? trimEnd - 7 : trimEnd - 3;
+                                            int flagLen = isPhitTae ? 7 : 3;
+                                            string flagOrig = isPhitTae ? "ဖြစ်တယ်" : "တယ်";
+                                            string flagRep = isPhitTae ? "ဖြစ်သည်" : "သည်";
+
+                                            if (!OverlapsExistingIssue(issues, flagStart, flagLen))
+                                            {
+                                                AddGrammarOrSpellingIssue(
+                                                    issues, flagStart, flagLen, flagOrig, flagRep,
+                                                    ProofingIssueType.OfficialStyleGrammarError,
+                                                    $"ဝါကျအတွင်း စာပေဟန်သဒ္ဒါပစ္စည်းများ ('များသည်/နှင့်/၏') နှင့် ညီညွတ်စေရန် အဆုံးသတ်၌ '{flagOrig}' အစား '{flagRep}' ဟု သုံးနှုန်းရမည်။",
+                                                    "စာပေဟန် ကြိယာအဆုံးသတ်ပစ္စည်း ('~သည်')", "PART", true,
+                                                    "ဝါကျတစ်ခုတည်းအတွင်း စာပေဟန် ကတ္တားနှင့် ဝိဘတ်များကို အသုံးပြုထားသဖြင့် အဆုံးသတ်ကြိယာဝိဘတ်ကိုလည်း စာပေဟန် 'သည်' ဖြင့် ညီညွတ်စွာ အဆုံးသတ်ရသည်။",
+                                                    "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (စာပေဟန်နှင့် စကားပြောဟန် ညီညွတ်မှုစည်းမျဉ်း)");
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    cStart = idx + 1;
+                }
+            }
+        }
+
+        private static bool HasPostVerbalLeakedCandidateAfterSfp(string text)
+        {
+            return HasLeakedAfterMarker(text, "တယ် ") ||
+                   HasLeakedAfterMarker(text, "မယ် ") ||
+                   HasLeakedAfterMarker(text, "တယ်\t") ||
+                   HasLeakedAfterMarker(text, "မယ်\t");
+        }
+
+        private static bool HasLeakedAfterMarker(string text, string marker)
+        {
+            int pos = 0;
+            while ((pos = text.IndexOf(marker, pos, StringComparison.Ordinal)) >= 0)
+            {
+                int p = pos + marker.Length;
+                while (p < text.Length && (text[p] == ' ' || text[p] == '\t'))
+                    p++;
+                if (p < text.Length && text[p] >= '\u1000' && text[p] <= '\u103F')
+                {
+                    if (!(p + 5 <= text.Length && string.CompareOrdinal(text, p, "ဆိုတာ", 0, 5) == 0) &&
+                        !(p + 4 <= text.Length && string.CompareOrdinal(text, p, "လို့", 0, 4) == 0) &&
+                        !(p + 2 <= text.Length && string.CompareOrdinal(text, p, "ဟု", 0, 2) == 0))
+                    {
+                        return true;
+                    }
+                }
+                pos += marker.Length;
+            }
+            return false;
         }
 
         private static bool HasBarePhoWithoutCreaky(string text)

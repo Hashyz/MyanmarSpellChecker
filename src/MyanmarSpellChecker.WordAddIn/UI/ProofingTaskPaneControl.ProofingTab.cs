@@ -146,25 +146,36 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
         private void UpdateStyleModeButtons()
         {
+            bool isCasual = _currentStyleMode == ProofingStyleMode.ColloquialPermissive;
             bool isGeneral = _currentStyleMode == ProofingStyleMode.GeneralStandard;
+            bool isFormal = _currentStyleMode == ProofingStyleMode.FormalOfficial;
+
+            _btnStyleCasual.BackColor = isCasual ? Color.FromArgb(14, 116, 96) : Color.FromArgb(240, 243, 249);
+            _btnStyleCasual.ForeColor = isCasual ? Color.White : Color.FromArgb(55, 65, 80);
+            _btnStyleCasual.Font = isCasual ? _fontSmallBold : _fontSmall;
+            _btnStyleCasual.FlatAppearance.BorderColor = isCasual ? Color.FromArgb(14, 116, 96) : Color.FromArgb(214, 220, 232);
 
             _btnStyleGeneral.BackColor = isGeneral ? Color.FromArgb(22, 78, 164) : Color.FromArgb(240, 243, 249);
             _btnStyleGeneral.ForeColor = isGeneral ? Color.White : Color.FromArgb(55, 65, 80);
             _btnStyleGeneral.Font = isGeneral ? _fontSmallBold : _fontSmall;
             _btnStyleGeneral.FlatAppearance.BorderColor = isGeneral ? Color.FromArgb(22, 78, 164) : Color.FromArgb(214, 220, 232);
 
-            _btnStyleFormal.BackColor = !isGeneral ? Color.FromArgb(22, 78, 164) : Color.FromArgb(240, 243, 249);
-            _btnStyleFormal.ForeColor = !isGeneral ? Color.White : Color.FromArgb(55, 65, 80);
-            _btnStyleFormal.Font = !isGeneral ? _fontSmallBold : _fontSmall;
-            _btnStyleFormal.FlatAppearance.BorderColor = !isGeneral ? Color.FromArgb(22, 78, 164) : Color.FromArgb(214, 220, 232);
+            _btnStyleFormal.BackColor = isFormal ? Color.FromArgb(22, 78, 164) : Color.FromArgb(240, 243, 249);
+            _btnStyleFormal.ForeColor = isFormal ? Color.White : Color.FromArgb(55, 65, 80);
+            _btnStyleFormal.Font = isFormal ? _fontSmallBold : _fontSmall;
+            _btnStyleFormal.FlatAppearance.BorderColor = isFormal ? Color.FromArgb(22, 78, 164) : Color.FromArgb(214, 220, 232);
 
-            _lblStyleHint.Text = isGeneral
+            _lblStyleHint.Text = isFormal
                 ? UiLocalizer.Pick(
-                    "General Standard — Checks everyday prose & standard Myanmar orthography",
-                    "အထွေထွေ စံစနစ် — အများသုံး စကားပြေနှင့် စံသတ်ပုံများကို စစ်ဆေးသည်")
-                : UiLocalizer.Pick(
                     "Official / Literary — Also checks formal register (ပါတယ် ➔ ပါသည်, တွေ ➔ များ)",
-                    "စာပေ / ရုံးသုံးစနစ် — အစိုးရရုံးသုံး သဒ္ဒါ (ပါတယ် ➔ ပါသည်၊ တွေ ➔ များ) ပါ စစ်ဆေးသည်");
+                    "စာပေ / ရုံးသုံးစနစ် — အစိုးရရုံးသုံး သဒ္ဒါ (ပါတယ် ➔ ပါသည်၊ တွေ ➔ များ) ပါ စစ်ဆေးသည်")
+                : (isCasual
+                    ? UiLocalizer.Pick(
+                        "Casual / Web — Tolerates informal spellings (တခု, ကျနော်, ဒါပေမယ့်, စျေး)",
+                        "အရပ်သုံးစနစ် — တခု၊ ကျနော်၊ ဒါပေမယ့်၊ စျေး စသည့် အရပ်သုံးပုံစံများကို ခွင့်ပြုသည်")
+                    : UiLocalizer.Pick(
+                        "General Standard — Checks everyday prose & 100% standard MLC orthography",
+                        "အထွေထွေ စံစနစ် — အများသုံး စကားပြေနှင့် သတ်ပုံကျမ်း စံသတ်ပုံများကို စစ်ဆေးသည်"));
         }
 
         private void SetFilterMode(IssueFilterMode mode)
@@ -381,9 +392,11 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             if (activeCount == 0)
             {
-                string modeLabel = _currentStyleMode == ProofingStyleMode.GeneralStandard
-                    ? UiLocalizer.Pick("General Standard", "အထွေထွေ စံစနစ်")
-                    : UiLocalizer.Pick("Official / Literary", "စာပေ / ရုံးသုံးစနစ်");
+                string modeLabel = _currentStyleMode == ProofingStyleMode.FormalOfficial
+                    ? UiLocalizer.Pick("Official / Literary", "စာပေ / ရုံးသုံးစနစ်")
+                    : (_currentStyleMode == ProofingStyleMode.ColloquialPermissive
+                        ? UiLocalizer.Pick("Casual / Web", "အရပ်သုံးစနစ်")
+                        : UiLocalizer.Pick("General Standard", "အထွေထွေ စံစနစ်"));
                 _lblSummary.Text = UiLocalizer.Pick(
                     $"✓ No issues found ({modeLabel})",
                     $"✓ အမှားအယွင်း မတွေ့ရှိပါ ({modeLabel})");
@@ -841,13 +854,17 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             card.Controls.Add(lblHeadline, 0, row++);
 
-            string modeDesc = _currentStyleMode == ProofingStyleMode.GeneralStandard
+            string modeDesc = _currentStyleMode == ProofingStyleMode.FormalOfficial
                 ? UiLocalizer.Pick(
-                    "Active Mode: General Standard — Live background proofing automatically checks as you type.",
-                    "လက်ရှိစနစ်: အထွေထွေ စံသတ်ပုံစနစ် — စာရိုက်နေစဉ် အလိုအလျောက် ဆက်လက်စစ်ဆေးပေးနေပါသည်။")
-                : UiLocalizer.Pick(
                     "Active Mode: Official / Literary — Orthography and formal ministry register have been checked.",
-                    "လက်ရှိစနစ်: စာပေ / ရုံးသုံး အရေးစကားစနစ် — စာလုံးပေါင်းနှင့် ရုံးသုံးသဒ္ဒါအားလုံး စစ်ဆေးပြီးဖြစ်ပါသည်။");
+                    "လက်ရှိစနစ်: စာပေ / ရုံးသုံး အရေးစကားစနစ် — စာလုံးပေါင်းနှင့် ရုံးသုံးသဒ္ဒါအားလုံး စစ်ဆေးပြီးဖြစ်ပါသည်။")
+                : (_currentStyleMode == ProofingStyleMode.ColloquialPermissive
+                    ? UiLocalizer.Pick(
+                        "Active Mode: Casual / Web — Genuine typos and grammar checked while tolerating casual spellings.",
+                        "လက်ရှိစနစ်: အရပ်သုံး စကားပြောစနစ် — အရပ်သုံးပုံစံကွဲများကို ခွင့်ပြု၍ အမှားစစ်စစ်များကို စစ်ဆေးပေးနေပါသည်။")
+                    : UiLocalizer.Pick(
+                        "Active Mode: General Standard — Live background proofing automatically checks as you type.",
+                        "လက်ရှိစနစ်: အထွေထွေ စံသတ်ပုံစနစ် — စာရိုက်နေစဉ် အလိုအလျောက် ဆက်လက်စစ်ဆေးပေးနေပါသည်။"));
 
             var lblBody = new Label
             {

@@ -217,7 +217,9 @@ namespace MyanmarSpellChecker.Core.Official
                 HostAppLabel = string.IsNullOrWhiteSpace(hostAppLabel) ? "Microsoft Office" : hostAppLabel,
                 StyleModeLabel = styleMode == ProofingStyleMode.FormalOfficial
                     ? UiLocalizer.Pick("Official / Literary (ရုံးသုံး/စာပေစနစ်)", "စာပေ / ရုံးသုံးစနစ် (Official / Literary)")
-                    : UiLocalizer.Pick("General Standard (အထွေထွေ စံသတ်ပုံ)", "အထွေထွေ စံသတ်ပုံ (General Standard)"),
+                    : (styleMode == ProofingStyleMode.ColloquialPermissive
+                        ? UiLocalizer.Pick("Casual / Web (အရပ်သုံး စကားပြောစနစ်)", "အရပ်သုံး စကားပြောစနစ် (Casual / Web)")
+                        : UiLocalizer.Pick("General Standard (အထွေထွေ စံသတ်ပုံ)", "အထွေထွေ စံသတ်ပုံ (General Standard)")),
                 GeneratedAtLocal = now,
                 OfficialDateHeader = $"{now:yyyy-MM-dd HH:mm} • {mmDate.OfficialGregorianDateText} ({mmDate.OfficialMyanmarDateText})"
             };

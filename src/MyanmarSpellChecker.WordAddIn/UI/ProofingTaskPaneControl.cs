@@ -138,6 +138,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         private readonly TableLayoutPanel _customToolbar;
 
         // Proofing Toolbar Controls
+        private readonly Button _btnStyleCasual;
         private readonly Button _btnStyleGeneral;
         private readonly Button _btnStyleFormal;
         private readonly Label _lblStyleHint;
@@ -534,31 +535,37 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 _proofingToolbar.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             }
 
-            // Style Mode Selector
+            // Style Mode Selector (Casual | Standard | Official)
             _styleGrid = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 2,
+                ColumnCount = 3,
                 RowCount = 1,
                 Margin = new Padding(0, 0, 0, 2)
             };
-            _styleGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-            _styleGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            _styleGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
+            _styleGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.34F));
+            _styleGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
             _styleGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             int initStyleBtnH = MeasureSingleLineButtonHeight(_fontSmallBold, 11);
-            _btnStyleGeneral = CreateToolbarSlotButton("အထွေထွေ စံသတ်ပုံ", Color.FromArgb(24, 90, 188), Color.White, Color.FromArgb(24, 90, 188), _fontSmallBold, initStyleBtnH);
+            _btnStyleCasual = CreateToolbarSlotButton("အရပ်သုံး", Color.FromArgb(240, 243, 249), Color.FromArgb(50, 60, 76), Color.FromArgb(214, 220, 232), _fontSmall, initStyleBtnH);
+            _btnStyleCasual.Click += (s, e) => ChangeStyleMode(ProofingStyleMode.ColloquialPermissive);
+            _toolTip.SetToolTip(_btnStyleCasual, "အရပ်သုံး စကားပြော/လူမှုကွန်ရက်စနစ် (တခု၊ ကျနော်၊ ဒါပေမယ့်၊ စျေး စသည်တို့ကို ခွင့်ပြုသည်)");
+
+            _btnStyleGeneral = CreateToolbarSlotButton("စံသတ်ပုံ", Color.FromArgb(24, 90, 188), Color.White, Color.FromArgb(24, 90, 188), _fontSmallBold, initStyleBtnH);
             _btnStyleGeneral.Click += (s, e) => ChangeStyleMode(ProofingStyleMode.GeneralStandard);
             _toolTip.SetToolTip(_btnStyleGeneral, "အများသုံး/လုပ်ငန်းသုံး စံသတ်ပုံစနစ် (ပါတယ်၊ တွေ စသည့် အပြောစကားများကို ခွင့်ပြုသည်)");
 
-            _btnStyleFormal = CreateToolbarSlotButton("စာပေ / ရုံးသုံး", Color.FromArgb(240, 243, 249), Color.FromArgb(50, 60, 76), Color.FromArgb(214, 220, 232), _fontSmall, initStyleBtnH);
+            _btnStyleFormal = CreateToolbarSlotButton("ရုံးသုံး", Color.FromArgb(240, 243, 249), Color.FromArgb(50, 60, 76), Color.FromArgb(214, 220, 232), _fontSmall, initStyleBtnH);
             _btnStyleFormal.Click += (s, e) => ChangeStyleMode(ProofingStyleMode.FormalOfficial);
             _toolTip.SetToolTip(_btnStyleFormal, "အစိုးရရုံးသုံးနှင့် စာပေအရေးအသားစနစ် (ပါတယ် ➔ ပါသည်၊ တွေ ➔ များ ပါ စစ်ဆေးသည်)");
 
-            _styleGrid.Controls.Add(_btnStyleGeneral, 0, 0);
-            _styleGrid.Controls.Add(_btnStyleFormal, 1, 0);
+            _styleGrid.Controls.Add(_btnStyleCasual, 0, 0);
+            _styleGrid.Controls.Add(_btnStyleGeneral, 1, 0);
+            _styleGrid.Controls.Add(_btnStyleFormal, 2, 0);
 
             _lblStyleHint = new Label
             {
@@ -1843,14 +1850,21 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             UpdateSlimButtonChrome();
 
-            _btnStyleGeneral.Text = UiLocalizer.Pick("General Standard", "အထွေထွေ စံသတ်ပုံ");
+            _btnStyleCasual.Text = UiLocalizer.Pick("Casual", "အရပ်သုံး");
+            _toolTip.SetToolTip(
+                _btnStyleCasual,
+                UiLocalizer.Pick(
+                    "Casual / social mode (tolerates informal spellings like တခု, ကျနော်, ဒါပေမယ့်, စျေး while catching real typos)",
+                    "အရပ်သုံး စကားပြော/လူမှုကွန်ရက်စနစ် (တခု၊ ကျနော်၊ ဒါပေမယ့်၊ စျေး စသည်တို့ကို ခွင့်ပြုပြီး အမှားစစ်စစ်ကိုသာ ပြသည်)"));
+
+            _btnStyleGeneral.Text = UiLocalizer.Pick("Standard", "စံသတ်ပုံ");
             _toolTip.SetToolTip(
                 _btnStyleGeneral,
                 UiLocalizer.Pick(
                     "General & business Myanmar spelling mode (allows everyday spoken particles like ပါတယ်, တွေ)",
                     "အများသုံး/လုပ်ငန်းသုံး စံသတ်ပုံစနစ် (ပါတယ်၊ တွေ စသည့် အပြောစကားများကို ခွင့်ပြုသည်)"));
 
-            _btnStyleFormal.Text = UiLocalizer.Pick("Official / Literary", "စာပေ / ရုံးသုံး");
+            _btnStyleFormal.Text = UiLocalizer.Pick("Official", "ရုံးသုံး");
             _toolTip.SetToolTip(
                 _btnStyleFormal,
                 UiLocalizer.Pick(
@@ -2083,6 +2097,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 _btnTabCustom.Height = tabBtnH;
 
                 int styleBtnH = MeasureSingleLineButtonHeight(_fontSmallBold, 11);
+                _btnStyleCasual.Height = styleBtnH;
                 _btnStyleGeneral.Height = styleBtnH;
                 _btnStyleFormal.Height = styleBtnH;
                 _lblStyleHint.Height = MeasureSingleLineLabelHeight(_fontBrandStats, 5);

@@ -7,7 +7,8 @@ using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
-using MyanmarSpellChecker.Core.Presentation;
+using MyanmarSpellChecker.Core.Presentation;
+
 using MyanmarSpellChecker.Core.Spreadsheet;
 using MyanmarSpellChecker.Core.Typography;
 
@@ -207,17 +208,24 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
 
         private void UpdateStyleModeButtons()
         {
+            bool isCasual = _currentStyleMode == ProofingStyleMode.ColloquialPermissive;
+            bool isGeneral = _currentStyleMode == ProofingStyleMode.GeneralStandard;
             bool isFormal = _currentStyleMode == ProofingStyleMode.FormalOfficial;
-            StyleSegment(_btnStyleGeneral, !isFormal, Color.FromArgb(183, 71, 42));
+            StyleSegment(_btnStyleCasual, isCasual, Color.FromArgb(14, 116, 96));
+            StyleSegment(_btnStyleGeneral, isGeneral, Color.FromArgb(183, 71, 42));
             StyleSegment(_btnStyleFormal, isFormal, Color.FromArgb(18, 56, 128));
 
             _lblStyleHint.Text = isFormal
                 ? UiLocalizer.Pick(
                     "Formal / Official — Checks spelling + colloquial particles (ပါတယ်➔ပါသည်, တွေ➔များ, နဲ့➔နှင့်)",
                     "ရုံးသုံး/စာပေစနစ် — စာလုံးပေါင်း + ပါတယ်➔ပါသည်၊ တွေ➔များ၊ နဲ့➔နှင့် စစ်ဆေးသည်")
-                : UiLocalizer.Pick(
-                    "General Standard — Checks spelling, တ/တစ်, ခုနစ်/ခုနှစ် & contextual meaning (Design-Safe)",
-                    "အထွေထွေ စံသတ်ပုံ — စာလုံးပေါင်း၊ တ/တစ်၊ ခုနစ်/ခုနှစ် နှင့် အနက်သံသယ စစ်ဆေးသည်");
+                : (isCasual
+                    ? UiLocalizer.Pick(
+                        "Casual / Web — Tolerates informal spellings (တခု, ကျနော်, ဒါပေမယ့်, စျေး) (Design-Safe)",
+                        "အရပ်သုံးစနစ် — တခု၊ ကျနော်၊ ဒါပေမယ့်၊ စျေး စသည့် ပုံစံကွဲများကို ခွင့်ပြုသည် (Design-Safe)")
+                    : UiLocalizer.Pick(
+                        "General Standard — Checks 100% MLC spelling, တ/တစ်, ခုနစ်/ခုနှစ် & meaning (Design-Safe)",
+                        "အထွေထွေ စံသတ်ပုံ — စာလုံးပေါင်း၊ တ/တစ်၊ ခုနစ်/ခုနှစ် နှင့် အနက်သံသယ စစ်ဆေးသည်"));
         }
 
         private void SelectAndScanScope(PresentationScanScope scope)

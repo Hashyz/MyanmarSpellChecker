@@ -27,6 +27,19 @@ namespace MyanmarSpellChecker.Core.Nlp
     {
         private static readonly int FuzzyWindowCacheCap = !Environment.Is64BitProcess ? 4096 : 12288;
 
+        private const int ViterbiBeamWidth = 3;
+
+        private struct ViterbiBeamSlot
+        {
+            public double Cost;
+            public int PrevPos;
+            public byte PrevBeam;
+            public MyanmarUposTag PrevTag;
+            public MyanmarUposTag CurTag;
+            public ulong WordHash;
+            public LatticeEdge Edge;
+        }
+
         private sealed class ProofingScratchWorkspace
         {
             public bool InUse;
@@ -41,9 +54,8 @@ namespace MyanmarSpellChecker.Core.Nlp
             public readonly List<(int Start, int End)> OfficialSpans = new List<(int Start, int End)>(16);
             public readonly List<(int Start, int End)> ExactMultiWordSpans = new List<(int Start, int End)>(16);
 
-            public double[] BestCost = new double[64];
-            public int[] BackPrev = new int[64];
-            public LatticeEdge[] BackEdge = new LatticeEdge[64];
+            public ViterbiBeamSlot[] BeamTable = new ViterbiBeamSlot[64 * ViterbiBeamWidth];
+            public byte[] BeamCounts = new byte[64];
             public ushort[] ExactMultiWordBits = new ushort[64];
             public readonly List<(int Length, List<DictionaryEntry>? Entries, OrthographyRule? WrongRule)> ClauseExactSpans =
                 new List<(int Length, List<DictionaryEntry>? Entries, OrthographyRule? WrongRule)>(64);
@@ -311,25 +323,42 @@ namespace MyanmarSpellChecker.Core.Nlp
         {
             public readonly int Length;
             public readonly double Cost;
+            public readonly ulong WordHash;
+            public readonly MyanmarUposTag PosTag;
             public readonly string? IssueOriginalText;
             public readonly int UnrecognizedSingleSylTokenIndex;
             public readonly Func<ProofingIssue>? IssueFactory;
 
             public bool HasIssue => UnrecognizedSingleSylTokenIndex >= 0 || IssueFactory != null;
 
-            public static LatticeEdge Clean(int length, double cost) =>
-                new LatticeEdge(length, cost, null, -1, null);
+            public static LatticeEdge Clean(int length, double cost, ulong wordHash = 0UL, MyanmarUposTag posTag = MyanmarUposTag.Unk) =>
+                new LatticeEdge(length, cost, wordHash, posTag, null, -1, null);
 
             public static LatticeEdge UnrecognizedSingleSyllable(int tokenIndex, string rawSyl, double cost) =>
-                new LatticeEdge(1, cost, rawSyl, tokenIndex, null);
+                new LatticeEdge(1, cost, 0UL, MyanmarUposTag.Unk, rawSyl, tokenIndex, null);
 
-            public static LatticeEdge DeferredIssue(int length, double cost, string originalText, Func<ProofingIssue> issueFactory) =>
-                new LatticeEdge(length, cost, originalText, -1, issueFactory);
+            public static LatticeEdge DeferredIssue(
+                int length,
+                double cost,
+                string originalText,
+                Func<ProofingIssue> issueFactory,
+                ulong wordHash = 0UL,
+                MyanmarUposTag posTag = MyanmarUposTag.Unk) =>
+                new LatticeEdge(length, cost, wordHash, posTag, originalText, -1, issueFactory);
 
-            private LatticeEdge(int length, double cost, string? issueOriginalText, int unrecognizedSingleSylTokenIndex, Func<ProofingIssue>? issueFactory)
+            private LatticeEdge(
+                int length,
+                double cost,
+                ulong wordHash,
+                MyanmarUposTag posTag,
+                string? issueOriginalText,
+                int unrecognizedSingleSylTokenIndex,
+                Func<ProofingIssue>? issueFactory)
             {
                 Length = length;
                 Cost = cost;
+                WordHash = wordHash;
+                PosTag = posTag;
                 IssueOriginalText = issueOriginalText;
                 UnrecognizedSingleSylTokenIndex = unrecognizedSingleSylTokenIndex;
                 IssueFactory = issueFactory;
@@ -1235,6 +1264,38 @@ namespace MyanmarSpellChecker.Core.Nlp
                             if (IsClassicalPitakaOrthographyVariant(nlpIssues[nIdx].OriginalText))
                             {
                                 nlpIssues.RemoveAt(nIdx);
+                            }
+                        }
+                    }
+                }
+
+                // 4.0b. Quoted-Dialogue Spoken Contraction Tolerance (GeneralStandard) & ColloquialPermissive Mode Filtering
+                if (nlpIssues.Count > 0 && StyleMode != ProofingStyleMode.FormalOfficial)
+                {
+                    if (StyleMode == ProofingStyleMode.ColloquialPermissive)
+                    {
+                        for (int pIdx = nlpIssues.Count - 1; pIdx >= 0; pIdx--)
+                        {
+                            if (MyanmarCompactLanguageModel.IsPermissiveColloquialVariant(nlpIssues[pIdx], isQuotedDialogueOnly: false))
+                            {
+                                nlpIssues.RemoveAt(pIdx);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        bool[]? quoteMask = MyanmarCompactLanguageModel.BuildQuotedDialogueMask(nlpText);
+                        if (quoteMask != null)
+                        {
+                            for (int qIdx = nlpIssues.Count - 1; qIdx >= 0; qIdx--)
+                            {
+                                var qIss = nlpIssues[qIdx];
+                                if (qIss.StartIndex >= 0 && qIss.StartIndex < quoteMask.Length &&
+                                    quoteMask[qIss.StartIndex] &&
+                                    MyanmarCompactLanguageModel.IsPermissiveColloquialVariant(qIss, isQuotedDialogueOnly: true))
+                                {
+                                    nlpIssues.RemoveAt(qIdx);
+                                }
                             }
                         }
                     }
@@ -2571,7 +2632,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     {
                         mask[q] = mask[q + 1] = true;
                     }
-                    else if (StyleMode == ProofingStyleMode.GeneralStandard &&
+                    else if (StyleMode != ProofingStyleMode.FormalOfficial &&
                              s0 == "ကျ" && q + 2 < tokCount &&
                              tokens[q + 1].Kind == TokenKind.MyanmarSyllable && tokens[q + 1].NormalizedText == "မ" &&
                              tokens[q + 2].Kind == TokenKind.MyanmarSyllable &&
@@ -2915,35 +2976,66 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return;
             }
 
-            if (ws.BestCost.Length < m + 1)
+            if (ws.BeamCounts.Length < m + 1)
             {
                 int grown = Math.Max((m + 1) * 2, 64);
-                ws.BestCost = new double[grown];
-                ws.BackPrev = new int[grown];
-                ws.BackEdge = new LatticeEdge[grown];
+                ws.BeamTable = new ViterbiBeamSlot[grown * ViterbiBeamWidth];
+                ws.BeamCounts = new byte[grown];
                 ws.ClauseSpanOffsets = new int[grown];
                 ws.ExactMultiWordBits = new ushort[grown];
             }
             else
             {
+                Array.Clear(ws.BeamCounts, 1, m);
                 Array.Clear(ws.ExactMultiWordBits, 0, m);
             }
 
-            double[] bestCost = ws.BestCost;
-            int[] backPrev = ws.BackPrev;
-            LatticeEdge[] backEdge = ws.BackEdge;
+            ViterbiBeamSlot[] beamTable = ws.BeamTable;
+            byte[] beamCounts = ws.BeamCounts;
             ushort[] exactMultiWordBits = ws.ExactMultiWordBits;
             int[] spanOffsets = ws.ClauseSpanOffsets;
             var allExactSpans = ws.ClauseExactSpans;
             allExactSpans.Clear();
             var candidateEdges = ws.CandidateEdges;
 
-            for (int i = 1; i <= m; i++)
+            // Seed BOS / preceding space-separated word state for K=3 Bigram + UPOS-Trigram Beam Viterbi
+            ulong seedWordHash = 0UL;
+            MyanmarUposTag seedTag = MyanmarUposTag.Boundary;
+            for (int p = runStart - 1; p >= Math.Max(0, runStart - 3); p--)
             {
-                bestCost[i] = double.PositiveInfinity;
-                backPrev[i] = -1;
+                var pTok = tokens[p];
+                if (pTok.Kind == TokenKind.Whitespace)
+                    continue;
+                if (pTok.Kind == TokenKind.MyanmarSyllable)
+                {
+                    int wStart = p;
+                    while (wStart > 0 &&
+                           tokens[wStart - 1].Kind == TokenKind.MyanmarSyllable &&
+                           tokens[wStart - 1].StartIndex + tokens[wStart - 1].Length == tokens[wStart].StartIndex &&
+                           p - wStart < 4)
+                    {
+                        wStart--;
+                    }
+                    int wLen = p - wStart + 1;
+                    seedWordHash = MyanmarCompactLanguageModel.ComputeTokenSliceHash(tokens, wStart, wLen);
+                    seedTag = wLen == 1
+                        ? MyanmarCompactLanguageModel.ResolveWordUposTag(tokens[p].NormalizedText, _trie)
+                        : MyanmarCompactLanguageModel.ResolveWordUposTag(ConcatNormalizedTokens(tokens, wStart, wLen), _trie);
+                }
+                break;
             }
-            bestCost[0] = 0.0;
+
+            beamCounts[0] = 1;
+            beamTable[0] = new ViterbiBeamSlot
+            {
+                Cost = 0.0,
+                PrevPos = -1,
+                PrevBeam = 0,
+                PrevTag = MyanmarUposTag.Boundary,
+                CurTag = seedTag,
+                WordHash = seedWordHash,
+                Edge = default
+            };
 
             // Populate clause spans & 1D bitmask directly from precomputed token spans (0 extra Trie node walks!)
             var preAllSpans = ws.AllTokenSpans;
@@ -2975,7 +3067,8 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             for (int i = 0; i < m; i++)
             {
-                if (double.IsPositiveInfinity(bestCost[i]))
+                int activeBeams = beamCounts[i];
+                if (activeBeams == 0)
                     continue;
 
                 BuildEdgesAt(
@@ -2991,44 +3084,126 @@ namespace MyanmarSpellChecker.Core.Nlp
                     spanOffsets[i + 1],
                     candidateEdges);
 
-                for (int eIdx = 0; eIdx < candidateEdges.Count; eIdx++)
+                int srcBase = i * ViterbiBeamWidth;
+                for (int b = 0; b < activeBeams; b++)
                 {
-                    LatticeEdge edge = candidateEdges[eIdx];
-                    int nextPos = i + edge.Length;
-                    if (nextPos > m)
-                        continue;
-
-                    double total = bestCost[i] + edge.Cost;
-                    if (total < bestCost[nextPos])
+                    ViterbiBeamSlot src = beamTable[srcBase + b];
+                    for (int eIdx = 0; eIdx < candidateEdges.Count; eIdx++)
                     {
-                        bestCost[nextPos] = total;
-                        backPrev[nextPos] = i;
-                        backEdge[nextPos] = edge;
+                        LatticeEdge edge = candidateEdges[eIdx];
+                        int nextPos = i + edge.Length;
+                        if (nextPos > m)
+                            continue;
+
+                        double rawBgBonus = (src.WordHash != 0UL && edge.WordHash != 0UL)
+                            ? _trie.GetFastBigramLogBonus(src.WordHash, edge.WordHash)
+                            : 0.0;
+                        double bgBonus = (!edge.HasIssue && edge.Length == 1) ? rawBgBonus * 0.25 : rawBgBonus;
+                        double rawPosDelta = edge.HasIssue
+                            ? MyanmarCompactLanguageModel.GetViterbiPosStepDelta(src.PrevTag, src.CurTag, edge.PosTag)
+                            : 0.0;
+                        double posPenalty = rawPosDelta > 0.0 ? rawPosDelta * 0.50 : 0.0;
+                        double total = src.Cost + edge.Cost - bgBonus + posPenalty;
+
+                        InsertBeamSlot(
+                            beamTable,
+                            beamCounts,
+                            nextPos,
+                            new ViterbiBeamSlot
+                            {
+                                Cost = total,
+                                PrevPos = i,
+                                PrevBeam = (byte)b,
+                                PrevTag = src.CurTag,
+                                CurTag = edge.PosTag != MyanmarUposTag.Unk ? edge.PosTag : src.CurTag,
+                                WordHash = edge.WordHash,
+                                Edge = edge
+                            });
                     }
                 }
             }
 
-            // Backtrack optimal Viterbi path from m -> 0 and materialize ONLY winning non-ignored issues!
+            // Backtrack optimal K=3 Beam Viterbi path from m -> 0 and materialize ONLY winning non-ignored issues!
             var chosenIssues = ws.ChosenIssues;
             chosenIssues.Clear();
-            int cur = m;
-            while (cur > 0 && backPrev[cur] >= 0)
+            if (beamCounts[m] > 0)
             {
-                LatticeEdge edge = backEdge[cur];
-                if (edge.HasIssue && !IsIgnoredInSession(edge.IssueOriginalText!))
+                int curPos = m;
+                int curBeam = 0;
+                while (curPos > 0)
                 {
-                    ProofingIssue materialized = edge.UnrecognizedSingleSylTokenIndex >= 0
-                        ? BuildUnrecognizedSingleSyllableIssue(tokens[edge.UnrecognizedSingleSylTokenIndex])
-                        : edge.IssueFactory!();
-                    chosenIssues.Add(materialized);
+                    ViterbiBeamSlot winSlot = beamTable[curPos * ViterbiBeamWidth + curBeam];
+                    if (winSlot.PrevPos < 0)
+                        break;
+                    LatticeEdge edge = winSlot.Edge;
+                    if (edge.HasIssue && !IsIgnoredInSession(edge.IssueOriginalText!))
+                    {
+                        ProofingIssue materialized = edge.UnrecognizedSingleSylTokenIndex >= 0
+                            ? BuildUnrecognizedSingleSyllableIssue(tokens[edge.UnrecognizedSingleSylTokenIndex])
+                            : edge.IssueFactory!();
+                        chosenIssues.Add(materialized);
+                    }
+                    curPos = winSlot.PrevPos;
+                    curBeam = winSlot.PrevBeam;
                 }
-                cur = backPrev[cur];
             }
 
             for (int k = chosenIssues.Count - 1; k >= 0; k--)
             {
                 AddIssueIfNonOverlapping(issues, chosenIssues[k]);
             }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void InsertBeamSlot(ViterbiBeamSlot[] beamTable, byte[] beamCounts, int pos, ViterbiBeamSlot candidate)
+        {
+            int baseIdx = pos * ViterbiBeamWidth;
+            int count = beamCounts[pos];
+
+            // Hypothesis recombination: if an identical (WordHash, CurTag) Markov state is already in the beam, keep the lower-cost path
+            for (int k = 0; k < count; k++)
+            {
+                ref ViterbiBeamSlot existing = ref beamTable[baseIdx + k];
+                if (existing.WordHash == candidate.WordHash && existing.CurTag == candidate.CurTag)
+                {
+                    if (candidate.Cost < existing.Cost)
+                    {
+                        existing = candidate;
+                        while (k > 0 && beamTable[baseIdx + k].Cost < beamTable[baseIdx + k - 1].Cost)
+                        {
+                            ViterbiBeamSlot tmp = beamTable[baseIdx + k - 1];
+                            beamTable[baseIdx + k - 1] = beamTable[baseIdx + k];
+                            beamTable[baseIdx + k] = tmp;
+                            k--;
+                        }
+                    }
+                    return;
+                }
+            }
+
+            if (count < ViterbiBeamWidth)
+            {
+                int ins = count;
+                while (ins > 0 && candidate.Cost < beamTable[baseIdx + ins - 1].Cost)
+                {
+                    beamTable[baseIdx + ins] = beamTable[baseIdx + ins - 1];
+                    ins--;
+                }
+                beamTable[baseIdx + ins] = candidate;
+                beamCounts[pos] = (byte)(count + 1);
+                return;
+            }
+
+            if (candidate.Cost >= beamTable[baseIdx + ViterbiBeamWidth - 1].Cost)
+                return;
+
+            int replaceIdx = ViterbiBeamWidth - 1;
+            while (replaceIdx > 0 && candidate.Cost < beamTable[baseIdx + replaceIdx - 1].Cost)
+            {
+                beamTable[baseIdx + replaceIdx] = beamTable[baseIdx + replaceIdx - 1];
+                replaceIdx--;
+            }
+            beamTable[baseIdx + replaceIdx] = candidate;
         }
 
         private void BuildEdgesAt(
@@ -3057,9 +3232,12 @@ namespace MyanmarSpellChecker.Core.Nlp
 
                 if (wrongRule != null)
                 {
-                    if (wrongRule.Category == "OfficialStyle" && StyleMode == ProofingStyleMode.GeneralStandard)
+                    if (wrongRule.Category == "OfficialStyle" && StyleMode != ProofingStyleMode.FormalOfficial)
                     {
-                        edgesOut.Add(LatticeEdge.Clean(len, 0.86 + 0.10 * len));
+                        ulong offHash = MyanmarCompactLanguageModel.ComputeTokenSliceHash(tokens, tokIdx, len);
+                        MyanmarUposTag offTag = MyanmarCompactLanguageModel.ResolveUposTagFromEntries(
+                            entries, tokens[tokIdx].NormalizedText, tokens[tokIdx + len - 1].NormalizedText);
+                        edgesOut.Add(LatticeEdge.Clean(len, 0.86 + 0.10 * len, offHash, offTag));
                         exactCleanMask |= 1u << len;
                         continue;
                     }
@@ -3118,6 +3296,9 @@ namespace MyanmarSpellChecker.Core.Nlp
 
                     var capturedSpan = span;
                     var capturedRule = wrongRule;
+                    string ruleTargetNorm = UnicodeNormalizer.NormalizeCanonicalOrder(wrongRule.CorrectForm);
+                    ulong ruleTargetHash = MyanmarCompactLanguageModel.ComputeWordHash(ruleTargetNorm);
+                    MyanmarUposTag ruleTargetTag = MyanmarCompactLanguageModel.ResolveWordUposTag(ruleTargetNorm, _trie);
                     edgesOut.Add(LatticeEdge.DeferredIssue(
                         len,
                         0.55 + 0.08 * len,
@@ -3153,7 +3334,9 @@ namespace MyanmarSpellChecker.Core.Nlp
                                     : capturedRule.Explanation,
                                 Suggestions = suggestions
                             };
-                        }));
+                        },
+                        ruleTargetHash,
+                        ruleTargetTag));
                     continue;
                 }
 
@@ -3166,6 +3349,9 @@ namespace MyanmarSpellChecker.Core.Nlp
                             maxFreq = entries[eIdx].Frequency;
                     }
                     double freqBonus = Math.Min(0.24, Math.Log10(maxFreq + 1) * 0.065);
+                    ulong exactHash = MyanmarCompactLanguageModel.ComputeTokenSliceHash(tokens, tokIdx, len);
+                    MyanmarUposTag exactTag = MyanmarCompactLanguageModel.ResolveUposTagFromEntries(
+                        entries, tokens[tokIdx].NormalizedText, tokens[tokIdx + len - 1].NormalizedText);
 
                     int charStart = tokens[tokIdx].StartIndex;
                     SyllableToken endTok = tokens[tokIdx + len - 1];
@@ -3200,12 +3386,14 @@ namespace MyanmarSpellChecker.Core.Nlp
                                         Score = 100.0
                                     }
                                 }
-                            }));
+                            },
+                            exactHash,
+                            exactTag));
                     }
                     else if (!HasAnyInvalidRawSyllableInRange(tokens, tokIdx, len, _trie))
                     {
                         exactCleanMask |= 1u << len;
-                        edgesOut.Add(LatticeEdge.Clean(len, 0.88 + 0.12 * len - freqBonus));
+                        edgesOut.Add(LatticeEdge.Clean(len, 0.88 + 0.12 * len - freqBonus, exactHash, exactTag));
                     }
                 }
             }
@@ -4060,6 +4248,12 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return true;
             }
 
+            // 40. Protect productive 'စာ + ရိုက်' ("type text", e.g. 'စာရိုက်လေ့ကျင့်ခြင်း', 'စာရိုက်စနစ်') from corrupting into 'စရိုက်' ("character/habit")
+            if (windowLen == 2 && firstSyl == "စာ" && lastSyl == "ရိုက်")
+            {
+                return true;
+            }
+
             return false;
         }
 
@@ -4330,10 +4524,12 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             if (GrammaticalParticles.Contains(normSyl) ||
-                (StyleMode == ProofingStyleMode.GeneralStandard && ColloquialParticles.Contains(normSyl)) ||
+                (StyleMode != ProofingStyleMode.FormalOfficial && ColloquialParticles.Contains(normSyl)) ||
                 NumeralsAndDemonstratives.Contains(normSyl))
             {
-                return LatticeEdge.Clean(1, 1.02);
+                ulong prtHash = MyanmarCompactLanguageModel.ComputeWordHash(normSyl);
+                MyanmarUposTag prtTag = MyanmarCompactLanguageModel.ResolveWordUposTag(normSyl, _trie);
+                return LatticeEdge.Clean(1, 1.02, prtHash, prtTag);
             }
 
             // Contextual Bound-Morpheme & Ghost Pat-Sint Index Tab Repair (e.g. 'ဖြားနေတာလား -> ဖျား', 'ဟုပ်လား -> ဟုတ်', 'ပြောက်သွားတယ် -> ပျောက်', 'ရေသောပ်မယ် -> သောက်')
@@ -4395,15 +4591,17 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             if (_trie.IsStandaloneWord(normSyl))
             {
+                ulong sylHash = MyanmarCompactLanguageModel.ComputeWordHash(normSyl);
+                MyanmarUposTag sylTag = MyanmarCompactLanguageModel.ResolveWordUposTag(normSyl, _trie);
                 int freq = _trie.GetWordFrequency(normSyl);
                 if (freq > 0)
                 {
                     double bonus = Math.Min(0.18, Math.Log10(freq + 1) * 0.05);
-                    return LatticeEdge.Clean(1, 1.50 - bonus);
+                    return LatticeEdge.Clean(1, 1.50 - bonus, sylHash, sylTag);
                 }
 
                 // Zero-frequency archaic standalone headword: valid if alone, but prefers coalescing into a compound
-                return LatticeEdge.Clean(1, 1.65);
+                return LatticeEdge.Clean(1, 1.65, sylHash, sylTag);
             }
 
             // Valid dictionary syllable inside a personal name introduced by female honorific 'ဒေါ်' (e.g. 'ဒေါ်တင်တင်အုန်း' where 'အုန်း' has cue 'ခြိမ့်~-')
@@ -5873,6 +6071,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                 var capSpan = span;
                 var capBestStrict = bestStrict;
                 double capStrictDist = bestStrictDist;
+                ulong strictHash = MyanmarCompactLanguageModel.ComputeWordHash(bestStrict.Word);
+                MyanmarUposTag strictTag = MyanmarCompactLanguageModel.ResolveWordUposTag(bestStrict.Word, _trie);
 
                 return LatticeEdge.DeferredIssue(
                     windowLen,
@@ -5902,7 +6102,9 @@ namespace MyanmarSpellChecker.Core.Nlp
                             RequiresReviewBeforeBatchFix = strictNeedsHumanReview,
                             Suggestions = suggestions
                         };
-                    });
+                    },
+                    strictHash,
+                    strictTag);
             }
 
             if (bestFuzzy == null)
@@ -5913,6 +6115,8 @@ namespace MyanmarSpellChecker.Core.Nlp
             var capFuzzySpan = span;
             var capBestFuzzy = bestFuzzy;
             double capFuzzyDist = bestFuzzyDist;
+            ulong fuzzyHash = MyanmarCompactLanguageModel.ComputeWordHash(bestFuzzy.Word);
+            MyanmarUposTag fuzzyTag = MyanmarCompactLanguageModel.ResolveWordUposTag(bestFuzzy.Word, _trie);
 
             return LatticeEdge.DeferredIssue(
                 windowLen,
@@ -5955,7 +6159,9 @@ namespace MyanmarSpellChecker.Core.Nlp
                         RequiresReviewBeforeBatchFix = fuzzyNeedsHumanReview,
                         Suggestions = fuzzySuggestions
                     };
-                });
+                },
+                fuzzyHash,
+                fuzzyTag);
         }
 
         private bool IsCleanProductiveConstituent(
@@ -7585,6 +7791,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 bool topKeepsClosedCoda = iss.Suggestions[0].Replacement.IndexOf('\u103A') >= 0 ||
                                           iss.Suggestions[0].Replacement.IndexOf('\u1036') >= 0;
 
+                bool promotedByCompound = false;
                 for (int c = 1; c < iss.Suggestions.Count; c++)
                 {
                     if (iss.Suggestions[0].Score - iss.Suggestions[c].Score > 6.5)
@@ -7601,10 +7808,128 @@ namespace MyanmarSpellChecker.Core.Nlp
                         promoted.Score = iss.Suggestions[0].Score + 2.5;
                         iss.Suggestions.RemoveAt(c);
                         iss.Suggestions.Insert(0, promoted);
+                        promotedByCompound = true;
                         break;
                     }
                 }
+
+                // 2C. Bidirectional Word-Bigram + UPOS Log-Likelihood Candidate Reranker (P(c | prevWord) * P(nextWord | c))
+                if (!promotedByCompound && iss.Suggestions.Count >= 2 && iss.Suggestions[0].Score < 95.5)
+                {
+                    string prevWord = left2.Length > 0 ? left2 : left1;
+                    if (prevWord.Length == 0)
+                    {
+                        prevWord = ExtractAdjacentSpaceWordLeft(text, lStart);
+                    }
+                    string nextWord = right2.Length > 0 ? right2 : right1;
+                    if (nextWord.Length == 0)
+                    {
+                        nextWord = ExtractAdjacentSpaceWordRight(text, rEnd);
+                    }
+
+                    if (prevWord.Length > 0 || nextWord.Length > 0)
+                    {
+                        string topRep0 = iss.Suggestions[0].Replacement;
+                        int topBg = (prevWord.Length > 0 ? _trie.GetBigramCount(prevWord, topRep0) : 0) +
+                                    (nextWord.Length > 0 ? _trie.GetBigramCount(topRep0, nextWord) : 0);
+
+                        if (topBg == 0)
+                        {
+                            MyanmarUposTag prevTag = prevWord.Length > 0
+                                ? MyanmarCompactLanguageModel.ResolveWordUposTag(prevWord, _trie)
+                                : MyanmarUposTag.Boundary;
+                            MyanmarUposTag nextTag = nextWord.Length > 0
+                                ? MyanmarCompactLanguageModel.ResolveWordUposTag(nextWord, _trie)
+                                : MyanmarUposTag.Boundary;
+
+                            MyanmarUposTag topTag = MyanmarCompactLanguageModel.ResolveWordUposTag(topRep0, _trie);
+                            double topPosLog = MyanmarCompactLanguageModel.GetPosBigramLogProb(prevTag, topTag) +
+                                               MyanmarCompactLanguageModel.GetPosBigramLogProb(topTag, nextTag);
+                            double topCombined = iss.Suggestions[0].Score + topPosLog * 0.25;
+
+                            int bestCandIdx = -1;
+                            double bestCandCombined = topCombined + 2.4;
+                            int maxInspect = Math.Min(5, iss.Suggestions.Count);
+
+                            for (int c = 1; c < maxInspect; c++)
+                            {
+                                if (iss.Suggestions[0].Score - iss.Suggestions[c].Score > 2.8)
+                                    continue;
+                                string candRep = iss.Suggestions[c].Replacement;
+                                if (string.IsNullOrEmpty(candRep))
+                                    continue;
+                                if (origHasClosedCoda && topKeepsClosedCoda &&
+                                    candRep.IndexOf('\u103A') < 0 && candRep.IndexOf('\u1036') < 0)
+                                {
+                                    continue;
+                                }
+
+                                int lBg = prevWord.Length > 0 ? _trie.GetBigramCount(prevWord, candRep) : 0;
+                                int rBg = nextWord.Length > 0 ? _trie.GetBigramCount(candRep, nextWord) : 0;
+                                if (lBg + rBg < 6)
+                                    continue;
+
+                                MyanmarUposTag cTag = MyanmarCompactLanguageModel.ResolveWordUposTag(candRep, _trie);
+                                double cPosLog = MyanmarCompactLanguageModel.GetPosBigramLogProb(prevTag, cTag) +
+                                                 MyanmarCompactLanguageModel.GetPosBigramLogProb(cTag, nextTag);
+                                double bgBoost = (lBg > 0 ? Math.Log(lBg + 1.0) * 1.45 : 0.0) +
+                                                 (rBg > 0 ? Math.Log(rBg + 1.0) * 1.45 : 0.0);
+                                double candCombined = iss.Suggestions[c].Score + bgBoost + cPosLog * 0.28;
+
+                                if (candCombined > bestCandCombined)
+                                {
+                                    bestCandCombined = candCombined;
+                                    bestCandIdx = c;
+                                }
+                            }
+
+                            if (bestCandIdx > 0)
+                            {
+                                var promoted = iss.Suggestions[bestCandIdx];
+                                promoted.Score = iss.Suggestions[0].Score + 2.0;
+                                iss.Suggestions.RemoveAt(bestCandIdx);
+                                iss.Suggestions.Insert(0, promoted);
+                            }
+                        }
+                    }
+                }
             }
+        }
+
+        private static string ExtractAdjacentSpaceWordLeft(string text, int pos)
+        {
+            int p = pos - 1;
+            int spaces = 0;
+            while (p >= 0 && (text[p] == ' ' || text[p] == '\t') && spaces < 3)
+            {
+                p--;
+                spaces++;
+            }
+            if (spaces == 0 || p < 0 || text[p] < '\u1000' || text[p] > '\u103F')
+                return string.Empty;
+
+            int end = p + 1;
+            while (p > 0 && text[p - 1] >= '\u1000' && text[p - 1] <= '\u103F' && (end - p) < 18)
+                p--;
+            return UnicodeNormalizer.NormalizeCanonicalOrder(text.Substring(p, end - p));
+        }
+
+        private static string ExtractAdjacentSpaceWordRight(string text, int pos)
+        {
+            int p = pos;
+            int spaces = 0;
+            while (p < text.Length && (text[p] == ' ' || text[p] == '\t') && spaces < 3)
+            {
+                p++;
+                spaces++;
+            }
+            if (spaces == 0 || p >= text.Length || text[p] < '\u1000' || text[p] > '\u103F')
+                return string.Empty;
+
+            int start = p;
+            while (p < text.Length && text[p] >= '\u1000' && text[p] <= '\u103F' && (p - start) < 18)
+                p++;
+            return UnicodeNormalizer.NormalizeCanonicalOrder(text.Substring(start, p - start));
         }
 
         private bool CandidateFormsContextCompound(string cand, string left1, string left2, string right1, string right2)

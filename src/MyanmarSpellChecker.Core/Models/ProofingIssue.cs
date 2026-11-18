@@ -20,7 +20,14 @@ namespace MyanmarSpellChecker.Core.Models
         /// For Government Ministries, legal contracts, academic theses & formal publishing:
         /// Enforces all standard orthography PLUS formal literary style (ပါတယ် -> ပါသည်, တွေ -> များ, နဲ့ -> နှင့်, အား -> ကို).
         /// </summary>
-        FormalOfficial = 1
+        FormalOfficial = 1,
+
+        /// <summary>
+        /// For casual social media, chat, creative fiction dialogue & everyday informal notes:
+        /// Catches genuine typos, malformed syllables, Zawgyi corruption, and grammar errors while tolerating
+        /// widespread informal/colloquial spellings (e.g. တခု, တကောင်, ကျနော်, ကျမ, ဒါပေမယ့်, စျေး, ဆော့ဝဲလ်).
+        /// </summary>
+        ColloquialPermissive = 2
     }
 
     public enum ProofingIssueType
