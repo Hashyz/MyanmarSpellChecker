@@ -18,9 +18,9 @@ namespace MyanmarSpellChecker.Core.Nlp
             @"[\u1033\u1034\u105A\u1060-\u1097]|(?:^|[\s\u1038\u103A\u104A\u104B(\[""'“‘/])\u1031[\u1000-\u1021\u103B-\u103E]|(?:^|[\s\u104A\u104B(\[""'“‘/])\u103B[\u1000-\u1021]|[\u102B-\u1030\u1032\u1036\u1037]\u1031[\u1000-\u1021\u103B-\u103E]|\u1039(?=[\s\u104A\u104B\u1037\u1038\u1031\u103B\u1021\u1023-\u102A\u104C-\u104F)\]}""'”’/]|$)|(?<!\u1004\u103A)\u1004\u1039[\u1000-\u1021]|\u1039[\u1000-\u1021]\u103A(?![\u1037-\u1039])|\u1019\u103A\u102C\u1038|\u1025\u1015\u1031\u1012",
             RegexOptions.Compiled);
 
-        // Unambiguous Pyidaungsu Unicode 5.1+ structural markers inside a Myanmar token (impossible in Zawgyi-One: logical E before AA/tone/end, Unicode kinzi \u1004\u103A\u1039, Unicode Ha-hto \u103E, or non-Ya-pin coda + Unicode asat \u103A)
+        // Unambiguous Pyidaungsu Unicode 5.1+ structural markers inside a Myanmar token (impossible in Zawgyi-One: logical E before AA/tone/end, medial + logical E, Unicode kinzi \u1004\u103A\u1039, Unicode Ha-hto \u103E, or non-Ya-pin coda + Unicode asat \u103A)
         private static readonly Regex DefiniteUnicodeWordMarkerPattern = new Regex(
-            @"\u1031(?:[\u102B\u102C\u1037\u1038]|$)|\u1004\u103A\u1039|\u103E|[\u1004\u1009\u100A\u100F\u1010\u1014\u101A\u101B\u101D]\u103A|\u1019\u103A[\u1037\u1038\u1039]",
+            @"\u1031(?:[\u102B\u102C\u1037\u1038]|$)|[\u103B-\u103E]\u1031|\u1004\u103A\u1039|\u103E|[\u1004\u1009\u100A\u100F\u1010\u1014\u101A\u101B\u101D]\u103A|\u1019\u103A[\u1037\u1038\u1039]|(?<!\u1031)[\u1000\u1005\u1015]\u103A(?=$|\u104A|\u104B)|\u1014\u108F\u101B\u102C|\u1010\u108F(?:ခု|ဦး|ယောက်|ကြိမ်|ခါ)",
             RegexOptions.Compiled);
 
         private static readonly Regex MyanmarWordTokenScanPattern = new Regex(
@@ -1202,7 +1202,17 @@ namespace MyanmarSpellChecker.Core.Nlp
             // e.g. အဂုၤတ္တိုရ် (Base + \u1064) -> အင်္ဂုတ္တိုရ် (\u1004\u103A\u1039 + Base)
             s = Regex.Replace(s, @"(?<Base>[\u1000-\u1021][\u103B-\u103E]*[\u102B-\u1032]?)\u1064", "\u1004\u103A\u1039${Base}");
             s = s.Replace("\u1064", "\u1004\u103A\u1039");
-            // Stray Zawgyi vowel/consonant codepoints inside an otherwise Unicode word ('မဳံ့ပဲသရေစာတွေက', 'ဖဳံးတွေမှာ', 'တႏခု', 'မှုဵ')
+            // Stray Zawgyi vowel/consonant codepoints inside an otherwise Unicode word ('မဳံ့ပဲသရေစာတွေက', 'ဖဳံးတွေမှာ', 'တႏခု', 'အဓိကနႏရာ', 'မှုဵ')
+            s = s.Replace("မ\u1033\u1036\u1037", "မုန့်")
+                 .Replace("အဓိကန\u108Fရာ", "အဓိကနေရာ");
+            if (s.IndexOf("ဖ\u1033\u1036\u1038", StringComparison.Ordinal) >= 0)
+            {
+                s = Regex.Replace(s, @"ဖ\u1033\u1036\u1038(?=တွေ|ဆက်|နံပါတ်|ကတ်|ခေါ်|လိုင်း|ပြော|$)", "ဖုန်း");
+            }
+            if (s.IndexOf("တ\u108F", StringComparison.Ordinal) >= 0)
+            {
+                s = Regex.Replace(s, @"တ\u108F(?=ခု|ဦး|ယောက်|ကြိမ်|ခါ|ရက်|နှစ်|လ|နေရာ|ချို့)", "တစ်");
+            }
             s = s.Replace("\u1033", "\u102F")
                  .Replace("\u1034", "\u1030")
                  .Replace("\u1035", string.Empty)

@@ -758,8 +758,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            // 4b. Early Compositional Multi-Syllable Synthesis for >= 3-syllable inflected/concatenated forms
-            //     (e.g. 'တုံ့ပျန်နိုင်သည် -> တုံ့ပြန်နိုင်သည်') BEFORE exhaustive 5-bucket scan to slash p99 tail latency!
+            // 4b. Early Compositional Multi-Syllable Synthesis for 2..6-syllable inflected/concatenated forms
+            //     (e.g. 'စြေးမှား -> ဈေးမှား', 'တုံ့ပျန်နိုင်သည် -> တုံ့ပြန်နိုင်သည်') BEFORE exhaustive 5-bucket scan to slash p95/p99 tail latency!
             double earlyTopScore = 0.0;
             for (int rIdx = 0; rIdx < results.Count; rIdx++)
             {
@@ -776,25 +776,25 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 5. Fast Bucketed Weighted Edit Distance using Center-Outward Branch-and-Bound + 45-bit Base Pre-Filtering
-            //    Skip exhaustive 5-bucket scan when Steps 1..4b already filled `computeCap` with high-confidence homophone/anchor/compositional matches!
+            //    Skip exhaustive 5-bucket scan when Steps 1..4b already found authoritative multi-syllable matches or filled `computeCap`!
             double bestPreBucketScore = 0.0;
             for (int rIdx = 0; rIdx < results.Count; rIdx++)
             {
                 if (results[rIdx].Score > bestPreBucketScore)
                     bestPreBucketScore = results[rIdx].Score;
             }
+            int targetLen = lookalikeFixed.Length;
             double preBucketFloor = ComputeSafeFloorScore(results, computeCap);
             bool skipExhaustiveBuckets =
-                (ranCompositionalEarly && results.Count >= 1 && bestPreBucketScore >= 93.0) ||
+                (spanSyllables.Count >= 3 && results.Count >= 1 && bestPreBucketScore >= 93.0) ||
                 (!allowCompositional && ((results.Count >= 1 && bestPreBucketScore >= 92.0) || spanSyllables.Count >= 4)) ||
                 (results.Count >= computeCap &&
                  (hasExplicitWrongRule ||
                   (spanSyllables.Count >= 2 && preBucketFloor >= 89.0) ||
                   (spanSyllables.Count == 1 && preBucketFloor >= 96.5)));
 
-            if (!skipExhaustiveBuckets && (results.Count < computeCap || spanSyllables.Count <= 1 || lookalikeFixed.Length <= 8))
+            if (!skipExhaustiveBuckets && (results.Count < computeCap || spanSyllables.Count <= 1 || targetLen <= 8))
             {
-                int targetLen = lookalikeFixed.Length;
                 char firstChar = lookalikeFixed[0];
                 char lastChar = lookalikeFixed[targetLen - 1];
                 double maxAllowedDist = hasExplicitWrongRule
@@ -807,6 +807,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 double maxPreservationBonus = (targetLen >= 3 ? 3.8 : 0.0) + (spanSyllables.Count >= 2 ? 3.2 : 0.0);
                 double maxBucketCeiling = 94.0 + 8.5 + 1.5 + 0.5 + maxPreservationBonus + (canHaveMedialBonus ? 4.0 : 0.0);
                 double floorScore = preBucketFloor;
+                double bestScoreSoFar = bestPreBucketScore;
 
                 int[] bucketOffsets = (!allowCompositional || targetLen == 1 || (spanSyllables.Count == 1 && results.Count >= computeCap && floorScore >= 90.0))
                     ? new[] { 0, 1, -1 }
@@ -909,6 +910,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                             if (floorScore <= 0.0 || score >= floorScore - 0.001)
                             {
                                 AddOrUpdateEnrichedCandidate(results, rawTrimmed, w, score);
+                                if (score > bestScoreSoFar)
+                                    bestScoreSoFar = score;
                                 if (results.Count >= computeCap && score > floorScore)
                                 {
                                     floorScore = ComputeSafeFloorScore(results, computeCap);
@@ -947,6 +950,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                   (_trie.IsStandaloneWord(spanSyllables[0]) ^ _trie.IsStandaloneWord(spanSyllables[1]))));
 
             if (!ranCompositionalEarly && allowCompositional && !hasExplicitWrongRule && !hasExactLookalikeFix &&
+                !(hasAuthoritativeTopMatch && spanSyllables.Count >= 3 && bestPreBucketScore >= 96.0 && !HasColloquialContractionSyllable(spanSyllables)) &&
                 (!hasAuthoritativeTopMatch || results.Count < 2 || hasColloquialOrAnchoredCompound) &&
                 (results.Count < computeCap || hasColloquialOrAnchoredCompound) &&
                 spanSyllables.Count >= 2 && spanSyllables.Count <= 6)
@@ -955,9 +959,8 @@ namespace MyanmarSpellChecker.Core.Nlp
             }
 
             // 7. Relaxed Fallback Search when an unusual OOV token still has zero matches (skip single-codepoint fragments)
-            if (allowCompositional && results.Count == 0 && lookalikeFixed.Length >= 2 && lookalikeFixed.Length <= 12)
+            if (allowCompositional && results.Count == 0 && targetLen >= 2 && targetLen <= 12)
             {
-                int targetLen = lookalikeFixed.Length;
                 char f0 = lookalikeFixed[0];
                 char fLast = lookalikeFixed[targetLen - 1];
                 int minCompactLen7 = qLen - 13;

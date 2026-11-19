@@ -81,7 +81,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             RegexOptions.Compiled);
 
         private static readonly Regex NonKinziAsatViramaPattern = new Regex(
-            @"(?<Stem>[\u1000-\u1021][\u103B-\u103E]*[\u102B-\u1036]*[\u1000-\u1020])\u103A\u1039(?![\u1000-\u1003\u1018\u101E])(?<Tone>[\u1037\u1038]?)",
+            @"(?<Stem>[\u1000-\u1021][\u103B-\u103E]*[\u102B-\u1036]*[\u1000-\u1020])\u103A\u1039(?![\u1000-\u1003\u1018\u101E\u102B\u102C])(?<Tone>[\u1037\u1038]?)",
             RegexOptions.Compiled);
 
         private static readonly Regex CodaViramaInsteadOfAsatPattern = new Regex(
@@ -465,7 +465,18 @@ namespace MyanmarSpellChecker.Core.Nlp
                         {
                             string asAsat = UnicodeNormalizer.NormalizeCanonicalOrder(
                                 rawSyllable.Substring(0, virIdx) + "\u103A" + rawSyllable.Substring(virIdx + 1));
-                            deterministicRepair = asAsat;
+                            string geminateCand = virIdx + 1 < rawSyllable.Length
+                                ? UnicodeNormalizer.NormalizeCanonicalOrder(
+                                    rawSyllable.Substring(0, virIdx + 1) + m.Groups[1].Value + rawSyllable.Substring(virIdx + 2))
+                                : string.Empty;
+                            if (trie == null || trie.ContainsExactWord(asAsat))
+                            {
+                                deterministicRepair = asAsat;
+                            }
+                            else if (geminateCand.Length > 0 && trie.ContainsExactWord(geminateCand))
+                            {
+                                deterministicRepair = geminateCand;
+                            }
                         }
                         return false;
                     }
@@ -850,6 +861,34 @@ namespace MyanmarSpellChecker.Core.Nlp
                         // Skip illegal aspirated stacks handled by UnicodeNormalizer (e.g. ထ္ထ -> တ္ထ, ဓ္ဓ -> ဒ္ဓ)
                         if (UnicodeNormalizer.HasLookalikeErrorSlice(text, m.Index + stem.Length, m.Length - stem.Length))
                             continue;
+
+                        // Check if extending across the attached right syllable forms an explicit rule or exact compound (e.g. 'လက္မ -> လက်မ', 'ကိစ္မ -> ကိစ္စ')
+                        if (trie != null)
+                        {
+                            int wordEnd = m.Index + m.Length;
+                            while (wordEnd < text.Length && text[wordEnd] >= '\u102B' && text[wordEnd] <= '\u103E')
+                                wordEnd++;
+                            int probeStart = m.Index + stem.Length;
+                            string wholeProbeRaw = UnicodeNormalizer.NormalizeCanonicalOrder(text.Substring(probeStart, wordEnd - probeStart));
+                            if (trie.TryGetWrongFormRule(wholeProbeRaw, out _))
+                                continue;
+
+                            int virRel = (m.Index + m.Length - 2) - probeStart;
+                            if (virRel >= 0 && virRel < wholeProbeRaw.Length && wholeProbeRaw[virRel] == '\u1039')
+                            {
+                                string wholeAsat = UnicodeNormalizer.NormalizeCanonicalOrder(
+                                    wholeProbeRaw.Substring(0, virRel) + "\u103A" + wholeProbeRaw.Substring(virRel + 1));
+                                if (trie.ContainsExactWord(wholeAsat) && !OverlapsAny(issues, probeStart, wordEnd - probeStart))
+                                {
+                                    string rawWholeSlice = text.Substring(probeStart, wordEnd - probeStart);
+                                    AddValidatorIssue(
+                                        issues, probeStart, wordEnd - probeStart, rawWholeSlice, wholeAsat,
+                                        $"အသတ် ('်' U+103A) အစား ပါဌ်ဆင့်သင်္ကေတ ('္' U+1039) မှားယွင်းရိုက်နှိပ်ထားပါသည် — '{rawWholeSlice}' အစား '{wholeAsat}' ဟု ရေးသားရမည်။",
+                                        "ပြည်ထောင်စုယူနီကုဒ် အသတ် ('်') အမှန်");
+                                    continue;
+                                }
+                            }
+                        }
                     }
 
                     string candidateSyl = UnicodeNormalizer.FixLookalikeCharacters(onset + coda + "\u103A");

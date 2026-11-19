@@ -335,11 +335,18 @@ namespace MyanmarSpellChecker.Core.Nlp
                 "ပြည်ထောင်စုအစိုးရနှင့် ဝန်ကြီးဌာန ရုံးသုံးစံနှုန်းအရ 'အမိန့်ကြော်ငြာစာ' (ကြော် + ငြာ) ဟု ရေးသားရမည်။"
             ),
             new CollocationRule(
-                @"(?<Target>(?:သတင်းထုတ်ပြန်|ထုတ်ပြန်|တရားဝင်)ကြော်ငြာ(?<Suffix>ချက်|သည်)?)",
+                @"(?<Target>(?:သတင်းထုတ်ပြန်|ထုတ်ပြန်|တရားဝင်|အသိပေး)ကြော်ငြာ(?<Suffix>ချက်|သည်)?)(?!စာ)",
                 "Target",
                 "",
                 "ကြေညာ (အများသိစေရန် ထုတ်ပြန်~သည်)",
                 "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ အများသိစေရန် ထုတ်ပြန်ခြင်းကို 'ကြေညာ' ဟု ရေးသားရမည်။ ('ကြော်ငြာ' သည် စီးပွားရေးကုန်ပစ္စည်း ကြော်ငြာခြင်းဖြစ်သည်)။"
+            ),
+            new CollocationRule(
+                @"(?<=(?:သတင်းထုတ်ပြန်|ထုတ်ပြန်|တရားဝင်|အသိပေး|အောင်စာရင်း|ရွေးကောက်ပွဲရလဒ်)[ \t]+)(?<Target>ကြော်ငြာ)(?!စာ|ဘုတ်|ဆိုင်းဘုတ်|လုပ်ငန်း|ကုမ္ပဏီ)",
+                "Target",
+                "ကြေညာ",
+                "ကြေညာ (အများသိစေရန် ထုတ်ပြန်~သည်)",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ အများသိစေရန် ထုတ်ပြန်ခြင်းကို 'ကြေညာ' ဟု ရေးသားရမည် ('အမိန့်ကြော်ငြာစာ' နှင့် စီးပွားရေးကုန်ပစ္စည်း 'ကြော်ငြာ' ၌သာ 'ကြော်ငြာ' သုံးသည်)။"
             ),
 
             // 4. ချည် (tie/thread) vs ချဉ် (sour) in compounds
@@ -3246,21 +3253,21 @@ namespace MyanmarSpellChecker.Core.Nlp
             ),
             // Transitive Simplex-for-Causative (ဟထိုး / အပြုကြိယာ) Verb-Frame Rules (strictly guarded by [Object]ကို + (?!စေ) so intransitives & 'ပျက်စီးစေ' are never touched!)
             new CollocationRule(
-                @"(?<=(?:သစ်တော|အဆောက်အအုံ|တံတား|လမ်း|ပစ္စည်း|သဘာဝပတ်ဝန်းကျင်|အမွေအနှစ်|အထောက်အထား|စာရွက်စာတမ်း)(?:များ|တွေ)?ကို\s+)(?<Target>ပျက်စီး)(?!စေ)(?=ခဲ့|ကြ|သည်|တယ်|မည်|မယ်|ရန်|ဖို့|ခြင်း)",
+                @"(?<=(?:သစ်တော|အဆောက်အအုံ|တံတား|လမ်း|ပစ္စည်း|သဘာဝပတ်ဝန်းကျင်|အမွေအနှစ်|အထောက်အထား|စာရွက်စာတမ်း)(?:များ|တွေ)?ကို\s+)(?<Target>ပျက်စီး)(?!စေ)(?=ခဲ့|ကြ|သည်|တယ်|မည်|မယ်|ရန်|ဖို့|ခြင်း|၍|ပြီး|ကာ|လျက်)",
                 "Target",
                 "ဖျက်ဆီး",
                 "ကံပုဒ် ('~ကို') ပါသော အပြုကြိယာ ('ဖျက်ဆီး')",
                 "ရှေ့တွင် ကံပုဒ် ('~ကို') ပါရှိပြီး ကိုယ်တိုင်ပြုလုပ်ဖျက်ဆီးခြင်းကို ပြသဖြင့် အဖြစ်ကြိယာ 'ပျက်စီး' အစား အပြုကြိယာ 'ဖျက်ဆီး' ဟု ရေးသားရမည်။"
             ),
             new CollocationRule(
-                @"(?<=(?:အထောက်အထား|သက်သေ|စာရွက်စာတမ်း|အချက်အလက်|ခြေရာလက်ရာ)(?:များ|တွေ)?ကို\s+)(?<Target>ပျောက်ဖျက်|ပျောက်ပျက်)(?!စေ)(?=ခဲ့|ကြ|သည်|တယ်|မည်|မယ်|ရန်|ဖို့|ခြင်း)",
+                @"(?<=(?:အထောက်အထား|သက်သေ|စာရွက်စာတမ်း|အချက်အလက်|ခြေရာလက်ရာ)(?:များ|တွေ)?ကို\s+)(?<Target>ပျောက်ဖျက်|ပျောက်ပျက်)(?!စေ)(?=ခဲ့|ကြ|သည်|တယ်|မည်|မယ်|ရန်|ဖို့|ခြင်း|၍|ပြီး|ကာ|လျက်)",
                 "Target",
                 "ဖျောက်ဖျက်",
                 "ကံပုဒ် ('~ကို') ပါသော အပြုကြိယာ ('ဖျောက်ဖျက်')",
                 "သက်သေအထောက်အထား စသည်ကို တမင်ပျောက်ကွယ်အောင် ပြုလုပ်ခြင်းဖြစ်သဖြင့် အပြုကြိယာ 'ဖျောက်ဖျက်' ဟု ရေးသားရမည်။"
             ),
             new CollocationRule(
-                @"(?<=(?:ဖုန်းလိုင်း|အင်တာနက်လိုင်း|လျှပ်စစ်မီး|ရေပေးဝေမှု|အဆက်အသွယ်|ထောက်ပံ့မှု|လမ်းကြောင်း)(?:များ|တွေ)?ကို\s+)(?<Target>ပြတ်တောက်)(?!စေ)(?=ခဲ့|ကြ|သည်|တယ်|မည်|မယ်|ရန်|ဖို့|ခြင်း)",
+                @"(?<=(?:ဖုန်းလိုင်း|အင်တာနက်လိုင်း|လျှပ်စစ်မီး|ရေပေးဝေမှု|အဆက်အသွယ်|ထောက်ပံ့မှု|လမ်းကြောင်း)(?:များ|တွေ)?ကို\s+)(?<Target>ပြတ်တောက်)(?!စေ)(?=ခဲ့|ကြ|သည်|တယ်|မည်|မယ်|ရန်|ဖို့|ခြင်း|၍|ပြီး|ကာ|လျက်)",
                 "Target",
                 "ဖြတ်တောက်",
                 "ကံပုဒ် ('~ကို') ပါသော အပြုကြိယာ ('ဖြတ်တောက်')",
@@ -3307,6 +3314,125 @@ namespace MyanmarSpellChecker.Core.Nlp
                 "ဆီမီး",
                 "ဆောမြို့နယ်ရှိ ဆီမီးကျေးရွာအုပ်စု (GAD စံအမည်)",
                 "ဂန့်ဂေါခရိုင် ဆောမြို့နယ်ရှိ ရုံးသုံးကျေးရွာအုပ်စုအမည်မှန်မှာ 'ဆီမီးကျေးရွာအုပ်စု' ဖြစ်သည်။"
+            ),
+            new CollocationRule(
+                @"(?<Target>စာတိုက်သင်္ကေတကုတ်)",
+                "Target",
+                "စာတိုက်သင်္ကေတကုဒ်",
+                "စာတိုက်သင်္ကေတကုဒ် (Postal Code — ဒထွေးသတ် 'ကုဒ်')",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ သင်္ကေတအမှတ်အသား (Postal Code) အနက်တွင် ဒထွေးသတ်ဖြင့် 'စာတိုက်သင်္ကေတကုဒ်' ဟု ရေးသားရမည်။"
+            ),
+            new CollocationRule(
+                @"(?<!စာတိုက်)(?<Target>သင်္ကေတကုတ်)",
+                "Target",
+                "သင်္ကေတကုဒ်",
+                "သင်္ကေတကုဒ် (Code — ဒထွေးသတ် 'ကုဒ်')",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ သင်္ကေတအမှတ်အသား (Code) အနက်တွင် ဒထွေးသတ်ဖြင့် 'သင်္ကေတကုဒ်' ဟု ရေးသားရမည်။"
+            ),
+            new CollocationRule(
+                @"(?<Target>ပို့စ်ကုတ်)",
+                "Target",
+                "ပို့စ်ကုဒ်",
+                "ပို့စ်ကုဒ် (Postcode — ဒထွေးသတ် 'ကုဒ်')",
+                "စာတိုက်သင်္ကေတ (Postcode) အနက်တွင် ဒထွေးသတ်ဖြင့် 'ပို့စ်ကုဒ်' ဟု ရေးသားရမည်။"
+            ),
+            new CollocationRule(
+                @"(?<=(?:အခွန်|ဝင်ငွေခွန်|ကုန်သွယ်လုပ်ငန်းခွန်|အကောက်ခွန်|မြေခွန်|အခွန်အကောက်)[ \t]*)(?<Target>စည်းကျပ်)",
+                "Target",
+                "စည်းကြပ်",
+                "စည်းကြပ် (အခွန်~ကောက်ခံသည် — ရရစ် 'ကြပ်')",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ အခွန်အကောက် စည်းကြပ်ခြင်းကို ရရစ်ဖြင့် 'စည်းကြပ်' ဟု ရေးသားရမည် ('စည်းကမ်းစည်းကျပ်' ၌သာ ယပင့်သုံးသည်)။"
+            ),
+            new CollocationRule(
+                @"(?<Target>တရားဆွဲဆို)",
+                "Target",
+                "တရားစွဲဆို",
+                "တရားစွဲဆို (ဥပဒေအရ အမှု~သည် — စလုံးဝဆွဲ 'စွဲ')",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ တရားရုံး၌ အမှုစွဲဆိုခြင်းကို စလုံးဝဆွဲဖြင့် 'တရားစွဲဆို' ဟု ရေးသားရမည်။"
+            ),
+            new CollocationRule(
+                @"(?<Target>ဆွဲချက်တင်)",
+                "Target",
+                "စွဲချက်တင်",
+                "စွဲချက်တင် (တရားရုံး၌ အမှု~သည် — စလုံးဝဆွဲ 'စွဲ')",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ တရားရုံး၌ စွဲချက်တင်ခြင်းကို စလုံးဝဆွဲဖြင့် 'စွဲချက်တင်' ဟု ရေးသားရမည်။"
+            ),
+            new CollocationRule(
+                @"(?<Target>လျောက်ထား)",
+                "Target",
+                "လျှောက်ထား",
+                "လျှောက်ထား (အသနားခံစာ/လျှောက်လွှာ တင်ပြ~သည် — ဟထိုး 'လျှောက်')",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ အထက်ဌာန/တရားရုံးသို့ တင်ပြလျှောက်ထားခြင်းကို ယပင့်ဟထိုးဖြင့် 'လျှောက်ထား' ဟု ရေးသားရမည်။"
+            ),
+            new CollocationRule(
+                @"(?<Target>လျောက်လွှာ)",
+                "Target",
+                "လျှောက်လွှာ",
+                "လျှောက်လွှာ (တင်ပြတောင်းခံသည့် စာ~ — ဟထိုး 'လျှောက်')",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ တင်ပြလျှောက်ထားသည့်စာကို ယပင့်ဟထိုးဖြင့် 'လျှောက်လွှာ' ဟု ရေးသားရမည်။"
+            ),
+            new CollocationRule(
+                @"(?<Target>အနှောက်အယှက်)",
+                "Target",
+                "အနှောင့်အယှက်",
+                "အနှောင့်အယှက် (နှောင့်ယှက်ဟန့်တားမှု — ငသတ်အောက်မြစ် 'အနှောင့်အယှက်')",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ 'အနှောင့်အယှက်' (ငသတ် အောက်မြစ်) ဟု ရေးသားရမည်။"
+            ),
+            new CollocationRule(
+                @"(?<Target>နှောက်နှေး)",
+                "Target",
+                "နှောင့်နှေး",
+                "နှောင့်နှေး (ကြန့်ကြာ~သည် — ငသတ်အောက်မြစ် 'နှောင့်နှေး')",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ အချိန်ကြန့်ကြာနှောင့်နှေးခြင်းကို ငသတ် အောက်မြစ်ဖြင့် 'နှောင့်နှေး' ဟု ရေးသားရမည်။"
+            ),
+            new CollocationRule(
+                @"(?<Target>ဖြည့်စည်း)",
+                "Target",
+                "ဖြည့်ဆည်း",
+                "ဖြည့်ဆည်း (လိုအပ်ချက်များ ~ပေးသည် — ဆလိမ် 'ဆည်း')",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ လိုအပ်ချက် ဖြည့်ဆည်းပေးခြင်းကို ဆလိမ်ဖြင့် 'ဖြည့်ဆည်း' ဟု ရေးသားရမည်။"
+            ),
+            new CollocationRule(
+                @"(?<Target>အကျိုးအမြက်)",
+                "Target",
+                "အကျိုးအမြတ်",
+                "အကျိုးအမြတ် (စီးပွားရေး ~ရလဒ် — တဝမ်းပူသတ် 'အမြတ်')",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ အကျိုးစီးပွားနှင့် အမြတ်အစွန်းကို တဝမ်းပူသတ်ဖြင့် 'အကျိုးအမြတ်' ဟု ရေးသားရမည်။"
+            ),
+            new CollocationRule(
+                @"(?<Target>(?:ဈေး|စျေး)ဝယ်ချင်)(?=အတွက်|ကြောင့်|ဖြင့်)",
+                "Target",
+                "ဈေးဝယ်ခြင်း",
+                "ဈေးဝယ်ခြင်း (ကြိယာနာမ် '~ခြင်းအတွက်')",
+                "နာမ်ဝိဘတ် 'အတွက်/ကြောင့်/ဖြင့်' ရှေ့တွင် ကြိယာနာမ်ပြုပစ္စည်းဖြင့် 'ဈေးဝယ်ခြင်း' ဟု ရေးသားရမည်။"
+            ),
+            new CollocationRule(
+                @"(?<=အွန်လိုင်း[ \t]*)(?<Target>(?:ဈေး|စျေး)ဝင်)(?=တာ|ခြင်း|မှု|ရတာ|လို့)",
+                "Target",
+                "ဈေးဝယ်",
+                "ဈေးဝယ် (အွန်လိုင်း~ခြင်း)",
+                "အွန်လိုင်းမှ ပစ္စည်းဝယ်ယူခြင်းအနက်တွင် 'ဈေးဝယ်' ဟု ရေးသားရမည်။"
+            ),
+            new CollocationRule(
+                @"(?<Target>ဘဏ္ဏာရေး)",
+                "Target",
+                "ဘဏ္ဍာရေး",
+                "ဘဏ္ဍာရေး (ဏကြီး ဍရင်မှုတ်ဆင့် — 'ဘဏ္ဍာရေး')",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ ငွေကြေးဘဏ္ဍာအနက်တွင် ဏကြီး ဍရင်မှုတ်ဆင့်ဖြင့် 'ဘဏ္ဍာရေး' ဟု ရေးသားရမည်။"
+            ),
+            new CollocationRule(
+                @"(?<Target>ဘဏ္ဏာ)(?!ရေး)",
+                "Target",
+                "ဘဏ္ဍာ",
+                "ဘဏ္ဍာ (ဏကြီး ဍရင်မှုတ်ဆင့် — 'ဘဏ္ဍာ')",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ ပစ္စည်းဥစ္စာဘဏ္ဍာကို ဏကြီး ဍရင်မှုတ်ဆင့်ဖြင့် 'ဘဏ္ဍာ' ဟု ရေးသားရမည်။"
+            ),
+            new CollocationRule(
+                @"(?<Target>တစ်သမှတ်တည်း)",
+                "Target",
+                "တစ်သမတ်တည်း",
+                "တစ်သမတ်တည်း (တစ်ပြေးညီ မပြောင်းမလဲ — ဟထိုးမပါ 'တစ်သမတ်တည်း')",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ တစ်ပြေးညီ မပြောင်းမလဲအနက်တွင် ဟထိုးမပါဘဲ 'တစ်သမတ်တည်း' ဟု ရေးသားရမည်။"
             )
         };
 
@@ -4282,7 +4408,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                 int leftBackIdx = i - 1;
                 while (leftBackIdx > 0 &&
                        wordTokens[leftBackIdx - 1].ClauseId == wCur.ClauseId &&
-                       (wordTokens[leftBackIdx].NormText == "က" || wordTokens[leftBackIdx].NormText == "ကို" ||
+                       (wordTokens[leftBackIdx].NormText == "က" ||
+                        (wordTokens[leftBackIdx].NormText == "ကို" && wCur.NormText != "တစ်ခု") ||
                         wordTokens[leftBackIdx].NormText == "မှာ" || wordTokens[leftBackIdx].NormText == "တွင်" ||
                         wordTokens[leftBackIdx].NormText == "နေ" || wordTokens[leftBackIdx].NormText == "ကနေ" ||
                         wordTokens[leftBackIdx].NormText == "ပါ" || wordTokens[leftBackIdx].NormText == "ပါက" ||
@@ -4305,10 +4432,16 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
                 string rightBigramCheck = wordTokens[rightFwdIdx].NormText;
 
-                if (trie.GetBigramCount(leftBigramCheck, wCur.NormText) > 0 ||
-                    trie.GetBigramCount(wCur.NormText, rightBigramCheck) > 0 ||
-                    (!prevGluedToLeft && trie.ContainsExactWord(wPrev.NormText + wCur.NormText)) ||
-                    (!nextGluedToRight && trie.ContainsExactWord(wCur.NormText + wNext.NormText)))
+                bool bypassBigramVeto =
+                    (wCur.NormText == "မြို့" && wPrev.NormText.EndsWith("တဲ့", StringComparison.Ordinal) && wNext.NormText.StartsWith("အလုပ်", StringComparison.Ordinal)) ||
+                    (wCur.NormText == "လေ" && wPrev.NormText.EndsWith("လည်း", StringComparison.Ordinal) &&
+                     wCur.EndIndex == wNext.StartIndex && wNext.NormText.StartsWith("ဖြစ်", StringComparison.Ordinal));
+
+                if (!bypassBigramVeto &&
+                    (trie.GetBigramCount(leftBigramCheck, wCur.NormText) > 0 ||
+                     trie.GetBigramCount(wCur.NormText, rightBigramCheck) > 0 ||
+                     (!prevGluedToLeft && trie.ContainsExactWord(wPrev.NormText + wCur.NormText)) ||
+                     (!nextGluedToRight && trie.ContainsExactWord(wCur.NormText + wNext.NormText))))
                 {
                     continue;
                 }
@@ -4346,7 +4479,8 @@ namespace MyanmarSpellChecker.Core.Nlp
                     wPrev.NormText == "၏" || wPrev.NormText == "ရဲ့" || wPrev.NormText == "နှင့်" || wPrev.NormText == "နဲ့" ||
                     (wPrev.NormText.EndsWith("\u1037", StringComparison.Ordinal) &&
                      !wPrev.NormText.EndsWith("\u103A\u1037", StringComparison.Ordinal) &&
-                     wPrev.NormText != "သို့"))
+                     wPrev.NormText != "သို့" &&
+                     !wPrev.NormText.EndsWith("တဲ့", StringComparison.Ordinal)))
                 {
                     continue;
                 }
@@ -4383,13 +4517,10 @@ namespace MyanmarSpellChecker.Core.Nlp
                         bool closedOrAbstractLeft = EndsWithClosedCaseOrClauseLinker(wPrev.NormText) ||
                                                     prevIsGaNay ||
                                                     AbstractTopicHeadNouns.Contains(wPrev.NormText);
-                        if (closedOrAbstractLeft)
+                        if ((closedOrAbstractLeft && rightHasNonSelectingHead) ||
+                            (wCur.NormText == "မြို့" && wPrev.NormText.EndsWith("တဲ့", StringComparison.Ordinal) && rightConcatNorm.StartsWith("အလုပ်", StringComparison.Ordinal)))
                         {
-                            if (rightHasNonSelectingHead ||
-                                (wCur.NormText == "မြို့" && wPrev.NormText == "တဲ့" && rightConcatNorm.StartsWith("အလုပ်", StringComparison.Ordinal)))
-                            {
-                                isIntruder = true;
-                            }
+                            isIntruder = true;
                         }
                     }
                     else if (leftSpace && wCur.EndIndex == wNext.StartIndex)
@@ -4426,6 +4557,13 @@ namespace MyanmarSpellChecker.Core.Nlp
                     {
                         isIntruder = true;
                     }
+                }
+                else if (leftSpace && wCur.EndIndex == wNext.StartIndex &&
+                         wCur.NormText == "လေ" &&
+                         wPrev.NormText.EndsWith("လည်း", StringComparison.Ordinal) &&
+                         wNext.NormText.StartsWith("ဖြစ်", StringComparison.Ordinal))
+                {
+                    isIntruder = true;
                 }
 
                 if (!isIntruder)

@@ -2100,7 +2100,7 @@ namespace MyanmarSpellChecker.Core.Tests
             string repoRoot = TestPaths.RepoRoot;
             string scannerSrc = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "Interop", "StaDocumentScanner.cs"));
             string underlineSrc = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.WordAddIn", "Interop", "SafeUnderlineManager.cs"));
-            Assert.Contains("SuppressWordBuiltInEnglishSquigglesOnPureMyanmarSpans", scannerSrc);
+            Assert.Contains("SuppressWordBuiltInEnglishSquigglesOnMyanmarSpans", scannerSrc);
             Assert.Contains("ClassifyMyanmarAndLatinPresence", scannerSrc);
             Assert.Contains("SuppressBuiltInEnglishSquigglesOnRangeOnce", underlineSrc);
         }
@@ -3884,6 +3884,128 @@ namespace MyanmarSpellChecker.Core.Tests
                 Assert.Contains("public void OnRibbonOpenHtmlGuide(", src, StringComparison.Ordinal);
                 Assert.Contains("public void OnRibbonOpenWordGuide(", src, StringComparison.Ordinal);
             }
+        }
+
+        [Fact]
+        public void V75_NationalApexBenchmarkAccuracyAndSpeed_Gate()
+        {
+            var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
+            var trie = repo.LoadIntoTrie("MM-GOV-THATPON-SQLCIPHER-2026!");
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+
+            // JIT warmup
+            _ = formalEngine.CheckText("ပြည်ထောင်စုအစိုးရအဖွဲ့ရုံးက အမိန့်ကြော်ငြာစာ ထုတ်ပြန်ခဲ့သည်။", cacheParagraph: false);
+            _ = generalEngine.CheckText("မနက်စာ စားပြီး ရုံးကို သွားပါတယ်။", cacheParagraph: false);
+
+            // 1. Adversarial National Evil-Twin Clean Controls (must produce 0 false positives)
+            string[] cleanControls =
+            {
+                "ပြည်ထောင်စုအစိုးရအဖွဲ့ရုံးက အမိန့်ကြော်ငြာစာ အမှတ် (၁၂/၂၀၂၆) ကို ထုတ်ပြန်ခဲ့သည်။",
+                "ရုပ်မြင်သံကြား ကြော်ငြာဆိုင်းဘုတ်နှင့် ကုန်ပစ္စည်းကြော်ငြာများကို စနစ်တကျ စစ်ဆေးသည်။",
+                "တပ်ဖွဲ့ဝင်များအား စည်းကမ်းစည်းကျပ် စနစ်တကျ ရှိစေရန် ကြပ်မတ်ဆောင်ရွက်သည်။",
+                "မပွင့်တပွင့် ပြောဆိုခြင်းနှင့် မလုံတလုံ ဝတ်စားဆင်ယင်ခြင်းကို ရှောင်ကြဉ်သင့်သည်။",
+                "ကျောင်းသားများသည် အခန်းဝရောက်သောအခါ ဆရာကြီးအား ရိုသေစွာ နှုတ်ဆက်ကြသည်။",
+                "မိုးလေဝသဌာနက ဘီဂျလီမုန်တိုင်းနှင့် မိုခါမုန်တိုင်း လမ်းကြောင်းကို စောင့်ကြည့်သည်။",
+                "ဂျပန်နိုင်ငံ အဲဒိုခေတ်နှင့် အဇုချိ-မိုမိုယမ ယဉ်ကျေးမှုလက်ရာများကို လေ့လာသည်။",
+                "ဝိနည်းဒေသနာတော်လာ နိဿဂ္ဂိယပါစိတ် အာပတ်ဆိုင်ရာ သိက္ခာပုဒ်များကို သင်ယူသည်။",
+                "ကျောက်ဆည်တက္ကသိုလ် ဘူမိဗေဒဌာန၌ အနည်ကျကျောက်နှင့် မီးသင့်ကျောက်များကို လေ့လာသည်။"
+            };
+
+            foreach (string clean in cleanControls)
+            {
+                var fp = formalEngine.CheckText(clean, cacheParagraph: false);
+                Assert.True(fp.Count == 0, $"Unexpected Clean-FP on '{clean}': {string.Join(", ", fp.Select(x => x.OriginalText + "->" + x.Suggestions.FirstOrDefault()?.Replacement))}");
+            }
+
+            // 2. Multi-Error National Apex Single-Pass Full-Sentence Resolution
+            (MyanmarProofingEngine Engine, string Raw, string ExpectedPatched)[] apexCases =
+            {
+                (
+                    formalEngine,
+                    "ဝန်ကြီးဌာနက အမိန့်ကြေညာစာနှင့် သတင်းထုတ်ပြန်ကြော်ငြာချက်ကို တရားဝင် ကြော်ငြာခဲ့သည်။",
+                    "ဝန်ကြီးဌာနက အမိန့်ကြော်ငြာစာနှင့် သတင်းထုတ်ပြန်ကြေညာချက်ကို တရားဝင် ကြေညာခဲ့သည်။"
+                ),
+                (
+                    formalEngine,
+                    "ကုန်သွယ်လုပ်ငန်းခွန် စည်းကျပ်ရာတွင် ကုမ္ပဏီ၏ အကျိုးအမြက်နှင့် ဘဏ္ဏာရေးရှင်းတမ်းကို စီစစ်သည်။",
+                    "ကုန်သွယ်လုပ်ငန်းခွန် စည်းကြပ်ရာတွင် ကုမ္ပဏီ၏ အကျိုးအမြတ်နှင့် ဘဏ္ဍာရေးရှင်းတမ်းကို စိစစ်သည်။"
+                ),
+                (
+                    formalEngine,
+                    "တရားရုံးသို့ အယူခံ လျောက်ထားရာ၌ တရားဆွဲဆိုမှုနှင့် ဆွဲချက်တင်မှုတို့ မနှောက်နှေးစေရန် ဆောင်ရွက်သည်။",
+                    "တရားရုံးသို့ အယူခံ လျှောက်ထားရာ၌ တရားစွဲဆိုမှုနှင့် စွဲချက်တင်မှုတို့ မနှောင့်နှေးစေရန် ဆောင်ရွက်သည်။"
+                ),
+                (
+                    formalEngine,
+                    "အင်းလေးကန်သည် ရှမ်းပြည်နယ်က တည်ရှိပြီး မြို့နယ်၏ စာတိုက်သင်္ကေတကုတ်နှင့် ပို့စ်ကုတ်ကို မှတ်တမ်းတင်သည်။",
+                    "အင်းလေးကန်သည် ရှမ်းပြည်နယ်တွင် တည်ရှိပြီး မြို့နယ်၏ စာတိုက်သင်္ကေတကုဒ်နှင့် ပို့စ်ကုဒ်ကို မှတ်တမ်းတင်သည်။"
+                ),
+                (
+                    generalEngine,
+                    "ကလေးတွေကြိုက်တဲ့ မဳံ့ပဲသရေစာတွေက လက်ဆောင် တႏခုအဖြစ် ရွေးချယ်လို့ ကောင်းပါတယ်။",
+                    "ကလေးတွေကြိုက်တဲ့ မုန့်ပဲသရေစာတွေက လက်ဆောင် တစ်ခုအဖြစ် ရွေးချယ်လို့ ကောင်းပါတယ်။"
+                ),
+                (
+                    generalEngine,
+                    "စမတ် ဖဳံးတွေမှာ လုံခြုံရေးစနစ်ဟာ အဓိကနႏရာကနေ ပါဝင်နေပါတယ်။",
+                    "စမတ် ဖုန်းတွေမှာ လုံခြုံရေးစနစ်ဟာ အဓိကနေရာကနေ ပါဝင်နေပါတယ်။"
+                ),
+                (
+                    formalEngine,
+                    "နိုင်ငံတော်အတွက် အနှစ်နာခံ ဆောင်ရွတ်ခဲ့သူများကို အထူးကုဏ်ပြုမှတ်တမ်းတင်သည်။",
+                    "နိုင်ငံတော်အတွက် အနစ်နာခံ ဆောင်ရွက်ခဲ့သူများကို အထူးဂုဏ်ပြုမှတ်တမ်းတင်သည်။"
+                ),
+                (
+                    generalEngine,
+                    "အွန်လိုင်းစျေးဝင်တာဟာ စျေးဝယ်ချင်အတွက် အချိန်ကုန် သက်သာစေပါတယ်။",
+                    "အွန်လိုင်းဈေးဝယ်တာဟာ ဈေးဝယ်ခြင်းအတွက် အချိန်ကုန် သက်သာစေပါတယ်။"
+                ),
+                (
+                    generalEngine,
+                    "ဆော့ဖ်ဝဲရေးသားခြင်းဆိုတာ ကျွမ်းကျင်တဲ့ မြို့ အလုပ်တစ်ခုဖြစ်ပါတယ်။",
+                    "ဆော့ဖ်ဝဲရေးသားခြင်းဆိုတာ ကျွမ်းကျင်တဲ့ အလုပ်တစ်ခုဖြစ်ပါတယ်။"
+                )
+            };
+
+            foreach (var (eng, raw, expected) in apexCases)
+            {
+                var issues = eng.CheckText(raw, cacheParagraph: false);
+
+                Assert.NotEmpty(issues);
+                string patched = raw;
+                foreach (var iss in issues.OrderByDescending(i => i.StartIndex))
+                {
+                    Assert.NotEmpty(iss.Suggestions);
+                    patched = patched.Substring(0, iss.StartIndex) +
+                              iss.Suggestions[0].Replacement +
+                              patched.Substring(iss.StartIndex + iss.Length);
+                }
+
+                Assert.Equal(
+                    UnicodeNormalizer.NormalizeCanonicalOrder(expected),
+                    UnicodeNormalizer.NormalizeCanonicalOrder(patched));
+            }
+
+            // 3. Tail-Latency Breakthrough Gate (JIT-warmed uncached p50 < 12 ms; 4-syllable compound 'မီးရှူမီးပန်း' < 25 ms)
+            var latencies = new List<double>(apexCases.Length);
+            foreach (var (eng, raw, _) in apexCases)
+            {
+                var sw = Stopwatch.StartNew();
+                _ = eng.CheckText(raw, cacheParagraph: false);
+                sw.Stop();
+                latencies.Add(sw.Elapsed.TotalMilliseconds);
+            }
+            latencies.Sort();
+            double p50 = latencies[latencies.Count / 2];
+            Assert.True(p50 < 12.0, $"Expected uncached p50 < 12.0 ms on multi-error National Apex sentences, got {p50:F2} ms.");
+
+            var swCompound = Stopwatch.StartNew();
+            var fwIssues = generalEngine.CheckText("ပွဲတော်ညမှာ မီးရှူမီးပန်းတွေ ပစ်ဖောက်ကြပါတယ်။", cacheParagraph: false);
+            swCompound.Stop();
+            Assert.Contains(fwIssues, i => i.Suggestions.Count > 0 && i.Suggestions[0].Replacement.Contains("မီးရှူးမီးပန်း"));
+            Assert.True(swCompound.Elapsed.TotalMilliseconds < 25.0,
+                $"Expected fast compound suggestion (< 25 ms, down from 91 ms), got {swCompound.Elapsed.TotalMilliseconds:F2} ms.");
         }
     }
 }

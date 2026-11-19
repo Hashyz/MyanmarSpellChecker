@@ -1175,6 +1175,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                          gi.OriginalText == "သလား" || gi.OriginalText == "မလား" || gi.OriginalText == "သလဲ" || gi.OriginalText == "မလဲ");
 
                     if (isFormalColloquialSuffixRule &&
+                        (string.IsNullOrEmpty(gi.AuthoritativeSource) || gi.AuthoritativeSource.IndexOf("အဆက်တွဲဝိဘတ်", StringComparison.Ordinal) < 0) &&
                         (ViolatesOfficialHeadwordProperSubspan(gi, exactLexiconMultiWordSpans) ||
                          OverlapsProtectedPersonName(gi, tokens, personNameProtected)))
                     {
@@ -1613,6 +1614,51 @@ namespace MyanmarSpellChecker.Core.Nlp
                     {
                         InsertSortedSpan(buf, 5, ProductiveRedupChinEntries);
                     }
+                }
+            }
+
+            // 3. Productive 4-syllable 'မ[W]တ[W]' half-reduplicated idiom (e.g. 'မလုံတလုံ', 'မပွင့်တပွင့်', 'မသိတသိ', 'မမြင်တမြင်', 'မပေါ်တပေါ်', 'မဝံ့တဝံ့')
+            if (startIdx + 3 < count &&
+                tokens[startIdx].NormalizedText == "မ" &&
+                tokens[startIdx + 2].NormalizedText == "တ" &&
+                tokens[startIdx + 1].NormalizedText == tokens[startIdx + 3].NormalizedText)
+            {
+                SyllableToken t0 = tokens[startIdx];
+                SyllableToken t1 = tokens[startIdx + 1];
+                SyllableToken t2 = tokens[startIdx + 2];
+                SyllableToken t3 = tokens[startIdx + 3];
+                if (t1.Kind == TokenKind.MyanmarSyllable &&
+                    t2.Kind == TokenKind.MyanmarSyllable &&
+                    t3.Kind == TokenKind.MyanmarSyllable &&
+                    t1.StartIndex == t0.StartIndex + t0.Length &&
+                    t2.StartIndex == t1.StartIndex + t1.Length &&
+                    t3.StartIndex == t2.StartIndex + t2.Length &&
+                    !HasCleanSpanOfLength(buf, 4) &&
+                    IsProductiveRedupChinBase(t1.NormalizedText) &&
+                    !UnicodeNormalizer.HasLookalikeErrorSlice(fullText, t0.StartIndex, (t3.StartIndex + t3.Length) - t0.StartIndex))
+                {
+                    InsertSortedSpan(buf, 4, ProductiveRedupChinEntries);
+                }
+            }
+
+            // 4. Canonical MLC compound 'စည်းကမ်းစည်းကျပ်' (guards 'စည်းကျပ်' inside discipline compound while keeping 'အခွန်စည်းကျပ် -> စည်းကြပ်')
+            if (startIdx + 3 < count &&
+                tokens[startIdx].NormalizedText == "စည်း" &&
+                tokens[startIdx + 1].NormalizedText == "ကမ်း" &&
+                tokens[startIdx + 2].NormalizedText == "စည်း" &&
+                tokens[startIdx + 3].NormalizedText == "ကျပ်")
+            {
+                SyllableToken t0 = tokens[startIdx];
+                SyllableToken t1 = tokens[startIdx + 1];
+                SyllableToken t2 = tokens[startIdx + 2];
+                SyllableToken t3 = tokens[startIdx + 3];
+                if (t1.Kind == TokenKind.MyanmarSyllable && t2.Kind == TokenKind.MyanmarSyllable && t3.Kind == TokenKind.MyanmarSyllable &&
+                    t1.StartIndex == t0.StartIndex + t0.Length &&
+                    t2.StartIndex == t1.StartIndex + t1.Length &&
+                    t3.StartIndex == t2.StartIndex + t2.Length &&
+                    !HasCleanSpanOfLength(buf, 4))
+                {
+                    InsertSortedSpan(buf, 4, ProductiveRedupChinEntries);
                 }
             }
         }
@@ -2616,6 +2662,13 @@ namespace MyanmarSpellChecker.Core.Nlp
                     {
                         mask[q] = mask[q + 1] = true;
                     }
+                    else if (s0 == "တ" && q + 4 < tokCount &&
+                             tokens[q + 1].Kind == TokenKind.MyanmarSyllable && tokens[q + 1].NormalizedText == "လုံး" &&
+                             tokens[q + 2].Kind == TokenKind.MyanmarSyllable && tokens[q + 2].NormalizedText == "ကြီး" &&
+                             tokens[q + 3].Kind == TokenKind.MyanmarSyllable && tokens[q + 3].NormalizedText == "မြို့")
+                    {
+                        mask[q] = mask[q + 1] = mask[q + 2] = true;
+                    }
                     else if (s0 == "ဂျီး" && q > 0 && tokens[q - 1].Kind == TokenKind.MyanmarSyllable &&
                              tokens[q - 1].StartIndex + tokens[q - 1].Length == tokens[q].StartIndex)
                     {
@@ -2743,6 +2796,156 @@ namespace MyanmarSpellChecker.Core.Nlp
                             {
                                 for (int k = q; k < qe; k++)
                                     mask[k] = true;
+                            }
+                        }
+                    }
+
+                    // Foreign historical era '[1..2 syls] + ဒို + ခေတ်' (e.g. 'အဲဒိုခေတ်')
+                    if (s0 == "ဒို" && q > 0 && q + 1 < tokCount &&
+                        tokens[q - 1].Kind == TokenKind.MyanmarSyllable &&
+                        tokens[q + 1].Kind == TokenKind.MyanmarSyllable && tokens[q + 1].NormalizedText == "ခေတ်" &&
+                        tokens[q - 1].StartIndex + tokens[q - 1].Length == tokens[q].StartIndex &&
+                        tokens[q].StartIndex + tokens[q].Length == tokens[q + 1].StartIndex &&
+                        !_trie.ContainsExactWord(tokens[q - 1].NormalizedText + "ဒို") &&
+                        !UnicodeNormalizer.HasLookalikeError(tokens[q - 1].Text, out _, out _))
+                    {
+                        mask[q - 1] = mask[q] = true;
+                    }
+
+                    // Named transliterated cyclones '[1..4 contiguous OOV syllables] + မုန်တိုင်း' (e.g. 'ဘီဂျလီမုန်တိုင်း', 'မိုခါမုန်တိုင်း')
+                    if (s0 == "မုန်" && q + 1 < tokCount &&
+                        tokens[q + 1].Kind == TokenKind.MyanmarSyllable && tokens[q + 1].NormalizedText == "တိုင်း" &&
+                        tokens[q].StartIndex + tokens[q].Length == tokens[q + 1].StartIndex)
+                    {
+                        int cycStart = q;
+                        while (cycStart > 0 && q - cycStart < 4 &&
+                               tokens[cycStart - 1].Kind == TokenKind.MyanmarSyllable &&
+                               tokens[cycStart - 1].StartIndex + tokens[cycStart - 1].Length == tokens[cycStart].StartIndex &&
+                               !GrammaticalParticles.Contains(tokens[cycStart - 1].NormalizedText) &&
+                               !ColloquialParticles.Contains(tokens[cycStart - 1].NormalizedText))
+                        {
+                            cycStart--;
+                        }
+                        if (cycStart < q)
+                        {
+                            string cycPrefixNorm = GetTokenSpan(fullText, tokens, cycStart, q - cycStart).NormalizedText;
+                            if (!_trie.ContainsExactWord(cycPrefixNorm))
+                            {
+                                bool cycClean = true;
+                                bool hasCycOovSyl = false;
+                                for (int a = cycStart; a < q && cycClean; a++)
+                                {
+                                    if (UnicodeNormalizer.HasLookalikeError(tokens[a].Text, out _, out _))
+                                    {
+                                        cycClean = false;
+                                        break;
+                                    }
+                                    if (!_trie.IsStandaloneWord(tokens[a].NormalizedText))
+                                        hasCycOovSyl = true;
+                                    for (int b = a + 1; b <= q; b++)
+                                    {
+                                        if (_trie.TryGetWrongFormRule(GetTokenSpan(fullText, tokens, a, b - a).NormalizedText, out _))
+                                        {
+                                            cycClean = false;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (cycClean && hasCycOovSyl)
+                                {
+                                    for (int k = cycStart; k < q; k++)
+                                        mask[k] = true;
+                                }
+                            }
+                        }
+                    }
+
+                    // Foreign temple/historical names '[2..5 contiguous OOV syllables] + ဂန်းဂျိ' (e.g. 'နိရှိဟွန်းဂန်းဂျိ')
+                    if (s0 == "ဂန်း" && q + 1 < tokCount &&
+                        tokens[q + 1].Kind == TokenKind.MyanmarSyllable && tokens[q + 1].NormalizedText == "ဂျိ" &&
+                        tokens[q].StartIndex + tokens[q].Length == tokens[q + 1].StartIndex)
+                    {
+                        int jpStart = q;
+                        while (jpStart > 0 && q - jpStart < 5 &&
+                               tokens[jpStart - 1].Kind == TokenKind.MyanmarSyllable &&
+                               tokens[jpStart - 1].StartIndex + tokens[jpStart - 1].Length == tokens[jpStart].StartIndex &&
+                               !GrammaticalParticles.Contains(tokens[jpStart - 1].NormalizedText) &&
+                               !ColloquialParticles.Contains(tokens[jpStart - 1].NormalizedText))
+                        {
+                            jpStart--;
+                        }
+                        if (q - jpStart >= 2)
+                        {
+                            bool jpClean = true;
+                            for (int a = jpStart; a <= q + 1 && jpClean; a++)
+                            {
+                                if (UnicodeNormalizer.HasLookalikeError(tokens[a].Text, out _, out _))
+                                    jpClean = false;
+                            }
+                            if (jpClean)
+                            {
+                                for (int k = jpStart; k <= q + 1; k++)
+                                    mask[k] = true;
+                            }
+                        }
+                    }
+
+                    // Hyphen-linked foreign historical/proper names '[2..4 syls]-[2..5 syls]' (e.g. 'အဇုချိ-မိုမိုယမ')
+                    if (q + 2 < tokCount && tokens[q + 1].Kind != TokenKind.MyanmarSyllable && tokens[q + 1].Text == "-" &&
+                        tokens[q].StartIndex + tokens[q].Length == tokens[q + 1].StartIndex &&
+                        tokens[q + 2].Kind == TokenKind.MyanmarSyllable &&
+                        tokens[q + 1].StartIndex + tokens[q + 1].Length == tokens[q + 2].StartIndex)
+                    {
+                        int lSt = q;
+                        while (lSt > 0 && q - lSt + 1 < 4 &&
+                               tokens[lSt - 1].Kind == TokenKind.MyanmarSyllable &&
+                               tokens[lSt - 1].StartIndex + tokens[lSt - 1].Length == tokens[lSt].StartIndex)
+                        {
+                            lSt--;
+                        }
+                        int rEn = q + 2;
+                        while (rEn + 1 < tokCount && rEn - (q + 2) + 1 < 5 &&
+                               tokens[rEn + 1].Kind == TokenKind.MyanmarSyllable &&
+                               tokens[rEn].StartIndex + tokens[rEn].Length == tokens[rEn + 1].StartIndex)
+                        {
+                            rEn++;
+                        }
+                        // Strip trailing case/plural particle on right half if present ('တို့', 'ကို', 'တွင်', 'မှ')
+                        while (rEn > q + 2 && (GrammaticalParticles.Contains(tokens[rEn].NormalizedText) || tokens[rEn].NormalizedText == "တို့"))
+                        {
+                            rEn--;
+                        }
+                        int lCnt = q - lSt + 1;
+                        int rCnt = rEn - (q + 2) + 1;
+                        if (lCnt >= 2 && rCnt >= 2)
+                        {
+                            string lNorm = GetTokenSpan(fullText, tokens, lSt, lCnt).NormalizedText;
+                            string rNorm = GetTokenSpan(fullText, tokens, q + 2, rCnt).NormalizedText;
+                            if (!_trie.ContainsExactWord(lNorm) && !_trie.ContainsExactWord(rNorm))
+                            {
+                                bool hyClean = true;
+                                bool lHasOov = false, rHasOov = false;
+                                for (int a = lSt; a <= q && hyClean; a++)
+                                {
+                                    if (UnicodeNormalizer.HasLookalikeError(tokens[a].Text, out _, out _) ||
+                                        _trie.TryGetWrongFormRule(tokens[a].NormalizedText, out _))
+                                        hyClean = false;
+                                    if (!_trie.IsStandaloneWord(tokens[a].NormalizedText))
+                                        lHasOov = true;
+                                }
+                                for (int a = q + 2; a <= rEn && hyClean; a++)
+                                {
+                                    if (UnicodeNormalizer.HasLookalikeError(tokens[a].Text, out _, out _) ||
+                                        _trie.TryGetWrongFormRule(tokens[a].NormalizedText, out _))
+                                        hyClean = false;
+                                    if (!_trie.IsStandaloneWord(tokens[a].NormalizedText))
+                                        rHasOov = true;
+                                }
+                                if (hyClean && (lHasOov || rHasOov))
+                                {
+                                    for (int a = lSt; a <= q; a++) mask[a] = true;
+                                    for (int a = q + 2; a <= rEn; a++) mask[a] = true;
+                                }
                             }
                         }
                     }
@@ -3801,6 +4004,26 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
+            // 2c-iii. Spatial entrance suffix '-ဝ' + 'ရောက်' ('အခန်းဝရောက်', 'အိမ်ဝရောက်', 'တံခါးဝရောက်', 'လမ်းဝရောက်') & attached foreign era '-ဒိုခေတ်' ('အဲဒိုခေတ်')
+            if (windowLen == 2 && tokIdx > runStart &&
+                tokens[tokIdx - 1].StartIndex + tokens[tokIdx - 1].Length == tokens[tokIdx].StartIndex)
+            {
+                if (firstSyl == "ဝ" && lastSyl == "ရောက်")
+                {
+                    string prevSyl = tokens[tokIdx - 1].NormalizedText;
+                    if (prevSyl == "ခန်း" || prevSyl == "အိမ်" || prevSyl == "တံခါး" || prevSyl == "လမ်း" ||
+                        prevSyl == "မြစ်" || prevSyl == "ဂူ" || prevSyl == "စခန်း" || prevSyl == "ကျောင်း" ||
+                        prevSyl == "ခြံ" || prevSyl == "ရွာ" || prevSyl == "မြို့")
+                    {
+                        return true;
+                    }
+                }
+                else if (firstSyl == "ဒို" && lastSyl == "ခေတ်")
+                {
+                    return true;
+                }
+            }
+
             // 2d. Contextual gerund 'စီးခြင်း' ("riding/boarding/flowing") vs 'စီးချင်း' (only valid before 'ထိုး'/'တိုက်' in 'စီးချင်းထိုး')
             if (windowLen == 2 && firstSyl == "စီး" && lastSyl == "ခြင်း")
             {
@@ -3818,6 +4041,12 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
                 if (!followedByDuelVerb)
                     return true;
+            }
+
+            if (windowLen == 3 && lastSyl == "ခြင်း" && tokens[tokIdx + 1].NormalizedText == "ချက်" &&
+                (firstSyl == "ကြို" || firstSyl == "ဟင်း" || firstSyl == "မင်း"))
+            {
+                return true;
             }
 
             // 2e. Contextual gerund 'ချက်ခြင်း' ("cooking/boiling/distilling", e.g. 'ကြိုချက်ခြင်းဖြင့်', 'ထမင်းချက်ခြင်း') vs adverb 'ချက်ချင်း' ("immediately")
@@ -6531,6 +6760,17 @@ namespace MyanmarSpellChecker.Core.Nlp
                 if (!seenWords.Add(w))
                     return;
 
+                // O(1) pre-DP structural & Official-Thatpon guards (avoids 2D edit-distance computation on candidates guaranteed to fail post-DP filters!)
+                if (windowLen >= 3)
+                {
+                    if (cleanSplitMask != 0 && !e.IsOfficialThatpon)
+                        return;
+                    if (hasExactPrefixCompound && !e.IsOfficialThatpon && e.Frequency < 25)
+                        return;
+                    if (isProductiveANominalization && w.IndexOf('\u1039') < 0 && !AreTrueBurmeseHomophones(spanNormalized, w))
+                        return;
+                }
+
                 if (spanHasPaliPatSintOrRetroflex && !AreTrueBurmeseHomophones(spanNormalized, w))
                 {
                     bool allowWholeWordOfficialPaliRepair =
@@ -7573,10 +7813,12 @@ namespace MyanmarSpellChecker.Core.Nlp
             for (int i = 0; i < nlpIssues.Count; i++)
             {
                 ProofingIssue iss = nlpIssues[i];
-                if (iss.IssueType != ProofingIssueType.SpellingError || iss.Suggestions == null || iss.Suggestions.Count == 0)
+                if (iss.Suggestions == null || iss.Suggestions.Count == 0)
                     continue;
-
                 string origNorm = UnicodeNormalizer.NormalizeCanonicalOrder(iss.OriginalText.Trim());
+                bool isPyiNaeTypo = origNorm == "ပြည့်နယ်" || origNorm == "ပြည့်နယ်";
+                if (iss.IssueType != ProofingIssueType.SpellingError && !isPyiNaeTypo)
+                    continue;
 
                 // Extract up to 2 contiguous Myanmar syllables immediately to the left & right of `iss`
                 int lStart = iss.StartIndex;
@@ -7669,6 +7911,18 @@ namespace MyanmarSpellChecker.Core.Nlp
                     iss.Length += left2.Length;
                     iss.OriginalText = text.Substring(iss.StartIndex, iss.Length);
                     EnsureTopSuggestionMetadata(iss.Suggestions, iss.OriginalText, "အဖွဲ့အစည်း", "အဖွဲ့အစည်း (~များ)", "N", true);
+                    iss.Suggestions[0].Score = 104.5;
+                    continue;
+                }
+                if (isPyiNaeTypo && leftCtxNorm.Length > 0 && rightCtxNorm.Length == 0 &&
+                    (_trie.ContainsExactWord(leftCtxNorm + "ပြည်နယ်") || _trie.ContainsExactWord(leftCtxNorm)))
+                {
+                    int deltaLeft = iss.StartIndex - lStart;
+                    iss.StartIndex = lStart;
+                    iss.Length += deltaLeft;
+                    iss.OriginalText = text.Substring(iss.StartIndex, iss.Length);
+                    iss.IssueType = ProofingIssueType.SpellingError;
+                    EnsureTopSuggestionMetadata(iss.Suggestions, iss.OriginalText, leftCtxNorm + "ပြည်နယ်", "ပြည်နယ်အမည် (ရုံးသုံးစံနှုန်း)", "PROPN", true);
                     iss.Suggestions[0].Score = 104.5;
                     continue;
                 }
@@ -7779,9 +8033,28 @@ namespace MyanmarSpellChecker.Core.Nlp
                     iss.Suggestions[0].Score = 104.8;
                     continue;
                 }
-
-                if (iss.Suggestions.Count < 2 || iss.Suggestions[0].Score >= 105.0)
+                if ((origNorm == "ချိန့်" || origNorm == "ချိန့်") &&
+                    (right1 == "တွေ" || right1 == "များ" || right1 == "ထဲ" || right1 == "ကို" || left1 == "ထမင်း"))
+                {
+                    EnsureTopSuggestionMetadata(iss.Suggestions, iss.OriginalText, "ချိုင့်", "ထည့်စရာ ခွက်/ထမင်းချိုင့်", "N", true);
+                    iss.Suggestions[0].Score = 104.8;
                     continue;
+                }
+                if (origNorm == "ကုဏ်" &&
+                    (right1 == "ပြု" || right1 == "ယူ" || right1 == "သိက္ခာ" || left1 == "ဂုဏ်"))
+                {
+                    EnsureTopSuggestionMetadata(iss.Suggestions, iss.OriginalText, "ဂုဏ်", "ဂုဏ်ကျေးဇူး / ~ပြုသည်", "N", true);
+                    iss.Suggestions[0].Score = 106.5;
+                    continue;
+                }
+
+                if (iss.Suggestions.Count < 2 ||
+                    iss.Suggestions[0].Score >= 106.5 ||
+                    iss.IssueType == ProofingIssueType.OfficialStyleGrammarError ||
+                    (!string.IsNullOrEmpty(iss.AuthoritativeSource) && iss.AuthoritativeSource.IndexOf("အဆက်တွဲဝိဘတ်", StringComparison.Ordinal) >= 0))
+                {
+                    continue;
+                }
 
                 bool topFormsCompound = CandidateFormsContextCompound(iss.Suggestions[0].Replacement, left1, left2, right1, right2);
                 if (topFormsCompound)
@@ -7794,9 +8067,12 @@ namespace MyanmarSpellChecker.Core.Nlp
                 bool promotedByCompound = false;
                 for (int c = 1; c < iss.Suggestions.Count; c++)
                 {
-                    if (iss.Suggestions[0].Score - iss.Suggestions[c].Score > 6.5)
-                        continue;
                     string candRep = iss.Suggestions[c].Replacement;
+                    double maxAllowedScoreGap = (iss.Suggestions[c].IsOfficialThatpon && _trie.GetWordFrequency(candRep) >= 15)
+                        ? 12.0
+                        : 6.5;
+                    if (iss.Suggestions[0].Score - iss.Suggestions[c].Score > maxAllowedScoreGap)
+                        continue;
                     if (origHasClosedCoda && topKeepsClosedCoda &&
                         candRep.IndexOf('\u103A') < 0 && candRep.IndexOf('\u1036') < 0)
                     {
