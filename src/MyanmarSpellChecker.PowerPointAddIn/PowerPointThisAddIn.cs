@@ -43,8 +43,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn
     {
         public const string DefaultSqlCipherKey = "MM-GOV-THATPON-SQLCIPHER-2026!";
 
-        public const string DefaultVendorPublicKeyXml =
-            "<RSAKeyValue><Modulus>w6uP9e7V5r2X1a9K0l8m3N4b5V6c7X8z9A0s1D2f3G4h5J6k7L8p9O0i1U2y3T4r5E6w7Q8a9S0d1F2g3H4j5K6l7Z8x9C0v1B2n3M4q5W6e7R8t9Y0u1I2o3P4a5S6d7F8g9H0j1K2l3Z4x5C6v7B8n9M0q1W2e3R4t5Y6u7I8o9P0a1S2d3F4g5H6j7K8l9Z0x1C2v3B4n5M6q7W8e9R0t1Y2u3I4o5P6a7S8d9F0g1H2j3K4l5Z6x7C8v9B0n1M2q3W4e5R6t7Y8u9I0o1P2a3S4d5F6g7H8j9K0l1Z2x3C4v5B6n7M8q9W0e1R2t3Y4u5I6o7P8a9S0d1F2g3H4j5K6l7Z8==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
+        public const string DefaultVendorPublicKeyXml = LicenseService.DefaultEmbeddedPublicKeyXml;
 
         private static readonly object s_instanceGate = new object();
         private static bool s_primaryInstanceActive;
@@ -291,7 +290,8 @@ namespace MyanmarSpellChecker.PowerPointAddIn
                     if (File.Exists(licPathSnapshot))
                     {
                         string licJson = File.ReadAllText(licPathSnapshot);
-                        var licResult = LicenseService.ValidateLicenseJson(licJson, DefaultVendorPublicKeyXml);
+                        string pubKeyXml = LicenseService.ResolvePublicKeyXml(licPathSnapshot, DefaultVendorPublicKeyXml);
+                        var licResult = LicenseService.ValidateLicenseJson(licJson, pubKeyXml);
                         if (licResult.IsValid && !string.IsNullOrWhiteSpace(licResult.SqlCipherDatabaseKey))
                         {
                             activeDbKey = licResult.SqlCipherDatabaseKey!;
@@ -2938,7 +2938,8 @@ namespace MyanmarSpellChecker.PowerPointAddIn
             }
 
             int totalEntries = (_proofingEngine?.Trie.WordCount ?? 0) + (_proofingEngine?.Trie.ReferenceCount ?? 0);
-            var dlg = new LicenseActivationForm(DefaultVendorPublicKeyXml, _licenseFilePath, totalEntries)
+            string resolvedPubKey = LicenseService.ResolvePublicKeyXml(_licenseFilePath, DefaultVendorPublicKeyXml);
+            var dlg = new LicenseActivationForm(resolvedPubKey, _licenseFilePath, totalEntries)
             {
                 MinimizeBox = true,
                 ShowInTaskbar = true

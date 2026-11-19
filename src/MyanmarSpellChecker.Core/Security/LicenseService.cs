@@ -16,6 +16,60 @@ namespace MyanmarSpellChecker.Core.Security
         private static readonly byte[] EnvelopeSalt = Encoding.UTF8.GetBytes("MM-GOV-THATPON-2026-SALT");
 
         /// <summary>
+        /// Valid embedded RSA-2048 fallback public key XML used when no external vendor_public_key.xml is deployed alongside license.lic.
+        /// </summary>
+        public const string DefaultEmbeddedPublicKeyXml =
+            "<RSAKeyValue><Modulus>7r2b9bsBP1DbjeffMCmqwWZH2JH7R0VvL0InPZr400EfbKrewBzRmQid4Y37HVYBwipyyhqxE6qQ9D3e28tM0oFHeMat/Ou5vhdpYGbvXhgZSsW6oNMwCVpoYFIyv7v68ULbZ9xACwnqWbrvXhTakIO1b5CKNwTlKH9kCglxheRPhrjEZIyL26AGIb0gKRE/6hJUEiRyc9Hq6N5n+Cw0Nsn/ebFfz/+5QLsuzbwoP5Uj0743ppVWvefrsk0rf91tWF5HYimqKUsiVgX0rcmNq+fMakssEFn6BiDEmUR641WyWpDcG0KzXMJOyTJueyZ/kUBkLtBwbFAl3fHa/GGHkQ==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
+
+        /// <summary>
+        /// Resolves the active RSA-2048 Public Key XML by checking for a deployed vendor_public_key.xml
+        /// next to license.lic (or in %ProgramData%\%LocalAppData%), falling back to DefaultEmbeddedPublicKeyXml.
+        /// </summary>
+        public static string ResolvePublicKeyXml(string? licenseFilePath, string? fallbackPublicKeyXml = null)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(licenseFilePath))
+                {
+                    string? licDir = Path.GetDirectoryName(licenseFilePath);
+                    if (!string.IsNullOrWhiteSpace(licDir))
+                    {
+                        string siblingKey = Path.Combine(licDir, "vendor_public_key.xml");
+                        if (File.Exists(siblingKey))
+                        {
+                            string xml = File.ReadAllText(siblingKey, Encoding.UTF8).Trim();
+                            if (xml.IndexOf("<RSAKeyValue>", StringComparison.Ordinal) >= 0)
+                                return xml;
+                        }
+                    }
+                }
+
+                foreach (var folder in new[]
+                {
+                    Environment.SpecialFolder.CommonApplicationData,
+                    Environment.SpecialFolder.LocalApplicationData
+                })
+                {
+                    string candidate = Path.Combine(Environment.GetFolderPath(folder), "MyanmarSpellChecker", "vendor_public_key.xml");
+                    if (File.Exists(candidate))
+                    {
+                        string xml = File.ReadAllText(candidate, Encoding.UTF8).Trim();
+                        if (xml.IndexOf("<RSAKeyValue>", StringComparison.Ordinal) >= 0)
+                            return xml;
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore IO errors and use embedded fallback key
+            }
+
+            return !string.IsNullOrWhiteSpace(fallbackPublicKeyXml)
+                ? fallbackPublicKeyXml!
+                : DefaultEmbeddedPublicKeyXml;
+        }
+
+        /// <summary>
         /// Generates a new RSA-2048 Private/Public XML keypair for the vendor License Generator tool.
         /// </summary>
         public static (string PrivateKeyXml, string PublicKeyXml) GenerateRsaKeyPair()

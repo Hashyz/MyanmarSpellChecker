@@ -151,7 +151,22 @@ namespace MyanmarSpellChecker.Core.Dictionary
                 new DictionaryEntry { Word = "နိဿဂ္ဂိယပါစိတ်", MeaningCue = "ပါဠိဝိနည်းပိဋကတ်လာ နိဿဂ္ဂိယပါစိတ်အာပတ် (၃၀ ပါး)", PosTag = "N", IsOfficialThatpon = true, Frequency = 45 },
                 new DictionaryEntry { Word = "ပတ်ပလစ်", MeaningCue = "အများပြည်သူဆိုင်ရာ ကုမ္ပဏီအမည်သုံးပုဒ် (Public)", PosTag = "LOAN", IsOfficialThatpon = false, Frequency = 35 },
                 new DictionaryEntry { Word = "လိမီတက်", MeaningCue = "တာဝန်ကန့်သတ်ထားသော ကုမ္ပဏီအမည်သုံးပုဒ် မူကွဲ (Limited)", PosTag = "LOAN", IsOfficialThatpon = false, Frequency = 35 },
-                new DictionaryEntry { Word = "အာယနဲ", MeaningCue = "နိုင်ငံခြားလူပုဂ္ဂိုလ်အမည် (Ayane)", PosTag = "PROPN", IsOfficialThatpon = false, Frequency = 25 }
+                new DictionaryEntry { Word = "အာယနဲ", MeaningCue = "နိုင်ငံခြားလူပုဂ္ဂိုလ်အမည် (Ayane)", PosTag = "PROPN", IsOfficialThatpon = false, Frequency = 25 },
+                new DictionaryEntry { Word = "သာမညဖလ", MeaningCue = "တန်ဆောင်မုန်းလပြည့် ~အခါတော်နေ့ / ရဟန်းပြုရခြင်း၏ အကျိုးတရား", PosTag = "N", IsOfficialThatpon = true, Frequency = 110 },
+                new DictionaryEntry { Word = "သာမညဖလအခါတော်နေ့", MeaningCue = "တန်ဆောင်မုန်းလပြည့် ဗုဒ္ဓဘာသာ နေ့ထူးနေ့မြတ်", PosTag = "N", IsOfficialThatpon = true, Frequency = 85 },
+                new DictionaryEntry { Word = "လမြတ်", MeaningCue = "ထူးမြတ်သော မြန်မာလ / အခါကြီးရက်ကြီးလ (ဥပမာ - ကဆုန်~၊ သီတင်းကျွတ်~)", PosTag = "N", IsOfficialThatpon = true, Frequency = 95 },
+                new DictionaryEntry { Word = "ဟူးကောင်း", MeaningCue = "ကချင်ပြည်နယ်ရှိ ~ချိုင့်ဝှမ်းဒေသအမည် (Hukawng)", PosTag = "PROPN", IsOfficialThatpon = true, Frequency = 120 },
+                new DictionaryEntry { Word = "ဟူးကောင်းချိုင့်ဝှမ်း", MeaningCue = "ကချင်ပြည်နယ် တနိုင်းမြို့နယ်ရှိ သဘာဝဘေးမဲ့ချိုင့်ဝှမ်းဒေသ (Hukawng Valley)", PosTag = "PROPN", IsOfficialThatpon = true, Frequency = 95 },
+                new DictionaryEntry { Word = "ဟူးကောင်းခန်းမ", MeaningCue = "ကချင်ပြည်နယ်ရှိ ဒေသအမည်စွဲ ခန်းမအမည်", PosTag = "PROPN", IsOfficialThatpon = true, Frequency = 60 },
+                new DictionaryEntry { Word = "ပုန်ခုန်း", MeaningCue = "ကချင်ပြည်နယ် မြစ်ကြီးနားမြို့ရှိ ရပ်ကွက်အမည်", PosTag = "PROPN", IsOfficialThatpon = true, Frequency = 65 },
+                new DictionaryEntry { Word = "ပုန်ခုန်းရပ်ကွက်", MeaningCue = "ကချင်ပြည်နယ် မြစ်ကြီးနားမြို့ရှိ အစိုးရရုံးစိုက်ရာ ရပ်ကွက်အမည်", PosTag = "PROPN", IsOfficialThatpon = true, Frequency = 60 },
+                new DictionaryEntry { Word = "နှစ်တို", MeaningCue = "သက်တမ်းတို / ~စီမံကိန်း / ~ချေးငွေ (Short-term)", PosTag = "ADJ/N", IsOfficialThatpon = true, Frequency = 140 },
+                new DictionaryEntry { Word = "နှစ်တိုပရီမီယံ", MeaningCue = "မြန်မာ့အာမခံလုပ်ငန်းသုံး သက်တမ်းတို အာမခံကြေး (Short-term Premium)", PosTag = "N", IsOfficialThatpon = true, Frequency = 85 },
+                new DictionaryEntry { Word = "နှစ်ရှည်ပရီမီယံ", MeaningCue = "သက်တမ်းရှည် အာမခံကြေး (Long-term Premium)", PosTag = "N", IsOfficialThatpon = true, Frequency = 75 },
+                new DictionaryEntry { Word = "အလမ်းသစ်", MeaningCue = "အခွင့်~ / ဖွံ့ဖြိုးတိုးတက်မှု လမ်းကြောင်းသစ်", PosTag = "N", IsOfficialThatpon = true, Frequency = 95 },
+                new DictionaryEntry { Word = "အခွင့်အလမ်းသစ်", MeaningCue = "တိုးတက်အောင်မြင်နိုင်သည့် အခွင့်အရေးအသစ်", PosTag = "N", IsOfficialThatpon = true, Frequency = 135 },
+                new DictionaryEntry { Word = "လုပ်သာကိုင်သာ", MeaningCue = "လွတ်လပ်ချောမွေ့စွာ လုပ်ကိုင်ဆောင်ရွက်နိုင်သော (~ရှိသည့် ဝန်းကျင်)", PosTag = "ADV/N", IsOfficialThatpon = true, Frequency = 115 },
+                new DictionaryEntry { Word = "ရေခဲသေတ္တာ", MeaningCue = "အစားအသောက် အအေးခံသိမ်းဆည်းသည့် လျှပ်စစ်ပစ္စည်း (သတ်ပုံကျမ်းအမှန် - 'သေတ္တာ')", PosTag = "N", IsOfficialThatpon = true, Frequency = 180 }
             };
         }
 
@@ -410,6 +425,48 @@ namespace MyanmarSpellChecker.Core.Dictionary
                     CorrectForm = "နိဿဂ္ဂိယပါစိတ်",
                     Category = "Spelling",
                     Explanation = "ပါဠိဝိနည်းပိဋကတ် စံနှုန်းအရ 'နိဿဂ္ဂိယပါစိတ်' ('ယ' အက္ခရာပါ) ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "ရေခဲသတ္တာ",
+                    CorrectForm = "ရေခဲသေတ္တာ",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ သဝေထိုးပါဝင်လျက် 'ရေခဲသေတ္တာ' ဟု ရေးသားရမည် ('သတ္တာ' မဟုတ်ပါ)။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "ကုန်သတ္တာ",
+                    CorrectForm = "ကုန်သေတ္တာ",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ သဝေထိုးပါဝင်လျက် 'ကုန်သေတ္တာ' ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "မီးခံသတ္တာ",
+                    CorrectForm = "မီးခံသေတ္တာ",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ သဝေထိုးပါဝင်လျက် 'မီးခံသေတ္တာ' ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "စာတိုက်သတ္တာ",
+                    CorrectForm = "စာတိုက်သေတ္တာ",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ သဝေထိုးပါဝင်လျက် 'စာတိုက်သေတ္တာ' ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "တ္ကသိုလ်",
+                    CorrectForm = "တက္ကသိုလ်",
+                    Category = "Spelling",
+                    Explanation = "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်းအရ ကကြီး နှစ်လုံးဆင့် ('က္က') အပြည့်အစုံဖြင့် 'တက္ကသိုလ်' ဟု ရေးသားရမည်။"
+                },
+                new OrthographyRule
+                {
+                    WrongForm = "ခြင်းခြင့်",
+                    CorrectForm = "ခြင်းဖြင့်",
+                    Category = "Spelling",
+                    Explanation = "နာမ်ပြပစ္စည်း 'ခြင်း' နောက်တွင် ကရိုဏ်းဝိဘတ် 'ဖြင့်' ကို ဖဦးထုပ် ရရစ်ဖြင့် 'ခြင်းဖြင့်' ဟု ရေးသားရမည်။"
                 }
             };
         }

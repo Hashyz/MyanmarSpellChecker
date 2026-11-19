@@ -3,8 +3,8 @@
   <Product Id="*"
            Name="Myanmar Official Spell &amp; Grammar Checker (မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း)"
            Language="1033"
-           Version="1.0.0.0"
-           Manufacturer="Myanmar Enterprise B2G Solutions"
+           Version="1.0.77.0"
+           Manufacturer="Htet Yar Zar (ထက်ရာဇာ) — Department of Geology, Kyaukse University"
            UpgradeCode="94E1B231-7A40-4C9B-B112-65E8A9012C44">
 
     <Package InstallerVersion="500"
@@ -33,6 +33,123 @@
         <File Id="File_ExcelAddInDll" Source="..\src\MyanmarSpellChecker.ExcelAddIn\bin\Release\net48\MyanmarSpellChecker.ExcelAddIn.dll" />
         <File Id="File_PowerPointAddInDll" Source="..\src\MyanmarSpellChecker.PowerPointAddIn\bin\Release\net48\MyanmarSpellChecker.PowerPointAddIn.dll" />
 
+        <!-- 64-bit COM CLSID + InprocServer32 Registration (WordAddIn + TaskPane) -->
+        <RegistryKey Root="HKLM" Key="Software\Classes\MyanmarSpellChecker.WordAddIn">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.WordAddIn.ThisAddIn" />
+          <RegistryKey Key="CLSID"><RegistryValue Type="string" Value="{8F5A9E42-6D11-4F3B-9C80-7B12E5D94A11}" /></RegistryKey>
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\CLSID\{8F5A9E42-6D11-4F3B-9C80-7B12E5D94A11}">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.WordAddIn.ThisAddIn" />
+          <RegistryKey Key="ProgId"><RegistryValue Type="string" Value="MyanmarSpellChecker.WordAddIn" /></RegistryKey>
+          <RegistryKey Key="Implemented Categories\{62C8FE65-4EBB-45e7-B440-6E39B2CDBF29}" />
+          <RegistryKey Key="InprocServer32">
+            <RegistryValue Type="string" Value="mscoree.dll" />
+            <RegistryValue Type="string" Name="ThreadingModel" Value="Apartment" />
+            <RegistryValue Type="string" Name="Class" Value="MyanmarSpellChecker.WordAddIn.ThisAddIn" />
+            <RegistryValue Type="string" Name="Assembly" Value="MyanmarSpellChecker.WordAddIn, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
+            <RegistryValue Type="string" Name="RuntimeVersion" Value="v4.0.30319" />
+            <RegistryValue Type="string" Name="CodeBase" Value="file:///[#File_WordAddInDll]" />
+          </RegistryKey>
+        </RegistryKey>
+
+        <RegistryKey Root="HKLM" Key="Software\Classes\MyanmarSpellChecker.ProofingTaskPaneControl">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.WordAddIn.UI.ProofingTaskPaneControl" />
+          <RegistryKey Key="CLSID"><RegistryValue Type="string" Value="{B3A2C741-9D18-4E2A-8C55-1F7B8A9C2D33}" /></RegistryKey>
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\CLSID\{B3A2C741-9D18-4E2A-8C55-1F7B8A9C2D33}">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.WordAddIn.UI.ProofingTaskPaneControl" />
+          <RegistryKey Key="ProgId"><RegistryValue Type="string" Value="MyanmarSpellChecker.ProofingTaskPaneControl" /></RegistryKey>
+          <RegistryKey Key="Control" />
+          <RegistryKey Key="Implemented Categories\{62C8FE65-4EBB-45e7-B440-6E39B2CDBF29}" />
+          <RegistryKey Key="Implemented Categories\{40FC6ED4-2438-11CF-A3DB-080036F12502}" />
+          <RegistryKey Key="InprocServer32">
+            <RegistryValue Type="string" Value="mscoree.dll" />
+            <RegistryValue Type="string" Name="ThreadingModel" Value="Apartment" />
+            <RegistryValue Type="string" Name="Class" Value="MyanmarSpellChecker.WordAddIn.UI.ProofingTaskPaneControl" />
+            <RegistryValue Type="string" Name="Assembly" Value="MyanmarSpellChecker.WordAddIn, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
+            <RegistryValue Type="string" Name="RuntimeVersion" Value="v4.0.30319" />
+            <RegistryValue Type="string" Name="CodeBase" Value="file:///[#File_WordAddInDll]" />
+          </RegistryKey>
+        </RegistryKey>
+
+        <!-- 64-bit COM CLSID + InprocServer32 Registration (ExcelAddIn + TaskPane) -->
+        <RegistryKey Root="HKLM" Key="Software\Classes\MyanmarSpellChecker.ExcelAddIn">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.ExcelAddIn.ExcelThisAddIn" />
+          <RegistryKey Key="CLSID"><RegistryValue Type="string" Value="{9A6B4D53-7E22-4C8A-AD91-8C23F6E05B22}" /></RegistryKey>
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\CLSID\{9A6B4D53-7E22-4C8A-AD91-8C23F6E05B22}">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.ExcelAddIn.ExcelThisAddIn" />
+          <RegistryKey Key="ProgId"><RegistryValue Type="string" Value="MyanmarSpellChecker.ExcelAddIn" /></RegistryKey>
+          <RegistryKey Key="Implemented Categories\{62C8FE65-4EBB-45e7-B440-6E39B2CDBF29}" />
+          <RegistryKey Key="InprocServer32">
+            <RegistryValue Type="string" Value="mscoree.dll" />
+            <RegistryValue Type="string" Name="ThreadingModel" Value="Apartment" />
+            <RegistryValue Type="string" Name="Class" Value="MyanmarSpellChecker.ExcelAddIn.ExcelThisAddIn" />
+            <RegistryValue Type="string" Name="Assembly" Value="MyanmarSpellChecker.ExcelAddIn, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
+            <RegistryValue Type="string" Name="RuntimeVersion" Value="v4.0.30319" />
+            <RegistryValue Type="string" Name="CodeBase" Value="file:///[#File_ExcelAddInDll]" />
+          </RegistryKey>
+        </RegistryKey>
+
+        <RegistryKey Root="HKLM" Key="Software\Classes\MyanmarSpellChecker.ExcelTaskPaneControl">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.ExcelAddIn.UI.ExcelProofingTaskPaneControl" />
+          <RegistryKey Key="CLSID"><RegistryValue Type="string" Value="{C4B3D852-AE29-4F3B-9D66-2E8C9B0D3E44}" /></RegistryKey>
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\CLSID\{C4B3D852-AE29-4F3B-9D66-2E8C9B0D3E44}">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.ExcelAddIn.UI.ExcelProofingTaskPaneControl" />
+          <RegistryKey Key="ProgId"><RegistryValue Type="string" Value="MyanmarSpellChecker.ExcelTaskPaneControl" /></RegistryKey>
+          <RegistryKey Key="Control" />
+          <RegistryKey Key="Implemented Categories\{62C8FE65-4EBB-45e7-B440-6E39B2CDBF29}" />
+          <RegistryKey Key="Implemented Categories\{40FC6ED4-2438-11CF-A3DB-080036F12502}" />
+          <RegistryKey Key="InprocServer32">
+            <RegistryValue Type="string" Value="mscoree.dll" />
+            <RegistryValue Type="string" Name="ThreadingModel" Value="Apartment" />
+            <RegistryValue Type="string" Name="Class" Value="MyanmarSpellChecker.ExcelAddIn.UI.ExcelProofingTaskPaneControl" />
+            <RegistryValue Type="string" Name="Assembly" Value="MyanmarSpellChecker.ExcelAddIn, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
+            <RegistryValue Type="string" Name="RuntimeVersion" Value="v4.0.30319" />
+            <RegistryValue Type="string" Name="CodeBase" Value="file:///[#File_ExcelAddInDll]" />
+          </RegistryKey>
+        </RegistryKey>
+
+        <!-- 64-bit COM CLSID + InprocServer32 Registration (PowerPointAddIn + TaskPane) -->
+        <RegistryKey Root="HKLM" Key="Software\Classes\MyanmarSpellChecker.PowerPointAddIn">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.PowerPointAddIn.PowerPointThisAddIn" />
+          <RegistryKey Key="CLSID"><RegistryValue Type="string" Value="{A7C5E964-8F33-4D9B-BE12-9D34A7F16C55}" /></RegistryKey>
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\CLSID\{A7C5E964-8F33-4D9B-BE12-9D34A7F16C55}">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.PowerPointAddIn.PowerPointThisAddIn" />
+          <RegistryKey Key="ProgId"><RegistryValue Type="string" Value="MyanmarSpellChecker.PowerPointAddIn" /></RegistryKey>
+          <RegistryKey Key="Implemented Categories\{62C8FE65-4EBB-45e7-B440-6E39B2CDBF29}" />
+          <RegistryKey Key="InprocServer32">
+            <RegistryValue Type="string" Value="mscoree.dll" />
+            <RegistryValue Type="string" Name="ThreadingModel" Value="Apartment" />
+            <RegistryValue Type="string" Name="Class" Value="MyanmarSpellChecker.PowerPointAddIn.PowerPointThisAddIn" />
+            <RegistryValue Type="string" Name="Assembly" Value="MyanmarSpellChecker.PowerPointAddIn, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
+            <RegistryValue Type="string" Name="RuntimeVersion" Value="v4.0.30319" />
+            <RegistryValue Type="string" Name="CodeBase" Value="file:///[#File_PowerPointAddInDll]" />
+          </RegistryKey>
+        </RegistryKey>
+
+        <RegistryKey Root="HKLM" Key="Software\Classes\MyanmarSpellChecker.PowerPointTaskPaneControl">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.PowerPointAddIn.UI.PowerPointProofingTaskPaneControl" />
+          <RegistryKey Key="CLSID"><RegistryValue Type="string" Value="{D5C4E963-BF3A-4A4C-AE77-3F9DA01E4F66}" /></RegistryKey>
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\CLSID\{D5C4E963-BF3A-4A4C-AE77-3F9DA01E4F66}">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.PowerPointAddIn.UI.PowerPointProofingTaskPaneControl" />
+          <RegistryKey Key="ProgId"><RegistryValue Type="string" Value="MyanmarSpellChecker.PowerPointTaskPaneControl" /></RegistryKey>
+          <RegistryKey Key="Control" />
+          <RegistryKey Key="Implemented Categories\{62C8FE65-4EBB-45e7-B440-6E39B2CDBF29}" />
+          <RegistryKey Key="Implemented Categories\{40FC6ED4-2438-11CF-A3DB-080036F12502}" />
+          <RegistryKey Key="InprocServer32">
+            <RegistryValue Type="string" Value="mscoree.dll" />
+            <RegistryValue Type="string" Name="ThreadingModel" Value="Apartment" />
+            <RegistryValue Type="string" Name="Class" Value="MyanmarSpellChecker.PowerPointAddIn.UI.PowerPointProofingTaskPaneControl" />
+            <RegistryValue Type="string" Name="Assembly" Value="MyanmarSpellChecker.PowerPointAddIn, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
+            <RegistryValue Type="string" Name="RuntimeVersion" Value="v4.0.30319" />
+            <RegistryValue Type="string" Name="CodeBase" Value="file:///[#File_PowerPointAddInDll]" />
+          </RegistryKey>
+        </RegistryKey>
+
         <!-- Register for 64-bit MS Word, Excel & PowerPoint -->
         <RegistryKey Root="HKLM" Key="Software\Microsoft\Office\Word\Addins\MyanmarSpellChecker.WordAddIn">
           <RegistryValue Type="string" Name="FriendlyName" Value="Myanmar Spell Checker" />
@@ -51,8 +168,122 @@
         </RegistryKey>
       </Component>
 
-      <!-- Register for 32-bit MS Word, Excel & PowerPoint on 64-bit Windows (WOW6432Node) -->
+      <!-- Register COM CLSIDs & Office Addins for 32-bit MS Office on 64-bit Windows (WOW6432Node) -->
       <Component Id="Cmp_Office32Registry" Guid="7E22B8D1-5A33-4C89-8B22-99D3E5F6A702" Win64="no">
+        <RegistryKey Root="HKLM" Key="Software\Classes\MyanmarSpellChecker.WordAddIn">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.WordAddIn.ThisAddIn" />
+          <RegistryKey Key="CLSID"><RegistryValue Type="string" Value="{8F5A9E42-6D11-4F3B-9C80-7B12E5D94A11}" /></RegistryKey>
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\CLSID\{8F5A9E42-6D11-4F3B-9C80-7B12E5D94A11}">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.WordAddIn.ThisAddIn" />
+          <RegistryKey Key="ProgId"><RegistryValue Type="string" Value="MyanmarSpellChecker.WordAddIn" /></RegistryKey>
+          <RegistryKey Key="Implemented Categories\{62C8FE65-4EBB-45e7-B440-6E39B2CDBF29}" />
+          <RegistryKey Key="InprocServer32">
+            <RegistryValue Type="string" Value="mscoree.dll" />
+            <RegistryValue Type="string" Name="ThreadingModel" Value="Apartment" />
+            <RegistryValue Type="string" Name="Class" Value="MyanmarSpellChecker.WordAddIn.ThisAddIn" />
+            <RegistryValue Type="string" Name="Assembly" Value="MyanmarSpellChecker.WordAddIn, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
+            <RegistryValue Type="string" Name="RuntimeVersion" Value="v4.0.30319" />
+            <RegistryValue Type="string" Name="CodeBase" Value="file:///[#File_WordAddInDll]" />
+          </RegistryKey>
+        </RegistryKey>
+
+        <RegistryKey Root="HKLM" Key="Software\Classes\MyanmarSpellChecker.ProofingTaskPaneControl">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.WordAddIn.UI.ProofingTaskPaneControl" />
+          <RegistryKey Key="CLSID"><RegistryValue Type="string" Value="{B3A2C741-9D18-4E2A-8C55-1F7B8A9C2D33}" /></RegistryKey>
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\CLSID\{B3A2C741-9D18-4E2A-8C55-1F7B8A9C2D33}">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.WordAddIn.UI.ProofingTaskPaneControl" />
+          <RegistryKey Key="ProgId"><RegistryValue Type="string" Value="MyanmarSpellChecker.ProofingTaskPaneControl" /></RegistryKey>
+          <RegistryKey Key="Control" />
+          <RegistryKey Key="Implemented Categories\{62C8FE65-4EBB-45e7-B440-6E39B2CDBF29}" />
+          <RegistryKey Key="Implemented Categories\{40FC6ED4-2438-11CF-A3DB-080036F12502}" />
+          <RegistryKey Key="InprocServer32">
+            <RegistryValue Type="string" Value="mscoree.dll" />
+            <RegistryValue Type="string" Name="ThreadingModel" Value="Apartment" />
+            <RegistryValue Type="string" Name="Class" Value="MyanmarSpellChecker.WordAddIn.UI.ProofingTaskPaneControl" />
+            <RegistryValue Type="string" Name="Assembly" Value="MyanmarSpellChecker.WordAddIn, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
+            <RegistryValue Type="string" Name="RuntimeVersion" Value="v4.0.30319" />
+            <RegistryValue Type="string" Name="CodeBase" Value="file:///[#File_WordAddInDll]" />
+          </RegistryKey>
+        </RegistryKey>
+
+        <RegistryKey Root="HKLM" Key="Software\Classes\MyanmarSpellChecker.ExcelAddIn">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.ExcelAddIn.ExcelThisAddIn" />
+          <RegistryKey Key="CLSID"><RegistryValue Type="string" Value="{9A6B4D53-7E22-4C8A-AD91-8C23F6E05B22}" /></RegistryKey>
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\CLSID\{9A6B4D53-7E22-4C8A-AD91-8C23F6E05B22}">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.ExcelAddIn.ExcelThisAddIn" />
+          <RegistryKey Key="ProgId"><RegistryValue Type="string" Value="MyanmarSpellChecker.ExcelAddIn" /></RegistryKey>
+          <RegistryKey Key="Implemented Categories\{62C8FE65-4EBB-45e7-B440-6E39B2CDBF29}" />
+          <RegistryKey Key="InprocServer32">
+            <RegistryValue Type="string" Value="mscoree.dll" />
+            <RegistryValue Type="string" Name="ThreadingModel" Value="Apartment" />
+            <RegistryValue Type="string" Name="Class" Value="MyanmarSpellChecker.ExcelAddIn.ExcelThisAddIn" />
+            <RegistryValue Type="string" Name="Assembly" Value="MyanmarSpellChecker.ExcelAddIn, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
+            <RegistryValue Type="string" Name="RuntimeVersion" Value="v4.0.30319" />
+            <RegistryValue Type="string" Name="CodeBase" Value="file:///[#File_ExcelAddInDll]" />
+          </RegistryKey>
+        </RegistryKey>
+
+        <RegistryKey Root="HKLM" Key="Software\Classes\MyanmarSpellChecker.ExcelTaskPaneControl">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.ExcelAddIn.UI.ExcelProofingTaskPaneControl" />
+          <RegistryKey Key="CLSID"><RegistryValue Type="string" Value="{C4B3D852-AE29-4F3B-9D66-2E8C9B0D3E44}" /></RegistryKey>
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\CLSID\{C4B3D852-AE29-4F3B-9D66-2E8C9B0D3E44}">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.ExcelAddIn.UI.ExcelProofingTaskPaneControl" />
+          <RegistryKey Key="ProgId"><RegistryValue Type="string" Value="MyanmarSpellChecker.ExcelTaskPaneControl" /></RegistryKey>
+          <RegistryKey Key="Control" />
+          <RegistryKey Key="Implemented Categories\{62C8FE65-4EBB-45e7-B440-6E39B2CDBF29}" />
+          <RegistryKey Key="Implemented Categories\{40FC6ED4-2438-11CF-A3DB-080036F12502}" />
+          <RegistryKey Key="InprocServer32">
+            <RegistryValue Type="string" Value="mscoree.dll" />
+            <RegistryValue Type="string" Name="ThreadingModel" Value="Apartment" />
+            <RegistryValue Type="string" Name="Class" Value="MyanmarSpellChecker.ExcelAddIn.UI.ExcelProofingTaskPaneControl" />
+            <RegistryValue Type="string" Name="Assembly" Value="MyanmarSpellChecker.ExcelAddIn, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
+            <RegistryValue Type="string" Name="RuntimeVersion" Value="v4.0.30319" />
+            <RegistryValue Type="string" Name="CodeBase" Value="file:///[#File_ExcelAddInDll]" />
+          </RegistryKey>
+        </RegistryKey>
+
+        <RegistryKey Root="HKLM" Key="Software\Classes\MyanmarSpellChecker.PowerPointAddIn">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.PowerPointAddIn.PowerPointThisAddIn" />
+          <RegistryKey Key="CLSID"><RegistryValue Type="string" Value="{A7C5E964-8F33-4D9B-BE12-9D34A7F16C55}" /></RegistryKey>
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\CLSID\{A7C5E964-8F33-4D9B-BE12-9D34A7F16C55}">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.PowerPointAddIn.PowerPointThisAddIn" />
+          <RegistryKey Key="ProgId"><RegistryValue Type="string" Value="MyanmarSpellChecker.PowerPointAddIn" /></RegistryKey>
+          <RegistryKey Key="Implemented Categories\{62C8FE65-4EBB-45e7-B440-6E39B2CDBF29}" />
+          <RegistryKey Key="InprocServer32">
+            <RegistryValue Type="string" Value="mscoree.dll" />
+            <RegistryValue Type="string" Name="ThreadingModel" Value="Apartment" />
+            <RegistryValue Type="string" Name="Class" Value="MyanmarSpellChecker.PowerPointAddIn.PowerPointThisAddIn" />
+            <RegistryValue Type="string" Name="Assembly" Value="MyanmarSpellChecker.PowerPointAddIn, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
+            <RegistryValue Type="string" Name="RuntimeVersion" Value="v4.0.30319" />
+            <RegistryValue Type="string" Name="CodeBase" Value="file:///[#File_PowerPointAddInDll]" />
+          </RegistryKey>
+        </RegistryKey>
+
+        <RegistryKey Root="HKLM" Key="Software\Classes\MyanmarSpellChecker.PowerPointTaskPaneControl">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.PowerPointAddIn.UI.PowerPointProofingTaskPaneControl" />
+          <RegistryKey Key="CLSID"><RegistryValue Type="string" Value="{D5C4E963-BF3A-4A4C-AE77-3F9DA01E4F66}" /></RegistryKey>
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\CLSID\{D5C4E963-BF3A-4A4C-AE77-3F9DA01E4F66}">
+          <RegistryValue Type="string" Value="MyanmarSpellChecker.PowerPointAddIn.UI.PowerPointProofingTaskPaneControl" />
+          <RegistryKey Key="ProgId"><RegistryValue Type="string" Value="MyanmarSpellChecker.PowerPointTaskPaneControl" /></RegistryKey>
+          <RegistryKey Key="Control" />
+          <RegistryKey Key="Implemented Categories\{62C8FE65-4EBB-45e7-B440-6E39B2CDBF29}" />
+          <RegistryKey Key="Implemented Categories\{40FC6ED4-2438-11CF-A3DB-080036F12502}" />
+          <RegistryKey Key="InprocServer32">
+            <RegistryValue Type="string" Value="mscoree.dll" />
+            <RegistryValue Type="string" Name="ThreadingModel" Value="Apartment" />
+            <RegistryValue Type="string" Name="Class" Value="MyanmarSpellChecker.PowerPointAddIn.UI.PowerPointProofingTaskPaneControl" />
+            <RegistryValue Type="string" Name="Assembly" Value="MyanmarSpellChecker.PowerPointAddIn, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
+            <RegistryValue Type="string" Name="RuntimeVersion" Value="v4.0.30319" />
+            <RegistryValue Type="string" Name="CodeBase" Value="file:///[#File_PowerPointAddInDll]" />
+          </RegistryKey>
+        </RegistryKey>
+
         <RegistryKey Root="HKLM" Key="Software\Microsoft\Office\Word\Addins\MyanmarSpellChecker.WordAddIn">
           <RegistryValue Type="string" Name="FriendlyName" Value="Myanmar Spell Checker" />
           <RegistryValue Type="string" Name="Description" Value="Myanmar Official Offline Spell &amp; Grammar Checker (Word)" />

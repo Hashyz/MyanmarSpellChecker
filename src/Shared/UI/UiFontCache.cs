@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Htet Yar Zar (ထက်ရာဇာ), Department of Geology, Kyaukse University, Kyaukse, Myanmar.
+
 using System;
 using System.Collections.Concurrent;
 using System.Drawing;
@@ -5,7 +8,13 @@ using System.Drawing.Text;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
+#if HOST_EXCEL
+namespace MyanmarSpellChecker.ExcelAddIn.UI
+#elif HOST_POWERPOINT
 namespace MyanmarSpellChecker.PowerPointAddIn.UI
+#else
+namespace MyanmarSpellChecker.WordAddIn.UI
+#endif
 {
     /// <summary>
     /// Auto-wrapping WinForms Button whose preferred height expands cleanly across 2+ lines for long Myanmar
@@ -356,7 +365,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
     }
 
     /// <summary>
-    /// Shared GDI font resolver, O(1) memoized High-DPI metric calculator &amp; cache for Excel WinForms Task Pane and dialogs.
+    /// Shared GDI font resolver, O(1) memoized High-DPI metric calculator &amp; cache for WinForms Task Panes and dialogs.
     /// Eliminates per-layout GetDC / GetDpiForWindow / CreateGraphics / FontFamily GDI+ kernel syscall storms.
     /// </summary>
     internal static class UiFontCache
@@ -477,6 +486,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
 
                 if (control.IsHandleCreated)
                 {
+                    // Walk up to top-most managed parent inside Task Pane so all child buttons share 1 cached HWND lookup!
                     Control topCtrl = control;
                     while (topCtrl.Parent != null && topCtrl.Parent.IsHandleCreated)
                         topCtrl = topCtrl.Parent;

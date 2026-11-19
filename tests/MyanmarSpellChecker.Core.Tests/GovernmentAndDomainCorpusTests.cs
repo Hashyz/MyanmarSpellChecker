@@ -3976,9 +3976,9 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.True(retainedDeltaMb < 35.0,
                 $"Bounded transient caches retained {retainedDeltaMb:F2} MB after 20,000 unique noisy strings (expected < 35 MB).");
 
-            // 4. Static Crashless & Zero-HWND-Leak Audit Across WordAddIn + ExcelAddIn
-            string wordPreviewPath = Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "UI", "FixAllPreviewDialog.cs");
-            string excelPreviewPath = Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "UI", "FixAllPreviewDialog.cs");
+            // 4. Static Crashless & Zero-HWND-Leak Audit Across Shared UI + WordAddIn + ExcelAddIn
+            string wordPreviewPath = Path.Combine(TestPaths.RepoRoot, "src", "Shared", "UI", "FixAllPreviewDialog.cs");
+            string excelPreviewPath = Path.Combine(TestPaths.RepoRoot, "src", "Shared", "UI", "FixAllPreviewDialog.cs");
             string wordScannerPath = Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.WordAddIn", "Interop", "StaDocumentScanner.cs");
             string excelScannerPath = Path.Combine(TestPaths.RepoRoot, "src", "MyanmarSpellChecker.ExcelAddIn", "Interop", "ExcelWorkbookScannerAndToolkit.cs");
 

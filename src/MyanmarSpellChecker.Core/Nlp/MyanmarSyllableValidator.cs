@@ -465,11 +465,17 @@ namespace MyanmarSpellChecker.Core.Nlp
                         {
                             string asAsat = UnicodeNormalizer.NormalizeCanonicalOrder(
                                 rawSyllable.Substring(0, virIdx) + "\u103A" + rawSyllable.Substring(virIdx + 1));
+                            string asMedialWa = UnicodeNormalizer.NormalizeCanonicalOrder(
+                                rawSyllable.Substring(0, virIdx) + "\u103D" + rawSyllable.Substring(virIdx + 1));
                             string geminateCand = virIdx + 1 < rawSyllable.Length
                                 ? UnicodeNormalizer.NormalizeCanonicalOrder(
                                     rawSyllable.Substring(0, virIdx + 1) + m.Groups[1].Value + rawSyllable.Substring(virIdx + 2))
                                 : string.Empty;
-                            if (trie == null || trie.ContainsExactWord(asAsat))
+                            if (trie != null && (trie.ContainsExactWord(asMedialWa) || trie.IsStandaloneWord(asMedialWa)) && !trie.ContainsExactWord(asAsat))
+                            {
+                                deterministicRepair = asMedialWa;
+                            }
+                            else if (trie == null || trie.ContainsExactWord(asAsat))
                             {
                                 deterministicRepair = asAsat;
                             }
@@ -802,6 +808,83 @@ namespace MyanmarSpellChecker.Core.Nlp
                         issues, m.Index, m.Length, raw, repaired,
                         $"အသတ် ('်') နောက်တွင် ပါဌ်ဆင့်သင်္ကေတ ('္') ပိုရိုက်မိနေပါသည် — '{raw}' အစား '{repaired}' ဟု ရေးသားရမည်။",
                         "ပိုနေသော ပါဌ်ဆင့်သင်္ကေတ ဖယ်ရှားရန်");
+                }
+
+                if (trie != null && text.Length > 4)
+                {
+                    for (int v = 1; v < text.Length - 1; v++)
+                    {
+                        if (text[v] != '\u1039')
+                            continue;
+                        char prev = text[v - 1];
+                        char c2 = text[v + 1];
+                        if (!((prev >= '\u1000' && prev <= '\u1021') || prev == '\u1025' || prev == '\u1026') ||
+                            !(c2 >= '\u1000' && c2 <= '\u1021') ||
+                            (prev == '\u101E' && c2 == '\u101E') ||
+                            MyanmarSyllableBreaker.ValidPatSintPairs.Contains(string.Concat(prev, c2)))
+                        {
+                            continue;
+                        }
+                        if (v >= 2 && text[v - 2] == '\u1039')
+                            continue;
+
+                        int sylStart = v - 1;
+
+                        // (a) Virama typed instead of Medial Wa before coda + asat (e.g. 'တွေ့ဆုံခ္ငင့်' -> 'ခွင့်', 'က္ငင်း' -> 'ကွင်း')
+                        int codaIdx = (v + 2 < text.Length && text[v + 2] == c2) ? (v + 2) : (v + 1);
+                        if (codaIdx + 1 < text.Length &&
+                            (text[codaIdx + 1] == '\u103A' || (codaIdx + 2 < text.Length && text[codaIdx + 1] == '\u1037' && text[codaIdx + 2] == '\u103A')))
+                        {
+                            int sylEnd = codaIdx + 1;
+                            while (sylEnd < text.Length && (text[sylEnd] == '\u103A' || text[sylEnd] == '\u1037' || text[sylEnd] == '\u1038'))
+                                sylEnd++;
+                            if (!OverlapsAny(issues, sylStart, sylEnd - sylStart))
+                            {
+                                string rawWa = text.Substring(sylStart, sylEnd - sylStart);
+                                string waCand = UnicodeNormalizer.FixLookalikeCharacters(prev.ToString() + "\u103D" + text.Substring(codaIdx, sylEnd - codaIdx));
+                                if (trie.IsStandaloneWord(waCand) || trie.ContainsExactWord(waCand))
+                                {
+                                    AddValidatorIssue(
+                                        issues, sylStart, sylEnd - sylStart, rawWa, waCand,
+                                        $"ဗျည်းတွဲ ဝဆွဲ ('ွ') နေရာတွင် ပါဌ်ဆင့်သင်္ကေတ ('္') မှားရိုက်မိနေပါသည် — '{rawWa}' အစား '{waCand}' ဟု ရေးသားရမည်။",
+                                        "စံဝဏ္ဏ စာလုံးပေါင်းအမှန်");
+                                    continue;
+                                }
+                            }
+                        }
+
+                        // (b) Dropped upper geminate consonant in Pali pat-sint compound — prefer longest whole word ('တ္ကသိုလ်' -> 'တက္ကသိုလ်' over 'တ္က' -> 'တက္က')
+                        int maxSliceLen = Math.Min(24, text.Length - sylStart);
+                        string rightSlice = text.Substring(sylStart, maxSliceLen);
+                        var sliceTokens = MyanmarSyllableBreaker.Tokenize(rightSlice);
+                        int mmSylEndIdx = -1;
+                        for (int st = 0; st < sliceTokens.Count && st < 4; st++)
+                        {
+                            if (sliceTokens[st].Kind != TokenKind.MyanmarSyllable)
+                                break;
+                            mmSylEndIdx = st;
+                        }
+                        for (int st = mmSylEndIdx; st >= 1; st--)
+                        {
+                            int rawLen = sliceTokens[st].StartIndex + sliceTokens[st].Length;
+                            if (rawLen < 3 || OverlapsAny(issues, sylStart, rawLen))
+                                continue;
+
+                            string rawPatSpan = rightSlice.Substring(0, rawLen);
+                            string gemCand = UnicodeNormalizer.FixLookalikeCharacters(
+                                prev.ToString() + c2.ToString() + "\u1039" + rawPatSpan.Substring(2));
+                            if (trie.TryGetExactEntries(gemCand, out var gemEntries) &&
+                                gemEntries != null &&
+                                System.Linq.Enumerable.Any(gemEntries, e => e.IsOfficialThatpon || e.Frequency >= 25))
+                            {
+                                AddValidatorIssue(
+                                    issues, sylStart, rawLen, rawPatSpan, gemCand,
+                                    $"ပါဌ်ဆင့်စာလုံးပေါင်းတွင် အထက်ဗျည်း '{c2}' ကျန်ခဲ့ပါသည် — '{rawPatSpan}' အစား '{gemCand}' ဟု ရေးသားရမည်။",
+                                    "သတ်ပုံကျမ်းဝင် ပါဌ်ဆင့်စာလုံးပေါင်းအမှန်");
+                                break;
+                            }
+                        }
+                    }
                 }
 
                 foreach (Match m in WordInitialIllegalPatSintPattern.Matches(text))

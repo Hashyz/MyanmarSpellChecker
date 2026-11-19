@@ -193,6 +193,10 @@ foreach ($legalFile in @("LICENSE", "NOTICE", "CITATION.cff")) {
 foreach ($binDir in @($wordReleaseBinDir, $excelReleaseBinDir, $pptReleaseBinDir)) {
     if (Test-Path $binDir) {
         try { Copy-Item $outDbPath (Join-Path $binDir "mlc_thatpon.db") -Force -ErrorAction Stop } catch { }
+        if (Test-Path (Join-Path $artifactsDir "vendor_public_key.xml")) {
+            try { Copy-Item (Join-Path $artifactsDir "vendor_public_key.xml") (Join-Path $releasePkgDir "vendor_public_key.xml") -Force -ErrorAction Stop } catch { }
+            try { Copy-Item (Join-Path $artifactsDir "vendor_public_key.xml") (Join-Path $binDir "vendor_public_key.xml") -Force -ErrorAction Stop } catch { }
+        }
         if (Test-Path (Join-Path $releasePkgDir "license.lic")) {
             try { Copy-Item (Join-Path $releasePkgDir "license.lic") (Join-Path $binDir "license.lic") -Force -ErrorAction Stop } catch { }
         }
@@ -237,6 +241,7 @@ copy /Y "%~dp0MyanmarSpellChecker.PowerPointAddIn.dll" "%INSTALL_DIR%\" >nul
 copy /Y "%~dp0mlc_thatpon.db" "%INSTALL_DIR%\" >nul
 copy /Y "%~dp0mlc_thatpon.db" "%DATA_DIR%\" >nul
 if exist "%~dp0license.lic" copy /Y "%~dp0license.lic" "%DATA_DIR%\" >nul
+if exist "%~dp0vendor_public_key.xml" copy /Y "%~dp0vendor_public_key.xml" "%DATA_DIR%\" >nul
 
 REM 3. Register COM Add-ins (Word + Excel + PowerPoint) for both 64-bit and 32-bit MS Office
 if exist "%SystemRoot%\Microsoft.NET\Framework64\v4.0.30319\RegAsm.exe" (
@@ -357,7 +362,6 @@ if (Test-Path $adminExe) {
 
 # Build lock-safe standalone EasySetup .zip archive even if MS Word, Excel, or PowerPoint is currently open!
 $zipOutPath   = Join-Path $artifactsDir "MyanmarSpellChecker-EasySetup-OfficeSuite.zip"
-$legacyZipOut = Join-Path $artifactsDir "MyanmarSpellChecker-EasySetup-Word-Excel.zip"
 $zipStaging   = Join-Path $artifactsDir "zip-staging"
 if (Test-Path $zipStaging) { Remove-Item -Path $zipStaging -Recurse -Force -ErrorAction SilentlyContinue }
 New-Item -ItemType Directory -Path $zipStaging -Force | Out-Null
@@ -373,7 +377,6 @@ foreach ($extra in @("Easy-Setup.ps1", "Install-EasyUser.bat", "Uninstall-EasyUs
 }
 if (Test-Path $zipOutPath) { Remove-Item -Path $zipOutPath -Force }
 Compress-Archive -Path (Join-Path $zipStaging "*") -DestinationPath $zipOutPath -CompressionLevel Optimal -Force
-Copy-Item $zipOutPath $legacyZipOut -Force
 Remove-Item -Path $zipStaging -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "[5/5] Unified 3-in-1 Office Suite Release Package & Standalone ZIP Ready:" -ForegroundColor Green

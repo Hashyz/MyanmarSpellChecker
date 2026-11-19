@@ -1,18 +1,35 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Htet Yar Zar (ထက်ရာဇာ), Department of Geology, Kyaukse University, Kyaukse, Myanmar.
+
 using System;
 using System.IO;
 using System.Text;
 
+#if HOST_EXCEL
+namespace MyanmarSpellChecker.ExcelAddIn
+#elif HOST_POWERPOINT
+namespace MyanmarSpellChecker.PowerPointAddIn
+#else
 namespace MyanmarSpellChecker.WordAddIn
+#endif
 {
     /// <summary>
     /// Global COM boundary exception shield and bounded offline diagnostic logger (&lt;= 256 KB).
-    /// Ensures no unhandled managed exception ever escapes into native WINWORD.EXE.
+    /// Ensures no unhandled managed exception ever escapes into native WINWORD.EXE, EXCEL.EXE, or POWERPNT.EXE.
     /// </summary>
     internal static class AddInDiagnostics
     {
         private const long MaxLogBytes = 256 * 1024;
         private static readonly object s_logLock = new object();
         private static string? s_logFilePath;
+
+#if HOST_EXCEL
+        private const string DefaultLogFileName = "excel_addin_diagnostics.log";
+#elif HOST_POWERPOINT
+        private const string DefaultLogFileName = "powerpoint_addin_diagnostics.log";
+#else
+        private const string DefaultLogFileName = "addin_diagnostics.log";
+#endif
 
         public static void ConfigureLogDirectory(string localAppDataDir)
         {
@@ -22,7 +39,7 @@ namespace MyanmarSpellChecker.WordAddIn
             try
             {
                 Directory.CreateDirectory(localAppDataDir);
-                s_logFilePath = Path.Combine(localAppDataDir, "addin_diagnostics.log");
+                s_logFilePath = Path.Combine(localAppDataDir, DefaultLogFileName);
             }
             catch
             {
@@ -92,4 +109,3 @@ namespace MyanmarSpellChecker.WordAddIn
         }
     }
 }
-

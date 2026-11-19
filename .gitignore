@@ -29,6 +29,8 @@ artifacts/obfuscated/
 artifacts/release-package/
 artifacts/staged-word/
 artifacts/staged-excel/
+artifacts/staged-powerpoint/
+artifacts/zip-staging/
 artifacts/locked-old*/
 
 # WiX / MSI installer build outputs

@@ -4,15 +4,23 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Windows.Forms;
 using MyanmarSpellChecker.Core.Localization;
 using MyanmarSpellChecker.Core.Official;
 using MyanmarSpellChecker.Core.Security;
 
+#if HOST_EXCEL
+namespace MyanmarSpellChecker.ExcelAddIn.UI
+#elif HOST_POWERPOINT
 namespace MyanmarSpellChecker.PowerPointAddIn.UI
+#else
+namespace MyanmarSpellChecker.WordAddIn.UI
+#endif
 {
     /// <summary>
-    /// High-DPI responsive, resizable &amp; scrollable Open-Source About, Author Attribution &amp; GNU GPL v3.0 License Dialog (PowerPoint Edition).
+    /// High-DPI responsive, resizable &amp; scrollable Open-Source About, Author Attribution &amp; GNU GPL v3.0 License Dialog
+    /// shared across Microsoft Word, Excel, and PowerPoint.
     /// Fits comfortably on small laptop screens (720p / 1366x768 / 125-150% DPI) with a scrollable body and pinned footer buttons,
     /// while prominently preserving Htet Yar Zar's academic and location attribution under GPLv3 Section 7(b).
     /// </summary>
@@ -27,27 +35,84 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
         private readonly Timer _copyFeedbackTimer;
         private readonly int _dpi;
 
+#if HOST_EXCEL
+        private static readonly Color HostFormBack = Color.FromArgb(244, 248, 246);
+        private static readonly Color HostAccent = Color.FromArgb(16, 124, 65);
+        private static readonly Color HostAccentBorder = Color.FromArgb(14, 104, 54);
+        private static readonly Color HostFooterLine = Color.FromArgb(212, 226, 218);
+        private static readonly Color HostCardBorder = Color.FromArgb(214, 226, 218);
+        private static readonly Color HostHeaderFore = Color.FromArgb(16, 88, 48);
+        private static readonly Color HostSubTitleFore = Color.FromArgb(16, 92, 50);
+        private static readonly Color HostAuthorFore = Color.FromArgb(32, 52, 40);
+        private static readonly Color HostAuthorBack = Color.FromArgb(242, 249, 245);
+        private static readonly Color HostLicenseFore = Color.FromArgb(62, 74, 68);
+        private static readonly Color HostLicenseBack = Color.FromArgb(250, 252, 251);
+#elif HOST_POWERPOINT
+        private static readonly Color HostFormBack = Color.FromArgb(250, 246, 244);
+        private static readonly Color HostAccent = Color.FromArgb(183, 71, 42);
+        private static readonly Color HostAccentBorder = Color.FromArgb(154, 56, 32);
+        private static readonly Color HostFooterLine = Color.FromArgb(232, 216, 210);
+        private static readonly Color HostCardBorder = Color.FromArgb(232, 216, 210);
+        private static readonly Color HostHeaderFore = Color.FromArgb(128, 42, 22);
+        private static readonly Color HostSubTitleFore = Color.FromArgb(142, 48, 26);
+        private static readonly Color HostAuthorFore = Color.FromArgb(56, 36, 30);
+        private static readonly Color HostAuthorBack = Color.FromArgb(253, 246, 243);
+        private static readonly Color HostLicenseFore = Color.FromArgb(78, 62, 58);
+        private static readonly Color HostLicenseBack = Color.FromArgb(252, 250, 249);
+#else
+        private static readonly Color HostFormBack = Color.FromArgb(244, 247, 252);
+        private static readonly Color HostAccent = Color.FromArgb(24, 90, 188);
+        private static readonly Color HostAccentBorder = Color.FromArgb(18, 72, 158);
+        private static readonly Color HostFooterLine = Color.FromArgb(216, 224, 236);
+        private static readonly Color HostCardBorder = Color.FromArgb(214, 222, 235);
+        private static readonly Color HostHeaderFore = Color.FromArgb(18, 48, 102);
+        private static readonly Color HostSubTitleFore = Color.FromArgb(24, 58, 118);
+        private static readonly Color HostAuthorFore = Color.FromArgb(36, 48, 66);
+        private static readonly Color HostAuthorBack = Color.FromArgb(245, 248, 255);
+        private static readonly Color HostLicenseFore = Color.FromArgb(66, 76, 94);
+        private static readonly Color HostLicenseBack = Color.FromArgb(250, 251, 253);
+#endif
+
         public LicenseValidationResult? LastValidationResult { get; private set; }
 
         private int S(int logicalPx) => UiFontCache.ScaleLogicalPxForDpi(_dpi, logicalPx);
 
         public LicenseActivationForm(string rsaPublicKeyXml, string licenseFilePath, int loadedWordCount = 0)
         {
-            _ = rsaPublicKeyXml;
-            _ = licenseFilePath;
+            if (!string.IsNullOrWhiteSpace(licenseFilePath) && File.Exists(licenseFilePath))
+            {
+                try
+                {
+                    string licJson = File.ReadAllText(licenseFilePath);
+                    string resolvedKey = LicenseService.ResolvePublicKeyXml(licenseFilePath, rsaPublicKeyXml);
+                    LastValidationResult = LicenseService.ValidateLicenseJson(licJson, resolvedKey);
+                }
+                catch { }
+            }
+
             _dpi = UiFontCache.GetEffectiveDpi(this);
 
             AutoScaleMode = AutoScaleMode.None;
             DoubleBuffered = true;
+#if HOST_EXCEL
+            Text = UiLocalizer.Pick(
+                "Myanmar Spell Checker (Excel) — About & Open-Source License",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း (Excel) — စနစ်အချက်အလက်နှင့် Open-Source လိုင်စင်");
+#elif HOST_POWERPOINT
             Text = UiLocalizer.Pick(
                 "Myanmar Spell Checker (PowerPoint) — About & Open-Source License",
                 "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း (PowerPoint) — စနစ်အချက်အလက်နှင့် Open-Source လိုင်စင်");
+#else
+            Text = UiLocalizer.Pick(
+                "Myanmar Spell Checker — About & Open-Source License",
+                "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း — စနစ်အချက်အလက်နှင့် Open-Source လိုင်စင်");
+#endif
             AutoSize = false;
             FormBorderStyle = FormBorderStyle.Sizable;
             MaximizeBox = true;
             MinimizeBox = true;
             StartPosition = FormStartPosition.Manual;
-            BackColor = Color.FromArgb(250, 246, 244);
+            BackColor = HostFormBack;
             Font = UiFontCache.GetMyanmar(9.5F, FontStyle.Regular);
             KeyPreview = true;
             KeyDown += (s, e) =>
@@ -77,7 +142,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
             };
             _footerBar.Paint += (s, e) =>
             {
-                using (var pen = new Pen(Color.FromArgb(232, 216, 210), 1F))
+                using (var pen = new Pen(HostFooterLine, 1F))
                 {
                     e.Graphics.DrawLine(pen, 0, 0, _footerBar.Width, 0);
                 }
@@ -97,7 +162,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
                 Text = UiLocalizer.Pick("Copy GitHub URL", "GitHub လင့်ခ် ကူးယူမည်"),
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                BackColor = Color.FromArgb(183, 71, 42),
+                BackColor = HostAccent,
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
                 Font = UiFontCache.GetMyanmar(9.2F, FontStyle.Bold),
@@ -105,13 +170,14 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
                 Margin = new Padding(0, 0, S(8), 0),
                 Cursor = Cursors.Hand
             };
-            _btnCopyRepo.FlatAppearance.BorderColor = Color.FromArgb(14, 104, 54);
+            _btnCopyRepo.FlatAppearance.BorderColor = HostAccentBorder;
             _btnCopyRepo.Click += (s, e) =>
             {
                 try
                 {
                     Clipboard.SetText(RepoUrl);
                     _btnCopyRepo.Text = UiLocalizer.Pick("✓ GitHub URL Copied", "✓ GitHub လင့်ခ် ကူးယူပြီးပါပြီ");
+                    _btnCopyRepo.BackColor = Color.FromArgb(22, 128, 62);
                     _copyFeedbackTimer.Stop();
                     _copyFeedbackTimer.Start();
                 }
@@ -139,7 +205,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
                 Text = UiLocalizer.Pick("User Guide (HTML)", "လမ်းညွှန် (HTML)"),
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                BackColor = Color.FromArgb(24, 90, 188),
+                BackColor = Color.FromArgb(16, 118, 62),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
                 Font = UiFontCache.GetMyanmar(9.0F, FontStyle.Bold),
@@ -147,7 +213,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
                 Margin = new Padding(0, 0, S(6), 0),
                 Cursor = Cursors.Hand
             };
-            btnHtmlGuide.FlatAppearance.BorderColor = Color.FromArgb(18, 72, 158);
+            btnHtmlGuide.FlatAppearance.BorderColor = Color.FromArgb(12, 96, 50);
             btnHtmlGuide.Click += (s, e) =>
             {
                 try { OfflineUserGuideExporter.OpenInteractiveHtmlGuide(); } catch { }
@@ -183,7 +249,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
             {
                 Dock = DockStyle.Fill,
                 AutoScroll = true,
-                BackColor = Color.FromArgb(250, 246, 244),
+                BackColor = HostFormBack,
                 Padding = new Padding(S(12), S(12), S(12), S(10))
             };
 
@@ -200,11 +266,11 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
             _cardPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
             _cardPanel.Paint += (s, e) =>
             {
-                using (var accent = new SolidBrush(Color.FromArgb(183, 71, 42)))
+                using (var accent = new SolidBrush(HostAccent))
                 {
                     e.Graphics.FillRectangle(accent, 0, 0, _cardPanel.Width, Math.Max(3, S(4)));
                 }
-                using (var pen = new Pen(Color.FromArgb(214, 226, 218), 1F))
+                using (var pen = new Pen(HostCardBorder, 1F))
                 {
                     e.Graphics.DrawRectangle(pen, 0, 0, _cardPanel.Width - 1, _cardPanel.Height - 1);
                 }
@@ -218,7 +284,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
                     "Myanmar Spell Checker, Grammar & Encyclopedia Suite (Word • Excel • PowerPoint)",
                     "မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း၊ သဒ္ဒါနှင့် စွယ်စုံအဘိဓာန် (Word • Excel • PowerPoint)"),
                 Font = UiFontCache.GetMyanmar(10.8F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(16, 88, 48),
+                ForeColor = HostHeaderFore,
                 AutoSize = true,
                 MaximumSize = new Size(initWrapWidth, 0),
                 Margin = new Padding(0, S(2), 0, S(6)),
@@ -231,9 +297,9 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
             string statsLine = loadedWordCount > 0
                 ? UiLocalizer.Pick(
                     $"✓ 100% Free & Offline Open-Source Suite Active (No .lic license file required)\n" +
-                    $"   Formula-Safe Excel Suite • {loadedWordCount:N0} Official Thatpon, Dictionary & Encyclopedia entries loaded",
+                    $"   {loadedWordCount:N0} Official Thatpon, Dictionary, Geology & Encyclopedia entries loaded",
                     $"✓ 100% Offline အခမဲ့ Open-Source စနစ် အသင့်အလုပ်လုပ်နေပါသည် (လိုင်စင်ဖိုင် .lic မလိုအပ်ပါ)\n" +
-                    $"   Formula-Safe Excel Suite • စုစုပေါင်း ဝေါဟာရနှင့် ဗဟုသုတ {loadedWordCount:N0} ပုဒ် အသင့်ရှိသည်")
+                    $"   သတ်ပုံကျမ်း၊ မြန်မာအဘိဓာန်၊ ဘူမိဗေဒနှင့် စွယ်စုံဗဟုသုတ စုစုပေါင်း {loadedWordCount:N0} ပုဒ် အသင့်ရှိသည်")
                 : UiLocalizer.Pick(
                     "✓ 100% Free & Offline Open-Source Suite Active (No .lic license file required)",
                     "✓ 100% Offline အခမဲ့ Open-Source စနစ် အသင့်အလုပ်လုပ်နေပါသည် (လိုင်စင်ဖိုင် .lic မလိုအပ်ပါ)");
@@ -261,7 +327,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
                     "Creator, Dedication & Collaborators",
                     "ဖန်တီးသူ၊ ဂုဏ်ပြုမှတ်တမ်းနှင့် ပူးပေါင်းပါဝင်သူများ (Creator, Dedication & Collaborators)"),
                 Font = UiFontCache.GetMyanmar(9.4F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(16, 92, 50),
+                ForeColor = HostSubTitleFore,
                 AutoSize = true,
                 MaximumSize = new Size(initWrapWidth, 0),
                 Margin = new Padding(0, 0, 0, S(4)),
@@ -287,8 +353,8 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
                     "• မူလစိတ်ကူးလမ်းညွှန်ပေးသူ (Original Idea) : ဖခင် ဦးမိုးကျော်သူ (Father U Moe Kyaw Thu)\n" +
                     "• ပူးပေါင်းပါဝင်သူများ (Collaborators) : ဟိန်းထက်ဇော် (Hein Htet Zaw)၊ သူရိန်ခန့် (Thu Reain Khant)"),
                 Font = UiFontCache.GetMyanmar(8.9F, FontStyle.Regular),
-                ForeColor = Color.FromArgb(32, 52, 40),
-                BackColor = Color.FromArgb(242, 249, 245),
+                ForeColor = HostAuthorFore,
+                BackColor = HostAuthorBack,
                 BorderStyle = BorderStyle.FixedSingle,
                 AutoSize = true,
                 MaximumSize = new Size(initWrapWidth, 0),
@@ -308,8 +374,8 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
                     "Open-Source လိုင်စင်နှင့် မူပိုင်ခွင့် သတ်မှတ်ချက် — GNU GPL v3.0 (Section 7b)\n" +
                     "ဤဆော့ဖ်ဝဲကို GNU General Public License v3.0 ဖြင့် အခမဲ့ မျှဝေထားပါသည်။ မူရင်းဖန်တီးသူအမည် (Htet Yar Zar — Kyaukse University) နှင့် NOTICE ဖိုင်ကို ဖယ်ရှားပြင်ဆင်ခြင်း၊ မိမိကိုယ်ပိုင် ပရောဂျက်အဖြစ် အမည်ပြောင်းလဲ သုံးစွဲခြင်း သို့မဟုတ် Closed-Source စီးပွားဖြစ် ရောင်းချခြင်းကို ဥပဒေအရ တားမြစ်ထားပါသည်။"),
                 Font = UiFontCache.GetMyanmar(8.5F, FontStyle.Regular),
-                ForeColor = Color.FromArgb(62, 74, 68),
-                BackColor = Color.FromArgb(250, 252, 251),
+                ForeColor = HostLicenseFore,
+                BackColor = HostLicenseBack,
                 BorderStyle = BorderStyle.FixedSingle,
                 AutoSize = true,
                 MaximumSize = new Size(initWrapWidth, 0),
@@ -324,6 +390,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
             _scrollHost.Controls.Add(_cardPanel);
             _scrollHost.ClientSizeChanged += (s, e) => ReflowWrapWidths();
 
+            // Dock order: Fill added first, Bottom added second so _scrollHost fills strictly above _footerBar
             Controls.Add(_scrollHost);
             Controls.Add(_footerBar);
 
@@ -394,6 +461,7 @@ namespace MyanmarSpellChecker.PowerPointAddIn.UI
             if (!_btnCopyRepo.IsDisposed)
             {
                 _btnCopyRepo.Text = UiLocalizer.Pick("Copy GitHub URL", "GitHub လင့်ခ် ကူးယူမည်");
+                _btnCopyRepo.BackColor = HostAccent;
             }
         }
     }

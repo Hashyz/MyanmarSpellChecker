@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Htet Yar Zar (ထက်ရာဇာ), Department of Geology, Kyaukse University, Kyaukse, Myanmar.
+
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -11,7 +14,13 @@ using MyanmarSpellChecker.Core.Nlp;
 using MyanmarSpellChecker.Core.Official;
 using MyanmarSpellChecker.Core.Performance;
 
+#if HOST_EXCEL
 namespace MyanmarSpellChecker.ExcelAddIn.UI
+#elif HOST_POWERPOINT
+namespace MyanmarSpellChecker.PowerPointAddIn.UI
+#else
+namespace MyanmarSpellChecker.WordAddIn.UI
+#endif
 {
     public sealed class FixPreviewEntry<TPayload> where TPayload : class
     {
@@ -43,7 +52,13 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
     internal sealed class FixPreviewStudioCallbacks<TPayload> where TPayload : class
     {
+        #if HOST_EXCEL
         public string HostTag { get; set; } = "excel";
+#elif HOST_POWERPOINT
+        public string HostTag { get; set; } = "powerpoint";
+#else
+        public string HostTag { get; set; } = "word";
+#endif
         public Action<TPayload>? OnNavigateToItem { get; set; }
         public Func<IReadOnlyDictionary<TPayload, string>, int>? OnApplyBatch { get; set; }
         public Action<IReadOnlyList<TPayload>>? OnIgnoreItems { get; set; }
@@ -63,10 +78,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
     }
 
     /// <summary>
-    /// Non-blocking Modeless High-DPI Safe Review &amp; Fix Studio for Microsoft Excel (100%–250% DPI deterministic layout).
-    /// Keeps Excel 100% unlocked so users can freely scroll, select, and edit cells/sheets, minimize the window,
+    /// Non-blocking Modeless High-DPI Safe Review &amp; Fix Studio for Microsoft Word (100%–250% DPI deterministic layout).
+    /// Keeps Word 100% unlocked so users can freely scroll, select, and edit background text/tables, minimize the window,
     /// roll up into a compact mini-bar, pin/unpin on top, dock directly into the right Task Pane, group repeated words,
-    /// inspect invisible/lookalike diff badges, type custom edits, or apply formula-safe fixes one-by-one or in batch.
+    /// inspect invisible/lookalike diff badges, type custom edits, or apply fixes one-by-one or in batch.
     /// </summary>
     internal sealed class FixAllPreviewDialog<TPayload> : Form where TPayload : class
     {
@@ -171,7 +186,13 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         {
             _callbacks = callbacks ?? new FixPreviewStudioCallbacks<TPayload>
             {
+                #if HOST_EXCEL
                 HostTag = "excel",
+#elif HOST_POWERPOINT
+                HostTag = "powerpoint",
+#else
+                HostTag = "word",
+#endif
                 OnNavigateToItem = onNavigateToItem
             };
             if (_callbacks.OnNavigateToItem == null && onNavigateToItem != null)
@@ -179,7 +200,13 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 _callbacks.OnNavigateToItem = onNavigateToItem;
             }
 
+            #if HOST_EXCEL
             _scopeDisplayTitle = scopeDisplayTitle ?? "Excel";
+#elif HOST_POWERPOINT
+            _scopeDisplayTitle = scopeDisplayTitle ?? "PowerPoint";
+#else
+            _scopeDisplayTitle = scopeDisplayTitle ?? "Word";
+#endif
             _allEntries = entries?.ToList() ?? new List<FixPreviewEntry<TPayload>>();
             _dpi = UiFontCache.GetEffectiveDpi(this);
 
@@ -219,6 +246,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 _scopeDisplayTitle = updatedScopeTitle!;
             }
 
+            // Preserve user's checked state and custom replacement by (OriginalText + LocationLabel) or Payload reference
             var byPayload = new Dictionary<TPayload, (bool Checked, string Chosen)>();
             var byTextKey = new Dictionary<string, (bool Checked, string Chosen)>(StringComparer.Ordinal);
             foreach (var old in _allEntries)
@@ -321,7 +349,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             ShowIcon = true;
             TopMost = _isPinnedTopMost;
             KeyPreview = true;
-            BackColor = Color.FromArgb(244, 249, 246);
+            BackColor = Color.FromArgb(245, 248, 252);
 
             Rectangle workArea = Screen.FromPoint(Cursor.Position).WorkingArea;
             int minW = Math.Min(S(580), Math.Max(S(420), (int)(workArea.Width * 0.40)));
@@ -371,11 +399,11 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             EnableDoubleBuffering(_headerCard);
             _headerCard.Paint += (s, e) =>
             {
-                using (var pen = new Pen(Color.FromArgb(204, 226, 214)))
+                using (var pen = new Pen(Color.FromArgb(212, 224, 238)))
                 {
                     e.Graphics.DrawRectangle(pen, 0, 0, _headerCard.Width - 1, _headerCard.Height - 1);
                 }
-                using (var accent = new SolidBrush(Color.FromArgb(16, 108, 56)))
+                using (var accent = new SolidBrush(Color.FromArgb(18, 92, 178)))
                 {
                     e.Graphics.FillRectangle(accent, 0, 0, Math.Max(4, S(5)), _headerCard.Height);
                 }
@@ -384,7 +412,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _lblTitle = new Label
             {
                 Font = _fontBodyBold,
-                ForeColor = Color.FromArgb(14, 54, 32),
+                ForeColor = Color.FromArgb(16, 42, 72),
                 AutoSize = true,
                 BackColor = Color.Transparent
             };
@@ -392,7 +420,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _lblGuide = new Label
             {
                 Font = _fontSubtitle,
-                ForeColor = Color.FromArgb(48, 72, 58),
+                ForeColor = Color.FromArgb(52, 72, 96),
                 AutoSize = true,
                 BackColor = Color.Transparent,
                 Visible = false // Kept compact in tooltip to save ~70px vertical height on laptops
@@ -420,8 +448,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _btnCompact = CreateHeaderMiniButton(UiLocalizer.Pick("▴ Mini", "▴ ခေါက်"));
             _btnCompact.Click += (s, e) => ToggleCompactMiniBar();
             _toolTip.SetToolTip(_btnCompact, UiLocalizer.Pick(
-                "Collapse to a slim floating bar while editing spreadsheet cells",
-                "Excel ဇယားကွက် ပြင်ဆင်နေစဉ် အပေါ်ဘားအသေးအဖြစ် ခေါက်သိမ်းထားရန်"));
+                "Collapse to a slim floating bar while editing the document",
+                "စာတမ်းရေးသားနေစဉ် အပေါ်ဘားအသေးအဖြစ် ခေါက်သိမ်းထားရန်"));
 
             _btnDockPane = CreateHeaderMiniButton(UiLocalizer.Pick("⇥ Dock", "⇥ ဘေးပို့"));
             _btnDockPane.Visible = _callbacks.OnDockInTaskPane != null;
@@ -442,7 +470,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _reportMenu = new ContextMenuStrip { Font = _fontBody };
             _btnReportMenu = CreateToolbarButton(
                 UiLocalizer.Pick("≡ Report ▾", "≡ အစီရင် ▾"),
-                Color.FromArgb(228, 246, 235), Color.FromArgb(14, 88, 46), Color.FromArgb(156, 210, 178));
+                Color.FromArgb(236, 245, 255), Color.FromArgb(16, 72, 152), Color.FromArgb(168, 198, 240));
             _btnReportMenu.Visible = _callbacks.OnExportReport != null;
             _btnReportMenu.Click += (s, e) =>
             {
@@ -480,7 +508,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             _btnRefresh = CreateHeaderMiniButton("↻");
             _btnRefresh.Visible = _callbacks.OnRefreshEntries != null;
-            _toolTip.SetToolTip(_btnRefresh, UiLocalizer.Pick("Refresh live issues from sheet", "ဇယားကွက်မှ အမှားစာရင်း အသစ်ပြန်ရယူရန်"));
+            _toolTip.SetToolTip(_btnRefresh, UiLocalizer.Pick("Refresh live issues from document", "စာတမ်းမှ အမှားစာရင်း အသစ်ပြန်ရယူရန်"));
             _btnRefresh.Click += (s, e) => TriggerLiveRefresh();
 
             _btnUndo = CreateHeaderMiniButton(UiLocalizer.Pick("↶ Undo", "↶ နောက်"));
@@ -524,7 +552,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             _btnCheckAll = CreateToolbarButton(
                 string.Empty,
-                Color.White, Color.FromArgb(20, 62, 42), Color.FromArgb(188, 214, 200));
+                Color.White, Color.FromArgb(28, 56, 92), Color.FromArgb(196, 210, 228));
             _btnCheckAll.Click += (s, e) =>
             {
                 foreach (var row in _visibleRows)
@@ -535,7 +563,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             _btnUncheckAll = CreateToolbarButton(
                 UiLocalizer.Pick("☐ Clear All", "☐ အားလုံးဖြုတ်"),
-                Color.White, Color.FromArgb(88, 102, 94), Color.FromArgb(204, 216, 208));
+                Color.White, Color.FromArgb(92, 104, 120), Color.FromArgb(204, 214, 226));
             _btnUncheckAll.Click += (s, e) =>
             {
                 foreach (var row in _visibleRows)
@@ -546,7 +574,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             _btnGroupToggle = CreateToolbarButton(
                 string.Empty,
-                Color.White, Color.FromArgb(18, 86, 48), Color.FromArgb(172, 212, 188));
+                Color.White, Color.FromArgb(32, 72, 124), Color.FromArgb(186, 206, 232));
             _btnGroupToggle.Click += (s, e) =>
             {
                 _isGroupedByWord = !_isGroupedByWord;
@@ -560,7 +588,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 Text = UiLocalizer.Pick("Filter:", "ရှာရန် —"),
                 Font = _fontBadge,
-                ForeColor = Color.FromArgb(62, 84, 72),
+                ForeColor = Color.FromArgb(72, 90, 112),
                 AutoSize = false,
                 TextAlign = ContentAlignment.MiddleRight,
                 BackColor = Color.Transparent
@@ -575,7 +603,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     _txtSearch.Handle,
                     FixPreviewNativeMethods.EM_SETCUEBANNER,
                     (IntPtr)1,
-                    UiLocalizer.Pick("Filter cell or word...", "အကွက် သို့မဟုတ် စာလုံး ရှာရန်..."));
+                    UiLocalizer.Pick("Filter word or paragraph...", "စာလုံး သို့မဟုတ် စာပိုဒ် ရှာရန်..."));
             _txtSearch.TextChanged += (s, e) =>
             {
                 _searchDebounceTimer.Stop();
@@ -609,7 +637,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 AutoGenerateColumns = false,
                 BackgroundColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle,
-                GridColor = Color.FromArgb(224, 236, 228),
+                GridColor = Color.FromArgb(228, 234, 242),
                 EnableHeadersVisualStyles = false,
                 ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
                 ColumnHeadersHeight = safeHeaderHeight,
@@ -620,8 +648,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             _grid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
             {
-                BackColor = Color.FromArgb(232, 245, 238),
-                ForeColor = Color.FromArgb(16, 54, 34),
+                BackColor = Color.FromArgb(236, 242, 250),
+                ForeColor = Color.FromArgb(20, 44, 76),
                 Font = _fontBadge,
                 Alignment = DataGridViewContentAlignment.MiddleLeft,
                 Padding = new Padding(S(6), S(4), S(6), S(4)),
@@ -631,9 +659,9 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _grid.DefaultCellStyle = new DataGridViewCellStyle
             {
                 BackColor = Color.White,
-                ForeColor = Color.FromArgb(24, 36, 30),
-                SelectionBackColor = Color.FromArgb(218, 242, 228),
-                SelectionForeColor = Color.FromArgb(10, 44, 24),
+                ForeColor = Color.FromArgb(24, 36, 52),
+                SelectionBackColor = Color.FromArgb(222, 238, 255),
+                SelectionForeColor = Color.FromArgb(12, 32, 62),
                 Font = _fontBody,
                 Padding = new Padding(S(6), S(2), S(6), S(2))
             };
@@ -655,14 +683,20 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _colLoc = new DataGridViewTextBoxColumn
             {
                 Name = "ColLocation",
+                #if HOST_EXCEL
                 HeaderText = UiLocalizer.Pick("Cell", "အကွက်"),
+#elif HOST_POWERPOINT
+                HeaderText = UiLocalizer.Pick("Slide", "ဆလိုက်"),
+#else
+                HeaderText = UiLocalizer.Pick("Location", "နေရာ"),
+#endif
                 Width = S(142),
                 MinimumWidth = S(98),
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
                 DefaultCellStyle = new DataGridViewCellStyle
                 {
                     Font = _fontBadge,
-                    ForeColor = Color.FromArgb(18, 92, 52)
+                    ForeColor = Color.FromArgb(32, 82, 136)
                 }
             };
 
@@ -727,7 +761,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             EnableDoubleBuffering(_detailCard);
             _detailCard.Paint += (s, e) =>
             {
-                using (var pen = new Pen(Color.FromArgb(208, 228, 216)))
+                using (var pen = new Pen(Color.FromArgb(214, 224, 238)))
                 {
                     e.Graphics.DrawRectangle(pen, 0, 0, _detailCard.Width - 1, _detailCard.Height - 1);
                 }
@@ -736,7 +770,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             _lblContextPreview = new Label
             {
                 Font = _fontBodyBold,
-                ForeColor = Color.FromArgb(18, 52, 34),
+                ForeColor = Color.FromArgb(24, 48, 78),
                 AutoSize = true,
                 BackColor = Color.Transparent
             };
@@ -753,25 +787,31 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             _btnFixNow = CreateActionPillButton(
                 UiLocalizer.Pick("✓ Fix Now (Enter)", "✓ ယခုပြင်မည် (Enter)"),
-                Color.FromArgb(16, 108, 56), Color.White, Color.FromArgb(12, 88, 44));
+                Color.FromArgb(22, 132, 68), Color.White, Color.FromArgb(16, 108, 54));
             _btnFixNow.Visible = _callbacks.OnApplyBatch != null;
             _btnFixNow.Click += (s, e) => ApplySelectedRowNow();
 
             _btnIgnoreNow = CreateActionPillButton(
                 UiLocalizer.Pick("Ignore (Del)", "ကျော်မည် (Del)"),
-                Color.FromArgb(245, 248, 246), Color.FromArgb(68, 82, 74), Color.FromArgb(202, 216, 208));
+                Color.FromArgb(246, 248, 252), Color.FromArgb(68, 80, 96), Color.FromArgb(204, 214, 226));
             _btnIgnoreNow.Visible = _callbacks.OnIgnoreItems != null;
             _btnIgnoreNow.Click += (s, e) => IgnoreSelectedRowNow();
 
             _btnAddDict = CreateActionPillButton(
                 UiLocalizer.Pick("+ Add Word", "+ အဘိဓာန်ထည့်"),
-                Color.FromArgb(234, 247, 239), Color.FromArgb(16, 96, 50), Color.FromArgb(168, 212, 184));
+                Color.FromArgb(238, 245, 255), Color.FromArgb(24, 78, 152), Color.FromArgb(178, 204, 240));
             _btnAddDict.Visible = _callbacks.OnAddWordToDictionary != null;
             _btnAddDict.Click += (s, e) => AddSelectedWordToCustomDictionary();
 
             _btnJump = CreateActionPillButton(
+                #if HOST_EXCEL
                 UiLocalizer.Pick("▸ Jump", "▸ အကွက်သို့"),
-                Color.FromArgb(240, 247, 243), Color.FromArgb(22, 82, 48), Color.FromArgb(186, 214, 198));
+#elif HOST_POWERPOINT
+                UiLocalizer.Pick("▸ Jump", "▸ ဆလိုက်သို့"),
+#else
+                UiLocalizer.Pick("▸ Jump", "▸ စာပိုဒ်သို့"),
+#endif
+                Color.FromArgb(242, 246, 252), Color.FromArgb(32, 74, 132), Color.FromArgb(192, 208, 232));
             _btnJump.Visible = _callbacks.OnNavigateToItem != null;
             _btnJump.Click += (s, e) =>
             {
@@ -793,7 +833,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 Text = string.Empty,
                 Font = _fontSubtitle,
-                ForeColor = Color.FromArgb(64, 84, 72),
+                ForeColor = Color.FromArgb(72, 88, 108),
                 AutoSize = true,
                 BackColor = Color.Transparent
             };
@@ -808,6 +848,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 BackColor = Color.Transparent
             };
 
+            // Inline Custom Edit Row
             _customEditRow = new Panel
             {
                 BackColor = Color.Transparent
@@ -817,7 +858,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 Text = UiLocalizer.Pick("✎ Custom:", "✎ စိတ်ကြိုက်ပြင်ရန် —"),
                 Font = _fontBadge,
-                ForeColor = Color.FromArgb(28, 68, 44),
+                ForeColor = Color.FromArgb(44, 68, 96),
                 AutoSize = true,
                 BackColor = Color.Transparent
             };
@@ -838,7 +879,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
 
             _btnSetCustom = CreateActionPillButton(
                 UiLocalizer.Pick("Set", "သတ်မှတ်"),
-                Color.White, Color.FromArgb(20, 72, 42), Color.FromArgb(182, 210, 194));
+                Color.White, Color.FromArgb(28, 62, 108), Color.FromArgb(188, 204, 226));
             _btnSetCustom.Click += (s, e) => ApplyCustomTextToSelectedRow(fixImmediately: false);
 
             _btnSetAndFix = CreateActionPillButton(
@@ -874,7 +915,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 Text = string.Empty,
                 Font = _fontBodyBold,
-                ForeColor = Color.FromArgb(20, 56, 36),
+                ForeColor = Color.FromArgb(28, 52, 82),
                 AutoSize = false,
                 AutoEllipsis = true,
                 TextAlign = ContentAlignment.MiddleLeft,
@@ -887,10 +928,10 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Font = _fontBody,
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.White,
-                ForeColor = Color.FromArgb(62, 76, 68),
+                ForeColor = Color.FromArgb(62, 76, 94),
                 Cursor = Cursors.Hand
             };
-            _btnCancel.FlatAppearance.BorderColor = Color.FromArgb(192, 208, 198);
+            _btnCancel.FlatAppearance.BorderColor = Color.FromArgb(192, 204, 218);
             _btnCancel.Click += (s, e) =>
             {
                 DialogResult = DialogResult.Cancel;
@@ -902,12 +943,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 Text = UiLocalizer.Pick("✓ Apply Selected Fixes", "✓ ရွေးချယ်ထားသည်များကို ပြင်ဆင်မည်"),
                 Font = _fontBodyBold,
                 FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(16, 108, 56),
+                BackColor = Color.FromArgb(18, 92, 178),
                 ForeColor = Color.White,
                 Cursor = Cursors.Hand
             };
-            _btnConfirm.FlatAppearance.BorderColor = Color.FromArgb(12, 86, 44);
-            _btnConfirm.FlatAppearance.MouseOverBackColor = Color.FromArgb(14, 96, 48);
+            _btnConfirm.FlatAppearance.BorderColor = Color.FromArgb(12, 72, 146);
+            _btnConfirm.FlatAppearance.MouseOverBackColor = Color.FromArgb(14, 78, 156);
             _btnConfirm.Click += OnConfirmClicked;
 
             _footerPanel.Controls.Add(_lblFooterSummary);
@@ -929,12 +970,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 int midY = _splitterBar.Height / 2;
                 int gripW = Math.Min(S(44), Math.Max(S(24), _splitterBar.Width / 8));
                 int gripX = (_splitterBar.Width - gripW) / 2;
-                using (var linePen = new Pen(Color.FromArgb(212, 228, 218), 1f))
+                using (var linePen = new Pen(Color.FromArgb(218, 228, 240), 1f))
                 {
                     e.Graphics.DrawLine(linePen, S(8), midY, Math.Max(S(8), gripX - S(8)), midY);
                     e.Graphics.DrawLine(linePen, Math.Min(_splitterBar.Width - S(8), gripX + gripW + S(8)), midY, _splitterBar.Width - S(8), midY);
                 }
-                using (var gripBrush = new SolidBrush(_isDraggingSplitter ? Color.FromArgb(16, 108, 56) : Color.FromArgb(156, 186, 168)))
+                using (var gripBrush = new SolidBrush(_isDraggingSplitter ? Color.FromArgb(24, 90, 188) : Color.FromArgb(164, 180, 202)))
                 {
                     e.Graphics.FillRectangle(gripBrush, gripX, Math.Max(1, midY - S(1)), gripW, Math.Max(2, S(3)));
                 }
@@ -1009,19 +1050,19 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 int checkedCount = _allEntries.Count(x => x.IsChecked && !string.IsNullOrEmpty(x.ChosenReplacement));
                 _lblTitle.Text = UiLocalizer.Pick(
-                    $"✓ {checkedCount}/{totalCount} selected • Sheet Unlocked",
-                    $"✓ ({checkedCount}/{totalCount}) ရွေးထားသည် • ဇယား ပွင့်နေသည်");
+                    $"✓ {checkedCount}/{totalCount} selected • Document Unlocked",
+                    $"✓ ({checkedCount}/{totalCount}) ရွေးထားသည် • စာတမ်း ပွင့်နေသည်");
             }
             else
             {
                 _lblTitle.Text = UiLocalizer.Pick(
-                    $"✓ {safeCount} Sure  •  ⚠ {reviewCount} Review  •  Sheet Unlocked",
-                    $"✓ သေချာ ({safeCount})  •  ⚠ စိစစ်ရန် ({reviewCount})  •  ဇယားမပိတ်ဆို့ပါ");
+                    $"✓ {safeCount} Sure  •  ⚠ {reviewCount} Review  •  Document Unlocked",
+                    $"✓ သေချာ ({safeCount})  •  ⚠ စိစစ်ရန် ({reviewCount})  •  စာတမ်းမပိတ်ဆို့ပါ");
             }
 
             string guideTip = UiLocalizer.Pick(
-                $"Excel stays unlocked (Formula-Safe).\nHigh-certainty ({safeCount}) pre-checked (☑); review items ({reviewCount}) unchecked (☐).\nShortcuts: Enter = Fix Now, Space = Toggle, Del = Ignore.\nTip: Drag the horizontal divider bar between the table and details to resize.",
-                $"နောက်ခံ Excel ဇယားကို လွတ်လပ်စွာ ကြည့်ရှုပြင်ဆင်နိုင်သည် (Formula မပျက်ပါ)။\nသေချာသော ({safeCount}) ခုကို (☑) ရွေးထားပြီး စိစစ်ရန် ({reviewCount}) ခုကို (☐) ချန်ထားသည်။\n(Enter = ယခုပြင်၊ Space = ရွေး၊ Del = ကျော်)");
+                $"Document stays unlocked — scroll or edit anytime.\nHigh-certainty ({safeCount}) pre-checked (☑); review items ({reviewCount}) unchecked (☐).\nShortcuts: Enter = Fix Now, Space = Toggle, Del = Ignore.\nTip: Drag the horizontal divider bar between the table and details to resize.",
+                $"နောက်ခံစာတမ်းကို လွတ်လပ်စွာ ကြည့်ရှုပြင်ဆင်နိုင်သည်။\nသေချာသော ({safeCount}) ခုကို (☑) ရွေးထားပြီး စိစစ်ရန် ({reviewCount}) ခုကို (☐) ချန်ထားသည်။\n(Enter = ယခုပြင်၊ Space = ရွေး၊ Del = ကျော်)");
             _lblGuide.Text = guideTip;
             _toolTip.SetToolTip(_lblTitle, guideTip);
             _toolTip.SetToolTip(_headerCard, guideTip);
@@ -1036,30 +1077,30 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 ? UiLocalizer.Pick("◈ Pin", "◈ အပေါ်တင်")
                 : UiLocalizer.Pick("◇ Pin", "◇ မတင်ထား");
             _toolTip.SetToolTip(_btnPinTop, _isPinnedTopMost
-                ? UiLocalizer.Pick("Pinned above Excel (click to unpin so Excel can come in front)", "Excel အပေါ်၌ အမြဲတင်ထားသည် (ဖြုတ်ရန် နှိပ်ပါ)")
+                ? UiLocalizer.Pick("Pinned above Word (click to unpin so Word can come in front)", "Word အပေါ်၌ အမြဲတင်ထားသည် (ဖြုတ်ရန် နှိပ်ပါ)")
                 : UiLocalizer.Pick("Unpinned (click to keep Review window on top)", "အပေါ်၌ အမြဲမတင်ထားပါ (အမြဲတင်ထားရန် နှိပ်ပါ)"));
             _btnPinTop.BackColor = _isPinnedTopMost
-                ? Color.FromArgb(222, 244, 231)
-                : Color.FromArgb(244, 248, 246);
+                ? Color.FromArgb(224, 240, 255)
+                : Color.FromArgb(244, 247, 252);
             _btnPinTop.ForeColor = _isPinnedTopMost
-                ? Color.FromArgb(14, 88, 46)
-                : Color.FromArgb(78, 92, 84);
+                ? Color.FromArgb(14, 72, 148)
+                : Color.FromArgb(82, 94, 110);
             _btnPinTop.FlatAppearance.BorderColor = _isPinnedTopMost
-                ? Color.FromArgb(142, 204, 168)
-                : Color.FromArgb(204, 216, 208);
+                ? Color.FromArgb(142, 184, 236)
+                : Color.FromArgb(204, 214, 226);
 
             _btnGroupToggle.Text = _isGroupedByWord
                 ? UiLocalizer.Pick("⊞ Grouped: ON", "⊞ စုစည်းမှု: ON")
                 : UiLocalizer.Pick("⊞ Group Same", "⊞ တူရာစုမည်");
             _btnGroupToggle.BackColor = _isGroupedByWord
-                ? Color.FromArgb(222, 244, 231)
+                ? Color.FromArgb(224, 240, 255)
                 : Color.White;
             _btnGroupToggle.ForeColor = _isGroupedByWord
-                ? Color.FromArgb(14, 88, 46)
-                : Color.FromArgb(18, 86, 48);
+                ? Color.FromArgb(14, 72, 148)
+                : Color.FromArgb(32, 72, 124);
             _btnGroupToggle.FlatAppearance.BorderColor = _isGroupedByWord
-                ? Color.FromArgb(142, 204, 168)
-                : Color.FromArgb(172, 212, 188);
+                ? Color.FromArgb(142, 184, 236)
+                : Color.FromArgb(186, 206, 232);
         }
 
         private void ToggleCompactMiniBar()
@@ -1184,6 +1225,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 int gap = S(6);
                 int innerW = Math.Max(S(240), cw - padX * 2);
 
+                // 0. Sleek 1-Row Header Banner Card + Window Control Strip
                 int headerPadL = S(12);
                 int headerPadR = S(8);
                 int headerPadV = S(6);
@@ -1245,6 +1287,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 if (_isCompactMiniBar)
                     return;
 
+                // 1. Toolbar Row
                 Size safeSz = MeasureSingleLineButtonSize(_btnSafeOnly.Text, _fontBadge, 18, 8);
                 Size allSz = MeasureSingleLineButtonSize(_btnCheckAll.Text, _fontBadge, 18, 8);
                 Size clrSz = MeasureSingleLineButtonSize(_btnUncheckAll.Text, _fontBadge, 18, 8);
@@ -1288,6 +1331,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 }
                 _toolBarPanel.SetBounds(padX, _headerCard.Bottom + gap, innerW, toolH);
 
+                // 4. Footer Bar
                 Size cancelSz = MeasureSingleLineButtonSize(_btnCancel.Text, _fontBody, 24, 10);
                 Size confirmSz = MeasureSingleLineButtonSize(_btnConfirm.Text, _fontBodyBold, 30, 10);
                 int footerH = Math.Max(cancelSz.Height, confirmSz.Height);
@@ -1300,11 +1344,13 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 int footerTop = ch - padY - footerH;
                 _footerPanel.SetBounds(padX, footerTop, innerW, footerH);
 
+                // Middle Workspace (Resizable via _splitterBar!)
                 int middleTop = _toolBarPanel.Bottom + gap;
                 int middleBottom = footerTop - gap;
                 int middleAvailH = Math.Max(S(140), middleBottom - middleTop);
                 int splitterH = S(8);
 
+                // 3. Detail Inspector Card (user-adjustable via drag splitter, or laptop-friendly auto-fit)
                 int desiredDetailH = LayoutDetailCardChildren(innerW, reserveScrollbar: false);
                 int finalDetailH;
                 if (_userDetailSplitRatio >= 0.18 && _userDetailSplitRatio <= 0.72)
@@ -1335,6 +1381,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 _detailCard.SetBounds(padX, detailTop, innerW, finalDetailH);
                 _splitterBar.SetBounds(padX, detailTop - splitterH, innerW, splitterH);
 
+                // 2. Checklist DataGridView
                 int gridH = Math.Max(S(84), _splitterBar.Top - middleTop);
                 _grid.SetBounds(padX, middleTop, innerW, gridH);
             }
@@ -1458,7 +1505,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
         }
 
         private Button CreateHeaderMiniButton(string text) =>
-            CreateToolbarButton(text, Color.FromArgb(242, 248, 244), Color.FromArgb(20, 68, 40), Color.FromArgb(196, 218, 204));
+            CreateToolbarButton(text, Color.FromArgb(244, 247, 252), Color.FromArgb(36, 58, 88), Color.FromArgb(204, 214, 228));
 
         private Button CreateActionPillButton(string text, Color bg, Color fg, Color border) =>
             CreateToolbarButton(text, bg, fg, border);
@@ -1593,7 +1640,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 e.CellStyle.ForeColor = row.IsChecked
                     ? Color.FromArgb(16, 118, 64)
-                    : Color.FromArgb(132, 144, 138);
+                    : Color.FromArgb(132, 144, 160);
             }
             else if (e.ColumnIndex == 2)
             {
@@ -1617,7 +1664,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             {
                 e.CellStyle.ForeColor = row.IsChecked
                     ? Color.FromArgb(16, 108, 56)
-                    : Color.FromArgb(110, 122, 116);
+                    : Color.FromArgb(110, 122, 138);
             }
             else if (e.ColumnIndex == 4)
             {
@@ -1780,10 +1827,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 singleBatch[m.Payload] = string.IsNullOrEmpty(m.ChosenReplacement) ? chosen : m.ChosenReplacement;
             }
 
-            int applied = _callbacks.OnApplyBatch.Invoke(singleBatch);
-            if (applied <= 0)
-                return; // E.g. Excel cell was actively in edit mode — keep row in list so user can press Esc & retry!
-
+            _callbacks.OnApplyBatch.Invoke(singleBatch);
             foreach (var m in _selectedRow.Members)
             {
                 _allEntries.Remove(m);
@@ -1931,12 +1975,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     cleanContext = MyanmarSyllableBreaker.TruncateAtSyllableBoundary(cleanContext, 150, "…");
 
                 string grpNote = row.Count > 1
-                    ? UiLocalizer.Pick($" ({row.Count} cells)", $" ({row.Count} ကွက်)")
+                    ? UiLocalizer.Pick($" ({row.Count} occurrences)", $" ({row.Count} နေရာ)")
                     : string.Empty;
 
                 _lblContextPreview.Text = UiLocalizer.Pick(
-                    $"[{entry.LocationLabel}{grpNote}] Cell — {cleanContext}",
-                    $"[{entry.LocationLabel}{grpNote}] အကွက်စာသား — {cleanContext}");
+                    $"[{entry.LocationLabel}{grpNote}] Context — {cleanContext}",
+                    $"[{entry.LocationLabel}{grpNote}] ဝါကျစာသား — {cleanContext}");
                 _lblExplanation.Text = entry.Issue.Message ?? string.Empty;
 
                 var sugs = entry.Issue.Suggestions;
@@ -1949,7 +1993,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                             ? UiLocalizer.Pick("Choose —", "ရွေးချယ်ရန် —")
                             : UiLocalizer.Pick("Fix —", "အကြံပြုချက် —"),
                         Font = _fontBadge,
-                        ForeColor = Color.FromArgb(24, 68, 42),
+                        ForeColor = Color.FromArgb(44, 68, 96),
                         AutoSize = true,
                         UseMnemonic = false,
                         Margin = new Padding(0, S(5), S(8), S(2))
@@ -1987,8 +2031,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                                     UiFontCache.MeasureSingleLineButtonHeightForDpi(_dpi, optFont, 8)),
                                 Margin = new Padding(0, S(2), S(6), S(2)),
                                 FlatStyle = FlatStyle.Flat,
-                                BackColor = isActiveChoice ? Color.FromArgb(218, 245, 228) : Color.FromArgb(246, 250, 248),
-                                ForeColor = isActiveChoice ? Color.FromArgb(14, 96, 48) : Color.FromArgb(36, 56, 44),
+                                BackColor = isActiveChoice ? Color.FromArgb(218, 245, 228) : Color.FromArgb(246, 249, 253),
+                                ForeColor = isActiveChoice ? Color.FromArgb(14, 96, 48) : Color.FromArgb(42, 58, 78),
                                 Cursor = Cursors.Hand,
                                 UseMnemonic = false
                             };
@@ -2004,14 +2048,14 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                                 Margin = new Padding(0, S(2), S(6), S(2)),
                                 FlatStyle = FlatStyle.Flat,
                                 TextAlign = ContentAlignment.MiddleLeft,
-                                BackColor = isActiveChoice ? Color.FromArgb(218, 245, 228) : Color.FromArgb(246, 250, 248),
-                                ForeColor = isActiveChoice ? Color.FromArgb(14, 96, 48) : Color.FromArgb(36, 56, 44),
+                                BackColor = isActiveChoice ? Color.FromArgb(218, 245, 228) : Color.FromArgb(246, 249, 253),
+                                ForeColor = isActiveChoice ? Color.FromArgb(14, 96, 48) : Color.FromArgb(42, 58, 78),
                                 Cursor = Cursors.Hand
                             };
                         }
                         btnOpt.FlatAppearance.BorderColor = isActiveChoice
                             ? Color.FromArgb(92, 184, 128)
-                            : Color.FromArgb(196, 216, 204);
+                            : Color.FromArgb(204, 214, 228);
 
                         string pickedWord = cand.Replacement;
                         btnOpt.Click += (s, e) =>
@@ -2058,8 +2102,8 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                 : UiLocalizer.Pick("No Fixes Selected", "ရွေးချယ်ထားသော အချက်မရှိပါ");
             _btnConfirm.Enabled = checkedCount > 0;
             _btnConfirm.BackColor = checkedCount > 0
-                ? Color.FromArgb(16, 108, 56)
-                : Color.FromArgb(172, 184, 178);
+                ? Color.FromArgb(18, 92, 178)
+                : Color.FromArgb(172, 182, 194);
 
             if (_isCompactMiniBar)
             {
@@ -2097,9 +2141,12 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
             if (_callbacks.OnApplyBatch != null)
             {
                 int applied = _callbacks.OnApplyBatch.Invoke(ApprovedReplacements);
+#if HOST_EXCEL || HOST_POWERPOINT
                 if (applied <= 0)
                     return;
-
+#else
+                _ = applied;
+#endif
                 foreach (var done in appliedEntries)
                 {
                     _allEntries.Remove(done);
@@ -2112,6 +2159,7 @@ namespace MyanmarSpellChecker.ExcelAddIn.UI
                     return;
                 }
 
+                // Keep Review & Fix open so user can inspect any remaining unchecked/skipped items!
                 RefreshHeaderBannerTexts();
                 RebuildVisibleRowsAndPopulate(autoNavigate: false);
                 LayoutDialogSections();
