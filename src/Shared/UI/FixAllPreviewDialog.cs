@@ -50,7 +50,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
         }
     }
 
-    internal sealed class FixPreviewStudioCallbacks<TPayload> where TPayload : class
+    [ComVisible(false)]
+    public sealed class FixPreviewStudioCallbacks<TPayload> where TPayload : class
     {
         #if HOST_EXCEL
         public string HostTag { get; set; } = "excel";
@@ -83,7 +84,8 @@ namespace MyanmarSpellChecker.WordAddIn.UI
     /// roll up into a compact mini-bar, pin/unpin on top, dock directly into the right Task Pane, group repeated words,
     /// inspect invisible/lookalike diff badges, type custom edits, or apply fixes one-by-one or in batch.
     /// </summary>
-    internal sealed class FixAllPreviewDialog<TPayload> : Form where TPayload : class
+    [ComVisible(false)]
+    public sealed class FixAllPreviewDialog<TPayload> : Form where TPayload : class
     {
         private sealed class DisplayRow
         {

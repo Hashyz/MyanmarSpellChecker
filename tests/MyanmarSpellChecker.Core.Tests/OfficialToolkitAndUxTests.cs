@@ -4161,7 +4161,7 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.False(File.Exists(Path.Combine(repoRoot, "installer", "obfuscar.xml")));
             string propsRaw = File.ReadAllText(Path.Combine(repoRoot, "Directory.Build.props"));
             Assert.Contains("PowerPoint", propsRaw, StringComparison.Ordinal);
-            Assert.Contains("1.0.77.0", propsRaw, StringComparison.Ordinal);
+            Assert.Contains("1.0.78.0", propsRaw, StringComparison.Ordinal);
 
             string ciYml = Path.Combine(repoRoot, ".github", "workflows", "ci.yml");
             string releaseYml = Path.Combine(repoRoot, ".github", "workflows", "release.yml");
@@ -4202,6 +4202,113 @@ namespace MyanmarSpellChecker.Core.Tests
             finally
             {
                 try { Directory.Delete(tempLicDir, recursive: true); } catch { }
+            }
+        }
+
+        [Fact]
+        public void V78_IllustratedUserGuideScreenshotsOpenXmlMediaAndNoPia_Gate()
+        {
+            string repoRoot = TestPaths.RepoRoot;
+            string docsDir = Path.Combine(repoRoot, "docs");
+            string imagesDir = Path.Combine(docsDir, "images");
+
+            // 1. All 8 Annotated PNG Screenshots Exist on Disk with Valid 1240x740 PNG IHDR Signatures
+            var chapters = OfflineUserGuideExporter.BuildStructuredChapters();
+            var allFigures = chapters.SelectMany(c => c.Figures).ToList();
+            Assert.Equal(8, allFigures.Count);
+
+            foreach (var fig in allFigures)
+            {
+                Assert.True(fig.Callouts.Count >= 4, $"Figure {fig.FigureIndex} must have >= 4 numbered explanatory callouts.");
+                string pngPath = Path.Combine(imagesDir, fig.ImageFileName);
+                Assert.True(File.Exists(pngPath), $"Expected annotated screenshot PNG at {pngPath}");
+                byte[] pngBytes = File.ReadAllBytes(pngPath);
+                Assert.True(pngBytes.Length > 35_000, $"Expected rich screenshot > 35 KB for {fig.ImageFileName}, got {pngBytes.Length} B.");
+                Assert.Equal(0x89, pngBytes[0]);
+                Assert.Equal((byte)'P', pngBytes[1]);
+                Assert.Equal((byte)'N', pngBytes[2]);
+                Assert.Equal((byte)'G', pngBytes[3]);
+                int width = (pngBytes[16] << 24) | (pngBytes[17] << 16) | (pngBytes[18] << 8) | pngBytes[19];
+                int height = (pngBytes[20] << 24) | (pngBytes[21] << 16) | (pngBytes[22] << 8) | pngBytes[23];
+                Assert.Equal(1240, width);
+                Assert.Equal(740, height);
+            }
+
+            // 2. GitHub Markdown User Guide & README Visual Tour Embed Screenshots + Bilingual Callout Captions
+            string mdGuide = File.ReadAllText(Path.Combine(docsDir, "USER_GUIDE.md"));
+            string readme = File.ReadAllText(Path.Combine(repoRoot, "README.md"));
+            Assert.Contains("Visual Tour", readme, StringComparison.Ordinal);
+            foreach (var fig in allFigures)
+            {
+                Assert.Contains("images/" + fig.ImageFileName, mdGuide, StringComparison.Ordinal);
+                Assert.Contains("./docs/images/" + fig.ImageFileName, readme, StringComparison.Ordinal);
+            }
+            Assert.Contains("①", mdGuide, StringComparison.Ordinal);
+            Assert.Contains("④", mdGuide, StringComparison.Ordinal);
+
+            // 3. Single-File Offline HTML Handbook Embeds Base64 Screenshots + Lightbox + Captions
+            string htmlPath = Path.Combine(docsDir, OfflineUserGuideExporter.HtmlGuideFileName);
+            Assert.True(File.Exists(htmlPath));
+            string html = File.ReadAllText(htmlPath);
+            Assert.True(html.Length > 400_000, $"Expected Base64-illustrated HTML handbook > 400 KB, got {html.Length} chars.");
+            Assert.Contains("data:image/png;base64,", html, StringComparison.Ordinal);
+            Assert.Contains("openLightbox(", html, StringComparison.Ordinal);
+            Assert.Contains("figcaption class=\"fig-cap\"", html, StringComparison.Ordinal);
+
+            // 4. Printable ISO A4 Word (.docx) Embeds All 8 word/media/fig0X.png Streams & Valid OpenXML Drawings
+            string docxPath = Path.Combine(docsDir, OfflineUserGuideExporter.DocxGuideFileName);
+            Assert.True(File.Exists(docxPath));
+            byte[] docxBytes = File.ReadAllBytes(docxPath);
+            Assert.True(docxBytes.Length > 300_000, $"Expected screenshot-embedded A4 .docx > 300 KB, got {docxBytes.Length} B.");
+            using (var ms = new MemoryStream(docxBytes))
+            using (var zip = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Read))
+            {
+                for (int i = 1; i <= 8; i++)
+                {
+                    Assert.NotNull(zip.GetEntry($"word/media/fig{i:00}.png"));
+                }
+
+                using (var srRels = new StreamReader(zip.GetEntry("word/_rels/document.xml.rels")!.Open()))
+                {
+                    string relsXml = srRels.ReadToEnd();
+                    var relsDoc = new System.Xml.XmlDocument();
+                    relsDoc.LoadXml(relsXml);
+                    Assert.Contains("Id=\"rIdFig1\"", relsXml, StringComparison.Ordinal);
+                    Assert.Contains("Id=\"rIdFig8\"", relsXml, StringComparison.Ordinal);
+                }
+
+                using (var srDoc = new StreamReader(zip.GetEntry("word/document.xml")!.Open()))
+                {
+                    string docXml = srDoc.ReadToEnd();
+                    var xmlDoc = new System.Xml.XmlDocument();
+                    xmlDoc.LoadXml(docXml);
+                    Assert.Contains("<w:drawing>", docXml, StringComparison.Ordinal);
+                    Assert.Contains("r:embed=\"rIdFig1\"", docXml, StringComparison.Ordinal);
+                    Assert.Contains("r:embed=\"rIdFig8\"", docXml, StringComparison.Ordinal);
+                }
+            }
+
+            // 5. True No-PIA COM Type Embedding Gate Across Word, Excel & PowerPoint Add-in Assemblies
+            foreach (var (projDir, dllName) in new[]
+            {
+                ("MyanmarSpellChecker.WordAddIn", "MyanmarSpellChecker.WordAddIn.dll"),
+                ("MyanmarSpellChecker.ExcelAddIn", "MyanmarSpellChecker.ExcelAddIn.dll"),
+                ("MyanmarSpellChecker.PowerPointAddIn", "MyanmarSpellChecker.PowerPointAddIn.dll")
+            })
+            {
+                string dllPath = Path.Combine(repoRoot, "src", projDir, "bin", "Release", "net48", dllName);
+                if (!File.Exists(dllPath))
+                {
+                    dllPath = Path.Combine(repoRoot, "src", projDir, "bin", "Debug", "net48", dllName);
+                }
+                Assert.True(File.Exists(dllPath), $"Expected built add-in assembly at {dllPath}");
+                var asm = System.Reflection.Assembly.ReflectionOnlyLoadFrom(dllPath);
+                var externalOfficeRefs = asm.GetReferencedAssemblies()
+                    .Where(r => r.Name.StartsWith("Microsoft.Office.Interop", StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(r.Name, "office", StringComparison.OrdinalIgnoreCase))
+                    .Select(r => r.FullName)
+                    .ToList();
+                Assert.Empty(externalOfficeRefs);
             }
         }
     }

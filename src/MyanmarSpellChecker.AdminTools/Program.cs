@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using MyanmarSpellChecker.AdminTools.Benchmark;
 using MyanmarSpellChecker.AdminTools.Compiler;
+using MyanmarSpellChecker.AdminTools.Guide;
 using MyanmarSpellChecker.Core.Dictionary;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
@@ -54,9 +55,13 @@ namespace MyanmarSpellChecker.AdminTools
         {
             string outDir = args.Length > 1 ? args[1] : "docs";
             Directory.CreateDirectory(outDir);
-            string mdPath = OfflineUserGuideExporter.EnsureMarkdownGuideOnDisk(outDir);
-            string htmlPath = OfflineUserGuideExporter.EnsureInteractiveHtmlGuideOnDisk(outDir);
-            string docxPath = OfflineUserGuideExporter.EnsurePrintableWordGuideOnDisk(outDir);
+            string imagesDir = Path.Combine(outDir, "images");
+            int renderedCount = GuideScreenshotGenerator.RenderAllGuideScreenshots(imagesDir);
+            Console.WriteLine($"[+] Rendered Guide Screenshots: {renderedCount} annotated PNGs in {Path.GetFullPath(imagesDir)}");
+
+            string mdPath = OfflineUserGuideExporter.EnsureMarkdownGuideOnDisk(outDir, imagesDir);
+            string htmlPath = OfflineUserGuideExporter.EnsureInteractiveHtmlGuideOnDisk(outDir, imagesDir);
+            string docxPath = OfflineUserGuideExporter.EnsurePrintableWordGuideOnDisk(outDir, imagesDir);
             Console.WriteLine($"[+] Exported User Guide (MD)  : {Path.GetFullPath(mdPath)}");
             Console.WriteLine($"[+] Exported User Guide (HTML): {Path.GetFullPath(htmlPath)}");
             Console.WriteLine($"[+] Exported User Guide (DOCX): {Path.GetFullPath(docxPath)}");

@@ -73,13 +73,17 @@
   </ItemGroup>
 
   <ItemGroup Condition="!Exists('C:\Windows\assembly\GAC_MSIL\office\15.0.0.0__71e9bce111e9429c\OFFICE.DLL')">
-    <PackageReference Include="MicrosoftOfficeCore" Version="15.0.0" PrivateAssets="all" ExcludeAssets="runtime">
-      <EmbedInteropTypes>true</EmbedInteropTypes>
-    </PackageReference>
-    <PackageReference Include="Microsoft.Office.Interop.Excel" Version="15.0.4795.1001" PrivateAssets="all" ExcludeAssets="runtime">
-      <EmbedInteropTypes>true</EmbedInteropTypes>
-    </PackageReference>
+    <PackageReference Include="MicrosoftOfficeCore" Version="15.0.0" PrivateAssets="all" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.Office.Interop.Excel" Version="15.0.4795.1001" PrivateAssets="all" ExcludeAssets="runtime" />
   </ItemGroup>
+
+  <Target Name="EmbedNuGetOfficeInteropTypes" BeforeTargets="FindReferenceAssembliesForReferences;ResolveReferences;CoreCompile">
+    <ItemGroup>
+      <ReferencePath Condition="'%(Filename)' == 'Office' or $([System.String]::Copy('%(Filename)').StartsWith('Microsoft.Office.Interop'))">
+        <EmbedInteropTypes>true</EmbedInteropTypes>
+      </ReferencePath>
+    </ItemGroup>
+  </Target>
 
 </Project>
 

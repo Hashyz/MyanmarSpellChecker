@@ -10,10 +10,10 @@
 
 Built on the complete 462-page **"မြန်မာစာလုံးပေါင်းသတ်ပုံကျမ်း"** (Myanmar Language Commission), **"မြန်မာအဘိဓာန်"**, **57,064+ Bilingual English ⇄ Myanmar Lexicon (`အင်္ဂလိပ် ⇄ မြန်မာ အဘိဓာန်`)**, **25,000+ Offline Encyclopedia (`စွယ်စုံဗဟုသုတကျမ်း`)**, **MLIS/MOI Union Statutory Laws**, **MIMU v9.7 / GAD Multi-Tier Gazetteer**, **"ရုံးသုံးမြန်မာစာ"**, and **8 Specialized Academic, Government & Enterprise Domains** (including **Geology & Earth Sciences / ဘူမိဗေဒနှင့် မြေကမ္ဘာသိပ္ပံ**, **Public Administration & Civil Service**, and **Higher Education & Universities**).
 
-> **Complete Bilingual User Guide & Tool Handbook (`EN + မြန်မာ`):**
-> - **GitHub Online Edition:** [`docs/USER_GUIDE.md`](./docs/USER_GUIDE.md)
-> - **Interactive Searchable Offline HTML Guide:** [`docs/Myanmar-Spell-Checker-User-Guide.html`](./docs/Myanmar-Spell-Checker-User-Guide.html) *(also accessible inside Word, Excel & PowerPoint via **`Myanmar Spell Checker ➔ User Guide ▾`**)*
-> - **Printable ISO A4 Word Manual (`.docx`):** [`docs/Myanmar-Spell-Checker-User-Guide.docx`](./docs/Myanmar-Spell-Checker-User-Guide.docx)
+> **Complete Illustrated Bilingual User Guide & Tool Handbook (`EN + မြန်မာ` — With Annotated Screenshots & Captions):**
+> - **GitHub Illustrated Edition:** [`docs/USER_GUIDE.md`](./docs/USER_GUIDE.md) *(8 annotated UI figures + numbered `①`–`⑤` bilingual callout explanations)*
+> - **Interactive Searchable Offline HTML Guide:** [`docs/Myanmar-Spell-Checker-User-Guide.html`](./docs/Myanmar-Spell-Checker-User-Guide.html) *(single-file offline handbook with embedded screenshots, click-to-zoom lightbox & `EN / မြန်မာ` toggle — also accessible inside Office via **`Myanmar Spell Checker ➔ User Guide ▾`**)*
+> - **Printable ISO A4 Word Manual (`.docx`):** [`docs/Myanmar-Spell-Checker-User-Guide.docx`](./docs/Myanmar-Spell-Checker-User-Guide.docx) *(print-ready A4 OpenXML manual with embedded screenshots & bordered caption keys)*
 
 ---
 
@@ -35,6 +35,46 @@ This project is open-source software licensed under the **[GNU General Public Li
 1. **Copyleft (No Closed-Source Hijacking):** Any derivative work, modified version, or redistributed binary/installer **must** remain open-source under the GNU GPL v3.0 with full source code made available. Closed-source commercial rebranding is strictly prohibited.
 2. **Mandatory Preservation of Author Attribution (GPLv3 Section 7b):** Removing, hiding, or altering the [`NOTICE`](./NOTICE) file, source copyright headers, assembly metadata (`Directory.Build.props`), or visible in-app **Creator & Academic Attribution** credits (`Htet Yar Zar (ထက်ရာဇာ) — Department of Geology, Kyaukse University, Kyaukse, Myanmar`) is legally prohibited.
 3. **No Misrepresentation of Origin (GPLv3 Section 7c):** You may **not** claim original authorship of this software or present unmodified/modified copies as your own uncredited academic, institutional, or commercial project. For academic and software citation metadata, see [`CITATION.cff`](./CITATION.cff) (or click **"Cite this repository"** on GitHub).
+
+---
+
+## Visual Tour — Annotated Screenshots & Bilingual Captions (`ပုံနှင့်တကွ စနစ်အသုံးပြုပုံ အကျဉ်းချုပ်`)
+
+> Every screenshot below is annotated with numbered callouts (`①`–`⑤`). For the full step-by-step callout tables across all 28 tools, see [`docs/USER_GUIDE.md`](./docs/USER_GUIDE.md), [`docs/Myanmar-Spell-Checker-User-Guide.html`](./docs/Myanmar-Spell-Checker-User-Guide.html), or [`docs/Myanmar-Spell-Checker-User-Guide.docx`](./docs/Myanmar-Spell-Checker-User-Guide.docx).
+
+### 1. Unified Office Ribbon & 4-Tab Task Pane Workspace (`အပေါ်ဘက် Ribbon နှင့် ညာဘက် တက်ဘ် ၄ ခု မြင်ကွင်း`)
+![Figure 1 — Unified Microsoft Office Ribbon & 4-Tab Task Pane Workspace](./docs/images/fig01-ribbon-and-workspace-overview.png)
+* **① `Myanmar Spell Checker` Ribbon Tab:** One-click access to Scan Document, Scan Selection, Review & Fix, Clear Marks, Style Mode, Dictionary, Toolkit, Bilingual UI switch, and Offline User Guide.
+* **② Live Bilingual UI (`[A/က EN ⇄ မြန်မာ]`) & `[Eco: Auto ▾]`:** Switch the entire UI between English and Burmese instantly without restarting Office, while Eco Mode keeps 4 GB RAM PCs fast.
+* **③ 4-Tab Workspace (`Proofing | Dictionary | Toolkit | Custom`) & ④ 3-Mode Style (`Casual | Standard | Official`):** Match strictness to informal notes, standard prose, or formal ministry letters (`ရုံးစာ`).
+* **⑤ Three-Color Document Wavy Underlines:** **Red (`အနီ`)** = Spelling & Homophones (`ဥက္ကဌ ➔ ဥက္ကဋ္ဌ`), **Blue (`အပြာ`)** = Grammar & Register (`တခု ➔ တစ်ခု`, `ပါတယ် ➔ ပါသည်`), **Amber (`လိမ္မော်`)** = Contextual Review Needed (`လုပ်ငန်းမျာ ➔ လုပ်ငန်းများ`).
+
+---
+
+### 2. On-Cursor Quick-Fix Popup & Modeless Review & Fix Studio (`စာလုံးအောက် အမြန်ပြင်ပြကွက်နှင့် အားလုံးပြင် စိစစ်ရေးပြကွက်`)
+| Floating On-Cursor Quick-Fix Popup (`Figure 2`) | Modeless Review & Fix Checklist Studio (`Figure 3`) |
+| :--- | :--- |
+| ![Figure 2 — Word Live Proofing & Quick-Fix Popup](./docs/images/fig02-word-live-proofing-and-quickfix.png) | ![Figure 3 — Modeless Review & Fix Studio](./docs/images/fig03-review-and-fix-studio.png) |
+| **Caption (`ပုံ ၂`):** Click any underlined word (`①`) to open the floating **Quick-Fix Popup (`②`)** with ranked `[1 / Enter]` green suggestions, batch `[A]` replace-all-occurrences, official `သတ်ပုံကျမ်း` explanation, `Ignore`, and `+Add Word` — alongside Category Filters (`③`), Explanatory Cards (`④`), and `[Review & Fix]` (`⑤`). | **Caption (`ပုံ ၃`):** Modeless checklist (`① Pin / Mini / Dock / ≡ Report ▾`) with **`[☑ Sure Only]` (`②`)** and **Two-Tier Safety (`③`)**: deterministic fixes start checked (`☑`), while contextual/name candidates stay unchecked (`☐ Review Needed`) until confirmed in the Row Inspector (`④`) and applied in **one `Ctrl+Z` Undo step (`⑤`)**. |
+
+---
+
+### 3. Microsoft Excel Formula-Safe Overlay & PowerPoint Zero-Mutation Proofing (`Excel နှင့် PowerPoint သီးသန့်ကာကွယ်မှုစနစ်`)
+| Excel 100% Formula-Safe Proofing (`Figure 4`) | PowerPoint Slide & Speaker Notes Proofing (`Figure 5`) |
+| :--- | :--- |
+| ![Figure 4 — Microsoft Excel Formula-Safe Proofing](./docs/images/fig04-excel-formula-safe-proofing.png) | ![Figure 5 — Microsoft PowerPoint Slide & Notes Proofing](./docs/images/fig05-powerpoint-slide-proofing.png) |
+| **Caption (`ပုံ ၄`):** Plain-text cells (`①`) show **screen-only wavy underlines** without mutating `.xlsx` cell colors, while **`=SUM(...)` / `=VLOOKUP(...)` formulas and numeric cells (`②`) are 100% shielded**, backed by 25-step Undo (`③`) and `Sheet!Cell` jump cards (`④`). | **Caption (`ပုံ ၅`):** Scans **Slide Titles, Shapes, Tables (`①`), and Speaker Notes (`②`)** on a zero-mutation transparent overlay, **auto-pauses during `F5` Slide Show (`③`)**, and preserves RGB colors/animations with 30-step Undo (`④`). |
+
+---
+
+### 4. Offline 183,038-Entry Bilingual Dictionary, Official Toolkit & Live Myanmar UI (`အဘိဓာန်၊ ရုံးစာကိရိယာ နှင့် မြန်မာဘာသာ UI`)
+| Bilingual EN ⇄ MM Dictionary & Encyclopedia (`Figure 6`) | Official Writing Toolkit & ISO A4 Audit (`Figure 7`) |
+| :--- | :--- |
+| ![Figure 6 — Offline Bilingual Dictionary & Encyclopedia](./docs/images/fig06-bilingual-dictionary-and-encyclopedia.png) | ![Figure 7 — Official Writing Toolkit & A4 Audit Report](./docs/images/fig07-official-writing-toolkit.png) |
+| **Caption (`ပုံ ၆`):** 4-way offline lookup (`①` Myanmar, English, Romanized `'thatpon'`/`'kyaukse'`, Zawgyi), 7 category chips (`②` including `25,001` Encyclopedia & 8 Domains like Geology `ဘူမိဗေဒ`), official badge (`③`), spoken Burmese sandhi + `[▶ EN]` TTS (`④`), and clickable synonyms/collocations (`⑤`). | **Caption (`ပုံ ၇`):** Live `0–100%` Document Quality Scorecard + **5-Format Printable A4 Audit Report (`①`)**, 1-click **WinInnwa/Zawgyi & Broken-PDF Repair (`②`)**, Smart Numerals `0-9 ➔ ၀-၉` (`③`), and **Kyat Lakh (`ကျပ်သိန်း...တိတိ`) + Traditional Myanmar Calendar (`④`)**. |
+
+![Figure 8 — Live Myanmar UI Mode & Open-Source Attribution](./docs/images/fig08-bilingual-myanmar-ui-and-about.png)
+* **Caption (`ပုံ ၈` — Live Myanmar UI & Attribution):** Click **`[A/က မြန်မာ]` (`①`)** to switch every Ribbon tab, button, and explanation into Burmese instantly, manage **Shared Custom Words (`②`)** across Word/Excel/PowerPoint, verify **100% Free Offline Open-Source status (`③`)**, and launch the offline **HTML or Printable A4 `.docx` User Guide (`④`)** anytime.
 
 ---
 
