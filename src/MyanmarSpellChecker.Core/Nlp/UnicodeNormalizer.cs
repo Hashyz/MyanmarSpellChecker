@@ -1125,8 +1125,14 @@ namespace MyanmarSpellChecker.Core.Nlp
                     continue;
                 }
 
-                // Never feed an unambiguously Unicode token into full ConvertZawgyiToUnicode (which would scramble its Unicode codas/medials)!
-                if (DefiniteUnicodeWordMarkerPattern.IsMatch(tok))
+                // Never feed an unambiguously Unicode token (or a predominantly-Unicode token containing only isolated stray Zawgyi vowel/consonant glyphs)
+                // into full ConvertZawgyiToUnicode (which would scramble its Unicode codas/medials/post-base 'ေ')!
+                bool isHybridUnicodeToken = DefiniteUnicodeWordMarkerPattern.IsMatch(tok) ||
+                    (hasParagraphUnicode &&
+                     tok[0] != '\u1031' &&
+                     tok.IndexOf('\u1039') < 0 &&
+                     !Regex.IsMatch(tok, @"[\u1060-\u1063\u1065-\u1085\u1087-\u108E\u1091-\u1097]"));
+                if (isHybridUnicodeToken)
                 {
                     if (Regex.IsMatch(tok, @"[\u1033-\u1035\u105A\u1060-\u1097]|\u1025\u1015\u1031\u1012"))
                     {
@@ -1207,7 +1213,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                  .Replace("အဓိကန\u108Fရာ", "အဓိကနေရာ");
             if (s.IndexOf("ဖ\u1033\u1036\u1038", StringComparison.Ordinal) >= 0)
             {
-                s = Regex.Replace(s, @"ဖ\u1033\u1036\u1038(?=တွေ|ဆက်|နံပါတ်|ကတ်|ခေါ်|လိုင်း|ပြော|$)", "ဖုန်း");
+                s = Regex.Replace(s, @"ဖ\u1033\u1036\u1038(?=တွေ|များ|နဲ့|နှင့်|နှင့်|မှာ|တွင်|၌|ကို|က|ဟာ|သည်|ဆက်|နံပါတ်|ကတ်|ခေါ်|လိုင်း|ပြော|$)", "ဖုန်း");
             }
             if (s.IndexOf("တ\u108F", StringComparison.Ordinal) >= 0)
             {

@@ -4161,7 +4161,7 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.False(File.Exists(Path.Combine(repoRoot, "installer", "obfuscar.xml")));
             string propsRaw = File.ReadAllText(Path.Combine(repoRoot, "Directory.Build.props"));
             Assert.Contains("PowerPoint", propsRaw, StringComparison.Ordinal);
-            Assert.Contains("1.0.78.0", propsRaw, StringComparison.Ordinal);
+            Assert.Contains("1.0.79.0", propsRaw, StringComparison.Ordinal);
 
             string ciYml = Path.Combine(repoRoot, ".github", "workflows", "ci.yml");
             string releaseYml = Path.Combine(repoRoot, ".github", "workflows", "release.yml");
@@ -4310,6 +4310,124 @@ namespace MyanmarSpellChecker.Core.Tests
                     .ToList();
                 Assert.Empty(externalOfficeRefs);
             }
+        }
+
+        [Fact]
+        public void V79_CataclysmicNightmareBenchmarkAccuracyZeroFpAndLatency_Gate()
+        {
+            var repo = new EncryptedDictionaryRepository(TestPaths.EncryptedDbPath);
+            var trie = repo.LoadIntoTrie("MM-GOV-THATPON-SQLCIPHER-2026!");
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+
+            // 1. Zero False Positives Across All 16 Cataclysmic Evil-Twin Clean Controls + Wikipedia Stripped Placeholder
+            string[] formalCleanControls =
+            {
+                "ကျောင်းသားခေါင်းဆောင်က အစိတ်အပိုင်းတစ်ခုကို တာဝန်ယူဆောင်ရွက်သည်။",
+                "စီးပွားရေးနှင့် နည်းပညာကဏ္ဍသည် နေ့စဉ်နှင့်အမျှ တိုးတက်လာပါသည်။",
+                "ဆောင်းရာသီတွင် ကုတ်အင်္ကျီအထူ ဝတ်ဆင်ပြီး အရေပြားကို လက်သည်းဖြင့် မကုတ်ရပါ။",
+                "ဗီတာမင် A နှင့် အဆင့် A ရရှိသူများစာရင်းကို ထုတ်ပြန်ကြေညာသည်။",
+                "ထူးချွန်ထက်မြက်သော ကျောင်းသားများသည် နိုင်ငံ့ဂုဏ်ဆောင်ကြသည်။",
+                "ခရီးသွားများသည် ကမ်းခြေတွင် ပင်လယ်လှိုင်းသံကို နားထောင်ကြသည်။",
+                "နိုင်ငံသားတိုင်း၏ အခြေခံအခွင့်အရေးများကို ဥပဒေဖြင့် ကာကွယ်စောင့်ရှောက်သည်။",
+                "နှမ်းခင်းနှင့် မှိုခင်းများအနီးတွင် လှည်းလမ်းကြောင်း ဖောက်လုပ်ထားသည်။",
+                "မုန်တိုင်းကြောင့် တံတား ပျက်စီး၍ ဖုန်းလိုင်းများ ပြတ်တောက်သွားခဲ့သည်။",
+                "ရေကြီးမှုက လမ်းတံတားများကို ပျက်စီးစေခဲ့သည်။",
+                "အလုပ်သမားအခွင့်အရေးဆိုင်ရာ ဥပဒေများကို စနစ်တကျ လိုက်နာရမည်။",
+                "အဆိုပါကျေးရွာအုပ်စု၏ ရွာနေရာကုဒ်မှာ ၁၇၄၂၀၁ ဖြစ်ပါသည်။",
+                "ရွာနေရာကုတ်မှာ ဖြစ်သည်။",
+                "ပုဂံဒေသရှိ ယဉ်ကျေးမှုအမွေအနှစ်များသည် အဖိုးမဖြတ်နိုင်သော ရတနာများ ဖြစ်သည်။",
+                "ဗဟိုဘဏ်က ဒစ်ဂျစ်တယ် ငွေပေးချေမှုစနစ်ကို အဆင့်မြှင့်တင်သည်။",
+                "ပုဂံခေတ်၏ ဗိသုကာလက်ရာများသည် ယနေ့တိုင် ခမ်းနားထည်ဝါလှပါသည်။"
+            };
+            foreach (string clean in formalCleanControls)
+            {
+                var found = formalEngine.CheckText(clean, cacheParagraph: false);
+                Assert.True(found.Count == 0, $"Unexpected FP on clean control '{clean}': {string.Join(", ", found.Select(f => f.OriginalText + "->" + f.Suggestions.FirstOrDefault()?.Replacement))}");
+            }
+
+            var quotedClean = generalEngine.CheckText("ညီလေးက “အစ်ကို အနားယူတယ် အိမ်မှာ ခဏ” ဆိုပြီး ပြုံး၍ ပြောပြသည်။", cacheParagraph: false);
+            Assert.Empty(quotedClean);
+
+            // 2. Full 1-Pass Simultaneous Multi-Fix on Cataclysmic Nightmare Cases
+            static string ApplyAllTop1(string input, List<ProofingIssue> issues)
+            {
+                var sb = new System.Text.StringBuilder(input);
+                foreach (var issue in issues.Where(i => i.Suggestions.Count > 0).OrderByDescending(i => i.StartIndex))
+                {
+                    sb.Remove(issue.StartIndex, issue.Length);
+                    sb.Insert(issue.StartIndex, issue.Suggestions[0].Replacement);
+                }
+                return sb.ToString();
+            }
+
+            (MyanmarProofingEngine Engine, string Corrupted, string ExpectedClean)[] cataclysmCases =
+            {
+                (
+                    formalEngine,
+                    "ထို့ပြင် A မျိုးသားဒီမိုကရေစီA ဖွဲ့ချုပ်Aား သကေင်္တသစ်ဖြင့် ဖိတ်ကြားလျှက်ရှိသည်။",
+                    "ထို့ပြင် အမျိုးသားဒီမိုကရေစီအဖွဲ့ချုပ်အား သင်္ကေတသစ်ဖြင့် ဖိတ်ကြားလျက်ရှိသည်။"
+                ),
+                (
+                    formalEngine,
+                    "အတန်းပြီးနောက် သင်ကြားရေးအဖွဲ့က ရှင်းပြခဲ့သည် လူနာတင် ယာဉ်ကို အသေးစိတ် ဟု ကျောင်းသားများက မှတ်သားကြသည်။",
+                    "အတန်းပြီးနောက် သင်ကြားရေးအဖွဲ့က လူနာတင်ယာဉ်ကို အသေးစိတ် ရှင်းပြခဲ့သည် ဟု ကျောင်းသားများက မှတ်သားကြသည်။"
+                ),
+                (
+                    generalEngine,
+                    "အလုပ်ပြီးရင် အစ်ခို အနားယူတယ် အိမ်မှာ ခဏ ဆိုပြီး မတ်ထားတယ်။",
+                    "အလုပ်ပြီးရင် အစ်ကို အိမ်မှာ ခဏ အနားယူတယ် ဆိုပြီး မှတ်ထားတယ်။"
+                ),
+                (
+                    generalEngine,
+                    "ဒီစမတ် ဖဳံးနဲ့ မဳံ့ပဲသရေစာကို ငါ့အတွက် ဝယ်ကို ပေးတယ် ဆိုတာ တွေရတယ်။",
+                    "ဒီစမတ် ဖုန်းနဲ့ မုန့်ပဲသရေစာကို ငါ့အတွက် ဝယ်ပြီး ပေးတယ် ဆိုတာ တွေ့ရတယ်။"
+                ),
+                (
+                    generalEngine,
+                    "စြေးမှား ဘာာတွေ သှားဝယ့်ကြမလဲ ဆိုတာ ပန်းတွေ ပှင့်ချိန်မှာ မေးတယ်။",
+                    "ဈေးမှာ ဘာတွေ သွားဝယ်ကြမလဲ ဆိုတာ ပန်းတွေ ပွင့်ချိန်မှာ မေးတယ်။"
+                ),
+                (
+                    generalEngine,
+                    "မြို့ပြတွေမှာ ဆူညံသံညစ်ညမ်းမှုက နေ့စဉ်နဲ့အမျှ တိုးတက်လာပြီး စိတ်ဖိစိမှုတွေ များလာတယ်။",
+                    "မြို့ပြတွေမှာ ဆူညံသံညစ်ညမ်းမှုက နေ့စဉ်နဲ့အမျှ တိုးပွားလာပြီး စိတ်ဖိစီးမှုတွေ များလာတယ်။"
+                ),
+                (
+                    formalEngine,
+                    "ပရိတ်သတ်များက ဆရာတော်ကြီး ငါးယောက်သည် ကျောင်းတိုက်၌ ထမင်းစားပြီး ဝတ္တုငွေများ ကပ်လှူကြောင်း လျောက်ထားသည်။",
+                    "ပရိသတ်များက ဆရာတော်ကြီး ငါးပါးသည် ကျောင်းတိုက်၌ ဆွမ်းဘုဉ်းပေးပြီး ဝတ္ထုငွေများ ကပ်လှူကြောင်း လျှောက်ထားသည်။"
+                ),
+                (
+                    generalEngine,
+                    "ပျော်ရွှင်မှုဆိုတာ ရိုးရှင်းတဲ့အရာလေးတွေကို စတင်နိုင်ပြီး အသေးစိတ် သိတဲ့သူတွေ မန့်ပေးပို့ မျှော်လင့်ပါတယ်။",
+                    "ပျော်ရွှင်မှုဆိုတာ ရိုးရှင်းတဲ့အရာလေးတွေကနေ စတင်နိုင်ပြီး အသေးစိတ် သိတဲ့သူတွေ မန့်ပေးဖို့ မျှော်လင့်ပါတယ်။"
+                )
+            };
+
+            // Warm up lazy regex & trie caches once
+            _ = formalEngine.CheckText(cataclysmCases[0].Corrupted, cacheParagraph: false);
+            _ = generalEngine.CheckText(cataclysmCases[2].Corrupted, cacheParagraph: false);
+
+            var latenciesMs = new List<double>(cataclysmCases.Length);
+            foreach (var (eng, corrupted, expectedClean) in cataclysmCases)
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var issues = eng.CheckText(corrupted, cacheParagraph: false);
+                sw.Stop();
+                latenciesMs.Add(sw.Elapsed.TotalMilliseconds);
+
+                string patched = ApplyAllTop1(corrupted, issues);
+                Assert.Equal(
+                    UnicodeNormalizer.NormalizeCanonicalOrder(expectedClean),
+                    UnicodeNormalizer.NormalizeCanonicalOrder(patched));
+                Assert.Empty(eng.CheckText(patched, cacheParagraph: false));
+            }
+
+            // 3. Uncached Tail Latency Gate (< 25 ms p95 on dense multi-error Cataclysmic paragraphs)
+            latenciesMs.Sort();
+            double p95 = latenciesMs[Math.Min(latenciesMs.Count - 1, (int)(0.95 * latenciesMs.Count))];
+            Assert.True(p95 < 25.0, $"Expected Cataclysmic Nightmare uncached p95 < 25.0 ms, got {p95:F2} ms.");
         }
     }
 }

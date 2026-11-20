@@ -549,6 +549,41 @@ namespace MyanmarSpellChecker.Core.Nlp
                         if (_trie.ContainsExactWord(fixedNda))
                             AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedNda, 104.2);
                     }
+                    // Burmese phonotactics: obstruents (က..ဇ, ဋ..ဒ, ပ..ဗ, ဘ) and bare 'သ' (without 'ျ') never take ha-hto '\u103E';
+                    // 'သှား -> သွား', 'ပှင့် -> ပွင့်', 'ထှက် -> ထွက်', 'ကှဲ -> ကွဲ' are medial '-ွ-' (\u103D) substitutions.
+                    if (lookalikeFixed.IndexOf('\u103E') > 0)
+                    {
+                        var sbObstrWa = new System.Text.StringBuilder(lookalikeFixed.Length);
+                        bool replacedObstrHahto = false;
+                        for (int hi = 0; hi < lookalikeFixed.Length; hi++)
+                        {
+                            char hc = lookalikeFixed[hi];
+                            if (hc == '\u103E' && hi > 0)
+                            {
+                                char prevBase = lookalikeFixed[hi - 1];
+                                bool isIllegalHahtoOnset =
+                                    prevBase == '\u101E' ||
+                                    (prevBase >= '\u1000' && prevBase <= '\u1003') ||
+                                    (prevBase >= '\u1005' && prevBase <= '\u1007') ||
+                                    (prevBase >= '\u100B' && prevBase <= '\u100E') ||
+                                    (prevBase >= '\u1010' && prevBase <= '\u1013') ||
+                                    (prevBase >= '\u1015' && prevBase <= '\u1018');
+                                if (isIllegalHahtoOnset)
+                                {
+                                    sbObstrWa.Append('\u103D');
+                                    replacedObstrHahto = true;
+                                    continue;
+                                }
+                            }
+                            sbObstrWa.Append(hc);
+                        }
+                        if (replacedObstrHahto)
+                        {
+                            string fixedObstrWa = UnicodeNormalizer.NormalizeCanonicalOrder(sbObstrWa.ToString());
+                            if (_trie.ContainsExactWord(fixedObstrWa))
+                                AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedObstrWa, 104.6);
+                        }
+                    }
                     // Pyidaungsu QWERTY adjacent 'ိ' (D) <-> '်' (F) & missing final killer '\u103A' (e.g. 'ဆက်စပိ -> ဆက်စပ်', 'လေယာဉ -> လေယာဉ်', 'စီရိန်ရေး -> စီရင်ရေး', 'မြိတ -> မြတ်')
                     char lastCh = lookalikeFixed[lookalikeFixed.Length - 1];
                     if (lastCh == '\u102D' && lookalikeFixed.Length >= 3)

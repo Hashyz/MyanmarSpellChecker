@@ -483,7 +483,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             // 4a. Clause Interrogative 'လည်း' -> 'လဲ'
             if (ContainsMm(text, mmMask, "လည်း") &&
-                (((mmMask & (1UL << ('ဘ' - '\u1000'))) != 0UL) || ContainsMm(text, mmMask, "မည်")))
+                (ContainsMm(text, mmMask, "ဘာ") || ContainsMm(text, mmMask, "ဘယ်") || ContainsMm(text, mmMask, "မည်သ")))
             {
                 foreach (Match m in InterrogativeLaePattern.Matches(text))
                 {
@@ -500,7 +500,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             // 4b. Affirmative 'လဲ' -> 'လည်း'
             bool hasLae = ContainsMm(text, mmMask, "လဲ");
-            if (hasLae)
+            if (hasLae && (ContainsMm(text, mmMask, "လဲ ") || ContainsMm(text, mmMask, "လဲ\t")))
             {
                 foreach (Match m in AffirmativeLaeMisusePattern.Matches(text))
                 {
@@ -1140,7 +1140,11 @@ namespace MyanmarSpellChecker.Core.Nlp
                     if (OverlapsExistingIssue(issues, g.Index, g.Length))
                         continue;
                     string v = g.Value;
-                    bool isFormal = v.EndsWith("မည်", StringComparison.Ordinal) || styleMode == ProofingStyleMode.FormalOfficial;
+                    string preEraClause = text.Substring(m.Index, g.Index - m.Index);
+                    bool isFormal = v.EndsWith("မည်", StringComparison.Ordinal) ||
+                                    styleMode == ProofingStyleMode.FormalOfficial ||
+                                    preEraClause.IndexOf("တွင်", StringComparison.Ordinal) >= 0 ||
+                                    preEraClause.IndexOf("၌", StringComparison.Ordinal) >= 0;
                     bool isCopulaPhit = v.StartsWith("ဖြစ်", StringComparison.Ordinal);
                     bool hasPa = v.Contains("ပါ");
                     string correct;
@@ -1900,17 +1904,31 @@ namespace MyanmarSpellChecker.Core.Nlp
                     }
                 }
 
-                foreach (Match m in AgentiveMhaSubjectPattern.Matches(text))
+                if (ContainsMm(text, mmMask, "ဌာန") ||
+                    ContainsMm(text, mmMask, "အဖွဲ့") ||
+                    ContainsMm(text, mmMask, "ကော်မတီ") ||
+                    ContainsMm(text, mmMask, "ကုမ္ပဏီ") ||
+                    ContainsMm(text, mmMask, "ကျွန်") ||
+                    ContainsMm(text, mmMask, "သက်ဆိုင်ရာ") ||
+                    ContainsMm(text, mmMask, "တာဝန်ရှိသူ") ||
+                    ContainsMm(text, mmMask, "တရား") ||
+                    ContainsMm(text, mmMask, "ဥက္ကဋ္ဌ") ||
+                    ContainsMm(text, mmMask, "အတွင်းရေးမှူး") ||
+                    ContainsMm(text, mmMask, "ကျောင်းအုပ်") ||
+                    ContainsMm(text, mmMask, "ဆရာ"))
                 {
-                    Group pGroup = m.Groups["Particle"];
-                    string verb = m.Groups["Verb"].Value;
-                    AddGrammarOrSpellingIssue(
-                        issues, pGroup.Index, pGroup.Length, pGroup.Value, "က",
-                        ProofingIssueType.OfficialStyleGrammarError,
-                        $"ပြုလုပ်သူ (ကတ္တား) နောက်တွင် ထွက်ခွာရာပြဝိဘတ် 'မှ' အစား ကတ္တားဝိဘတ် 'က' (သို့မဟုတ် 'သည်') ကို သုံးနှုန်းရမည်။",
-                        $"ကတ္တားဝိဘတ် (~က {verb})", "PART", true,
-                        $"မြန်မာသဒ္ဒါအရ 'မှ' သည် နေရာ/အချိန်မှ စတင်ထွက်ခွာရာကိုပြသော ထွက်ခွာရာပြဝိဘတ်သာဖြစ်ပြီး '{verb}-' မှုကို ပြုလုပ်သူ (ကတ္တား) နောက်၌ ကတ္တားဝိဘတ် 'က' သို့မဟုတ် 'သည်' ကိုသာ သုံးရမည်။",
-                        "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (ကတ္တားဝိဘတ် နှင့် ထွက်ခွာရာပြဝိဘတ်) နှင့် မောင်ခင်မင်(ဓနုဖြူ)");
+                    foreach (Match m in AgentiveMhaSubjectPattern.Matches(text))
+                    {
+                        Group pGroup = m.Groups["Particle"];
+                        string verb = m.Groups["Verb"].Value;
+                        AddGrammarOrSpellingIssue(
+                            issues, pGroup.Index, pGroup.Length, pGroup.Value, "က",
+                            ProofingIssueType.OfficialStyleGrammarError,
+                            $"ပြုလုပ်သူ (ကတ္တား) နောက်တွင် ထွက်ခွာရာပြဝိဘတ် 'မှ' အစား ကတ္တားဝိဘတ် 'က' (သို့မဟုတ် 'သည်') ကို သုံးနှုန်းရမည်။",
+                            $"ကတ္တားဝိဘတ် (~က {verb})", "PART", true,
+                            $"မြန်မာသဒ္ဒါအရ 'မှ' သည် နေရာ/အချိန်မှ စတင်ထွက်ခွာရာကိုပြသော ထွက်ခွာရာပြဝိဘတ်သာဖြစ်ပြီး '{verb}-' မှုကို ပြုလုပ်သူ (ကတ္တား) နောက်၌ ကတ္တားဝိဘတ် 'က' သို့မဟုတ် 'သည်' ကိုသာ သုံးရမည်။",
+                            "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (ကတ္တားဝိဘတ် နှင့် ထွက်ခွာရာပြဝိဘတ်) နှင့် မောင်ခင်မင်(ဓနုဖြူ)");
+                    }
                 }
             }
 
