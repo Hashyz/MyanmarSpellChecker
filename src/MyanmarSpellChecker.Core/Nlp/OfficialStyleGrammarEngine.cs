@@ -3204,7 +3204,19 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            // 7d. V42 Smart Bilingual Numeral Consistency in Formal/Official Mode (flags pure-Burmese ASCII numerals, shields English-linked numbers)
+            // 7d. V80 O(1) Corpus-Mined Noun Classifiers, Mandatory Compounds & Verb Case-Frame Valence
+            if (mmMask != 0)
+            {
+                MinedGrammarPatternEngine.ScanMinedGrammarPatterns(
+                    text,
+                    mmMask,
+                    HasAnyMyanmarNumeralCore(text, mmMask, hasNonZeroMyanmarDigit),
+                    hasMyanmarSpaceMyanmar,
+                    styleMode,
+                    issues);
+            }
+
+            // 7e. V42 Smart Bilingual Numeral Consistency in Formal/Official Mode (flags pure-Burmese ASCII numerals, shields English-linked numbers)
             if (styleMode == ProofingStyleMode.FormalOfficial && mmMask != 0 && hasAsciiDigit && (trie == null || !IsCleanCanonicalStandaloneNrc(text, trie)))
             {
                 var quoteSpansForNum = ComputeBalancedQuoteRanges(text);

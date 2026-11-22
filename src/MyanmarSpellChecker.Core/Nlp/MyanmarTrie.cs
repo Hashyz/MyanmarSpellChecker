@@ -1566,17 +1566,21 @@ namespace MyanmarSpellChecker.Core.Nlp
             if (results.Count < count && _exactWordIndex.Count > 0)
             {
                 int skip = (seedCursor * 13) % Math.Max(1, _exactWordIndex.Count);
-                int idx = 0;
-                foreach (var kvp in _exactWordIndex)
+                for (int pass = 0; pass < 2 && results.Count < count; pass++)
                 {
-                    if (idx++ < skip) continue;
-                    var e = kvp.Value[0];
-                    if (e.HasAbidanMetadata && !string.IsNullOrEmpty(e.MeaningCue) &&
-                        (!string.IsNullOrEmpty(e.Synonyms) || !string.IsNullOrEmpty(e.Antonyms) || !string.IsNullOrEmpty(e.KnowledgeSummary)))
+                    int idx = 0;
+                    foreach (var kvp in _exactWordIndex)
                     {
-                        results.Add(e);
-                        if (results.Count >= count)
-                            break;
+                        if (pass == 0 && idx++ < skip) continue;
+                        if (pass == 1 && idx++ >= skip) break;
+                        var e = kvp.Value[0];
+                        if (e.HasAbidanMetadata && !string.IsNullOrEmpty(e.MeaningCue) &&
+                            (!string.IsNullOrEmpty(e.Synonyms) || !string.IsNullOrEmpty(e.Antonyms) || !string.IsNullOrEmpty(e.KnowledgeSummary)))
+                        {
+                            results.Add(e);
+                            if (results.Count >= count)
+                                break;
+                        }
                     }
                 }
             }

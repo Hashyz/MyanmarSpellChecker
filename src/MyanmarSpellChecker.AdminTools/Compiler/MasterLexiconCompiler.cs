@@ -3372,6 +3372,33 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                     });
                 }
             }
+
+            string minedPmiCtxTsvPath = Path.Combine(sourcesDir, "rules", "mined_pmi_context_rules.tsv");
+            if (File.Exists(minedPmiCtxTsvPath))
+            {
+                string[] minedLines = File.ReadAllLines(minedPmiCtxTsvPath, Encoding.UTF8);
+                for (int li = 1; li < minedLines.Length; li++)
+                {
+                    if (string.IsNullOrWhiteSpace(minedLines[li])) continue;
+                    string[] cols = minedLines[li].Split('\t');
+                    if (cols.Length < 9) continue;
+                    int winVal;
+                    if (!int.TryParse(cols[5].Trim(), out winVal) || winVal <= 0)
+                        winVal = 1;
+                    rawCtxRules.Add(new ContextRuleItem
+                    {
+                        WrongForm = NormalizeMyanmar(cols[0].Trim()),
+                        CorrectForm = NormalizeMyanmar(cols[1].Trim()),
+                        TriggerWords = NormalizeMyanmar(cols[2].Trim()),
+                        AntiTriggerWords = NormalizeMyanmar(cols[3].Trim()),
+                        Direction = string.IsNullOrWhiteSpace(cols[4]) ? "Both" : cols[4].Trim(),
+                        Window = winVal,
+                        IsWarningOnly = cols[6].Trim() == "1" || string.Equals(cols[6].Trim(), "true", StringComparison.OrdinalIgnoreCase),
+                        SkipParticles = cols[7].Trim() == "1" || string.Equals(cols[7].Trim(), "true", StringComparison.OrdinalIgnoreCase),
+                        Explanation = cols[8].Trim()
+                    });
+                }
+            }
             else
             {
                 ParseCollocationsAndHomophoneContextRules(
@@ -3433,13 +3460,15 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 .ToList();
 
             RuleItem[] authoritativeExtraRules = LoadRuleTsv(Path.Combine(sourcesDir, "rules", "mlc_authoritative_orthography_rules.tsv"));
+            string minedOrthTsvPath = Path.Combine(sourcesDir, "rules", "mined_orthography_pairs.tsv");
+            RuleItem[] minedOrthRules = File.Exists(minedOrthTsvPath) ? LoadRuleTsv(minedOrthTsvPath) : Array.Empty<RuleItem>();
 
             var cleanRules = new List<RuleItem>();
             var seenWrong = new HashSet<string>(StringComparer.Ordinal);
-            var combinedInputRules = authoritativeExtraRules.Concat(ministryRules).Concat(khweHtarRules).Concat(loanRules).Concat(extraYamlRules);
+            var combinedInputRules = authoritativeExtraRules.Concat(minedOrthRules).Concat(ministryRules).Concat(khweHtarRules).Concat(loanRules).Concat(extraYamlRules);
 
             var ministryWrongSet = new HashSet<string>(
-                authoritativeExtraRules.Concat(ministryRules).Concat(khweHtarRules).Select(mr => NormalizeMyanmar(mr.WrongForm)),
+                authoritativeExtraRules.Concat(minedOrthRules).Concat(ministryRules).Concat(khweHtarRules).Select(mr => NormalizeMyanmar(mr.WrongForm)),
                 StringComparer.Ordinal);
             foreach (var r in combinedInputRules)
             {
@@ -4675,6 +4704,73 @@ namespace MyanmarSpellChecker.AdminTools.Compiler
                 }
 
                 ce.UsageNote = curUsage;
+            }
+
+            // V80 Corpus-Mined Entry Enrichments (Wiktionary/Wikipedia bilingual glosses, classifiers, synonyms, antonyms, PMI collocations & clean corpus examples)
+            string minedEnrichPath = Path.Combine(sourcesDir, "dictionaries", "mined_entry_enrichments.tsv");
+            if (File.Exists(minedEnrichPath))
+            {
+                var enrichByWord = new Dictionary<string, string[]>(StringComparer.Ordinal);
+                string[] meLines = File.ReadAllLines(minedEnrichPath, Encoding.UTF8);
+                for (int mi = 1; mi < meLines.Length; mi++)
+                {
+                    if (string.IsNullOrWhiteSpace(meLines[mi])) continue;
+                    string[] mCols = meLines[mi].Split('\t');
+                    if (mCols.Length < 7) continue;
+                    string mw = NormalizeMyanmar(mCols[0].Trim());
+                    if (!string.IsNullOrEmpty(mw) && !enrichByWord.ContainsKey(mw))
+                        enrichByWord[mw] = mCols;
+                }
+
+                int minedEnrichedEntries = 0;
+                for (int i = 0; i < allEntries.Count; i++)
+                {
+                    var ce = allEntries[i];
+                    if (ce.PosTag == "ENCYC" || ce.PosTag == "PROVERB" || ce.PosTag == "SAYING" || ce.PosTag == "RHETORIC" || ce.PosTag == "EN_LEX")
+                        continue;
+                    if (!enrichByWord.TryGetValue(ce.Word, out string[] mCols))
+                        continue;
+
+                    string curU = ce.UsageNote ?? string.Empty;
+                    bool changed = false;
+                    void AppendFieldIfMissing(string checkPrefix, string formattedPrefix, string val)
+                    {
+                        if (!string.IsNullOrWhiteSpace(val) && curU.IndexOf(checkPrefix, StringComparison.Ordinal) < 0)
+                        {
+                            curU = string.IsNullOrEmpty(curU) ? (formattedPrefix + val) : (curU + " | " + formattedPrefix + val);
+                            changed = true;
+                        }
+                    }
+
+                    AppendFieldIfMissing("မျိုးပြပစ္စည်း:", "မျိုးပြပစ္စည်း: ", NormalizeMyanmar(mCols[2].Trim()));
+                    AppendFieldIfMissing("အင်္ဂလိပ်", "အင်္ဂလိပ်အနက်: ", mCols[1].Trim());
+                    AppendFieldIfMissing("ကြောင်းတူ", "ကြောင်းတူသံကွဲ: ", NormalizeMyanmar(mCols[3].Trim()));
+                    AppendFieldIfMissing("ဆန့်ကျင်", "ဆန့်ကျင်ဘက်: ", NormalizeMyanmar(mCols[4].Trim()));
+                    AppendFieldIfMissing("တွဲဖက်အသုံး:", "တွဲဖက်အသုံး: ", NormalizeMyanmar(mCols[5].Trim()));
+                    if (string.IsNullOrEmpty(ce.UsageNote) || curU.Length < 140)
+                    {
+                        AppendFieldIfMissing("သာဓက:", "သာဓက: ", NormalizeMyanmar(mCols[6].Trim()));
+                    }
+
+                    if (changed)
+                    {
+                        ce.UsageNote = curU;
+                        minedEnrichedEntries++;
+                    }
+
+                    // Also link primary English gloss into EN_LEX reverse lookup
+                    string rawEn = mCols[1].Trim();
+                    if (!string.IsNullOrEmpty(rawEn))
+                    {
+                        string firstEn = rawEn.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries)[0].Trim();
+                        if (firstEn.Length >= 3 && firstEn.Length <= 42 && !enToMmGlossMap.ContainsKey(firstEn))
+                            enToMmGlossMap[firstEn] = ce.Word;
+                    }
+                }
+                if (minedEnrichedEntries > 0)
+                {
+                    Console.WriteLine("  - V80 Corpus-Mined Semantic & Collocation Enrichments: +" + minedEnrichedEntries + " headwords enriched.");
+                }
             }
 
             // Build Official Thatpon orthography sanitizer lookup for EN_LEX Myanmar definitions

@@ -19,4 +19,10 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\data\sources\rules\mined_noun_classifiers.tsv" LogicalName="mined_noun_classifiers.tsv" />
+    <EmbeddedResource Include="..\..\data\sources\rules\mined_mandatory_compounds.tsv" LogicalName="mined_mandatory_compounds.tsv" />
+    <EmbeddedResource Include="..\..\data\sources\rules\mined_verb_case_frames.tsv" LogicalName="mined_verb_case_frames.tsv" />
+  </ItemGroup>
+
 </Project>

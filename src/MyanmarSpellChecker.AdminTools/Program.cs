@@ -5,6 +5,7 @@ using System.Text;
 using MyanmarSpellChecker.AdminTools.Benchmark;
 using MyanmarSpellChecker.AdminTools.Compiler;
 using MyanmarSpellChecker.AdminTools.Guide;
+using MyanmarSpellChecker.AdminTools.Mining;
 using MyanmarSpellChecker.Core.Dictionary;
 using MyanmarSpellChecker.Core.Models;
 using MyanmarSpellChecker.Core.Nlp;
@@ -32,6 +33,9 @@ namespace MyanmarSpellChecker.AdminTools
 
             switch (cmd)
             {
+                case "mine-corpus":
+                case "mine":
+                    return RunMineCorpus(args);
                 case "build-lexicon":
                     return RunBuildLexicon(args);
                 case "compile-dict":
@@ -49,6 +53,30 @@ namespace MyanmarSpellChecker.AdminTools
                 default:
                     return RunInteractiveDemo();
             }
+        }
+
+        private static int RunMineCorpus(string[] args)
+        {
+            string dataDir = "data";
+            string docsDir = "docs";
+            bool alsoCompile = false;
+            for (int i = 1; i < args.Length; i++)
+            {
+                if (string.Equals(args[i], "--compile", StringComparison.OrdinalIgnoreCase))
+                    alsoCompile = true;
+                else if (!args[i].StartsWith("-", StringComparison.Ordinal))
+                    dataDir = args[i];
+            }
+
+            CorpusDataMiner.Run(dataDir, docsDir);
+            if (alsoCompile)
+            {
+                Console.WriteLine("[+] Rebuilding sanitized mlc_thatpon_master.json and compiling data/mlc_thatpon.db...");
+                MasterLexiconCompiler.BuildFromDataDirectory(dataDir, null);
+                int rc = RunCompileDict(new[] { "compile-dict", Path.Combine(dataDir, "mlc_thatpon_master.json"), Path.Combine(dataDir, "mlc_thatpon.db") });
+                if (rc != 0) return rc;
+            }
+            return 0;
         }
 
         private static int RunExportUserGuide(string[] args)

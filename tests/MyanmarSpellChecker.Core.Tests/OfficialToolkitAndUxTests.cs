@@ -4161,7 +4161,7 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.False(File.Exists(Path.Combine(repoRoot, "installer", "obfuscar.xml")));
             string propsRaw = File.ReadAllText(Path.Combine(repoRoot, "Directory.Build.props"));
             Assert.Contains("PowerPoint", propsRaw, StringComparison.Ordinal);
-            Assert.Contains("1.0.79.0", propsRaw, StringComparison.Ordinal);
+            Assert.Contains("1.0.80.0", propsRaw, StringComparison.Ordinal);
 
             string ciYml = Path.Combine(repoRoot, ".github", "workflows", "ci.yml");
             string releaseYml = Path.Combine(repoRoot, ".github", "workflows", "release.yml");
@@ -4428,6 +4428,65 @@ namespace MyanmarSpellChecker.Core.Tests
             latenciesMs.Sort();
             double p95 = latenciesMs[Math.Min(latenciesMs.Count - 1, (int)(0.95 * latenciesMs.Count))];
             Assert.True(p95 < 25.0, $"Expected Cataclysmic Nightmare uncached p95 < 25.0 ms, got {p95:F2} ms.");
+        }
+
+        [Fact]
+        public void V80_FourPillarCorpusDataMiningZeroFpAndLatency_Gate()
+        {
+            string dbPath = TestPaths.EncryptedDbPath;
+            double dbSizeMb = new FileInfo(dbPath).Length / (1024.0 * 1024.0);
+            Assert.True(dbSizeMb <= 22.0, $"Expected data/mlc_thatpon.db <= 22.0 MB, got {dbSizeMb:F2} MB.");
+
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            var trie = repo.LoadIntoTrie("MM-GOV-THATPON-SQLCIPHER-2026!");
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+
+            // 1. Scale & Integrity Gates on Mined Lexicon, Context Rules & Embedded O(1) Grammar Tables
+            Assert.True(trie.WordCount >= 99_000, $"Expected >= 99,000 active headwords after 4-pillar mining, got {trie.WordCount:N0}.");
+            Assert.True(trie.ContextualRuleCount >= 1_300, $"Expected >= 1,300 O(1) contextual rules in mlc_thatpon.db, got {trie.ContextualRuleCount:N0}.");
+            Assert.True(MinedGrammarPatternEngine.LoadedClassifierNounCount >= 2_200,
+                $"Expected >= 2,200 O(1) mined noun->classifier entries, got {MinedGrammarPatternEngine.LoadedClassifierNounCount:N0}.");
+            Assert.True(MinedGrammarPatternEngine.LoadedMandatoryCompoundCount >= 4_000,
+                $"Expected >= 4,000 O(1) mined mandatory compounds, got {MinedGrammarPatternEngine.LoadedMandatoryCompoundCount:N0}.");
+            Assert.True(trie.ContainsExactWord("ပျော့တက်"), "Expected mined market compound 'ပျော့တက်' in active lexicon.");
+
+            // 2. Zero False Positives on V80 Evil-Twin Clean Controls (including market 'ပျော့တက်' & classifier modifier suffixes)
+            string[] cleanControls =
+            {
+                "ဈေးကွက်တွင် ဈေးနှုန်း ပျော့တက်လာသည်ဟု သတင်းရင်းမြစ်များက ဆိုသည်။",
+                "အဆိုပါဟိုတယ်တွင် နှစ်ယောက်ခန်းများနှင့် ငါးယောက်စီး မော်တော်ယာဉ်များ ထားရှိသည်။",
+                "မြစ်အတွင်းမှ ကကတစ် နှစ်ကောင် ဖမ်းမိပြီး ကင်ပွန်း သုံးပင် စိုက်ပျိုးထားသည်။",
+                "ကက်ပတိန် နှစ်ဦးသည် ဝတ်စုံ သုံးထည်နှင့် ကင်မရာများကို စစ်ဆေးသည်။",
+                "သက်သောင့်သက်သာ နေထိုင်လုပ်ကိုင်နိုင်သော ပတ်ဝန်းကျင်ကောင်းများ ဖန်တီးပေးသည်။",
+                "ပန်းပုလက်ရာများသည် အိမ်အလှဆင်ရန်အတွက် အသုံးဝင်သည်။"
+            };
+            foreach (string clean in cleanControls)
+            {
+                var fp = formalEngine.CheckText(clean, cacheParagraph: false);
+                Assert.True(fp.Count == 0, $"Unexpected FP on '{clean}': {string.Join(", ", fp.Select(x => x.OriginalText))}");
+            }
+            Assert.Empty(generalEngine.CheckText("မင်္ဂလာပွဲသွားဖို့ အစ်မက မှန်ရှေ့မှာ အလှပြင်နေပါတယ်။", cacheParagraph: false));
+
+            // 3. 1-Pass Multi-Error Accuracy & < 25 ms Uncached Latency Across All 4 Mined Pillars
+            string bossInput = "ဘူမိ ဗေဒကို လေ့လာသော ကက်ပတိန် နှစ်ကောင်သည် သက်တောင့်သက်သာ စခန်းချ၍ အိမ်အလှပြင်ရန် ကတိ ကဝတ်ပြုကြောင်း မှတ်တမ်းတင်ထားချက် တွေရသည်။";
+            string bossExpected = "ဘူမိဗေဒကို လေ့လာသော ကက်ပတိန် နှစ်ဦးသည် သက်သောင့်သက်သာ စခန်းချ၍ အိမ်အလှဆင်ရန် ကတိကဝတ်ပြုကြောင်း မှတ်တမ်းတင်ထားချက် တွေ့ရသည်။";
+
+            _ = formalEngine.CheckText(bossInput, cacheParagraph: false); // warmup
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var issues = formalEngine.CheckText(bossInput, cacheParagraph: false);
+            sw.Stop();
+
+            var sb = new System.Text.StringBuilder(bossInput);
+            foreach (var iss in issues.Where(i => i.Suggestions.Count > 0).OrderByDescending(i => i.StartIndex))
+            {
+                sb.Remove(iss.StartIndex, iss.Length);
+                sb.Insert(iss.StartIndex, iss.Suggestions[0].Replacement);
+            }
+            Assert.Equal(
+                UnicodeNormalizer.NormalizeCanonicalOrder(bossExpected),
+                UnicodeNormalizer.NormalizeCanonicalOrder(sb.ToString()));
+            Assert.True(sw.Elapsed.TotalMilliseconds < 25.0, $"Expected < 25 ms uncached scan, got {sw.Elapsed.TotalMilliseconds:F2} ms.");
         }
     }
 }
