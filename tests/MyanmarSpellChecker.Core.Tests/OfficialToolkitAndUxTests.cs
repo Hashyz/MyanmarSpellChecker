@@ -4161,7 +4161,7 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.False(File.Exists(Path.Combine(repoRoot, "installer", "obfuscar.xml")));
             string propsRaw = File.ReadAllText(Path.Combine(repoRoot, "Directory.Build.props"));
             Assert.Contains("PowerPoint", propsRaw, StringComparison.Ordinal);
-            Assert.Contains("1.0.81.0", propsRaw, StringComparison.Ordinal);
+            Assert.Contains("1.0.82.0", propsRaw, StringComparison.Ordinal);
 
             string ciYml = Path.Combine(repoRoot, ".github", "workflows", "ci.yml");
             string releaseYml = Path.Combine(repoRoot, ".github", "workflows", "release.yml");
@@ -4558,6 +4558,54 @@ namespace MyanmarSpellChecker.Core.Tests
                 UnicodeNormalizer.NormalizeCanonicalOrder(bossExpected),
                 UnicodeNormalizer.NormalizeCanonicalOrder(sb.ToString()));
             Assert.True(sw.Elapsed.TotalMilliseconds < 20.0, $"Expected < 20 ms uncached scan on 8-error boss, got {sw.Elapsed.TotalMilliseconds:F2} ms.");
+        }
+
+        [Fact]
+        public void V82_AuditedCorpusBenchmarkZeroTrueCleanFpMissingNumberReviewAndMmEngSpacing_Gate()
+        {
+            string dbPath = TestPaths.EncryptedDbPath;
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            var trie = repo.LoadIntoTrie("MM-GOV-THATPON-SQLCIPHER-2026!");
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+
+            // 1. Review-Only Dangling Missing-Number Warnings (excluded from blind Fix-All so fake numbers are never inserted!)
+            var ageWarn = Assert.Single(formalEngine.CheckText("ဟားပက်သည် အသက် နှစ်အရွယ် လူငယ်တစ်ဦး ဖြစ်သည်။", cacheParagraph: false));
+            Assert.Equal("နှစ်အရွယ်", ageWarn.OriginalText);
+            Assert.True(ageWarn.RequiresReviewBeforeBatchFix);
+            Assert.False(ageWarn.IsAutoFixSafe);
+            Assert.Empty(ageWarn.Suggestions);
+
+            var yearWarn = Assert.Single(formalEngine.CheckText("အဆိုပါကျောင်းတော်ကို ခုနှစ်တွင် တည်ထောင်ခဲ့သည်။", cacheParagraph: false));
+            Assert.Equal("ခုနှစ်တွင်", yearWarn.OriginalText);
+            Assert.True(yearWarn.RequiresReviewBeforeBatchFix);
+            Assert.False(yearWarn.IsAutoFixSafe);
+
+            // Valid numbered sentences must produce 0 false positives
+            Assert.Empty(formalEngine.CheckText("အသက် ၂၅ နှစ်အရွယ် လူငယ်သည် ၂၀၀၉ ခုနှစ်တွင် ဘွဲ့ရရှိခဲ့သည်။", cacheParagraph: false));
+            Assert.Empty(formalEngine.CheckText("၂၁ ရာစုတွင် နိုင်ငံသား ၁၈ ဦးအား ဂုဏ်ပြုချီးမြှင့်သည်။", cacheParagraph: false));
+            Assert.Empty(generalEngine.CheckText("ဒီနှစ်အတွက် အစီအစဉ်တွေကတော့ စာတွေအများကြီးဖတ်ဖို့ပါပဲ။", cacheParagraph: false));
+
+            // 2. Auto-Fixable Glued Myanmar-English Prose Spacing & Missing Copula (~တွေတယ်။ -> ~တွေပါ။)
+            string gluedInput = "ကြည့်သည့်နေရာတွင်Upton Parkဘူတာ ရှိသလို စာပေနဲ့ စာဖတ်ခြင်းဟာ အရေးကြီးတဲ့ အရာတွေတယ်။";
+            var gluedIssues = generalEngine.CheckText(gluedInput, cacheParagraph: false);
+            var sb = new System.Text.StringBuilder(gluedInput);
+            foreach (var iss in gluedIssues.Where(i => i.IsAutoFixSafe && i.Suggestions.Count > 0).OrderByDescending(i => i.StartIndex))
+            {
+                sb.Remove(iss.StartIndex, iss.Length);
+                sb.Insert(iss.StartIndex, iss.Suggestions[0].Replacement);
+            }
+            Assert.Equal(
+                UnicodeNormalizer.NormalizeCanonicalOrder("ကြည့်သည့်နေရာတွင် Upton Park ဘူတာ ရှိသလို စာပေနဲ့ စာဖတ်ခြင်းဟာ အရေးကြီးတဲ့ အရာတွေပါ။"),
+                UnicodeNormalizer.NormalizeCanonicalOrder(sb.ToString()));
+
+            // Technical short codes must stay untouched
+            Assert.Empty(formalEngine.CheckText("ဗီတာမင် A နှင့် COVID-19 ကာကွယ်ဆေး စာရင်းကို A4 စာရွက်ဖြင့် ထုတ်ပြန်သည်။", cacheParagraph: false));
+
+            // 3. Curated 2,084-Sentence Corpus Benchmark JSON Presence Gate
+            string repoRoot = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(dbPath)!, ".."));
+            string curatedJson = Path.Combine(repoRoot, "data", "myanmar_corpus_benchmark_2084.json");
+            Assert.True(File.Exists(curatedJson), $"Expected curated 2,084-sentence benchmark JSON at {curatedJson}");
         }
     }
 }

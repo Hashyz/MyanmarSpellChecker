@@ -1248,7 +1248,8 @@ namespace MyanmarSpellChecker.Core.Nlp
         {
             if (issue == null ||
                 issue.IssueType == ProofingIssueType.PunctuationError ||
-                issue.IssueType == ProofingIssueType.ZawgyiEncodingError)
+                issue.IssueType == ProofingIssueType.ZawgyiEncodingError ||
+                (issue.RequiresReviewBeforeBatchFix && (issue.Suggestions == null || issue.Suggestions.Count == 0)))
             {
                 return;
             }

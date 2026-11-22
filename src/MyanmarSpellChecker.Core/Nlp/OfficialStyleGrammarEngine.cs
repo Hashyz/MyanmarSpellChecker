@@ -3256,6 +3256,12 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
+            // 7c-iii. V82 Review-Only Dangling Missing-Number Warnings, Myanmar-English Glued Spacing & Corpus Syntax Precision
+            if (mmMask != 0)
+            {
+                ScanCorpusPrecisionAndMissingNumberRules(text, mmMask, styleMode, issues);
+            }
+
             // 7d. V80 O(1) Corpus-Mined Noun Classifiers, Mandatory Compounds & Verb Case-Frame Valence
             if (mmMask != 0)
             {

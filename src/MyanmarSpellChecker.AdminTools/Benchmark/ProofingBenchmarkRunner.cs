@@ -130,10 +130,20 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
 
         public static int Run(string[] args)
         {
+            bool corpusOnly = args.Any(a =>
+                string.Equals(a, "--corpus", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(a, "corpus", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(a, "--2084", StringComparison.OrdinalIgnoreCase));
+            if (corpusOnly)
+            {
+                return CorpusBenchmarkRunner.Run(args);
+            }
+
             bool enhancedOnly = args.Any(a =>
                 string.Equals(a, "--enhanced", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "enhanced", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(a, "--v81", StringComparison.OrdinalIgnoreCase));
+                string.Equals(a, "--v81", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(a, "--v82", StringComparison.OrdinalIgnoreCase));
 
             bool minedOnly = !enhancedOnly && args.Any(a =>
                 string.Equals(a, "--mined", StringComparison.OrdinalIgnoreCase) ||
@@ -987,6 +997,19 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                     "ကျန်းမာရေးကောင်းမွန်ဖို့ ဆေးလိပ်နဲ့ အရက်သေစာတို့ကို ရှောင်သင့်ပါတယ်။"),
                 new BenchmarkCase("v81_clean_bridge_over_river_shi", BenchmarkDifficulty.CleanControl, ProofingStyleMode.GeneralStandard,
                     "မြစ်ကြီးအပေါ်မှာ သံကူကွန်ကရစ်တံတားကြီးတစ်စင်း ရှိပါတယ်။"),
+                // 6 Adversarial V82 Missing-Number & Myanmar-English Spacing Evil-Twin Clean Controls:
+                new BenchmarkCase("v82_clean_valid_age_number_years", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "အသက် ၂၅ နှစ်အရွယ် လူငယ်ပညာရှင်များသည် သုတေသနလုပ်ငန်းတွင် ပါဝင်ကြသည်။"),
+                new BenchmarkCase("v82_clean_valid_year_and_century_numbers", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "အဆိုပါကျောင်းတော်ကြီးကို ၂၀၀၉ ခုနှစ်တွင် ပြန်လည်မွမ်းမံ၍ ၂၁ ရာစုတွင် ထိန်းသိမ်းထားသည်။"),
+                new BenchmarkCase("v82_clean_valid_person_and_building_counts", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "နိုင်ငံသား ၁၈ ဦးအား ဂုဏ်ပြုချီးမြှင့်ပြီး အဆောက်အဦ ၅ ခုကို လွှဲပြောင်းပေးအပ်သည်။"),
+                new BenchmarkCase("v82_clean_spaced_english_station_name", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "လက်မှတ်ဝယ်ရန် ကြည့်သည့်နေရာတွင် Upton Park ဘူတာရုံ တည်ရှိနေသည်။"),
+                new BenchmarkCase("v82_clean_informal_read_many_books_glued", BenchmarkDifficulty.CleanControl, ProofingStyleMode.GeneralStandard,
+                    "အားလပ်ရက်မှာ စာတွေအများကြီးဖတ်ဖို့ ရည်ရွယ်ထားပါတယ်။"),
+                new BenchmarkCase("v82_clean_attached_particles_kolae_naeatu", BenchmarkDifficulty.CleanControl, ProofingStyleMode.GeneralStandard,
+                    "မိသားစုဝင်တွေနဲ့အတူ ပတ်ဝန်းကျင်ထိန်းသိမ်းရေးကိုလည်း ထည့်သွင်းစဉ်းစားရမယ်။"),
 
                 // =========================================================================================
                 // TIER 1: EASY — Character, Encoding, Punctuation & UTN #11 Syllable Fundamentals (20 Cases)
@@ -2299,7 +2322,23 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                     ("ထင့်", "သင့်"),
                     ("ဆောင်", "ရှောင်"),
                     ("အဉ့်င့်", "အကျင့်"),
-                    (" . ", " "))
+                    (" . ", " ")),
+                new BenchmarkCase("enh_v82_glued_mm_eng_and_missing_copula", BenchmarkDifficulty.EnhancedVelocity, ProofingStyleMode.GeneralStandard,
+                    "ကြည့်သည့်နေရာတွင်Upton Parkဘူတာ ရှိသလို စာပေနဲ့ စာဖတ်ခြင်းဟာ အရေးကြီးတဲ့ အရာတွေတယ်။",
+                    ("Upton Park", " Upton Park "),
+                    ("တယ်။", "ပါ။")),
+                new BenchmarkCase("enh_v82_htwekaya_video_and_word_order", BenchmarkDifficulty.EnhancedVelocity, ProofingStyleMode.GeneralStandard,
+                    "ထွေ့ကယာရှောက်မဆားနဲ့လို့ ပြောရင်း ဗွီဒီယိုလေးနဲ့ အရမ်းနေရာလှပတဲ့တစ်ခုကို ပြတယ်။",
+                    ("ထွေ့", "တွေ့"),
+                    ("ကယာ", "ကရာ"),
+                    ("ရှောက်", "လျှောက်"),
+                    ("ဆား", "စား"),
+                    ("ဗွီဒီယို", "ဗီဒီယို"),
+                    ("နေရာလှပတဲ့", "လှပတဲ့နေရာ")),
+                new BenchmarkCase("enh_v82_intruder_adverbs_and_justice_essential", BenchmarkDifficulty.EnhancedVelocity, ProofingStyleMode.GeneralStandard,
+                    "သတိရှိခြင်းက ပျော်ရွှင်မှုကို ထူးဆန်းစွာ တိုးပွားစေပြီး တရားမျှတမှုဟာ လူတိုင်းအတွက် မရှိမဖြစ်ကောင်းတယ်။",
+                    ("ထူးဆန်းစွာ ", ""),
+                    ("ကောင်း", "လိုအပ်"))
             };
         }
     }
