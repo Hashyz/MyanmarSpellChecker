@@ -25,6 +25,30 @@ namespace MyanmarSpellChecker.Core.Nlp
             @"(?<=(?:အရာ|ပစ္စည်း|အချက်|ကိစ္စ)တွေ)(?<Target>တယ်။)",
             RegexOptions.Compiled);
 
+        // Misplaced outer 'မ-' prefix on bipartite [Noun/Head]+[Verb] compounds ('*မနေကောင်းဘူး' -> 'နေမကောင်းဘူး', '*မအဆင်ပြေဘူး' -> 'အဆင်မပြေဘူး')
+        private static readonly Regex BipartiteMisplacedMaNegationPattern = new Regex(
+            @"(?<![\u1000-\u103F])(?<Whole>မ(?<Head>နေ(?=ကောင်း)|အဆင်(?=ပြေ)|နား(?=လည်)|စိတ်(?=ဆိုး|ပူ|ညစ်|ချ|ဝင်စား)|သဘော(?=တူ|ကျ)|အသုံး(?=ဝင်|ကျ)|အား(?=နာ)|သတိ(?=ရ|ထား)|အရေး(?=ကြီး|ပါ)|တာဝန်(?=ကျေ)|အချိန်(?=မီ))(?<Verb>ကောင်း|ပြေ|လည်|ဆိုး|ပူ|ညစ်|ချ|ဝင်စား|တူ|ကျ|ဝင်|နာ|ရ|ထား|ကြီး|ပါ|ကျေ|မီ))(?=(?:နိုင်|ရ|သေး|တော့|တတ်|ပါ|မိ|ခဲ့|ဖူး|ဝံ့|ချင်|လိုက်|သွား|လာ)*(?:ဘူး|ပါဘူး|ပါနဲ့|နဲ့|ပါ(?=\s*[။.?]|$|\s*(?:လို့|ဟု|ကြောင်း))|ချေ|ပေ|သဖြင့်|သဖြင့်|သောကြောင့်|သောကြောင့်|သလို|လို့|ဘဲ|ပေမဲ့|သော်လည်း))",
+            RegexOptions.Compiled);
+
+        // Literary Negative Polarity Item ('~မျှ') with dropped 'မ-' before literary negative-polarity closer ('ရှိပေ -> မရှိပေ')
+        private static readonly Regex LiteraryNpiDroppedMaBeforePePattern = new Regex(
+            @"(?:တစ်ဦးတစ်ယောက်မျှ|တစ်ယောက်မျှ|တစ်ဦးမျှ|တစ်စုံတစ်ရာမျှ|မည်သူမျှ|အနည်းငယ်မျှ|တစ်ခုမျှ)\s+[^\u104A\u104B\r\n]{2,42}?(?<!မ)(?<Target>ရှိပေ|ဖြစ်ပေ|သိပေ|တွေ့ရပေ|နိုင်ပေ|ရှိချေ|ဖြစ်ချေ)(?=\s*[။.])",
+            RegexOptions.Compiled);
+
+        // Generalized unspaced corrupted grammatical suffixes:
+        //   1) [Institution/Place Noun] + 'မာ' before a Myanmar clause ('စာကြည့်တိုက်မာ စာဖတ်' -> 'မှာ')
+        //   2) [Source/Place Noun] + 'ကနီ' before a motion/action verb ('အိမ်ကနီ ထွက်လာ' -> 'ကနေ', shields 'ကနီမြို့နယ်')
+        //   3) [Verb] + 'မဲ' before quotative ('သွားမဲ လို့' -> 'မယ်')
+        //   4) [Verb/Aspect] + 'တဲ' before quotative/concessive ('စာဖတ်နေကြတဲ ဆိုပေမဲ့' -> 'တယ်')
+        private static readonly Regex UnspacedCorruptedCaseAndAspectSuffixPattern = new Regex(
+            @"(?:(?<=(?:ကျောင်း|ရုံး|ဆေးရုံ|စာကြည့်တိုက်|ဈေး|စျေး|လမ်း|ခန်းမ|အိမ်|မြို့|ရွာ|နိုင်ငံ|ကွင်း|ဆိုင်|ဘဏ်))(?<LocMa>မာ)(?=\s+[\u1000-\u1021])|(?<=(?:အိမ်|ကျောင်း|ရုံး|မြို့|ရွာ|ဆိုင်|နိုင်ငံ|ဒီ|အဲဒီ|ဟို))(?<AblKani>ကနီ)(?=\s+(?:ထွက်|လာ|သွား|ပြန်|စ|ပို့|ယူ|ဝယ်))|(?<=(?:သွား|လာ|လုပ်|စား|သောက်|ပြော|ပေး|ယူ|ဝယ်|နေ|ကြည့်|ကြည့်|ဖတ်|ရေး))(?<IrrMae>မဲ)(?=\s*(?:လို့|ဟု|ဆိုပြီး|ဆိုတာ))|(?<=(?:နေ|ကြ|ပါ|ခဲ့|သွား|လာ|ပြီး|ရ|နိုင်))(?<RealTae>တဲ)(?=\s*(?:လို့|ဟု|ဆိုပေမဲ့|ဆိုကာ|ဆိုပြီး|ဆိုတာ|[။.])))",
+            RegexOptions.Compiled);
+
+        // Unspaced merged subject particle 'က' + eating verb 'စား' after an explicit food object ('မနက်စာကို သူကစားပြီးမှ' -> 'က စား')
+        private static readonly Regex FoodObjectMergedKaSarPattern = new Regex(
+            @"(?:ထမင်း|မနက်စာ|နံနက်စာ|နေ့လယ်စာ|ညစာ|ညနေစာ|မုန့်|မုန့်|မုန့်ဟင်းခါး|ခေါက်ဆွဲ|ဟင်း)(?:တွေ|များ)?ကို\s+(?:သူ|ငါ|ကျွန်တော်|ကျွန်မ|ကလေး|အစ်ကို|အစ်မ|ညီလေး|ညီမလေး)(?<Target>ကစား)(?=ပြီး|တယ်|သည်|ပါ|နေ|ခဲ့)",
+            RegexOptions.Compiled);
+
         // High-precision corpus word-order, syllable-spaced omission & intruder adverb repairs
         private static readonly (string Trigger, Regex Pattern, string Replacement, ProofingIssueType Type, string Cue, string Reason)[] V82CorpusPrecisionRules =
         {
@@ -83,6 +107,38 @@ namespace MyanmarSpellChecker.Core.Nlp
                 ProofingIssueType.OfficialStyleGrammarError,
                 "ရှေ့နောက်အနက်မဆီလျော်သော ကြိယာဝိသေသန ဖယ်ရှားရန်",
                 "'သရေစာ စားကြသည်' တွင် 'ဆင်းရဲစွာ' သည် အဓိပ္ပာယ်မဆီလျော်သော အပိုပုဒ်ဖြစ်သည်။"
+            ),
+            (
+                "ဝတ္ထု ",
+                new Regex(@"(?<T>ဝတ္ထု[ \t]+(?:နှင့်|နှင့်))", RegexOptions.Compiled),
+                "ဝတ္ထုနှင့်",
+                ProofingIssueType.OfficialStyleGrammarError,
+                "သမ္ဗန္ဓပစ္စည်း တစ်ဆက်တည်းရေးရန် ('ဝတ္ထုနှင့်')",
+                "နာမ်ပုဒ်နောက်လိုက် သမ္ဗန္ဓပစ္စည်း 'နှင့်' ကို Space မခြားဘဲ 'ဝတ္ထုနှင့်' ဟု တစ်ဆက်တည်း ရေးသားရမည်။"
+            ),
+            (
+                "အသပြာ ",
+                new Regex(@"(?<T>အသပြာ[ \t]+ကို)", RegexOptions.Compiled),
+                "အသပြာကို",
+                ProofingIssueType.OfficialStyleGrammarError,
+                "ကံဝိဘတ် တစ်ဆက်တည်းရေးရန် ('အသပြာကို')",
+                "နာမ်ပုဒ်နောက်လိုက် ကံဝိဘတ် 'ကို' ကို Space မခြားဘဲ 'အသပြာကို' ဟု တစ်ဆက်တည်း ရေးသားရမည်။"
+            ),
+            (
+                "ယေရှု ",
+                new Regex(@"(?<T>ယေရှု[ \t]+သည်)", RegexOptions.Compiled),
+                "ယေရှုသည်",
+                ProofingIssueType.OfficialStyleGrammarError,
+                "ကတ္တားဝိဘတ် တစ်ဆက်တည်းရေးရန် ('ယေရှုသည်')",
+                "နာမ်ပုဒ်နောက်လိုက် ကတ္တားဝိဘတ် 'သည်' ကို Space မခြားဘဲ 'ယေရှုသည်' ဟု တစ်ဆက်တည်း ရေးသားရမည်။"
+            ),
+            (
+                "လှေလှော်သမားများဖြစ်သည်",
+                new Regex(@"(?<=လှေလှော်သမားများ)(?<T>ဖြစ်သည်)$", RegexOptions.Compiled),
+                "ဖြစ်သည်။",
+                ProofingIssueType.PunctuationError,
+                "ဝါကျအဆုံး ပုဒ်မကြီး ('။') ထည့်သွင်းရန်",
+                "ဝါကျအဆုံးသတ် ကြိယာနောက်တွင် မြန်မာပုဒ်မကြီး ('။') ရေးသားရမည်။"
             )
         };
 
@@ -132,7 +188,134 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            // 2. Glued Multi-Letter English Prose Between Myanmar Words ('နေရာတွင်Upton Parkဘူတာ' -> ' နေရာတွင် Upton Park ဘူတာ ')
+            // 2. Bipartite [Noun/Head]+[Verb] Misplaced Outer 'မ-' Prefix ('*မနေကောင်းဘူး' -> 'နေမကောင်းဘူး', '*မအဆင်ပြေ' -> 'အဆင်မပြေ')
+            if (text.IndexOf('မ') >= 0)
+            {
+                foreach (Match mb in BipartiteMisplacedMaNegationPattern.Matches(text))
+                {
+                    Group g = mb.Groups["Whole"];
+                    if (!g.Success || OverlapsExistingIssue(issues, g.Index, g.Length))
+                        continue;
+
+                    string infixed = mb.Groups["Head"].Value + "မ" + mb.Groups["Verb"].Value;
+                    AddGrammarOrSpellingIssue(
+                        issues, g.Index, g.Length, g.Value, infixed,
+                        ProofingIssueType.OfficialStyleGrammarError,
+                        $"နာမ်+ကြိယာ ပေါင်းစပ်ပုဒ်ကို အငြင်းပြုရာတွင် ရှေ့ဆုံးမှ 'မ-' မထားရပါ — '{infixed}' ဟု ကြိယာအမြစ်ရှေ့၌ 'မ' ထည့်သွင်းရေးသားရမည်။",
+                        $"အငြင်းပေါင်းစပ်ကြိယာ ('{infixed}')", "V", true,
+                        $"မြန်မာသဒ္ဒါ အငြင်းကြိယာဖွဲ့ထုံးအရ '{mb.Groups["Head"].Value}+{mb.Groups["Verb"].Value}' ကဲ့သို့သော ပေါင်းစပ်ကြိယာများ၌ အငြင်းပစ္စည်း 'မ' ကို ဒုတိယပိုင်း ကြိယာရှေ့၌ ကပ်၍ '{infixed}' ဟု ရေးသားရသည်။",
+                        "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (အငြင်းကြိယာဖွဲ့ထုံး)");
+                }
+            }
+
+            // 3. Literary Negative Polarity Concord ('တစ်ဦးတစ်ယောက်မျှ ... ရှိပေ။' -> 'မရှိပေ')
+            if (ContainsMm(text, mmMask, "မျှ") && (ContainsMm(text, mmMask, "ပေ") || ContainsMm(text, mmMask, "ချေ")))
+            {
+                foreach (Match mnpi in LiteraryNpiDroppedMaBeforePePattern.Matches(text))
+                {
+                    Group g = mnpi.Groups["Target"];
+                    if (!g.Success || OverlapsExistingIssue(issues, g.Index, g.Length))
+                        continue;
+
+                    string negFixed = "မ" + g.Value;
+                    AddGrammarOrSpellingIssue(
+                        issues, g.Index, g.Length, g.Value, negFixed,
+                        ProofingIssueType.OfficialStyleGrammarError,
+                        $"ရှေ့၌ အငြင်းအညွှန်းပုဒ် ('~မျှ') ပါရှိနေသဖြင့် အငြင်းကြိယာ '{negFixed}' ဟု 'မ-' ထည့်သွင်းရေးသားရမည်။",
+                        $"စာပေသုံး အငြင်းကြိယာ ('{negFixed}')", "V", true,
+                        "စာပေသုံး 'တစ်ဦးတစ်ယောက်မျှ / မည်သူမျှ / တစ်စုံတစ်ရာမျှ' စသည့် အငြင်းအညွှန်းပုဒ်များနှင့် တွဲဖက်ရာတွင် ဝါကျအဆုံးကြိယာ၌ အငြင်းပစ္စည်း 'မ-' မပါမဖြစ် ပါရှိရသည်။",
+                        "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (အငြင်းဝါကျ ရှေ့နောက်ညီညွတ်မှု စည်းမျဉ်း)");
+                }
+            }
+
+            // 4. Generalized Unspaced Locative / Ablative / Irrealis / Realis Suffix Re-Segmenter ('စာကြည့်တိုက်မာ -> မှာ', 'အိမ်ကနီ -> ကနေ', 'သွားမဲ လို့ -> မယ်', 'စာဖတ်နေကြတဲ ဆိုပေမဲ့ -> တယ်')
+            if (ContainsMm(text, mmMask, "မာ ") || ContainsMm(text, mmMask, "ကနီ ") || ContainsMm(text, mmMask, "မဲ") || ContainsMm(text, mmMask, "တဲ"))
+            {
+                const string attachedSuffixSource = "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (အဆက်တွဲဝိဘတ် နှင့် ပုဒ်ဖြတ်စည်းမျဉ်း)";
+                foreach (Match ms in UnspacedCorruptedCaseAndAspectSuffixPattern.Matches(text))
+                {
+                    if (ms.Groups["LocMa"].Success)
+                    {
+                        Group g = ms.Groups["LocMa"];
+                        if (!OverlapsExistingIssue(issues, g.Index, g.Length))
+                        {
+                            AddGrammarOrSpellingIssue(
+                                issues, g.Index, g.Length, g.Value, "မှာ",
+                                ProofingIssueType.SpellingError,
+                                "နေရာပြ နာမ်ဝိဘတ်တွင် ဟထိုးဖြင့် 'မှာ' ဟု ရေးသားရမည်။",
+                                "နေရာပြဝိဘတ် ('~မှာ')", "PART", false,
+                                "နေရာပြ နာမ်ဝိဘတ်ကို စာလုံးနောက်၌ တစ်ဆက်တည်းရေးရာတွင် 'မှာ' ဟု ဟထိုးဖြင့် ရေးသားရသည်။",
+                                attachedSuffixSource);
+                        }
+                    }
+                    else if (ms.Groups["AblKani"].Success)
+                    {
+                        Group g = ms.Groups["AblKani"];
+                        if (!OverlapsExistingIssue(issues, g.Index, g.Length))
+                        {
+                            AddGrammarOrSpellingIssue(
+                                issues, g.Index, g.Length, g.Value, "ကနေ",
+                                ProofingIssueType.SpellingError,
+                                "ထွက်ခွာရာပြ ဝိဘတ်တွင် သဝေထိုးဖြင့် 'ကနေ' ဟု ရေးသားရမည်။",
+                                "ထွက်ခွာရာပြဝိဘတ် ('~ကနေ')", "PART", false,
+                                "နေရာ/ရင်းမြစ်မှ ထွက်ခွာရာပြ အဆက်တွဲဝိဘတ်တွင် 'ကနေ' ဟု သဝေထိုးဖြင့် ရေးသားရသည်။",
+                                attachedSuffixSource);
+                        }
+                    }
+                    else if (ms.Groups["IrrMae"].Success)
+                    {
+                        Group g = ms.Groups["IrrMae"];
+                        if (!OverlapsExistingIssue(issues, g.Index, g.Length))
+                        {
+                            string irrRep = styleMode == ProofingStyleMode.FormalOfficial ? "မည်" : "မယ်";
+                            AddGrammarOrSpellingIssue(
+                                issues, g.Index, g.Length, g.Value, irrRep,
+                                ProofingIssueType.SpellingError,
+                                $"အနာဂတ်ပြ ကြိယာဝိဘတ်တွင် '{irrRep}' ဟု ရေးသားရမည် ('မဲ' မဟုတ်ပါ)။",
+                                $"အနာဂတ်ပြ ကြိယာဝိဘတ် ('~{irrRep}')", "PART", styleMode == ProofingStyleMode.FormalOfficial,
+                                $"အနာဂတ်ပြ အဆက်တွဲကြိယာဝိဘတ်ကို '{irrRep}' ဟု ရေးသားရသည်။",
+                                attachedSuffixSource);
+                        }
+                    }
+                    else if (ms.Groups["RealTae"].Success)
+                    {
+                        Group g = ms.Groups["RealTae"];
+                        if (!OverlapsExistingIssue(issues, g.Index, g.Length))
+                        {
+                            string realRep = styleMode == ProofingStyleMode.FormalOfficial ? "သည်" : "တယ်";
+                            AddGrammarOrSpellingIssue(
+                                issues, g.Index, g.Length, g.Value, realRep,
+                                ProofingIssueType.SpellingError,
+                                $"ပစ္စုပ္ပန်/အတိတ်ပြ ကြိယာဝိဘတ်တွင် '{realRep}' ဟု ရေးသားရမည် ('တဲ' မဟုတ်ပါ)။",
+                                $"ကြိယာအဆုံးသတ်ဝိဘတ် ('~{realRep}')", "PART", styleMode == ProofingStyleMode.FormalOfficial,
+                                $"အဆိုပြုဝါကျအဆုံး အဆက်တွဲကြိယာဝိဘတ်တွင် '{realRep}' ဟု ယပက်လက်အသတ်ဖြင့် ရေးသားရသည်။",
+                                attachedSuffixSource);
+                        }
+                    }
+                }
+            }
+
+            // 5. Unspaced Merged Subject Particle 'က' + Verb 'စား' After Food Object ('မနက်စာကို သူကစားပြီးမှ' -> 'က စား')
+            if (ContainsMm(text, mmMask, "ကစား") && ContainsMm(text, mmMask, "ကို "))
+            {
+                foreach (Match mf in FoodObjectMergedKaSarPattern.Matches(text))
+                {
+                    Group g = mf.Groups["Target"];
+                    if (!g.Success || OverlapsExistingIssue(issues, g.Index, g.Length))
+                        continue;
+
+                    AddGrammarOrSpellingIssue(
+                        issues, g.Index, g.Length, g.Value, "က စား",
+                        ProofingIssueType.ContextualMeaningWarning,
+                        "အနက်သံသယ စိစစ်ရန် — အစားအစာ စားသုံးသည့် စကားစပ်အရ 'ကစား' (ဆော့ကစားသည်) အစား ကတ္တားဝိဘတ်နှင့် ကြိယာကို ခြား၍ 'က စား' ဟု ရည်ရွယ်ခြင်း ဖြစ်နိုင်ပါသည်။",
+                        "ကတ္တားဝိဘတ် 'က' + ကြိယာ 'စား' (စားသုံးသည်)", "V", true,
+                        "ရှေ့တွင် စားစရာကံပုဒ် ('~ကို') ပါရှိနေသဖြင့် ကစားခြင်း ('play') မဟုတ်ဘဲ ကတ္တားဝိဘတ် 'က' နှင့် စားသုံးခြင်းကြိယာ 'စား' တို့ ဖြစ်သည်။",
+                        "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ (အဆက်တွဲဝိဘတ် နှင့် ပုဒ်ဖြတ်စည်းမျဉ်း)",
+                        requiresReviewBeforeBatchFix: true);
+                }
+            }
+
+            // 6. Glued Multi-Letter English Prose Between Myanmar Words ('နေရာတွင်Upton Parkဘူတာ' -> ' နေရာတွင် Upton Park ဘူတာ ')
             bool hasUpperAscii = false;
             for (int ci = 0; ci < text.Length; ci++)
             {
@@ -162,7 +345,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            // 3. Missing Copula After Plural Noun ('~တွေတယ်။' -> '~တွေပါ။')
+            // 7. Missing Copula After Plural Noun ('~တွေတယ်။' -> '~တွေပါ။')
             if (ContainsMm(text, mmMask, "တွေတယ်။"))
             {
                 foreach (Match mc in PluralNounMissingCopulaTaePattern.Matches(text))
@@ -181,7 +364,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 }
             }
 
-            // 4. Corpus Word-Order, Syllable-Spaced Omission & Intruder Adverb Rules
+            // 8. Corpus Word-Order, Syllable-Spaced Omission & Intruder Adverb Rules
             for (int rIdx = 0; rIdx < V82CorpusPrecisionRules.Length; rIdx++)
             {
                 var r = V82CorpusPrecisionRules[rIdx];

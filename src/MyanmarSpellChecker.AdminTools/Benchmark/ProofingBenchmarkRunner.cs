@@ -41,7 +41,8 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             GovLivePrecision = 13,
             CataclysmicNightmare = 14,
             DataMinedMastery = 15,
-            EnhancedVelocity = 16
+            EnhancedVelocity = 16,
+            UltimateNightmare = 17
         }
 
         private readonly struct ExpectedErrorSpan
@@ -139,19 +140,26 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                 return CorpusBenchmarkRunner.Run(args);
             }
 
-            bool enhancedOnly = args.Any(a =>
+            bool ultimateOnly = args.Any(a =>
+                string.Equals(a, "--nightmare-v83", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(a, "nightmare-v83", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(a, "--ultimate", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(a, "ultimate", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(a, "--v83", StringComparison.OrdinalIgnoreCase));
+
+            bool enhancedOnly = !ultimateOnly && args.Any(a =>
                 string.Equals(a, "--enhanced", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "enhanced", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "--v81", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "--v82", StringComparison.OrdinalIgnoreCase));
 
-            bool minedOnly = !enhancedOnly && args.Any(a =>
+            bool minedOnly = !ultimateOnly && !enhancedOnly && args.Any(a =>
                 string.Equals(a, "--mined", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "mined", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "--data-mined", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "--v80", StringComparison.OrdinalIgnoreCase));
 
-            bool cataclysmOnly = !enhancedOnly && !minedOnly && args.Any(a =>
+            bool cataclysmOnly = !ultimateOnly && !enhancedOnly && !minedOnly && args.Any(a =>
                 string.Equals(a, "--cataclysm", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "cataclysm", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "--nightmare-ultra", StringComparison.OrdinalIgnoreCase) ||
@@ -159,27 +167,27 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                 string.Equals(a, "--v78", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "--v79", StringComparison.OrdinalIgnoreCase));
 
-            bool govLiveOnly = !enhancedOnly && !minedOnly && !cataclysmOnly && args.Any(a =>
+            bool govLiveOnly = !ultimateOnly && !enhancedOnly && !minedOnly && !cataclysmOnly && args.Any(a =>
                 string.Equals(a, "--gov-live", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "gov-live", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "--v76", StringComparison.OrdinalIgnoreCase));
 
-            bool nationalOnly = !enhancedOnly && !minedOnly && !cataclysmOnly && !govLiveOnly && args.Any(a =>
+            bool nationalOnly = !ultimateOnly && !enhancedOnly && !minedOnly && !cataclysmOnly && !govLiveOnly && args.Any(a =>
                 string.Equals(a, "--national", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "national", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "--apex", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "apex", StringComparison.OrdinalIgnoreCase));
 
-            bool hybridOnly = !enhancedOnly && !minedOnly && !cataclysmOnly && !govLiveOnly && !nationalOnly && args.Any(a =>
+            bool hybridOnly = !ultimateOnly && !enhancedOnly && !minedOnly && !cataclysmOnly && !govLiveOnly && !nationalOnly && args.Any(a =>
                 string.Equals(a, "--hybrid", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "hybrid", StringComparison.OrdinalIgnoreCase));
 
-            bool standardOnly = !enhancedOnly && !minedOnly && !cataclysmOnly && !govLiveOnly && !nationalOnly && !hybridOnly && args.Any(a =>
+            bool standardOnly = !ultimateOnly && !enhancedOnly && !minedOnly && !cataclysmOnly && !govLiveOnly && !nationalOnly && !hybridOnly && args.Any(a =>
                 string.Equals(a, "--standard", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "standard", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "--standard-hardest", StringComparison.OrdinalIgnoreCase));
 
-            bool top1Only = !enhancedOnly && !minedOnly && !cataclysmOnly && !govLiveOnly && !nationalOnly && !hybridOnly && !standardOnly && args.Any(a =>
+            bool top1Only = !ultimateOnly && !enhancedOnly && !minedOnly && !cataclysmOnly && !govLiveOnly && !nationalOnly && !hybridOnly && !standardOnly && args.Any(a =>
                 string.Equals(a, "--top1", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "top1", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "--optimised", StringComparison.OrdinalIgnoreCase) ||
@@ -187,24 +195,26 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                 string.Equals(a, "--optimized", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "optimized", StringComparison.OrdinalIgnoreCase));
 
-            bool govOnly = !enhancedOnly && !minedOnly && !cataclysmOnly && !govLiveOnly && !nationalOnly && !hybridOnly && !standardOnly && !top1Only && args.Any(a =>
+            bool govOnly = !ultimateOnly && !enhancedOnly && !minedOnly && !cataclysmOnly && !govLiveOnly && !nationalOnly && !hybridOnly && !standardOnly && !top1Only && args.Any(a =>
                 string.Equals(a, "--gov", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "gov", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "--government", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "government", StringComparison.OrdinalIgnoreCase));
 
-            bool abyssalOnly = !enhancedOnly && !minedOnly && !cataclysmOnly && !govLiveOnly && !nationalOnly && !hybridOnly && !standardOnly && !top1Only && !govOnly && args.Any(a =>
+            bool abyssalOnly = !ultimateOnly && !enhancedOnly && !minedOnly && !cataclysmOnly && !govLiveOnly && !nationalOnly && !hybridOnly && !standardOnly && !top1Only && !govOnly && args.Any(a =>
                 string.Equals(a, "--abyssal", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "abyssal", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "--extreme", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "extreme", StringComparison.OrdinalIgnoreCase));
 
-            bool hardestOnly = !enhancedOnly && !minedOnly && !cataclysmOnly && !govLiveOnly && !nationalOnly && !hybridOnly && !standardOnly && !top1Only && !govOnly && !abyssalOnly && args.Any(a =>
+            bool hardestOnly = !ultimateOnly && !enhancedOnly && !minedOnly && !cataclysmOnly && !govLiveOnly && !nationalOnly && !hybridOnly && !standardOnly && !top1Only && !govOnly && !abyssalOnly && args.Any(a =>
                 string.Equals(a, "--hardest", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "hardest", StringComparison.OrdinalIgnoreCase));
 
             string? explicitDbArg = args.Skip(1).FirstOrDefault(a =>
                 !a.StartsWith("-", StringComparison.Ordinal) &&
+                !string.Equals(a, "nightmare-v83", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(a, "ultimate", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(a, "enhanced", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(a, "mined", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(a, "cataclysm", StringComparison.OrdinalIgnoreCase) &&
@@ -253,7 +263,11 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             }
 
             List<BenchmarkCase> fullSuite = BuildCleanRoomProgressiveSuite();
-            List<BenchmarkCase> suite = enhancedOnly
+            List<BenchmarkCase> suite = ultimateOnly
+                ? fullSuite.Where(c =>
+                    c.Difficulty == BenchmarkDifficulty.CleanControl ||
+                    c.Difficulty == BenchmarkDifficulty.UltimateNightmare).ToList()
+                : enhancedOnly
                 ? fullSuite.Where(c =>
                     c.Difficulty == BenchmarkDifficulty.CleanControl ||
                     c.Difficulty == BenchmarkDifficulty.EnhancedVelocity).ToList()
@@ -300,7 +314,9 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                                                 : fullSuite;
 
             var latenciesMs = new List<double>(suite.Count);
-            var tierOrder = enhancedOnly
+            var tierOrder = ultimateOnly
+                ? new[] { BenchmarkDifficulty.UltimateNightmare }
+                : enhancedOnly
                 ? new[] { BenchmarkDifficulty.EnhancedVelocity }
                 : minedOnly
                 ? new[] { BenchmarkDifficulty.DataMinedMastery }
@@ -319,9 +335,9 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                                         : govOnly
                                             ? new[] { BenchmarkDifficulty.GovernmentB2G }
                                             : abyssalOnly
-                                                ? new[] { BenchmarkDifficulty.GrandmasterTorture, BenchmarkDifficulty.AbyssalMythic, BenchmarkDifficulty.GovernmentB2G, BenchmarkDifficulty.Top1Championship, BenchmarkDifficulty.StandardHardest, BenchmarkDifficulty.HybridStatistical, BenchmarkDifficulty.NationalApex, BenchmarkDifficulty.GovLivePrecision, BenchmarkDifficulty.CataclysmicNightmare, BenchmarkDifficulty.DataMinedMastery, BenchmarkDifficulty.EnhancedVelocity }
+                                                ? new[] { BenchmarkDifficulty.GrandmasterTorture, BenchmarkDifficulty.AbyssalMythic, BenchmarkDifficulty.GovernmentB2G, BenchmarkDifficulty.Top1Championship, BenchmarkDifficulty.StandardHardest, BenchmarkDifficulty.HybridStatistical, BenchmarkDifficulty.NationalApex, BenchmarkDifficulty.GovLivePrecision, BenchmarkDifficulty.CataclysmicNightmare, BenchmarkDifficulty.DataMinedMastery, BenchmarkDifficulty.EnhancedVelocity, BenchmarkDifficulty.UltimateNightmare }
                                                 : hardestOnly
-                                                    ? new[] { BenchmarkDifficulty.Hardest, BenchmarkDifficulty.Nightmare, BenchmarkDifficulty.GrandmasterTorture, BenchmarkDifficulty.AbyssalMythic, BenchmarkDifficulty.GovernmentB2G, BenchmarkDifficulty.Top1Championship, BenchmarkDifficulty.StandardHardest, BenchmarkDifficulty.HybridStatistical, BenchmarkDifficulty.NationalApex, BenchmarkDifficulty.GovLivePrecision, BenchmarkDifficulty.CataclysmicNightmare, BenchmarkDifficulty.DataMinedMastery, BenchmarkDifficulty.EnhancedVelocity }
+                                                    ? new[] { BenchmarkDifficulty.Hardest, BenchmarkDifficulty.Nightmare, BenchmarkDifficulty.GrandmasterTorture, BenchmarkDifficulty.AbyssalMythic, BenchmarkDifficulty.GovernmentB2G, BenchmarkDifficulty.Top1Championship, BenchmarkDifficulty.StandardHardest, BenchmarkDifficulty.HybridStatistical, BenchmarkDifficulty.NationalApex, BenchmarkDifficulty.GovLivePrecision, BenchmarkDifficulty.CataclysmicNightmare, BenchmarkDifficulty.DataMinedMastery, BenchmarkDifficulty.EnhancedVelocity, BenchmarkDifficulty.UltimateNightmare }
                                                     : new[]
                                                     {
                                                         BenchmarkDifficulty.Easy,
@@ -339,7 +355,8 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                                                         BenchmarkDifficulty.GovLivePrecision,
                                                         BenchmarkDifficulty.CataclysmicNightmare,
                                                         BenchmarkDifficulty.DataMinedMastery,
-                                                        BenchmarkDifficulty.EnhancedVelocity
+                                                        BenchmarkDifficulty.EnhancedVelocity,
+                                                        BenchmarkDifficulty.UltimateNightmare
                                                     };
 
             var tierStats = new Dictionary<BenchmarkDifficulty, TierAccumulator>();
@@ -526,7 +543,9 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             double cellsPerSec = (rows * cols) / Math.Max(0.001, swExcel.Elapsed.TotalSeconds);
 
             long memBytes = GC.GetTotalMemory(forceFullCollection: true);
-            string modeBanner = enhancedOnly
+            string modeBanner = ultimateOnly
+                ? "ULTIMATE NIGHTMARE TORTURE BENCHMARK (--nightmare-v83 / --v83: Bipartite Negation + NPI Concord + Glued Suffix + Double-Compound + 10x Boss)"
+                : enhancedOnly
                 ? "ENHANCED PRECISION & SUB-MILLISECOND BITMASK VELOCITY (--enhanced / --v81: 45-Bit Pre-DP Gate + Zero-FP Shields + Collocations)"
                 : minedOnly
                 ? "4-PILLAR CORPUS DATA-MINING & O(1) GRAMMAR MASTERY (--mined: 2,290+ Classifiers + 4,100+ Compounds + Multi-Domain + PMI)"
@@ -545,10 +564,10 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                                         : govOnly
                                             ? "OFFICIAL B2G GOVERNMENT PORTAL & GAZETTE MODE (--gov: Live .gov.mm Ministry & Gazette Suite)"
                                             : abyssalOnly
-                                                ? "ABYSSAL MYTHIC -> ENHANCED VELOCITY SUITE MODE (--abyssal: Grandmaster -> Enhanced)"
+                                                ? "ABYSSAL MYTHIC -> ULTIMATE NIGHTMARE SUITE MODE (--abyssal: Grandmaster -> Ultimate)"
                                                 : hardestOnly
-                                                    ? "ULTRA-HARDEST STRESS MODE (--hardest: Hardest -> Enhanced)"
-                                                    : "FULL 16-TIER PROGRESSIVE SUITE (Easy -> Abyssal -> Gov B2G -> Top-1 -> Standard -> Hybrid -> National Apex -> Gov Live -> Cataclysmic -> Data-Mined -> Enhanced)";
+                                                    ? "ULTRA-HARDEST STRESS MODE (--hardest: Hardest -> Ultimate)"
+                                                    : "FULL 17-TIER PROGRESSIVE SUITE (Easy -> Abyssal -> Gov B2G -> Top-1 -> Standard -> Hybrid -> National Apex -> Gov Live -> Cataclysmic -> Data-Mined -> Enhanced -> Ultimate Nightmare)";
 
             Console.WriteLine();
             Console.WriteLine("================================================================================================");
@@ -621,6 +640,11 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                 double enhPct = (double)enhAcc.PerfectMultiFixSentences / enhAcc.Sentences * 100.0;
                 Console.WriteLine($" Enhanced Velocity v81 1-Pass     | {enhAcc.PerfectMultiFixSentences,2}/{enhAcc.Sentences,2} sentences ({enhPct:F1}%) solved 100% simultaneously");
             }
+            if (tierStats.TryGetValue(BenchmarkDifficulty.UltimateNightmare, out var ultAcc) && ultAcc.Sentences > 0)
+            {
+                double ultPct = (double)ultAcc.PerfectMultiFixSentences / ultAcc.Sentences * 100.0;
+                Console.WriteLine($" Ultimate Nightmare v83 1-Pass    | {ultAcc.PerfectMultiFixSentences,2}/{ultAcc.Sentences,2} sentences ({ultPct:F1}%) solved 100% simultaneously");
+            }
             Console.WriteLine("------------------------------------------------------------------------------------------------");
             Console.WriteLine($" Overall Precision     : {precision * 100.0:F2}%  (TP={tp}, FP={fp}, FN={fn})");
             Console.WriteLine($" Overall Recall        : {recall * 100.0:F2}%");
@@ -654,6 +678,7 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
             BenchmarkDifficulty.CataclysmicNightmare => "Tier 14: Cataclysmic (--cataclysm)",
             BenchmarkDifficulty.DataMinedMastery => "Tier 15: Data-Mined (--mined)",
             BenchmarkDifficulty.EnhancedVelocity => "Tier 16: Enhanced v81 (--enhanced)",
+            BenchmarkDifficulty.UltimateNightmare => "Tier 17: Nightmare v83 (--v83)",
             _ => "Tier 0: Clean Controls"
         };
 
@@ -1010,6 +1035,27 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                     "အားလပ်ရက်မှာ စာတွေအများကြီးဖတ်ဖို့ ရည်ရွယ်ထားပါတယ်။"),
                 new BenchmarkCase("v82_clean_attached_particles_kolae_naeatu", BenchmarkDifficulty.CleanControl, ProofingStyleMode.GeneralStandard,
                     "မိသားစုဝင်တွေနဲ့အတူ ပတ်ဝန်းကျင်ထိန်းသိမ်းရေးကိုလည်း ထည့်သွင်းစဉ်းစားရမယ်။"),
+                // 10 Adversarial V83 Ultimate Nightmare Evil-Twin Clean Controls (Infixed Bipartite Negation, NPI 'မရှိပေ', Kani Township 'ကနီမြို့နယ်', Real 'ကစား'):
+                new BenchmarkCase("v83_clean_infixed_bipartite_negation_naymakaung_asinmapyay", BenchmarkDifficulty.CleanControl, ProofingStyleMode.GeneralStandard,
+                    "သူ ဒီနေ့ နေမကောင်းဘူး ဆိုပေမဲ့ အလုပ်ကိစ္စတွေ အဆင်မပြေမှာကို စိတ်မပူပါနဲ့။"),
+                new BenchmarkCase("v83_clean_infixed_bipartite_thabawmatu_namalae", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ကော်မတီဝင်များက ယင်းအချက်ကို သဘောမတူနိုင်သဖြင့် နားမလည်သည်များကို ပြန်လည်မေးမြန်းသည်။"),
+                new BenchmarkCase("v83_clean_correlative_maswarmaphit_manaynaing", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "အရေးပေါ်တာဝန်ကြောင့် မသွားမနေရ သွားရောက်၍ မနားတမ်း ဆောင်ရွက်ခဲ့သည်။"),
+                new BenchmarkCase("v83_clean_literary_npi_mashi_pe", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "အစည်းအဝေးသို့ တစ်ဦးတစ်ယောက်မျှ ပျက်ကွက်ခဲ့ခြင်း မရှိပေ။"),
+                new BenchmarkCase("v83_clean_literary_affirmative_euphonic_pe", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ဤသုတေသနတွေ့ရှိချက်သည် နိုင်ငံတော်အတွက် အကျိုးများစွာ ရှိပေသည်။"),
+                new BenchmarkCase("v83_clean_kani_township_sagaing_geography", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "စစ်ကိုင်းတိုင်းဒေသကြီး၊ ကနီမြို့နယ်တွင် ဒေသဖွံ့ဖြိုးရေးလုပ်ငန်းများ ဆောင်ရွက်သည်။"),
+                new BenchmarkCase("v83_clean_children_play_football_kasar", BenchmarkDifficulty.CleanControl, ProofingStyleMode.GeneralStandard,
+                    "ညနေခင်းမှာ ကလေးက ဘောလုံးကို သူငယ်ချင်းတွေနဲ့ ပျော်ရွှင်စွာ ကစားပြီးမှ အိမ်ပြန်တယ်။"),
+                new BenchmarkCase("v83_clean_spaced_food_subject_ka_sar", BenchmarkDifficulty.CleanControl, ProofingStyleMode.GeneralStandard,
+                    "မနက်စာကို သူက စားပြီးမှ ရုံးကို စောစော သွားလေ့ရှိပါတယ်။"),
+                new BenchmarkCase("v83_clean_akhay_anee_proximity_vs_akhay_anay", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "တောင်ခြေအနီးနှင့် နိုင်ငံ့အခြေအနေ တိုးတက်မှုကို စနစ်တကျ လေ့လာသုံးသပ်သည်။"),
+                new BenchmarkCase("v83_clean_digital_hotel_formal_endings", BenchmarkDifficulty.CleanControl, ProofingStyleMode.FormalOfficial,
+                    "ဟိုတယ်နှင့် ဒစ်ဂျစ်တယ်ဝန်ဆောင်မှု လုပ်ငန်းများ ပတ်သက်မှုကို စိစစ်ပါသည်။"),
 
                 // =========================================================================================
                 // TIER 1: EASY — Character, Encoding, Punctuation & UTN #11 Syllable Fundamentals (20 Cases)
@@ -2338,7 +2384,110 @@ namespace MyanmarSpellChecker.AdminTools.Benchmark
                 new BenchmarkCase("enh_v82_intruder_adverbs_and_justice_essential", BenchmarkDifficulty.EnhancedVelocity, ProofingStyleMode.GeneralStandard,
                     "သတိရှိခြင်းက ပျော်ရွှင်မှုကို ထူးဆန်းစွာ တိုးပွားစေပြီး တရားမျှတမှုဟာ လူတိုင်းအတွက် မရှိမဖြစ်ကောင်းတယ်။",
                     ("ထူးဆန်းစွာ ", ""),
-                    ("ကောင်း", "လိုအပ်"))
+                    ("ကောင်း", "လိုအပ်")),
+
+                // =========================================================================================
+                // TIER 17: ULTIMATE NIGHTMARE TORTURE (--nightmare-v83 / --v83, 16 Cases, 62 Spans)
+                // =========================================================================================
+                new BenchmarkCase("ult_bipartite_negation_naykaung_asinpyay_satesoe", BenchmarkDifficulty.UltimateNightmare, ProofingStyleMode.GeneralStandard,
+                    "သူ ဒီနေ့ မနေကောင်းဘူး ဆိုပေမဲ့ ဒီအစီအစဉ် မအဆင်ပြေလို့ ကျွန်တော့်ကို မစိတ်ဆိုးပါနဲ့။",
+                    ("မနေကောင်း", "နေမကောင်း"),
+                    ("မအဆင်ပြေ", "အဆင်မပြေ"),
+                    ("မစိတ်ဆိုး", "စိတ်မဆိုး")),
+                new BenchmarkCase("ult_bipartite_negation_nalae_thabawtu_athonewin", BenchmarkDifficulty.UltimateNightmare, ProofingStyleMode.FormalOfficial,
+                    "ကော်မတီဝင်များက ယင်းအချက်ကို မသဘောတူနိုင်ဘဲ မအသုံးဝင်သဖြင့် မနားလည်ပါဟု တင်ပြသည်။",
+                    ("မသဘောတူ", "သဘောမတူ"),
+                    ("မအသုံးဝင်", "အသုံးမဝင်"),
+                    ("မနားလည်", "နားမလည်")),
+                new BenchmarkCase("ult_bipartite_negation_ayaykyi_tawankyay_thatiya", BenchmarkDifficulty.UltimateNightmare, ProofingStyleMode.GeneralStandard,
+                    "ဒီကိစ္စက မအရေးကြီးဘူး ထင်ပြီး မတာဝန်ကျေသလို ဖြစ်သွားတာ မသတိထားမိဘူး။",
+                    ("မအရေးကြီး", "အရေးမကြီး"),
+                    ("မတာဝန်ကျေ", "တာဝန်မကျေ"),
+                    ("မသတိထား", "သတိမထား")),
+                new BenchmarkCase("ult_literary_npi_dropped_ma_and_casual_npi", BenchmarkDifficulty.UltimateNightmare, ProofingStyleMode.FormalOfficial,
+                    "အစည်းအဝေးသို့ တစ်ဦးတစ်ယောက်မျှ တက်ရောက်ခဲ့ခြင်း ရှိပေ။ မည်သူမျှ သိရှိခြင်း ဖြစ်ပေ။",
+                    ("ရှိပေ", "မရှိပေ"),
+                    ("ဖြစ်ပေ", "မဖြစ်ပေ")),
+                new BenchmarkCase("ult_unspaced_corrupted_locative_ablative_irrealis_chain", BenchmarkDifficulty.UltimateNightmare, ProofingStyleMode.GeneralStandard,
+                    "အိမ်ကနီ ထွက်လာပီး စာကြည့်တိုက်မာ စာဖတ်နေကြတဲ ဆိုပေမဲ့ မန္တလေးကို သွားမဲ လို့ ပြောတယ်။",
+                    ("ကနီ", "ကနေ"),
+                    ("ပီး", "ပြီး"),
+                    ("မာ", "မှာ"),
+                    ("တဲ", "တယ်"),
+                    ("မဲ", "မယ်")),
+                new BenchmarkCase("ult_double_corrupted_compound_nominalizer_quad", BenchmarkDifficulty.UltimateNightmare, ProofingStyleMode.FormalOfficial,
+                    "နိုင်ငံ့အခြေအနီနှင့် ပတ်သတ်မူများ၊ စီးပွားရေး တိုးတတ်မူနှင့် ဆောင်ရွတ်မူများကို စိစစ်သည်။",
+                    ("အခြေအနီ", "အခြေအနေ"),
+                    ("ပတ်သတ်မူ", "ပတ်သက်မှု"),
+                    ("တိုးတတ်မူ", "တိုးတက်မှု"),
+                    ("ဆောင်ရွတ်မူ", "ဆောင်ရွက်မှု")),
+                new BenchmarkCase("ult_merged_food_subject_kasar_and_colloquial_spoken", BenchmarkDifficulty.UltimateNightmare, ProofingStyleMode.GeneralStandard,
+                    "မနက်စာကို သူကစားပြီးမှ သူငယ်ချင်းတွေနဲ့ စကားဆိုရတာ ပျော်တယ်။",
+                    ("ကစား", "က စား"),
+                    ("ဆို", "ပြော")),
+                new BenchmarkCase("ult_formal_register_masked_by_ascii_dot_and_clf", BenchmarkDifficulty.UltimateNightmare, ProofingStyleMode.FormalOfficial,
+                    "ဝန်ကြီးဌာနက ၂၀၂၆ ခုနစ်တွင် ဝန်ထမ်း ငါးခု ခန့်အပ်ခဲ့ပါတယ်.",
+                    ("ခုနစ်", "ခုနှစ်"),
+                    ("ခု", "ဦး"),
+                    ("ပါတယ်", "ပါသည်"),
+                    (".", "။")),
+                new BenchmarkCase("ult_semantic_oxymoron_heritage_phone_hotel_trio", BenchmarkDifficulty.UltimateNightmare, ProofingStyleMode.GeneralStandard,
+                    "ငါးတွေကနေ အင်တာနက်အသုံးပြုပြီး ခရီးသွားဧည့်သည်တွေအတွက် အိမ်နဲ့ ခရီးသွားဝန်ဆောင်မှု ရှာနိုင်တယ်။",
+                    ("ငါး", "ဖုန်း"),
+                    ("အိမ်", "ဟိုတယ်")),
+                new BenchmarkCase("ult_heritage_reflection_and_price_comparison_buy", BenchmarkDifficulty.UltimateNightmare, ProofingStyleMode.GeneralStandard,
+                    "ယဉ်ကျေးမှုအထောက်အထားဟာ လူမျိုးတစ်မျိုးရဲ့ ဓလေ့ထုံးတမ်းတွေကို ပျက်စီးစေပါတယ်။ ဈေးနှုန်းတွေကို နှိုင်းယှဉ်ပြီး ရယူလို့ရတယ်။",
+                    ("ပျက်စီး", "ထင်ဟပ်"),
+                    ("ရယူ", "ဝယ်ယူ")),
+                new BenchmarkCase("ult_classical_spaced_particles_and_missing_final_punct", BenchmarkDifficulty.UltimateNightmare, ProofingStyleMode.FormalOfficial,
+                    "ယေရှု သည် အသပြာ ကို ညွှန်ပြ၍ ဝတ္ထု နှင့် ဒွါရအကြောင်း ဟောပြောသူမှာ လှေလှော်သမားများဖြစ်သည်",
+                    ("ယေရှု သည်", "ယေရှုသည်"),
+                    ("အသပြာ ကို", "အသပြာကို"),
+                    ("ဝတ္ထု နှင့်", "ဝတ္ထုနှင့်"),
+                    ("ဖြစ်သည်", "ဖြစ်သည်။")),
+                new BenchmarkCase("ult_workplace_entry_postposition_and_exam_register", BenchmarkDifficulty.UltimateNightmare, ProofingStyleMode.GeneralStandard,
+                    "သူ့ကို အလုပ်ထဲ ဝင်ခွင့်ပြုပါသည်။ ဆုတောင်းခြင်းနဲ့ ကိုးကွယ်ခြင်းအကြောင်း ၅ ကြောင်းရေးပါ။",
+                    ("ထဲ", "ထဲသို့"),
+                    ("နဲ့", "နှင့်")),
+                new BenchmarkCase("ult_hybrid_zawgyi_glued_english_and_word_order", BenchmarkDifficulty.UltimateNightmare, ProofingStyleMode.GeneralStandard,
+                    "ဒီစမတ် ဖဳံးဖြင့် ကြည့်သည့်နေရာတွင်Upton Parkဘူတာ တွေ့ပြီး အရမ်းနေရာလှပတဲ့တစ်ခု ဖြစ်ပါတယ်။",
+                    ("ဖဳံးဖြင့်", "ဖုန်းဖြင့်"),
+                    ("Upton Park", " Upton Park "),
+                    ("နေရာလှပတဲ့", "လှပတဲ့နေရာ")),
+                new BenchmarkCase("ult_boss_1_ministry_audit_nine_simultaneous_errors", BenchmarkDifficulty.UltimateNightmare, ProofingStyleMode.FormalOfficial,
+                    "A မျိုးသားအဆင့် နိုင်ငံ့အခြေအနီနှင့် ပတ်သတ်မူအရ ယင်းအချက်ကို မသဘောတူနိုင်ဘဲ တစ်ဦးတစ်ယောက်မျှ တက်ရောက်ခြင်း ရှိပေ။ ကက်ပတိန် နှစ်ကောင်အား စီစစ်ခဲ့ပါတယ်.",
+                    ("A မျိုးသား", "အမျိုးသား"),
+                    ("အခြေအနီ", "အခြေအနေ"),
+                    ("ပတ်သတ်မူ", "ပတ်သက်မှု"),
+                    ("မသဘောတူ", "သဘောမတူ"),
+                    ("ရှိပေ", "မရှိပေ"),
+                    ("ကောင်", "ဦး"),
+                    ("စီစစ်", "စိစစ်"),
+                    ("ပါတယ်", "ပါသည်"),
+                    (".", "။")),
+                new BenchmarkCase("ult_boss_2_colloquial_chaos_nine_simultaneous_errors", BenchmarkDifficulty.UltimateNightmare, ProofingStyleMode.GeneralStandard,
+                    "သူ ဒီနေ့ မနေကောင်းဘူး ဆိုပေမဲ့ မနက်စာကို သူကစားပြီး အိမ်ကနီ ထွက်လာပီး စာကြည့်တိုက်မာ စာဖတ်နေကြတဲ ဆိုကာ မန္တလေးကို သွားမဲ လို့ ပြောတယ်.",
+                    ("မနေကောင်း", "နေမကောင်း"),
+                    ("ကစား", "က စား"),
+                    ("ကနီ", "ကနေ"),
+                    ("ပီး", "ပြီး"),
+                    ("မာ", "မှာ"),
+                    ("တဲ", "တယ်"),
+                    ("မဲ", "မယ်"),
+                    (".", "။")),
+                new BenchmarkCase("ult_boss_3_grand_omega_eleven_simultaneous_errors", BenchmarkDifficulty.UltimateNightmare, ProofingStyleMode.FormalOfficial,
+                    "ပရောဖက်ဆာက ဘူမိ ဗေဒနှင့် ပတ်သတ်မူ၊ စီးပွားရေး တိုးတတ်မူတို့ကို မနားလည်ဘဲ သင်ကြားရေးအဖွဲ့က ရှင်းပြခဲ့သည် လူနာတင် ယာဉ်ကို အသေးစိတ် ဟု တင်ပြရာ တစ်ဦးမျှ ကန့်ကွက်ခြင်း ရှိပေ။ ယင်းအစည်းဝေးကို အချိန်မှီ ကျင်းပခဲ့ပါတယ်.",
+                    ("ပရောဖက်ဆာ", "ပါမောက္ခ"),
+                    ("ဘူမိ ဗေဒ", "ဘူမိဗေဒ"),
+                    ("ပတ်သတ်မူ", "ပတ်သက်မှု"),
+                    ("တိုးတတ်မူ", "တိုးတက်မှု"),
+                    ("မနားလည်", "နားမလည်"),
+                    ("ရှင်းပြခဲ့သည် လူနာတင် ယာဉ်ကို အသေးစိတ်", "လူနာတင်ယာဉ်ကို အသေးစိတ် ရှင်းပြခဲ့သည်"),
+                    ("ရှိပေ", "မရှိပေ"),
+                    ("အစည်းဝေး", "အစည်းအဝေး"),
+                    ("အချိန်မှီ", "အချိန်မီ"),
+                    ("ပါတယ်", "ပါသည်"),
+                    (".", "။"))
             };
         }
     }

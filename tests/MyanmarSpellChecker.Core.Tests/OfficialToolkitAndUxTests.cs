@@ -4161,7 +4161,7 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.False(File.Exists(Path.Combine(repoRoot, "installer", "obfuscar.xml")));
             string propsRaw = File.ReadAllText(Path.Combine(repoRoot, "Directory.Build.props"));
             Assert.Contains("PowerPoint", propsRaw, StringComparison.Ordinal);
-            Assert.Contains("1.0.82.0", propsRaw, StringComparison.Ordinal);
+            Assert.Contains("1.0.83.0", propsRaw, StringComparison.Ordinal);
 
             string ciYml = Path.Combine(repoRoot, ".github", "workflows", "ci.yml");
             string releaseYml = Path.Combine(repoRoot, ".github", "workflows", "release.yml");
@@ -4606,6 +4606,69 @@ namespace MyanmarSpellChecker.Core.Tests
             string repoRoot = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(dbPath)!, ".."));
             string curatedJson = Path.Combine(repoRoot, "data", "myanmar_corpus_benchmark_2084.json");
             Assert.True(File.Exists(curatedJson), $"Expected curated 2,084-sentence benchmark JSON at {curatedJson}");
+        }
+
+        [Fact]
+        public void V83_UltimateNightmareBipartiteNegationNpiConcordSuffixResegmentAndDoubleCompound_Gate()
+        {
+            string dbPath = TestPaths.EncryptedDbPath;
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            var trie = repo.LoadIntoTrie("MM-GOV-THATPON-SQLCIPHER-2026!");
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+
+            // 1. Zero False Positives on V83 Evil-Twin Minimal-Pair Clean Controls
+            string[] formalClean =
+            {
+                "ကော်မတီဝင်များက ယင်းအချက်ကို သဘောမတူနိုင်သဖြင့် နားမလည်သည်များကို ပြန်လည်မေးမြန်းသည်။",
+                "အရေးပေါ်တာဝန်ကြောင့် မသွားမနေရ သွားရောက်၍ မနားတမ်း ဆောင်ရွက်ခဲ့သည်။",
+                "အစည်းအဝေးသို့ တစ်ဦးတစ်ယောက်မျှ ပျက်ကွက်ခဲ့ခြင်း မရှိပေ။",
+                "စစ်ကိုင်းတိုင်းဒေသကြီး၊ ကနီမြို့နယ်တွင် ဒေသဖွံ့ဖြိုးရေးလုပ်ငန်းများ ဆောင်ရွက်သည်။",
+                "တောင်ခြေအနီးနှင့် နိုင်ငံ့အခြေအနေ တိုးတက်မှုကို စနစ်တကျ လေ့လာသုံးသပ်သည်။"
+            };
+            foreach (string s in formalClean)
+            {
+                var fp = formalEngine.CheckText(s, cacheParagraph: false);
+                Assert.True(fp.Count == 0, $"Unexpected Formal FP on '{s}': {string.Join(", ", fp.Select(x => x.OriginalText))}");
+            }
+
+            string[] standardClean =
+            {
+                "သူ ဒီနေ့ နေမကောင်းဘူး ဆိုပေမဲ့ အလုပ်ကိစ္စတွေ အဆင်မပြေမှာကို စိတ်မပူပါနဲ့။",
+                "ညနေခင်းမှာ ကလေးက ဘောလုံးကို သူငယ်ချင်းတွေနဲ့ ပျော်ရွှင်စွာ ကစားပြီးမှ အိမ်ပြန်တယ်။",
+                "မနက်စာကို သူက စားပြီးမှ ရုံးကို စောစော သွားလေ့ရှိပါတယ်။"
+            };
+            foreach (string s in standardClean)
+            {
+                var fp = generalEngine.CheckText(s, cacheParagraph: false);
+                Assert.True(fp.Count == 0, $"Unexpected Standard FP on '{s}': {string.Join(", ", fp.Select(x => x.OriginalText))}");
+            }
+
+            // 2. 1-Pass Simultaneous Multi-Error Repair on Formal & Colloquial Nightmare Bosses
+            static string ApplyTop1(string input, List<ProofingIssue> issues)
+            {
+                var sb = new System.Text.StringBuilder(input);
+                foreach (var iss in issues.Where(i => i.Suggestions.Count > 0).OrderByDescending(i => i.StartIndex))
+                {
+                    sb.Remove(iss.StartIndex, iss.Length);
+                    sb.Insert(iss.StartIndex, iss.Suggestions[0].Replacement);
+                }
+                return sb.ToString();
+            }
+
+            string bossFormal = "A မျိုးသားအဆင့် နိုင်ငံ့အခြေအနီနှင့် ပတ်သတ်မူအရ ယင်းအချက်ကို မသဘောတူနိုင်ဘဲ တစ်ဦးတစ်ယောက်မျှ တက်ရောက်ခြင်း ရှိပေ။ ကက်ပတိန် နှစ်ကောင်အား စီစစ်ခဲ့ပါတယ်.";
+            string expectedFormal = "အမျိုးသားအဆင့် နိုင်ငံ့အခြေအနေနှင့် ပတ်သက်မှုအရ ယင်းအချက်ကို သဘောမတူနိုင်ဘဲ တစ်ဦးတစ်ယောက်မျှ တက်ရောက်ခြင်း မရှိပေ။ ကက်ပတိန် နှစ်ဦးအား စိစစ်ခဲ့ပါသည်။";
+            _ = formalEngine.CheckText(bossFormal, cacheParagraph: false);
+            var sw = Stopwatch.StartNew();
+            var fIssues = formalEngine.CheckText(bossFormal, cacheParagraph: false);
+            sw.Stop();
+            Assert.Equal(UnicodeNormalizer.NormalizeCanonicalOrder(expectedFormal), UnicodeNormalizer.NormalizeCanonicalOrder(ApplyTop1(bossFormal, fIssues)));
+            Assert.True(sw.Elapsed.TotalMilliseconds < 25.0, $"Expected < 25 ms uncached scan on 9-error Nightmare boss, got {sw.Elapsed.TotalMilliseconds:F2} ms.");
+
+            string bossColloq = "သူ ဒီနေ့ မနေကောင်းဘူး ဆိုပေမဲ့ မနက်စာကို သူကစားပြီး အိမ်ကနီ ထွက်လာပီး စာကြည့်တိုက်မာ စာဖတ်နေကြတဲ ဆိုကာ မန္တလေးကို သွားမဲ လို့ ပြောတယ်.";
+            string expectedColloq = "သူ ဒီနေ့ နေမကောင်းဘူး ဆိုပေမဲ့ မနက်စာကို သူက စားပြီး အိမ်ကနေ ထွက်လာပြီး စာကြည့်တိုက်မှာ စာဖတ်နေကြတယ် ဆိုကာ မန္တလေးကို သွားမယ် လို့ ပြောတယ်။";
+            var cIssues = generalEngine.CheckText(bossColloq, cacheParagraph: false);
+            Assert.Equal(UnicodeNormalizer.NormalizeCanonicalOrder(expectedColloq), UnicodeNormalizer.NormalizeCanonicalOrder(ApplyTop1(bossColloq, cIssues)));
         }
     }
 }
