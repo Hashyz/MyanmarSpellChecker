@@ -60,6 +60,12 @@ namespace MyanmarSpellChecker.Core.Models
         [IgnoreDataMember]
         public int SyllableCount { get; set; }
 
+        [IgnoreDataMember]
+        internal ulong CompactPresentMask { get; set; }
+
+        [IgnoreDataMember]
+        internal ulong CompactPackedUnstackedAndLen { get; set; }
+
         /// <summary>
         /// True when this entry is a classical proverb, traditional saying, or rhetorical style reference.
         /// </summary>

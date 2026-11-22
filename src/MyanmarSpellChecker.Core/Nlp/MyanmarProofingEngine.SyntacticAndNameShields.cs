@@ -387,8 +387,14 @@ namespace MyanmarSpellChecker.Core.Nlp
                 // O(1) pre-DP structural & Official-Thatpon guards (avoids 2D edit-distance computation on candidates guaranteed to fail post-DP filters!)
                 if (windowLen >= 3)
                 {
-                    if (cleanSplitMask != 0 && !e.IsOfficialThatpon)
-                        return;
+                    if (cleanSplitMask != 0)
+                    {
+                        if (!e.IsOfficialThatpon ||
+                            !IsAllowedOverCleanProductiveSplit(spanNormalized, tokens, startIndex, windowLen, cleanSplitMask, e, 0.0))
+                        {
+                            return;
+                        }
+                    }
                     if (hasExactPrefixCompound && !e.IsOfficialThatpon && e.Frequency < 25)
                         return;
                     if (isProductiveANominalization && w.IndexOf('\u1039') < 0 && !AreTrueBurmeseHomophones(spanNormalized, w))
@@ -412,7 +418,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                     localHasPre = true;
                 }
                 double tightenMax = bestFuzzy != null ? Math.Min(allowedMaxDist, localBestDist + 0.21) : allowedMaxDist;
-                double dist = localPre.DistanceTo(w, tightenMax);
+                double dist = localPre.DistanceToEntry(e, tightenMax);
                 if (dist > allowedMaxDist)
                     return;
 
@@ -1251,11 +1257,31 @@ namespace MyanmarSpellChecker.Core.Nlp
                 {
                     string pL = string.Concat(fixedSyls.GetRange(0, sp));
                     string pR = string.Concat(fixedSyls.GetRange(sp, fixedSyls.Count - sp));
-                    if ((_trie.ContainsExactWord(pL) && (_trie.GetWordFrequency(pL) >= 3 || GrammaticalParticles.Contains(pL))) &&
-                        (_trie.ContainsExactWord(pR) && (_trie.GetWordFrequency(pR) >= 3 || GrammaticalParticles.Contains(pR))))
+                    if ((_trie.ContainsExactWord(pL) && (_trie.GetWordFrequency(pL) >= 3 || GrammaticalParticles.Contains(pL) || ColloquialParticles.Contains(pL))) &&
+                        (_trie.ContainsExactWord(pR) && (_trie.GetWordFrequency(pR) >= 3 || GrammaticalParticles.Contains(pR) || ColloquialParticles.Contains(pR))))
                     {
                         splitsIntoCleanWords = true;
                         break;
+                    }
+                }
+                if (!splitsIntoCleanWords && fixedSyls.Count >= 3)
+                {
+                    for (int sp1 = 1; sp1 < fixedSyls.Count - 1 && !splitsIntoCleanWords; sp1++)
+                    {
+                        string p1 = string.Concat(fixedSyls.GetRange(0, sp1));
+                        if (!(_trie.ContainsExactWord(p1) && (_trie.GetWordFrequency(p1) >= 3 || GrammaticalParticles.Contains(p1) || ColloquialParticles.Contains(p1))))
+                            continue;
+                        for (int sp2 = sp1 + 1; sp2 < fixedSyls.Count; sp2++)
+                        {
+                            string p2 = string.Concat(fixedSyls.GetRange(sp1, sp2 - sp1));
+                            string p3 = string.Concat(fixedSyls.GetRange(sp2, fixedSyls.Count - sp2));
+                            if ((_trie.ContainsExactWord(p2) && (_trie.GetWordFrequency(p2) >= 3 || GrammaticalParticles.Contains(p2) || ColloquialParticles.Contains(p2) || ProductiveVerbalAuxiliaries.Contains(p2))) &&
+                                (_trie.ContainsExactWord(p3) && (_trie.GetWordFrequency(p3) >= 3 || GrammaticalParticles.Contains(p3) || ColloquialParticles.Contains(p3) || ProductiveVerbalAuxiliaries.Contains(p3))))
+                            {
+                                splitsIntoCleanWords = true;
+                                break;
+                            }
+                        }
                     }
                 }
                 // Also block absorbing a leading grammatical particle (e.g. 'ကို', 'မှ', 'က') into a pseudo-compound
@@ -1364,7 +1390,7 @@ namespace MyanmarSpellChecker.Core.Nlp
 
                     if (isImpossibleBrokenSyl && fixedSyls.Count <= 4)
                     {
-                        var fallbackM2 = _suggestionEngine.GetSuggestions(coreAfterSingleFix, maxResults: 4);
+                        var fallbackM2 = _suggestionEngine.GetSuggestionsAtomic(coreAfterSingleFix, maxResults: 4);
                         for (int fm2 = 0; fm2 < fallbackM2.Count; fm2++)
                         {
                             if (fallbackM2[fm2].Score >= 95.0 &&

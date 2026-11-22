@@ -4161,7 +4161,7 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.False(File.Exists(Path.Combine(repoRoot, "installer", "obfuscar.xml")));
             string propsRaw = File.ReadAllText(Path.Combine(repoRoot, "Directory.Build.props"));
             Assert.Contains("PowerPoint", propsRaw, StringComparison.Ordinal);
-            Assert.Contains("1.0.80.0", propsRaw, StringComparison.Ordinal);
+            Assert.Contains("1.0.81.0", propsRaw, StringComparison.Ordinal);
 
             string ciYml = Path.Combine(repoRoot, ".github", "workflows", "ci.yml");
             string releaseYml = Path.Combine(repoRoot, ".github", "workflows", "release.yml");
@@ -4487,6 +4487,77 @@ namespace MyanmarSpellChecker.Core.Tests
                 UnicodeNormalizer.NormalizeCanonicalOrder(bossExpected),
                 UnicodeNormalizer.NormalizeCanonicalOrder(sb.ToString()));
             Assert.True(sw.Elapsed.TotalMilliseconds < 25.0, $"Expected < 25 ms uncached scan, got {sw.Elapsed.TotalMilliseconds:F2} ms.");
+        }
+
+        [Fact]
+        public void V81_EnhancedPrecisionSubMillisecondBitmaskLatticeAndZeroFp_Gate()
+        {
+            string dbPath = TestPaths.EncryptedDbPath;
+            double dbSizeMb = new FileInfo(dbPath).Length / (1024.0 * 1024.0);
+            Assert.True(dbSizeMb <= 22.0, $"Expected data/mlc_thatpon.db <= 22.0 MB, got {dbSizeMb:F2} MB.");
+
+            var repo = new EncryptedDictionaryRepository(dbPath);
+            var trie = repo.LoadIntoTrie("MM-GOV-THATPON-SQLCIPHER-2026!");
+            var formalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.FormalOfficial);
+            var generalEngine = new MyanmarProofingEngine(trie, ProofingStyleMode.GeneralStandard);
+
+            // 1. Vinaya Lexicon & Pre-Computed 45-Bit Consonant Bitmask Verification
+            Assert.True(trie.ContainsExactWord("ပရိဝါသ်"), "Expected official Vinaya headword 'ပရိဝါသ်' in mlc_thatpon.db.");
+
+            // 2. Zero False Positives on V81 Adversarial Minimal-Pair Clean Controls
+            string[] formalClean =
+            {
+                "ရဟန်းသည် ဝိနည်းသိက္ခာပုဒ်နှင့်အညီ ပရိဝါသ် ဆောက်တည်ကျင့်သုံးတော်မူသည်။",
+                "ဝိနည်းပိဋကတ်တော်၌ နိဿဂ္ဂိပါစိတ်တို့ကို အကျယ်တဝင့် ဟောကြားတော်မူထားသည်။",
+                "မိုးသီးနှံ စိုက်ပျိုးထုတ်လုပ်မှု ခိုင်မာစွာ တိုးတက်ရရှိစေရန် ဆောင်ရွက်သည်။"
+            };
+            foreach (string s in formalClean)
+            {
+                var fp = formalEngine.CheckText(s, cacheParagraph: false);
+                Assert.True(fp.Count == 0, $"Unexpected Formal FP on '{s}': {string.Join(", ", fp.Select(x => x.OriginalText))}");
+            }
+
+            string[] standardClean =
+            {
+                "လေ့ကျင့်ခန်း ပုံမှန်လုပ်ပေးခြင်းက ခံနိုင်ရည်အား ပိုစေတာ အမှန်ပဲဖြစ်ပါတယ်။",
+                "ပရောဖက်ဆာ ဒေါက်တာအောင်ကျော်က သုတေသနစာတမ်းကို ရှင်းလင်းဖတ်ကြားပါတယ်။",
+                "ဟိုနေ့က ပြောထားတဲ့ ဟွာကို သေချာပြန်စစ်ပေးပါဦးလို့ မှာလိုက်တယ်။",
+                "အရေးပေါ်အခြေအနေမှာ စိတ်အေးအေးထားပြီး စနစ်တကျ ဖြေရှင်းသင့်ပါတယ်။",
+                "သူငယ်ချင်းတွေနဲ့ စကားပြောရင်း ပန်းခြံထဲမှာ လမ်းလျှောက်ဖြစ်ကြတယ်။"
+            };
+            foreach (string s in standardClean)
+            {
+                var fp = generalEngine.CheckText(s, cacheParagraph: false);
+                Assert.True(fp.Count == 0, $"Unexpected Standard FP on '{s}': {string.Join(", ", fp.Select(x => x.OriginalText))}");
+            }
+
+            // Ensure 'မိုးရွာသွန်းမှု ခိုင်မာစွာ ရွာသွန်း' continues to suggest 'သည်းထန်စွာ'
+            var rainIss = formalEngine.CheckText("ယခုရက်ပိုင်း မိုးရွာသွန်းမှု ခိုင်မာစွာ ရွာသွန်းနိုင်ပါသည်။", cacheParagraph: false);
+            Assert.Contains(rainIss, x => x.OriginalText == "ခိုင်မာစွာ" && x.Suggestions.Count > 0 && x.Suggestions[0].Replacement == "သည်းထန်စွာ");
+
+            // Ensure 'ပရောဖက်ဆာ' still converts to 'ပါမောက္ခ' in FormalOfficial mode
+            var profIss = formalEngine.CheckText("ပရောဖက်ဆာက စာတမ်းဖတ်ကြားသည်။", cacheParagraph: false);
+            Assert.Contains(profIss, x => x.OriginalText == "ပရောဖက်ဆာ" && x.Suggestions.Count > 0 && x.Suggestions[0].Replacement == "ပါမောက္ခ");
+
+            // 3. 1-Pass Multi-Error Accuracy & Uncached Sub-20 ms Velocity Gate on 8-Error Synthesis Boss
+            string bossInput = "ပန်းခြံထဲ လမ်းရှောက်ရင်း ကြီးမားတအခန်းကဏ္ဍက ပါဝင်တဲ့ ကျန်းမာရေးအာမခံချက်အတွက် ငွေပေးချေမှု စနစ်ကို သုံးထင့်ပြီး ဆေးလိပ်ကို ဆောင်ရှားကာ အဉ့်င့်ကောင်း မွေးမြူပါ . လို့ ပြောတယ်။";
+            string bossExpected = "ပန်းခြံထဲ လမ်းလျှောက်ရင်း ကြီးမားတဲ့အခန်းကဏ္ဍက ပါဝင်တဲ့ ကျန်းမာရေးအာမခံအတွက် ငွေပေးချေမှုစနစ်ကို သုံးသင့်ပြီး ဆေးလိပ်ကို ရှောင်ရှားကာ အကျင့်ကောင်း မွေးမြူပါ လို့ ပြောတယ်။";
+
+            _ = generalEngine.CheckText(bossInput, cacheParagraph: false); // warmup
+            var sw = Stopwatch.StartNew();
+            var issues = generalEngine.CheckText(bossInput, cacheParagraph: false);
+            sw.Stop();
+
+            var sb = new System.Text.StringBuilder(bossInput);
+            foreach (var iss in issues.Where(i => i.Suggestions.Count > 0).OrderByDescending(i => i.StartIndex))
+            {
+                sb.Remove(iss.StartIndex, iss.Length);
+                sb.Insert(iss.StartIndex, iss.Suggestions[0].Replacement);
+            }
+            Assert.Equal(
+                UnicodeNormalizer.NormalizeCanonicalOrder(bossExpected),
+                UnicodeNormalizer.NormalizeCanonicalOrder(sb.ToString()));
+            Assert.True(sw.Elapsed.TotalMilliseconds < 20.0, $"Expected < 20 ms uncached scan on 8-error boss, got {sw.Elapsed.TotalMilliseconds:F2} ms.");
         }
     }
 }

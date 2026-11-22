@@ -2183,11 +2183,25 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             for (int i = 0; i < count; i++)
             {
-                SuggestionEngine.ComputeEntryCompactMasks(
-                    snapshot[i].Word,
-                    ref scratchBuf,
-                    out presentMasks[i],
-                    out packedUnstacked[i]);
+                DictionaryEntry ent = snapshot[i];
+                ulong packed = ent.CompactPackedUnstackedAndLen;
+                if (packed != 0UL)
+                {
+                    presentMasks[i] = ent.CompactPresentMask;
+                    packedUnstacked[i] = packed;
+                }
+                else
+                {
+                    SuggestionEngine.ComputeEntryCompactMasks(
+                        ent.Word,
+                        ref scratchBuf,
+                        out ulong pMask,
+                        out ulong uPack);
+                    ent.CompactPresentMask = pMask;
+                    ent.CompactPackedUnstackedAndLen = uPack;
+                    presentMasks[i] = pMask;
+                    packedUnstacked[i] = uPack;
+                }
             }
 
             var compiled = new CompiledLengthBucket(snapshot, presentMasks, packedUnstacked);

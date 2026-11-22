@@ -1888,7 +1888,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             @"(?<=(?:ပါတယ်|ပါသည်|ပါမည်|ပါမယ်|ခဲ့သည်|ခဲ့တယ်|ဖြစ်သည်|ရှိသည်|ရမည်|ပါပြီ|ပါပီ|ပါတယ|တယ်|သည်|မယ်|မည်|ပြီ|ပီ|ဘူး|ဖူး|များသို့|ချုပ်သို့|ရုံးသို့))(?<Dot>\.)(?!\.|[0-9A-Za-z])(?=\s|$)");
 
         private static readonly Regex V64MorphoAndCaseCollisionPattern = new Regex(
-            @"(?:(?<=(?:လွတ်လပ်|ခံစား|အရေးယူ|ဝင်ရောက်|ပြောဆို|လုပ်ပိုင်))(?<Khwin>ခွင်)(?=ပေး|ပြု|ရ|ရှိ|တောင်း|မရှိ|တွေ|များ)|(?<=(?:သင်ခန်းစာယူ|ဝယ်ယူ|စားသောက်|လုပ်ကိုင်|ကျောင်း))(?<YuPi>ပီ)(?=ရင်|\s+[\u1000-\u1021])|(?<=(?:ပူဇော်|ကန်တော့|ဆုတောင်း))(?<PuzawPyi>ပြီ)(?=\s+[\u1000-\u1021])|(?<=(?:သောက်|စား|ကြည့်|ကြည့်|နားထောင်|ဖတ်))(?<LoKaung>လို)(?=ကောင်း(?:တယ်|သည်|ပါ|ပြီး))|(?<=(?:စတင်တာ|ခွင့်မူချက်|ခွင့်ပြုချက်|အချက်|တစ်ခု))(?<TaPae>ပယ်)(?=\s*။)|(?<=(?:အိမ်စာတွေ|အလုပ်တွေ)\s+[^\u104A\u104B]{0,18}?)(?<LokeYae>လုပ်ရယ်)(?=\s*။)|(?<=(?:ရင်|စိတ်|အိမ်|ကျောင်း|အခန်း))(?<HtaeMa>ထဲမာ)(?=\s)|(?<=(?:ခရစ္စမတ်|မွေး|ဥပုသ်|လပြည့်|လပြည့်|နှစ်သစ်ကူး))(?<XmasNay>နေမှာ)|(?<=(?:အရမ်း|သိပ်|အလွန်))(?<LhaCreaky>လှ့)(?=တယ်|သည်|ပါ)|(?<KyawntawCreaky>ကျွန်တော်)(?=မှာ\s+[^\u104A\u104B]{2,35}?(?:ရှိ|စကား)|ရဲ့\s)|(?<KyawntawNoAsat>ကျွန်တော)(?=\s*အတွက်)|(?<=(?:လူမျိုးတွေ|သူတို့|ကျွန်တော်တို့|ဝန်ထမ်းတွေ|ကလေးတွေ|မိဘတွေ))(?<TweYa>ရ)(?=\s+အ[\u1000-\u103F]+ဆုံး)|(?<=(?:သွား|လာ|ပြု|လုပ်|ဝယ်|သုံး|တက်))(?<MaeThu>မယ်)(?=သူ(?:တွေ|များ))|(?<=(?:မနက်|နံနက်|နေ့လယ်|ညနေ|ည))(?<NyanayPaing>ပိုင်)(?=မှာ|တွင်|၌)|(?<=(?:ထုတ်လုပ်|စီးပွား|ပညာ|ကျန်းမာ|လူမှု))(?<YeLupan>ရေ)(?=လုပ်ငန်း|စနစ်|ကဏ္ဍ)|(?<PataeLar>ပါတယ်လား)(?=\s*[။?]|$)|(?<PasayLar>ပါစေလား)(?=\s*[။?]|$)|(?<=ခြင်း)(?<ChinnTae>တည်)(?=\s)|(?<=(?:တွေ|များ))(?<TweGa>ဂ)(?=\s)|(?<=လုပ်ငန်း)(?<LupanHtwin>ထွင်)(?=\s)|(?<=မရှိ)(?<MashiHaw>ဟော)(?=\s+[\u1000-\u103F]+လော)|(?<=ဟု\s+[\u1000-\u103F]{2,18}?)(?<HuHo>ဟို့)(?=\s+ပြော)|(?<=(?:မှာ|ပြော|သွား|စား|လုပ်|ပေး|ဝယ်|မေး|သိ))(?<DesidChin>ခြင်)(?=တယ်|သည်|ပါတယ်|ပါသည်|ဘူး)|(?<=(?:စက်|ဆပ်ပြာ|စနစ်|နည်းပညာ|သတင်း|ခြင်း|ချင်း|မှု)က\s+)(?<CausPat>[\u1000-\u103F]{2,18}?(?:တွေ|များ)က)(?=\s+မ?[\u1000-\u103F]{2,18}?စေ(?:ပါ)?(?:တယ်|သည်|ပြီး)))",
+            @"(?:(?<=(?:လွတ်လပ်|ခံစား|အရေးယူ|ဝင်ရောက်|ပြောဆို|လုပ်ပိုင်))(?<Khwin>ခွင်)(?=ပေး|ပြု|ရ|ရှိ|တောင်း|မရှိ|တွေ|များ)|(?<=(?:သင်ခန်းစာယူ|ဝယ်ယူ|စားသောက်|လုပ်ကိုင်|ကျောင်း))(?<YuPi>ပီ)(?=ရင်|\s+[\u1000-\u1021])|(?<=(?:ပူဇော်|ကန်တော့|ဆုတောင်း))(?<PuzawPyi>ပြီ)(?=\s+[\u1000-\u1021])|(?<=(?:သောက်|စား|ကြည့်|ကြည့်|နားထောင်|ဖတ်))(?<LoKaung>လို)(?=ကောင်း(?:တယ်|သည်|ပါ|ပြီး))|(?<=(?:စတင်တာ|ခွင့်မူချက်|ခွင့်ပြုချက်|အချက်|တစ်ခု))(?<TaPae>ပယ်)(?=\s*။)|(?<=(?:အိမ်စာတွေ|အလုပ်တွေ)\s+[^\u104A\u104B]{0,18}?)(?<LokeYae>လုပ်ရယ်)(?=\s*။)|(?<=(?:ရင်|စိတ်|အိမ်|ကျောင်း|အခန်း))(?<HtaeMa>ထဲမာ)(?=\s)|(?<=(?:ခရစ္စမတ်|မွေး|ဥပုသ်|လပြည့်|လပြည့်|နှစ်သစ်ကူး))(?<XmasNay>နေမှာ)|(?<=(?:အရမ်း|သိပ်|အလွန်))(?<LhaCreaky>လှ့)(?=တယ်|သည်|ပါ)|(?<KyawntawCreaky>ကျွန်တော်)(?=မှာ\s+[^\u104A\u104B]{2,35}?(?:ရှိ|စကား)|ရဲ့\s)|(?<KyawntawNoAsat>ကျွန်တော)(?=\s*အတွက်)|(?<=(?:လူမျိုးတွေ|သူတို့|ကျွန်တော်တို့|ဝန်ထမ်းတွေ|ကလေးတွေ|မိဘတွေ))(?<TweYa>ရ)(?=\s+အ[\u1000-\u103F]+ဆုံး)|(?<=(?:သွား|လာ|ပြု|လုပ်|ဝယ်|သုံး|တက်))(?<MaeThu>မယ်)(?=သူ(?:တွေ|များ))|(?<=(?:မနက်|နံနက်|နေ့လယ်|ညနေ|ည))(?<NyanayPaing>ပိုင်)(?=မှာ|တွင်|၌)|(?<=(?:ထုတ်လုပ်|စီးပွား|ပညာ|ကျန်းမာ|လူမှု))(?<YeLupan>ရေ)(?=လုပ်ငန်း|စနစ်|ကဏ္ဍ)|(?<PataeLar>ပါတယ်လား)(?=\s*[။?]|$)|(?<PasayLar>ပါစေလား)(?=\s*[။?]|$)|(?<=ခြင်း)(?<ChinnTae>တည်)(?=\s)|(?<=(?:တွေ|များ))(?<TweGa>ဂ)(?=\s)|(?<=လုပ်ငန်း)(?<LupanHtwin>ထွင်)(?=\s)|(?<=မရှိ)(?<MashiHaw>ဟော)(?=\s+[\u1000-\u103F]+လော)|(?<=ဟု\s+[\u1000-\u103F]{2,18}?)(?<HuHo>ဟို့)(?=\s+ပြော)|(?<=(?:မှာ|ပြော|သွား|စား|လုပ်|ပေး|ဝယ်|မေး|သိ))(?<DesidChin>ခြင်)(?=တယ်|သည်|ပါတယ်|ပါသည်|ဘူး)|(?<=[\u1000-\u103F])(?<ModalHtint>ထင့်)(?=တယ်|သည်|ပါ|ပြီး|ကြောင်း|ဟု)|(?<=(?:စက်|ဆပ်ပြာ|စနစ်|နည်းပညာ|သတင်း|ခြင်း|ချင်း|မှု)က\s+)(?<CausPat>[\u1000-\u103F]{2,18}?(?:တွေ|များ)က)(?=\s+မ?[\u1000-\u103F]{2,18}?စေ(?:ပါ)?(?:တယ်|သည်|ပြီး)))",
             RegexOptions.Compiled);
 
         private static readonly Regex GluedPhraseBoundarySplitPattern = new Regex(
@@ -2059,15 +2059,23 @@ namespace MyanmarSpellChecker.Core.Nlp
                         string openSyl = m.Groups["OpenSyl"].Value;
                         string coda = m.Groups["Coda"].Value;
                         string joinedSyl = UnicodeNormalizer.NormalizeCanonicalOrder(openSyl + coda);
+                        if (UnicodeNormalizer.HasLookalikeErrorSlice(joinedSyl, 0, joinedSyl.Length, out string joinedTallFixed, out _))
+                            joinedSyl = joinedTallFixed;
                         if (trie != null && !trie.IsValidSingleSyllable(joinedSyl) && !trie.ContainsExactWord(joinedSyl))
                             continue;
 
                         string prefix = m.Groups["Prefix"].Value;
-                        string fullJoined = UnicodeNormalizer.NormalizeCanonicalOrder(prefix + openSyl + coda);
+                        string fullJoined = UnicodeNormalizer.NormalizeCanonicalOrder(prefix + joinedSyl);
                         bool useFullPrefix = prefix.Length > 0 && trie != null && trie.ContainsExactWord(fullJoined);
 
                         int startIdx = useFullPrefix ? m.Index : m.Groups["OpenSyl"].Index;
                         int spanLen = (m.Index + m.Length) - startIdx;
+                        int codaIdx = m.Groups["Coda"].Index;
+                        int codaLen = m.Groups["Coda"].Length;
+                        if (trie != null && !trie.IsStandaloneWord(UnicodeNormalizer.NormalizeCanonicalOrder(coda)))
+                        {
+                            issues.RemoveAll(ex => ex.IssueType == ProofingIssueType.SpellingError && ex.StartIndex == codaIdx && ex.Length == codaLen);
+                        }
                         if (OverlapsExistingIssue(issues, startIdx, spanLen))
                             continue;
 
@@ -2838,6 +2846,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 ContainsMm(text, mmMask, "ခြင်သည်") ||
                 ContainsMm(text, mmMask, "ခြင်ပါ") ||
                 ContainsMm(text, mmMask, "ခြင်ဘူး") ||
+                ContainsMm(text, mmMask, "ထင့်") ||
                 ((ContainsMm(text, mmMask, "တွေက ") || ContainsMm(text, mmMask, "များက ")) &&
                  (ContainsMm(text, mmMask, "စေတယ်") || ContainsMm(text, mmMask, "စေသည်") || ContainsMm(text, mmMask, "စေပါ") || ContainsMm(text, mmMask, "စေပြီး")));
 
@@ -2981,6 +2990,12 @@ namespace MyanmarSpellChecker.Core.Nlp
                     Group g = m64.Groups["DesidChin"];
                     AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "ချင်", ProofingIssueType.SpellingError,
                         "ဆန္ဒပြ ကြိယာထောက်ပစ္စည်းကို ယပင့်ဖြင့် 'ချင်' ဟု ရေးသားရမည် ('ခြင်' သည် ပိုးခြင် ဖြစ်သည်)။", "ဆန္ဒပြ ကြိယာထောက်ပစ္စည်း ('~ချင်')", "PART", true);
+                }
+                else if (m64.Groups["ModalHtint"].Success && !OverlapsExistingIssue(issues, m64.Groups["ModalHtint"].Index, m64.Groups["ModalHtint"].Length))
+                {
+                    Group g = m64.Groups["ModalHtint"];
+                    AddGrammarOrSpellingIssue(issues, g.Index, g.Length, g.Value, "သင့်", ProofingIssueType.SpellingError,
+                        "သင့်လျော်ကြောင်းပြ ကြိယာထောက်ပစ္စည်းကို သကြီးဖြင့် 'သင့်' ဟု ရေးသားရမည် ('ထင့်' မဟုတ်ပါ)။", "ကြိယာထောက်ပစ္စည်း ('~သင့်')", "PART", true);
                 }
                 else if (m64.Groups["CausPat"].Success && !OverlapsExistingIssue(issues, m64.Groups["CausPat"].Index, m64.Groups["CausPat"].Length))
                 {

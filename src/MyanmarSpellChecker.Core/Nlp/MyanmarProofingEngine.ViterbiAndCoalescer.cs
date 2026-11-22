@@ -441,12 +441,23 @@ namespace MyanmarSpellChecker.Core.Nlp
 
                 if (wrongRule != null)
                 {
-                    if (wrongRule.Category == "OfficialStyle" && StyleMode != ProofingStyleMode.FormalOfficial)
+                    if ((wrongRule.Category == "OfficialStyle" || wrongRule.WrongForm == "ပရောဖက်ဆာ") &&
+                        StyleMode != ProofingStyleMode.FormalOfficial)
                     {
                         ulong offHash = MyanmarCompactLanguageModel.ComputeTokenSliceHash(tokens, tokIdx, len);
                         MyanmarUposTag offTag = MyanmarCompactLanguageModel.ResolveUposTagFromEntries(
                             entries, tokens[tokIdx].NormalizedText, tokens[tokIdx + len - 1].NormalizedText);
                         edgesOut.Add(LatticeEdge.Clean(len, 0.86 + 0.10 * len, offHash, offTag));
+                        exactCleanMask |= 1u << len;
+                        continue;
+                    }
+
+                    // Respect classical Pitaka Nissaya plural 'နိဿဂ္ဂိပါစိတ်တို့' (matches ContextDisambiguator '(?!တို့)' exemption)
+                    if (wrongRule.WrongForm == "နိဿဂ္ဂိပါစိတ်" &&
+                        tokIdx + len < runEnd &&
+                        tokens[tokIdx + len].NormalizedText == "တို့")
+                    {
+                        edgesOut.Add(LatticeEdge.Clean(len, 0.86 + 0.10 * len));
                         exactCleanMask |= 1u << len;
                         continue;
                     }
@@ -2826,9 +2837,10 @@ namespace MyanmarSpellChecker.Core.Nlp
                 return null;
             }
 
-            // Foreign killed-coda loanword boundary shield (e.g. 'AI ချစ်ပ်သူဌေး' != 'ချစ်သူ', 'ရန်ဘီးရ်' != 'ဘီးလင်း', 'ကပူးရ်' != 'ပေးရ')
+            // Foreign killed-coda loanword boundary shield (e.g. 'AI ချစ်ပ်သူဌေး' != 'ချစ်သူ', 'ရန်ဘီးရ်' != 'ဘီးလင်း', 'ကပူးရ်' != 'ပေးရ', 'ပရိဝါသ်' != 'ပရိဝါ')
             if ((windowLen == 2 && (IsForeignOrPaliKilledCoda(firstSyl) || IsForeignOrPaliKilledCoda(lastSyl))) ||
-                (windowLen >= 2 && IsForeignOrPaliKilledCoda(firstSyl) && IsStartOfAnyExactMultiWord(exactMultiWordBits, localOffset + 1, runEnd - runStart)))
+                (windowLen >= 2 && IsForeignOrPaliKilledCoda(firstSyl) && IsStartOfAnyExactMultiWord(exactMultiWordBits, localOffset + 1, runEnd - runStart)) ||
+                (windowLen >= 3 && IsForeignOrPaliKilledCoda(lastSyl) && HasExactSpan(exactMultiWordBits, localOffset, windowLen - 1)))
             {
                 return null;
             }
@@ -2953,6 +2965,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 {
                     if (lastSyl == "မှု" || lastSyl == "ခြင်း" || lastSyl == "ချက်" || lastSyl == "ရေး" ||
                         lastSyl == "ရာ" || lastSyl == "သူ" || lastSyl == "ဖွယ်" || lastSyl == "နည်း" ||
+                        (midSyl == "စေ" && (lastSyl == "တာ" || lastSyl == "တဲ့" || lastSyl == "တယ်" || lastSyl == "သည်")) ||
                         (isEndOfMultiWordAtFirst && (lastSyl == "ရ" || lastSyl == "နိုင်" || lastSyl == "ပါ" || lastSyl == "မည်")))
                     {
                         return null;
@@ -3266,7 +3279,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                         preQuery = SuggestionEngine.CreateThreadLocalPreEncodedQuery(span.NormalizedText);
                         hasPreQuery = true;
                     }
-                    double d = preQuery.DistanceTo(e.Word, strictMaxDist);
+                    double d = preQuery.DistanceToEntry(e, strictMaxDist);
                     if (d <= strictMaxDist &&
                         (cleanSplitMask == 0 || IsAllowedOverCleanProductiveSplit(span.NormalizedText, tokens, startIndex, windowLen, cleanSplitMask, e, d)) &&
                         IsBetterCandidate(e, d, bestStrict, bestStrictDist))
@@ -3288,6 +3301,14 @@ namespace MyanmarSpellChecker.Core.Nlp
             double bestFuzzyDist = double.MaxValue;
             DictionaryEntry? bestFuzzy = TryFindBestFuzzyCandidate(
                 span.NormalizedText, tokens, startIndex, windowLen, firstSyl, lastSyl, hasExactPrefixCompound, cleanSplitMask, hasCleanLeadingStandalone, bothFullStandaloneInL2, isPartialSliceOfRun, mustPreserveFirstSyl, mustPreserveLastSyl, isProductiveANominalization, ref hasPreQuery, ref preQuery, out bestFuzzyDist);
+
+            // Never let Tier 3 Fuzzy slice a dropped-tone attributive 'တ' + opening of an exact 3..4-syllable Official compound into 'ဒီ...' (e.g. 'ကြီးမားတအခန်းကဏ္ဍ' != 'ဒီအခန်း')
+            if (bestFuzzy != null && windowLen == 3 && firstSyl == "တ" &&
+                !bestFuzzy.Word.StartsWith("တ", StringComparison.Ordinal) &&
+                (HasExactSpan(exactMultiWordBits, localOffset + 1, 3) || HasExactSpan(exactMultiWordBits, localOffset + 1, 4)))
+            {
+                bestFuzzy = null;
+            }
 
             // Never let Tier 3 Fuzzy corrupt an already-exact 2-syllable Official/HighFreq right constituent after a standalone word (e.g. 'အိမ်အနီး' != 'အိမ်အမီ')
             if (bestFuzzy != null && windowLen == 3 && HasExactSpan(exactMultiWordBits, localOffset + 1, 2) &&

@@ -2758,23 +2758,41 @@ namespace MyanmarSpellChecker.Core.Nlp
 
                 if (trie != null && hasShortMyanmarBeforeMyanmar)
                 {
-                    foreach (Match m in SpaceSplitPairCandidateRegex.Matches(text))
+                    int pairScanIdx = 0;
+                    while (pairScanIdx < text.Length)
                     {
+                        Match m = SpaceSplitPairCandidateRegex.Match(text, pairScanIdx);
+                        if (!m.Success)
+                            break;
+
+                        int nextSlideIdx = Math.Max(pairScanIdx + 1, m.Groups["Right"].Index);
                         Group tGrp = m.Groups["Target"];
                         if (OverlapsExistingIssue(issues, tGrp.Index, tGrp.Length))
+                        {
+                            pairScanIdx = nextSlideIdx;
                             continue;
+                        }
 
                         Group leftGrp = m.Groups["Left"];
                         if (text[leftGrp.Index] == 'မ')
+                        {
+                            pairScanIdx = nextSlideIdx;
                             continue;
+                        }
 
                         string leftNorm = UnicodeNormalizer.NormalizeCanonicalOrder(leftGrp.Value);
                         if (SpaceSplitBoundaryParticles.Contains(leftNorm) || leftNorm.StartsWith("မ", StringComparison.Ordinal))
+                        {
+                            pairScanIdx = nextSlideIdx;
                             continue;
+                        }
 
                         string rightNorm = UnicodeNormalizer.NormalizeCanonicalOrder(m.Groups["Right"].Value);
                         if (SpaceSplitBoundaryParticles.Contains(rightNorm))
+                        {
+                            pairScanIdx = nextSlideIdx;
                             continue;
+                        }
 
                         string suffixVal = m.Groups["Suffix"].Success
                             ? UnicodeNormalizer.NormalizeCanonicalOrder(m.Groups["Suffix"].Value)
@@ -2783,6 +2801,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                             trie.ContainsExactWord(leftNorm) &&
                             trie.ContainsExactWord(rightNorm + suffixVal))
                         {
+                            pairScanIdx = nextSlideIdx;
                             continue;
                         }
 
@@ -2791,7 +2810,10 @@ namespace MyanmarSpellChecker.Core.Nlp
                             ? UnicodeNormalizer.NormalizeCanonicalOrder(rawJoined)
                             : rawJoined;
                         if (VerifiedMandatoryCompounds.Contains(joinedNorm))
+                        {
+                            pairScanIdx = nextSlideIdx;
                             continue;
+                        }
 
                         // Check O(1) dictionary compound existence BEFORE breaking syllables!
                         if (!trie.TryGetExactEntries(joinedNorm, out var jEntries) ||
@@ -2799,16 +2821,23 @@ namespace MyanmarSpellChecker.Core.Nlp
                             (!jEntries[0].IsOfficialThatpon && !jEntries[0].IsProperNoun) ||
                             jEntries[0].Frequency < 20)
                         {
+                            pairScanIdx = nextSlideIdx;
                             continue;
                         }
 
                         if (trie.ContainsExactWord(leftNorm) && trie.ContainsExactWord(rightNorm))
+                        {
+                            pairScanIdx = nextSlideIdx;
                             continue;
+                        }
 
                         int leftSyls = MyanmarSyllableBreaker.BreakIntoSyllables(leftNorm, isPreNormalized: true).Count;
                         int rightSyls = MyanmarSyllableBreaker.BreakIntoSyllables(rightNorm, isPreNormalized: true).Count;
                         if (leftSyls == 0 || rightSyls == 0 || leftSyls > 2 || rightSyls > 2)
+                        {
+                            pairScanIdx = nextSlideIdx;
                             continue;
+                        }
 
                         string cue = !string.IsNullOrWhiteSpace(jEntries[0].MeaningCue) ? jEntries[0].MeaningCue : "သတ်ပုံကျမ်းဝင် ပေါင်းစပ်ပုဒ်";
                         AddGrammarOrSpellingIssue(
@@ -2816,6 +2845,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                             ProofingIssueType.SpellingError,
                             $"စာလုံးအတွင်း နေရာလွတ် (Space) မှားခြားထားပါသည် — '{tGrp.Value}' အစား '{joinedNorm}' [{cue}] ဟု တစ်ဆက်တည်း ရေးသားရမည်။",
                             cue, jEntries[0].PosTag, true);
+                        pairScanIdx = Math.Max(pairScanIdx + 1, m.Index + m.Length);
                     }
                 }
             }
@@ -3200,6 +3230,28 @@ namespace MyanmarSpellChecker.Core.Nlp
                         $"{punctName} ရှေ့တွင် Space မခြားရပါ — စာလုံးနှင့်ကပ်၍ '{punct}' ဟု ရေးသားရမည်။",
                         $"{punctName} ရှေ့ Space ဖယ်ရှားရန်", "PUNCT", true,
                         $"မြန်မာစာ ပုဒ်ဖြတ်ပုဒ်ရပ်စံနှုန်းအရ {punctName} ကို ရှေ့စာလုံးနှင့် တစ်ဆက်တည်းကပ်၍ ရိုက်နှိပ်ရပြီး ပုဒ်ဖြတ်ပုဒ်ရပ်၏ နောက်၌သာ Space ခြားရသည်။",
+                        "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ နှင့် ရုံးသုံးမြန်မာစာရေးထုံး");
+                }
+            }
+
+            // 7c-ii. Spaced stray ASCII period between Myanmar words ('မြန်မာနိုင်ငံ . တရားဥပဒေ' -> ' ')
+            if (mmMask != 0 &&
+                (text.IndexOf(" . ", StringComparison.Ordinal) >= 0 ||
+                 text.IndexOf("\t.", StringComparison.Ordinal) >= 0 ||
+                 text.IndexOf(".\t", StringComparison.Ordinal) >= 0))
+            {
+                foreach (Match md in SpacedMidClauseAsciiDotPattern.Matches(text))
+                {
+                    Group g = md.Groups["Target"];
+                    if (OverlapsExistingIssue(issues, g.Index, g.Length))
+                        continue;
+
+                    AddGrammarOrSpellingIssue(
+                        issues, g.Index, g.Length, g.Value, " ",
+                        ProofingIssueType.PunctuationError,
+                        "မြန်မာဝါကျအလယ်တွင် အင်္ဂလိပ်အစက် ('.') မှားရိုက်မိနေပါသည် — ဖယ်ရှားရမည်။",
+                        "မှားရိုက်မိသော အစက် ('.') ဖယ်ရှားရန်", "PUNCT", true,
+                        "မြန်မာစာသားနှစ်ခုအကြား Space ခြားလျက် ပါဝင်နေသော အင်္ဂလိပ် Full Stop ('.') သည် လက်ကွက်မှားရိုက်မိသော အပိုသင်္ကေတဖြစ်သည်။",
                         "မြန်မာစာအဖွဲ့ မြန်မာသဒ္ဒါ နှင့် ရုံးသုံးမြန်မာစာရေးထုံး");
                 }
             }

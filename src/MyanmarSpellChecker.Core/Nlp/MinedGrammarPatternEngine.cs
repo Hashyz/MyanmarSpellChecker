@@ -45,7 +45,8 @@ namespace MyanmarSpellChecker.Core.Nlp
 
         // Matches '[Numeral][OptionalSpace][Classifier]' when Classifier is NOT followed by modifier suffixes like 'ခန်း/ထိုင်/စီး/စာ/အိပ်'
         private static readonly Regex NumeralClassifierSpanRegex = new Regex(
-            @"(?<Num>(?:တစ်|နှစ်|သုံး|လေး|ငါး|ခြောက်|ခုနစ်|ရှစ်|ကိုး|တစ်ဆယ်|ဆယ်|[၁-၉][၀-၉]*))[ \t]*(?<Clf>ယောက်|ဦး|ပါး|ဆူ|ကောင်|စီး|စင်း|ထည်|ချပ်|ရံ|အုပ်|စောင်|ပုဒ်|လက်|ချောင်း|လုံး|ပင်|ဆောင်|ရပ်|သွယ်|ခွန်း)(?![\u102B-\u103E]|[\u1000-\u1021]\u103A|ခန်း|ထိုင်|စီး|စာ|အိပ်|တွဲ|ဝင်|ပေါက်)");
+            @"(?<Num>(?:တစ်|နှစ်|သုံး|လေး|ငါး|ခြောက်|ခုနစ်|ရှစ်|ကိုး|တစ်ဆယ်|ဆယ်|[၁-၉][၀-၉]*))[ \t]*(?<Clf>ယောက်|ဦး|ပါး|ဆူ|ကောင်|စီး|စင်း|ထည်|ချပ်|ရံ|အုပ်|စောင်|ပုဒ်|လက်|ချောင်း|လုံး|ပင်|ဆောင်|ရပ်|သွယ်|ခွန်း)(?![\u102B-\u103E]|[\u1000-\u1021]\u103A|ခန်း|ထိုင်|စီး|စာ|အိပ်|တွဲ|ဝင်|ပေါက်)",
+            RegexOptions.Compiled);
 
         private sealed class LoadedTables
         {

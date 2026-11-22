@@ -54,6 +54,7 @@ namespace MyanmarSpellChecker.Core.Nlp
             public readonly int CompactLen;
             public readonly double[] DelCosts;
             public readonly ulong PresentMask;
+            public readonly ulong InvAllCompatibleMask;
             public readonly ulong[] ReqMasks;
             public readonly int ReqCount;
 
@@ -63,6 +64,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 int compactLen,
                 double[] delCosts,
                 ulong presentMask,
+                ulong invAllCompatibleMask,
                 ulong[] reqMasks,
                 int reqCount)
             {
@@ -71,8 +73,60 @@ namespace MyanmarSpellChecker.Core.Nlp
                 CompactLen = compactLen;
                 DelCosts = delCosts;
                 PresentMask = presentMask;
+                InvAllCompatibleMask = invAllCompatibleMask;
                 ReqMasks = reqMasks;
                 ReqCount = reqCount;
+            }
+
+            public double DistanceToEntry(DictionaryEntry entry, double maxAllowedDistance)
+            {
+                string s2 = entry.Word;
+                if (Source == s2) return 0.0;
+
+                if (Source.Length >= 3 && Source.Length == s2.Length && CharMultisetSignatureMatches(Source, s2))
+                {
+                    List<string> syls = MyanmarSyllableBreaker.BreakIntoSyllables(Source, isPreNormalized: true);
+                    if (MatchesAdjacentSyllableSwap(syls, s2))
+                        return 0.36;
+                }
+
+                ulong packedU = entry.CompactPackedUnstackedAndLen;
+                if (packedU == 0UL && s2.Length > 0)
+                {
+                    EnsureEntryCompactMasks(entry);
+                    packedU = entry.CompactPackedUnstackedAndLen;
+                }
+
+                if (maxAllowedDistance < 1000.0)
+                {
+                    int mLen = (int)((packedU >> 45) & 0xFF);
+                    double eps = maxAllowedDistance + 0.001;
+                    if (Math.Abs(CompactLen - mLen) * 0.20 > eps)
+                        return maxAllowedDistance + 1.0;
+
+                    if (maxAllowedDistance < 0.849)
+                    {
+                        if ((packedU & InvAllCompatibleMask) != 0UL)
+                            return maxAllowedDistance + 1.0;
+
+                        if (ReqCount > 0)
+                        {
+                            ulong bPres = entry.CompactPresentMask;
+                            for (int r = 0; r < ReqCount; r++)
+                            {
+                                if ((ReqMasks[r] & bPres) == 0UL)
+                                    return maxAllowedDistance + 1.0;
+                            }
+                        }
+                    }
+                }
+
+                char[] b = t_bufB ??= new char[128];
+                if (b.Length < s2.Length) b = t_bufB = new char[Math.Max(s2.Length * 2, 128)];
+                int m = EncodeCompactRhymeChars(s2, b);
+
+                return ComputeCoreDistanceFromCompact(
+                    Compact, CompactLen, DelCosts, PresentMask, ReqMasks, ReqCount, hasPrecomputedMask: true, b, m, maxAllowedDistance);
             }
 
             public double DistanceTo(string s2, double maxAllowedDistance)
@@ -113,6 +167,7 @@ namespace MyanmarSpellChecker.Core.Nlp
                 qReq = t_preReqMasks = new ulong[Math.Max(qLen * 2, 128)];
 
             ulong presentMask = 0UL;
+            ulong allCompatMask = 0UL;
             int reqCount = 0;
             for (int qi = 0; qi < qLen; qi++)
             {
@@ -123,14 +178,17 @@ namespace MyanmarSpellChecker.Core.Nlp
                 if (bIdx >= 0)
                 {
                     presentMask |= 1UL << bIdx;
+                    ulong compat = s_compatibleBaseMasks[bIdx];
+                    allCompatMask |= compat;
                     if (qPrev != '\u1039')
                     {
-                        qReq[reqCount++] = s_compatibleBaseMasks[bIdx];
+                        qReq[reqCount++] = compat;
                     }
                 }
             }
 
-            return new PreEncodedQuery(preNormalizedSource, qCompact, qLen, qDel, presentMask, qReq, reqCount);
+            ulong invAllCompat = (~allCompatMask) & 0x1FFFFFFFFFFFUL;
+            return new PreEncodedQuery(preNormalizedSource, qCompact, qLen, qDel, presentMask, invAllCompat, qReq, reqCount);
         }
 
         internal static void ComputeEntryCompactMasks(
@@ -161,6 +219,15 @@ namespace MyanmarSpellChecker.Core.Nlp
 
             presentMask = pMask;
             packedUnstackedAndLen = uMask | ((ulong)(m & 0xFF) << 45);
+        }
+
+        private static void EnsureEntryCompactMasks(DictionaryEntry entry)
+        {
+            char[] buf = t_bufB ??= new char[128];
+            ComputeEntryCompactMasks(entry.Word, ref buf, out ulong pMask, out ulong uPack);
+            t_bufB = buf;
+            entry.CompactPresentMask = pMask;
+            entry.CompactPackedUnstackedAndLen = uPack;
         }
 
         public SuggestionEngine(MyanmarTrie trie)
@@ -251,6 +318,11 @@ namespace MyanmarSpellChecker.Core.Nlp
         public List<SuggestionCandidate> GetSuggestions(string misspelledWord, int maxResults = 5)
         {
             return GetSuggestionsInternal(misspelledWord, maxResults, allowCompositional: true);
+        }
+
+        internal List<SuggestionCandidate> GetSuggestionsAtomic(string misspelledWord, int maxResults = 4)
+        {
+            return GetSuggestionsInternal(misspelledWord, maxResults, allowCompositional: false);
         }
 
         private static bool HasMyanmarBaseCharacter(string s)
@@ -637,6 +709,14 @@ namespace MyanmarSpellChecker.Core.Nlp
                             lookalikeFixed.Substring(0, lookalikeFixed.Length - 4) + "\u102D\u102F\u1004\u103A\u1037");
                         if (_trie.ContainsExactWord(fixedChaing))
                             AddOrUpdateEnrichedCandidate(results, rawTrimmed, fixedChaing, 103.6);
+                    }
+                    // Duplicated palatal/velar coda garble ('အဉ့်င့် -> အကျင့်')
+                    if (lookalikeFixed.Length >= 5 &&
+                        lookalikeFixed[0] == '\u1021' &&
+                        lookalikeFixed.IndexOf("\u1009\u103A\u1037\u1004\u103A\u1037", StringComparison.Ordinal) > 0 &&
+                        _trie.ContainsExactWord("\u1021\u1000\u103B\u1004\u103A\u1037"))
+                    {
+                        AddOrUpdateEnrichedCandidate(results, rawTrimmed, "\u1021\u1000\u103B\u1004\u103A\u1037", 104.2);
                     }
                     // Stray creaky tone '\u1037' typed on an otherwise intact high-frequency closed syllable ('ဝယ့် -> ဝယ်')
                     if (lookalikeFixed.Length >= 4 &&

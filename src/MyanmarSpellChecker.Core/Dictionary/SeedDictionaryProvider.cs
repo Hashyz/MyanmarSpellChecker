@@ -149,6 +149,7 @@ namespace MyanmarSpellChecker.Core.Dictionary
                 new DictionaryEntry { Word = "အသုံးများ", MeaningCue = "အသုံးပြုသူများပြားသည် / တွင်ကျယ်သည်", PosTag = "V", IsOfficialThatpon = true, Frequency = 185 },
                 new DictionaryEntry { Word = "အိုဟိုင်းယိုး", MeaningCue = "အမေရိကန်ပြည်ထောင်စုရှိ ပြည်နယ်အမည် (Ohio)", PosTag = "PROPN", IsOfficialThatpon = true, Frequency = 65 },
                 new DictionaryEntry { Word = "နိဿဂ္ဂိယပါစိတ်", MeaningCue = "ပါဠိဝိနည်းပိဋကတ်လာ နိဿဂ္ဂိယပါစိတ်အာပတ် (၃၀ ပါး)", PosTag = "N", IsOfficialThatpon = true, Frequency = 45 },
+                new DictionaryEntry { Word = "ပရိဝါသ်", MeaningCue = "ပါဠိဝိနည်းပိဋကတ်လာ ပရိဝါသ်ဆောက်တည်ခြင်း (သံဃာဒိသိသ် ~)", PosTag = "N", IsOfficialThatpon = true, Frequency = 22 },
                 new DictionaryEntry { Word = "ပတ်ပလစ်", MeaningCue = "အများပြည်သူဆိုင်ရာ ကုမ္ပဏီအမည်သုံးပုဒ် (Public)", PosTag = "LOAN", IsOfficialThatpon = false, Frequency = 35 },
                 new DictionaryEntry { Word = "လိမီတက်", MeaningCue = "တာဝန်ကန့်သတ်ထားသော ကုမ္ပဏီအမည်သုံးပုဒ် မူကွဲ (Limited)", PosTag = "LOAN", IsOfficialThatpon = false, Frequency = 35 },
                 new DictionaryEntry { Word = "အာယနဲ", MeaningCue = "နိုင်ငံခြားလူပုဂ္ဂိုလ်အမည် (Ayane)", PosTag = "PROPN", IsOfficialThatpon = false, Frequency = 25 },
