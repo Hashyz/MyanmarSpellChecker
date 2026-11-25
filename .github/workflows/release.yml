@@ -6,8 +6,7 @@ on:
       - main
     paths:
       - 'Directory.Build.props'
-    tags:
-      - 'v*'
+      - '.github/workflows/release.yml'
   workflow_dispatch:
 
 permissions:
@@ -49,9 +48,10 @@ jobs:
       - name: Validate Single-File Setup.exe & Post-Package Architecture Gates
         shell: powershell
         run: |
-          .\artifacts\MyanmarSpellChecker-Setup.exe --validate
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          dotnet test .\tests\MyanmarSpellChecker.Core.Tests\MyanmarSpellChecker.Core.Tests.csproj -c Release --filter "FullyQualifiedName~V46_CleanMachine|FullyQualifiedName~V77_|FullyQualifiedName~V84_"
+          $valOut = .\artifacts\MyanmarSpellChecker-Setup.exe --validate | Out-String
+          Write-Host $valOut
+          if ($LASTEXITCODE -ne 0 -or $valOut -notmatch 'SETUP_VALIDATE_OK') { exit 1 }
+          dotnet test .\tests\MyanmarSpellChecker.Core.Tests\MyanmarSpellChecker.Core.Tests.csproj -c Release --no-build --filter "FullyQualifiedName~V46_CleanMachine|FullyQualifiedName~V77_|FullyQualifiedName~V84_"
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4

@@ -38,4 +38,6 @@ jobs:
         run: |
           powershell -NoProfile -ExecutionPolicy Bypass -STA -File .\installer\Easy-Setup.ps1 -ValidateOnly -Silent
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          .\src\MyanmarSpellChecker.Setup\bin\Release\net48\MyanmarSpellChecker-Setup.exe --validate
+          $valOut = .\src\MyanmarSpellChecker.Setup\bin\Release\net48\MyanmarSpellChecker-Setup.exe --validate | Out-String
+          Write-Host $valOut
+          if ($LASTEXITCODE -ne 0 -or $valOut -notmatch 'SETUP_VALIDATE_OK') { exit 1 }
