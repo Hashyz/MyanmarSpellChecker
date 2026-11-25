@@ -77,7 +77,11 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
         private int S(int logicalPx) => UiFontCache.ScaleLogicalPxForDpi(_dpi, logicalPx);
 
-        public LicenseActivationForm(string rsaPublicKeyXml, string licenseFilePath, int loadedWordCount = 0)
+        public LicenseActivationForm(
+            string rsaPublicKeyXml,
+            string licenseFilePath,
+            int loadedWordCount = 0,
+            Action? openUpdaterCallback = null)
         {
             if (!string.IsNullOrWhiteSpace(licenseFilePath) && File.Exists(licenseFilePath))
             {
@@ -238,6 +242,28 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 try { OfflineUserGuideExporter.OpenPrintableWordGuide(); } catch { }
             };
 
+            if (openUpdaterCallback != null)
+            {
+                var btnCheckUpdates = new Button
+                {
+                    Text = UiLocalizer.Pick("↻ Check Updates", "↻ ဗားရှင်းအသစ်"),
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    BackColor = Color.FromArgb(20, 108, 172),
+                    ForeColor = Color.White,
+                    FlatStyle = FlatStyle.Flat,
+                    Font = UiFontCache.GetMyanmar(9.0F, FontStyle.Bold),
+                    Padding = new Padding(S(9), S(4), S(9), S(4)),
+                    Margin = new Padding(0, 0, S(6), 0),
+                    Cursor = Cursors.Hand
+                };
+                btnCheckUpdates.FlatAppearance.BorderColor = Color.FromArgb(14, 84, 138);
+                btnCheckUpdates.Click += (s, e) =>
+                {
+                    try { openUpdaterCallback(); } catch { }
+                };
+                btnRow.Controls.Add(btnCheckUpdates);
+            }
             btnRow.Controls.Add(btnHtmlGuide);
             btnRow.Controls.Add(btnWordGuide);
             btnRow.Controls.Add(_btnCopyRepo);

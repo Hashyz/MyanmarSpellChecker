@@ -90,13 +90,18 @@ This project is open-source software licensed under the **[GNU General Public Li
 
 ### Step 1 — Install & Register the Unified 3-in-1 Suite (Word + Excel + PowerPoint)
 
-#### Option A — 1-Click Friendly Setup (Recommended for All Users — Zero `.NET SDK` / Zero Admin Needed)
-1. **Download or Clone:** Click **`Code ➔ Download ZIP`** on GitHub *(or download `MyanmarSpellChecker-EasySetup-OfficeSuite.zip`)* and **Right-click the `.zip` file ➔ `Extract All...`** into a normal folder first.
+#### Option A — 1-Click Single-File Setup Wizard (Recommended for All End Users — Zero Extraction / Zero Admin Needed)
+1. **Download `MyanmarSpellChecker-Setup.exe`** from **[GitHub Releases (`Latest`)](https://github.com/Hashyz/MyanmarSpellChecker/releases/latest)** *(or share that single `.exe` / `MyanmarSpellChecker-EasySetup-OfficeSuite.zip` directly via Telegram, Viber, Google Drive, or USB)*.
 2. **Close Microsoft Word, Excel, and PowerPoint** (save any open documents first).
-3. **Double-click `Install-MyanmarSpellChecker.bat`** inside the extracted folder *(or **`Install-EasyUser.bat`** inside the standalone Release ZIP — **no PowerShell commands, no `.NET SDK`, and no Administrator password required!**)*.
-4. A friendly confirmation popup (`✓ Installed successfully!`) will appear once the **15.17 MB (`96,276` spellcheck headwords + `57,064` Bilingual `EN ⇄ MM` entries + `25,001` Encyclopedia articles = `183,000+` compiled entries)** offline dictionary and all three **Word + Excel + PowerPoint** Add-ins are installed into `%LocalAppData%\MyanmarSpellChecker\app`.
-5. **Open Microsoft Word, Excel, or PowerPoint** — you will see the **`Myanmar Spell Checker`** Ribbon tab (plus a quick-launch button inside Office's **`Review`** tab) and the **4-Tab Myanmar Spell Checker Task Pane** docked on the right!
-   - **Default UI Language is English (`🌐 EN`)** — click **`🌐 EN` ⇄ `🌐 မြန်မာ`** in the Task Pane header (or **`UI: English ➔ မြန်မာ`** on the Ribbon) anytime to switch the entire interface live between **English (`Myanmar Spell Checker`)** and **Myanmar (`မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး`)** without restarting Word, Excel, or PowerPoint!
+3. **Double-click `MyanmarSpellChecker-Setup.exe`** and click **`✓ Install Suite`** (`✓ စတင်ထည့်သွင်းမည်`) — **zero `.zip` extraction, zero PowerShell commands, zero `.NET SDK`, and zero Administrator password required!**
+   - Includes **`[↻ Repair Office]`** (instantly fixes hidden/disabled Office Ribbons on any PC) and **`[✕ Uninstall]`**, plus standard **Windows Settings ➔ Installed Apps** registration.
+   - *(Portable ZIP Alternative: if using `MyanmarSpellChecker-EasySetup-OfficeSuite.zip` or `Code ➔ Download ZIP`, right-click ➔ **`Extract All...`** and double-click `Install-EasyUser.bat` or `Install-MyanmarSpellChecker.bat`.)*
+4. **Open Microsoft Word, Excel, or PowerPoint** — you will see the **`Myanmar Spell Checker`** Ribbon tab (plus a quick-launch button inside Office's **`Review`** tab) and the **4-Tab Myanmar Spell Checker Task Pane** docked on the right!
+   - **Default UI Language is English (`A/က EN`)** — click **`A/က EN` ⇄ `A/က မြန်မာ`** in the Task Pane header (or **`UI: English ➔ မြန်မာ`** on the Ribbon) anytime to switch the entire interface live between **English (`Myanmar Spell Checker`)** and **Myanmar (`မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး`)** without restarting Office!
+5. **How End Users Get Updates (`Check Updates` / `ဗားရှင်းအသစ် စစ်ရန်`):**
+   - Click **`Check Updates`** on the **`Myanmar Spell Checker` Ribbon** (or inside **`ⓘ About`**) in Word, Excel, or PowerPoint:
+     - **Online (`↻ Check Online`):** Verifies `SHA-256` against GitHub Releases (`100%` zero background telemetry by default; optional weekly check toggle). **Dictionary-only updates hot-swap live in `< 2s` with zero Office restart**, while full `.dll` updates stage safely and auto-apply in `2s` as soon as you close Office!
+     - **Offline / Air-Gapped (`+ Update from File`):** Apply any `.exe`, `.zip`, or `mlc_thatpon.db` directly from a USB stick or LAN folder while keeping all **Custom Words & Bookmarks** intact!
 
 #### Option B — Developer CLI Setup (From `git clone`)
 1. **Clone and build Release binaries** (`data\mlc_thatpon.db` is tracked directly in Git and automatically copied to `bin\Release\net48\`):

@@ -4100,6 +4100,7 @@ namespace MyanmarSpellChecker.Core.Tests
                 "AddInDiagnostics.cs",
                 Path.Combine("UI", "UiFontCache.cs"),
                 Path.Combine("UI", "LicenseActivationForm.cs"),
+                Path.Combine("UI", "PluginUpdateDialog.cs"),
                 Path.Combine("UI", "FixAllPreviewDialog.cs")
             })
             {
@@ -4161,7 +4162,7 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.False(File.Exists(Path.Combine(repoRoot, "installer", "obfuscar.xml")));
             string propsRaw = File.ReadAllText(Path.Combine(repoRoot, "Directory.Build.props"));
             Assert.Contains("PowerPoint", propsRaw, StringComparison.Ordinal);
-            Assert.Contains("1.0.83.0", propsRaw, StringComparison.Ordinal);
+            Assert.Contains("1.0.84.0", propsRaw, StringComparison.Ordinal);
 
             string ciYml = Path.Combine(repoRoot, ".github", "workflows", "ci.yml");
             string releaseYml = Path.Combine(repoRoot, ".github", "workflows", "release.yml");
@@ -4669,6 +4670,118 @@ namespace MyanmarSpellChecker.Core.Tests
             string expectedColloq = "သူ ဒီနေ့ နေမကောင်းဘူး ဆိုပေမဲ့ မနက်စာကို သူက စားပြီး အိမ်ကနေ ထွက်လာပြီး စာကြည့်တိုက်မှာ စာဖတ်နေကြတယ် ဆိုကာ မန္တလေးကို သွားမယ် လို့ ပြောတယ်။";
             var cIssues = generalEngine.CheckText(bossColloq, cacheParagraph: false);
             Assert.Equal(UnicodeNormalizer.NormalizeCanonicalOrder(expectedColloq), UnicodeNormalizer.NormalizeCanonicalOrder(ApplyTop1(bossColloq, cIssues)));
+        }
+
+        [Fact]
+        public void V84_SingleFileSetupExeUpdateManifestSignatureHotSwapAndOfflineInspector_Gate()
+        {
+            string repoRoot = TestPaths.RepoRoot;
+            string dbPath = TestPaths.EncryptedDbPath;
+
+            // 1. Version comparison & privacy-by-default preference gate
+            Assert.Equal("1.0.84.0", MyanmarSpellChecker.Core.Updates.PluginUpdateService.GetCurrentInstalledVersion());
+            Assert.True(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion("1.0.85.0", "1.0.84.0"));
+            Assert.True(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion("v1.0.84", "1.0.83.0"));
+            Assert.False(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion("1.0.84.0", "1.0.84.0"));
+            Assert.False(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion("1.0.83.0", "1.0.84.0"));
+            Assert.Equal("v1.0.84", MyanmarSpellChecker.Core.Updates.PluginUpdateService.FormatShortDisplayVersion("1.0.84.0"));
+
+            // 2. RSA-2048 Manifest Signing + Tamper Rejection + JSON Roundtrip
+            var (privXml, pubXml) = LicenseService.GenerateRsaKeyPair();
+            var manifest = new MyanmarSpellChecker.Core.Updates.UpdateManifest
+            {
+                Version = "1.0.85.0",
+                TagName = "v1.0.85",
+                SetupExeSha256 = "abcd1234",
+                SetupExeBytes = 18_500_000,
+                DatabaseSha256 = "ef905678",
+                DatabaseBytes = 16_300_000,
+                DatabaseDownloadUrl = "https://github.com/Hashyz/MyanmarSpellChecker/releases/download/v1.0.85/mlc_thatpon.db",
+                CoreDllSha256 = "1111",
+                WordDllSha256 = "2222",
+                ExcelDllSha256 = "3333",
+                PowerPointDllSha256 = "4444"
+            };
+            MyanmarSpellChecker.Core.Updates.PluginUpdateService.SignManifestWithRsaKey(manifest, privXml);
+            string json = MyanmarSpellChecker.Core.Updates.PluginUpdateService.SerializeManifestJson(manifest);
+            var parsed = MyanmarSpellChecker.Core.Updates.PluginUpdateService.ParseManifestJson(json);
+            Assert.NotNull(parsed);
+            Assert.True(MyanmarSpellChecker.Core.Updates.PluginUpdateService.VerifyManifestRsaSignature(parsed!, pubXml));
+
+            // Tampering with SHA-256 must invalidate the RSA-2048 signature immediately
+            parsed!.SetupExeSha256 = "deadbeef";
+            Assert.False(MyanmarSpellChecker.Core.Updates.PluginUpdateService.VerifyManifestRsaSignature(parsed, pubXml));
+
+            // 3. Dictionary-Only vs Full Binary Update Detection
+            string tempAppDir = Path.Combine(Path.GetTempPath(), "msc_v84_app_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempAppDir);
+            try
+            {
+                File.WriteAllText(Path.Combine(tempAppDir, "MyanmarSpellChecker.Core.dll"), "core-v84");
+                File.WriteAllText(Path.Combine(tempAppDir, "MyanmarSpellChecker.WordAddIn.dll"), "word-v84");
+                File.WriteAllText(Path.Combine(tempAppDir, "MyanmarSpellChecker.ExcelAddIn.dll"), "excel-v84");
+                File.WriteAllText(Path.Combine(tempAppDir, "MyanmarSpellChecker.PowerPointAddIn.dll"), "ppt-v84");
+                File.WriteAllText(Path.Combine(tempAppDir, "mlc_thatpon.db"), "old-db");
+
+                var dictOnlyManifest = new MyanmarSpellChecker.Core.Updates.UpdateManifest
+                {
+                    Version = "1.0.85.0",
+                    DatabaseDownloadUrl = "https://example.org/mlc_thatpon.db",
+                    CoreDllSha256 = MyanmarSpellChecker.Core.Updates.PluginUpdateService.ComputeFileSha256(Path.Combine(tempAppDir, "MyanmarSpellChecker.Core.dll")),
+                    WordDllSha256 = MyanmarSpellChecker.Core.Updates.PluginUpdateService.ComputeFileSha256(Path.Combine(tempAppDir, "MyanmarSpellChecker.WordAddIn.dll")),
+                    ExcelDllSha256 = MyanmarSpellChecker.Core.Updates.PluginUpdateService.ComputeFileSha256(Path.Combine(tempAppDir, "MyanmarSpellChecker.ExcelAddIn.dll")),
+                    PowerPointDllSha256 = MyanmarSpellChecker.Core.Updates.PluginUpdateService.ComputeFileSha256(Path.Combine(tempAppDir, "MyanmarSpellChecker.PowerPointAddIn.dll")),
+                    DatabaseSha256 = "new_db_sha256_different_from_old"
+                };
+                Assert.True(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsDictionaryOnlyUpdate(dictOnlyManifest, tempAppDir));
+
+                dictOnlyManifest.CoreDllSha256 = "changed_core_dll_hash";
+                Assert.False(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsDictionaryOnlyUpdate(dictOnlyManifest, tempAppDir));
+            }
+            finally
+            {
+                try { Directory.Delete(tempAppDir, recursive: true); } catch { }
+            }
+
+            // 4. Offline Local Update Package Inspector (.db + Setup.exe + Zero UTF-16 Surrogates in Setup Wizard)
+            var dbInspect = MyanmarSpellChecker.Core.Updates.PluginUpdateService.InspectLocalUpdatePackage(dbPath);
+            Assert.True(dbInspect.IsValid, dbInspect.ErrorMessageEn);
+            Assert.Equal(MyanmarSpellChecker.Core.Updates.LocalUpdatePackageKind.DictionaryDatabaseOnly, dbInspect.Kind);
+            Assert.True(dbInspect.VerifiedHeadwordCount >= 90_000);
+
+            string setupSrc = File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.Setup", "Program.cs"));
+            Assert.False(setupSrc.Any(char.IsSurrogate), "Setup wizard source must contain zero UTF-16 surrogates.");
+
+            string[] candidateSetupExes =
+            {
+                Path.Combine(repoRoot, "artifacts", "MyanmarSpellChecker-Setup.exe"),
+                Path.Combine(repoRoot, "src", "MyanmarSpellChecker.Setup", "bin", "Release", "net48", "MyanmarSpellChecker-Setup.exe"),
+                Path.Combine(repoRoot, "src", "MyanmarSpellChecker.Setup", "bin", "Debug", "net48", "MyanmarSpellChecker-Setup.exe")
+            };
+            string? foundSetupExe = candidateSetupExes.FirstOrDefault(File.Exists);
+            if (foundSetupExe != null)
+            {
+                var exeInspect = MyanmarSpellChecker.Core.Updates.PluginUpdateService.InspectLocalUpdatePackage(foundSetupExe);
+                Assert.True(exeInspect.IsValid, exeInspect.ErrorMessageEn);
+                Assert.Equal(MyanmarSpellChecker.Core.Updates.LocalUpdatePackageKind.SingleFileSetupExe, exeInspect.Kind);
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = foundSetupExe,
+                    Arguments = "--validate",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+                using (var proc = Process.Start(psi)!)
+                {
+                    string stdout = proc.StandardOutput.ReadToEnd();
+                    proc.WaitForExit(15000);
+                    Assert.Equal(0, proc.ExitCode);
+                    Assert.Contains("SETUP_VALIDATE_OK", stdout, StringComparison.Ordinal);
+                }
+            }
         }
     }
 }

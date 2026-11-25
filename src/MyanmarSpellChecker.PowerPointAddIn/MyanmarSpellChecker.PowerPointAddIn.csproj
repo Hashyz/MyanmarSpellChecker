@@ -24,6 +24,9 @@
     <Compile Include="..\Shared\UI\LicenseActivationForm.cs" Link="UI\LicenseActivationForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="..\Shared\UI\PluginUpdateDialog.cs" Link="UI\PluginUpdateDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="..\Shared\UI\FixAllPreviewDialog.cs" Link="UI\FixAllPreviewDialog.cs">
       <SubType>Form</SubType>
     </Compile>

@@ -48,6 +48,8 @@ namespace MyanmarSpellChecker.AdminTools
                     return RunSignLicense(args);
                 case "export-guide":
                     return RunExportUserGuide(args);
+                case "generate-manifest":
+                    return RunGenerateUpdateManifest(args);
                 case "benchmark":
                     return ProofingBenchmarkRunner.Run(args);
                 default:
@@ -93,6 +95,30 @@ namespace MyanmarSpellChecker.AdminTools
             Console.WriteLine($"[+] Exported User Guide (MD)  : {Path.GetFullPath(mdPath)}");
             Console.WriteLine($"[+] Exported User Guide (HTML): {Path.GetFullPath(htmlPath)}");
             Console.WriteLine($"[+] Exported User Guide (DOCX): {Path.GetFullPath(docxPath)}");
+            return 0;
+        }
+
+        private static int RunGenerateUpdateManifest(string[] args)
+        {
+            string artifactsDir = args.Length > 1 ? args[1] : "artifacts";
+            string releasePkgDir = args.Length > 2 ? args[2] : Path.Combine(artifactsDir, "release-package");
+            string ver = MyanmarSpellChecker.Core.Updates.PluginUpdateService.GetCurrentInstalledVersion();
+            string tag = args.Length > 3 ? args[3] : MyanmarSpellChecker.Core.Updates.PluginUpdateService.FormatShortDisplayVersion(ver);
+
+            string? privKeyXml = null;
+            string candKeyFile = Path.Combine(artifactsDir, "vendor_private_key.xml");
+            if (File.Exists(candKeyFile))
+            {
+                privKeyXml = File.ReadAllText(candKeyFile, Encoding.UTF8).Trim();
+            }
+
+            var manifest = MyanmarSpellChecker.Core.Updates.PluginUpdateService.BuildReleaseManifestFromArtifacts(
+                artifactsDir, releasePkgDir, ver, tag, privKeyXml);
+            string json = MyanmarSpellChecker.Core.Updates.PluginUpdateService.SerializeManifestJson(manifest);
+            Directory.CreateDirectory(artifactsDir);
+            string outPath = Path.Combine(artifactsDir, "update-manifest.json");
+            File.WriteAllText(outPath, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            Console.WriteLine($"[+] Generated Update Manifest : {Path.GetFullPath(outPath)} (Version={manifest.Version}, Tag={manifest.TagName})");
             return 0;
         }
 

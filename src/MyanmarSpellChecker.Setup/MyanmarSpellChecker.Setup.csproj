@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <RootNamespace>MyanmarSpellChecker.Setup</RootNamespace>
+    <AssemblyName>MyanmarSpellChecker-Setup</AssemblyName>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.Security" />
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('..\..\artifacts\setup-payload.zip')">
+    <EmbeddedResource Include="..\..\artifacts\setup-payload.zip" LogicalName="MyanmarSpellChecker.Payload.zip" />
+  </ItemGroup>
+
+</Project>

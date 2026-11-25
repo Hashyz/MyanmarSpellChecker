@@ -2341,6 +2341,12 @@ namespace MyanmarSpellChecker.WordAddIn
                   imageMso='Info'
                   onAction='OnRibbonOpenLicense'
                   getScreentip='GetRibbonScreentip' />
+          <button id='BtnCheckUpdates'
+                  getLabel='GetRibbonLabel'
+                  size='normal'
+                  imageMso='Refresh'
+                  onAction='OnRibbonCheckUpdates'
+                  getScreentip='GetRibbonScreentip' />
           <menu id='MnuUserGuide'
                 getLabel='GetRibbonLabel'
                 size='normal'
@@ -2425,6 +2431,17 @@ namespace MyanmarSpellChecker.WordAddIn
         public void OnRibbonLoad(Office.IRibbonUI ribbonUi)
         {
             _ribbonUi = ribbonUi;
+            if (MyanmarSpellChecker.Core.Updates.PluginUpdateService.ShouldRunOptInWeeklyCheckNow())
+            {
+                Task.Run(async () =>
+                {
+                    var res = await MyanmarSpellChecker.Core.Updates.PluginUpdateService.CheckGitHubReleaseAsync().ConfigureAwait(false);
+                    if (res.IsUpdateAvailable)
+                    {
+                        try { _ribbonUi?.InvalidateControl("BtnCheckUpdates"); } catch { }
+                    }
+                });
+            }
         }
 
         public string GetRibbonLabel(Office.IRibbonControl control)
@@ -2458,6 +2475,11 @@ namespace MyanmarSpellChecker.WordAddIn
                 "BtnToggleUiLanguage" => UiLocalizer.Pick("UI: English (⇄ မြန်မာ)", "UI: မြန်မာ (⇄ EN)"),
                 "BtnManageCustomWords" => UiLocalizer.Pick("Custom Words", "မှတ်သားဝေါဟာရ စီမံရန်"),
                 "BtnLicenseActivation" => UiLocalizer.Pick("About & GPLv3 License", "ဖန်တီးသူနှင့် လိုင်စင် (GPLv3)"),
+                "BtnCheckUpdates" => MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion(
+                    MyanmarSpellChecker.Core.Updates.PluginUpdateService.LoadPreferences().AvailableCachedVersion,
+                    MyanmarSpellChecker.Core.Updates.PluginUpdateService.GetCurrentInstalledVersion())
+                    ? UiLocalizer.Pick("↑ Update Ready!", "↑ ဗားရှင်းအသစ် ရှိသည်!")
+                    : UiLocalizer.Pick("Check Updates", "ဗားရှင်းအသစ် စစ်ရန်"),
                 "MnuUserGuide" => UiLocalizer.Pick("User Guide", "အသုံးပြုပုံ လမ်းညွှန်"),
                 "BtnGuideHtml" => UiLocalizer.Pick("Interactive Searchable Guide (HTML)", "အပြန်အလှန် ရှာဖွေဖတ်ရှုရန် လမ်းညွှန် (HTML)"),
                 "BtnGuideDocx" => UiLocalizer.Pick("Printable A4 Manual (Word .docx)", "ပုံနှိပ်ရန်အသင့် A4 လမ်းညွှန်စာအုပ် (.docx)"),
@@ -2528,6 +2550,9 @@ namespace MyanmarSpellChecker.WordAddIn
                 "BtnLicenseActivation" => UiLocalizer.Pick(
                     "View system info, creator Htet Yar Zar (Kyaukse University), and GNU GPL v3.0 open-source license",
                     "စနစ်အချက်အလက်၊ ဖန်တီးသူ ထက်ရာဇာ (ကျောက်ဆည်တက္ကသိုလ်) နှင့် GNU GPL v3.0 Open-Source လိုင်စင် ကြည့်ရှုရန်"),
+                "BtnCheckUpdates" => UiLocalizer.Pick(
+                    "Check GitHub Releases for new versions or update offline from a USB file (.exe / .zip / .db)",
+                    "GitHub မှ ဗားရှင်းအသစ် စစ်ဆေးရန် သို့မဟုတ် အင်တာနက်မလိုဘဲ USB ဖိုင် (.exe / .zip / .db) မှ အဆင့်မြှင့်ရန်"),
                 "MnuUserGuide" => UiLocalizer.Pick(
                     "Open the 100% offline Bilingual User Guide & Complete Tool Handbook (Interactive HTML or Printable A4 Word)",
                     "၁၀၀% အော့ဖ်လိုင်း အသုံးပြုပုံလမ်းညွှန်နှင့် ကိရိယာအညွှန်းစာအုပ် ဖွင့်ရန် (HTML သို့မဟုတ် A4 Word)"),
@@ -2894,6 +2919,71 @@ namespace MyanmarSpellChecker.WordAddIn
         }
 
         private LicenseActivationForm? _activeAboutDialog;
+        private PluginUpdateDialog? _activeUpdateDialog;
+
+        public void OnRibbonCheckUpdates(Office.IRibbonControl control)
+        {
+            AddInDiagnostics.SafeExecute("OnRibbonCheckUpdates", ShowUpdateDialog);
+        }
+
+        private void ShowUpdateDialog()
+        {
+            if (_activeUpdateDialog != null && !_activeUpdateDialog.IsDisposed)
+            {
+                if (_activeUpdateDialog.WindowState == FormWindowState.Minimized)
+                    _activeUpdateDialog.WindowState = FormWindowState.Normal;
+                _activeUpdateDialog.BringToFront();
+                _activeUpdateDialog.Activate();
+                return;
+            }
+
+            int totalEntries = (_proofingEngine?.Trie.WordCount ?? 0) + (_proofingEngine?.Trie.ReferenceCount ?? 0);
+            string keySnapshot = !string.IsNullOrWhiteSpace(_activeDatabaseKey)
+                ? _activeDatabaseKey
+                : AntiTamperGuard.ReconstructProtectedFallbackKey();
+
+            var dlg = new PluginUpdateDialog(
+                totalEntries,
+                _databaseFilePath,
+                keySnapshot,
+                (freshTrie, appliedPath) =>
+                {
+                    if (_proofingEngine != null)
+                    {
+                        _proofingEngine.HotSwapTrie(freshTrie);
+                        if (!string.IsNullOrWhiteSpace(_customDictFilePath))
+                            _proofingEngine.LoadCustomDictionaryFile(_customDictFilePath);
+                    }
+                    SafeBeginInvokeUi(_uiMarshaller, () =>
+                    {
+                        try { _loadedDbLastWriteUtc = File.GetLastWriteTimeUtc(appliedPath); } catch { }
+                        foreach (var kvp in _windowTaskPanes.Values)
+                        {
+                            kvp.Control.SetLexiconStats(
+                                freshTrie.WordCount,
+                                freshTrie.OfficialThatponCount,
+                                freshTrie.RuleCount,
+                                freshTrie.ReferenceCount,
+                                freshTrie.EncyclopediaCount);
+                        }
+                        if (_wordApp?.ActiveDocument != null)
+                        {
+                            _documentScanner?.InvalidateParagraphCache(_wordApp.ActiveDocument, resetNoProofCache: true);
+                            _documentScanner?.ScanFullDocumentAsync();
+                        }
+                    });
+                },
+                () => { try { _ribbonUi?.InvalidateControl("BtnCheckUpdates"); } catch { } });
+
+            _activeUpdateDialog = dlg;
+            dlg.FormClosed += (s, e) =>
+            {
+                if (ReferenceEquals(_activeUpdateDialog, dlg))
+                    _activeUpdateDialog = null;
+                try { dlg.Dispose(); } catch { }
+            };
+            dlg.Show();
+        }
 
         private void ShowLicenseDialog()
         {
@@ -2908,7 +2998,7 @@ namespace MyanmarSpellChecker.WordAddIn
 
             int totalEntries = (_proofingEngine?.Trie.WordCount ?? 0) + (_proofingEngine?.Trie.ReferenceCount ?? 0);
             string resolvedPubKey = LicenseService.ResolvePublicKeyXml(_licenseFilePath, DefaultVendorPublicKeyXml);
-            var dlg = new LicenseActivationForm(resolvedPubKey, _licenseFilePath, totalEntries)
+            var dlg = new LicenseActivationForm(resolvedPubKey, _licenseFilePath, totalEntries, ShowUpdateDialog)
             {
                 MinimizeBox = true,
                 ShowInTaskbar = true

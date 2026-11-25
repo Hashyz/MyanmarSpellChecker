@@ -360,9 +360,11 @@ if (Test-Path $adminExe) {
     }
 }
 
-# Build lock-safe standalone EasySetup .zip archive even if MS Word, Excel, or PowerPoint is currently open!
-$zipOutPath   = Join-Path $artifactsDir "MyanmarSpellChecker-EasySetup-OfficeSuite.zip"
-$zipStaging   = Join-Path $artifactsDir "zip-staging"
+# Build lock-safe standalone EasySetup .zip archive + Single-File GUI MyanmarSpellChecker-Setup.exe + update-manifest.json!
+$zipOutPath     = Join-Path $artifactsDir "MyanmarSpellChecker-EasySetup-OfficeSuite.zip"
+$payloadZipPath = Join-Path $artifactsDir "setup-payload.zip"
+$setupOutExe    = Join-Path $artifactsDir "MyanmarSpellChecker-Setup.exe"
+$zipStaging     = Join-Path $artifactsDir "zip-staging"
 if (Test-Path $zipStaging) { Remove-Item -Path $zipStaging -Recurse -Force -ErrorAction SilentlyContinue }
 New-Item -ItemType Directory -Path $zipStaging -Force | Out-Null
 [System.IO.File]::Copy($unlockedCoreSrc, (Join-Path $zipStaging "MyanmarSpellChecker.Core.dll"), $true)
@@ -376,11 +378,31 @@ foreach ($extra in @("Easy-Setup.ps1", "Install-EasyUser.bat", "Uninstall-EasyUs
     if (Test-Path $extraSrc) { [System.IO.File]::Copy($extraSrc, (Join-Path $zipStaging $extra), $true) }
 }
 if (Test-Path $zipOutPath) { Remove-Item -Path $zipOutPath -Force }
+if (Test-Path $payloadZipPath) { Remove-Item -Path $payloadZipPath -Force }
 Compress-Archive -Path (Join-Path $zipStaging "*") -DestinationPath $zipOutPath -CompressionLevel Optimal -Force
+[System.IO.File]::Copy($zipOutPath, $payloadZipPath, $true)
 Remove-Item -Path $zipStaging -Recurse -Force -ErrorAction SilentlyContinue
 
-Write-Host "[5/5] Unified 3-in-1 Office Suite Release Package & Standalone ZIP Ready:" -ForegroundColor Green
+# Compile Single-File Bilingual GUI Installer (MyanmarSpellChecker-Setup.exe) with embedded payload!
+$setupOutDir = Join-Path $artifactsDir "setup-bin"
+if (Test-Path $setupOutDir) { Remove-Item -Path $setupOutDir -Recurse -Force -ErrorAction SilentlyContinue }
+New-Item -ItemType Directory -Path $setupOutDir -Force | Out-Null
+& dotnet build (Join-Path $repoRoot "src\MyanmarSpellChecker.Setup\MyanmarSpellChecker.Setup.csproj") -c Release -o $setupOutDir /p:DebugType=none /p:DebugSymbols=false --no-incremental
+if ($LASTEXITCODE -ne 0) { throw "Single-file Setup.exe compilation failed." }
+[System.IO.File]::Copy((Join-Path $setupOutDir "MyanmarSpellChecker-Setup.exe"), $setupOutExe, $true)
+Remove-Item -Path $setupOutDir -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path $payloadZipPath -Force -ErrorAction SilentlyContinue
+
+$sigSetup = Set-AuthenticodeSignature -FilePath $setupOutExe -Certificate $cert -HashAlgorithm SHA256
+Write-Host "    Signed single-file MyanmarSpellChecker-Setup.exe -> Status: $($sigSetup.Status)" -ForegroundColor Green
+
+if (Test-Path $adminExe) {
+    & $adminExe generate-manifest $artifactsDir $releasePkgDir
+}
+
+Write-Host "[5/5] Unified 3-in-1 Office Suite Release Package, Single-File Setup.exe & Standalone ZIP Ready:" -ForegroundColor Green
 Write-Host "      Package Dir : $releasePkgDir" -ForegroundColor Green
 Write-Host "      Prebuilt Dir: $prebuiltDir" -ForegroundColor Green
+Write-Host "      Setup EXE   : $setupOutExe ($([Math]::Round((Get-Item $setupOutExe).Length / 1MB, 2)) MB)" -ForegroundColor Green
 Write-Host "      EasySetup   : $zipOutPath ($([Math]::Round((Get-Item $zipOutPath).Length / 1MB, 2)) MB)" -ForegroundColor Green
 Get-ChildItem $releasePkgDir | Select-Object Name, Length

@@ -35,4 +35,7 @@ jobs:
 
       - name: Validate 1-Click Installer Package Resolution
         shell: powershell
-        run: powershell -NoProfile -ExecutionPolicy Bypass -STA -File .\installer\Easy-Setup.ps1 -ValidateOnly -Silent
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -STA -File .\installer\Easy-Setup.ps1 -ValidateOnly -Silent
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          .\src\MyanmarSpellChecker.Setup\bin\Release\net48\MyanmarSpellChecker-Setup.exe --validate

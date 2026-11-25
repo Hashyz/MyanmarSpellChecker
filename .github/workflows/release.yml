@@ -2,6 +2,10 @@ name: Release Unified Office Suite
 
 on:
   push:
+    branches:
+      - main
+    paths:
+      - 'Directory.Build.props'
     tags:
       - 'v*'
   workflow_dispatch:
@@ -11,7 +15,7 @@ permissions:
 
 jobs:
   package-release:
-    name: Build Signed Word + Excel + PowerPoint Release Bundle
+    name: Build Signed Single-File Setup.exe, EasySetup.zip & Update Manifest
     runs-on: windows-latest
 
     steps:
@@ -23,29 +27,54 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Build Signed Release Package & User Guides
+      - name: Resolve Release Version & Tag
+        id: ver
+        shell: powershell
+        run: |
+          [xml]$props = Get-Content .\Directory.Build.props -Raw
+          $fv = $props.Project.PropertyGroup.FileVersion.Trim()
+          $parts = $fv.Split('.')
+          $shortTag = if ($parts.Length -ge 4 -and $parts[3] -ne '0') { "v$fv" } else { "v$($parts[0]).$($parts[1]).$($parts[2])" }
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+              $shortTag = $env:GITHUB_REF -replace '^refs/tags/', ''
+          }
+          "file_version=$fv" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "tag_name=$shortTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Resolved FileVersion=$fv, TagName=$shortTag"
+
+      - name: Build Signed Release Package, Single-File Setup.exe & User Guides
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\installer\Build-EnterpriseRelease.ps1
 
-      - name: Run Post-Package Clean-Machine & Architecture Gates
+      - name: Validate Single-File Setup.exe & Post-Package Architecture Gates
         shell: powershell
-        run: dotnet test .\tests\MyanmarSpellChecker.Core.Tests\MyanmarSpellChecker.Core.Tests.csproj -c Release --no-build --filter "FullyQualifiedName~V46_CleanMachine|FullyQualifiedName~V77_"
+        run: |
+          .\artifacts\MyanmarSpellChecker-Setup.exe --validate
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          dotnet test .\tests\MyanmarSpellChecker.Core.Tests\MyanmarSpellChecker.Core.Tests.csproj -c Release --filter "FullyQualifiedName~V46_CleanMachine|FullyQualifiedName~V77_|FullyQualifiedName~V84_"
 
-      - name: Upload Build Artifact
+      - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: MyanmarSpellChecker-EasySetup-OfficeSuite
+          name: MyanmarSpellChecker-Release-${{ steps.ver.outputs.tag_name }}
           path: |
+            artifacts/MyanmarSpellChecker-Setup.exe
             artifacts/MyanmarSpellChecker-EasySetup-OfficeSuite.zip
+            artifacts/mlc_thatpon.db
+            artifacts/update-manifest.json
             docs/Myanmar-Spell-Checker-User-Guide.html
             docs/Myanmar-Spell-Checker-User-Guide.docx
 
-      - name: Publish GitHub Release (On Tag Push)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish GitHub Release (Setup.exe + EasySetup.zip + Manifest + Dictionary)
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.ver.outputs.tag_name }}
+          name: "Myanmar Official Spell Checker Suite ${{ steps.ver.outputs.tag_name }} (Word + Excel + PowerPoint)"
           files: |
+            artifacts/MyanmarSpellChecker-Setup.exe
             artifacts/MyanmarSpellChecker-EasySetup-OfficeSuite.zip
+            artifacts/mlc_thatpon.db
+            artifacts/update-manifest.json
             docs/Myanmar-Spell-Checker-User-Guide.html
             docs/Myanmar-Spell-Checker-User-Guide.docx
           generate_release_notes: true
