@@ -78,6 +78,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             AutoScaleMode = AutoScaleMode.None;
             DoubleBuffered = true;
+            try { Icon = UiFontCache.GetSharedBrandIcon(); } catch { }
             FormBorderStyle = FormBorderStyle.Sizable;
             MaximizeBox = true;
             MinimizeBox = true;
@@ -172,6 +173,21 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             mainCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             mainCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
+            var headerFlow = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Margin = new Padding(0, 0, 0, S(6))
+            };
+            headerFlow.Controls.Add(new PictureBox
+            {
+                Size = new Size(S(36), S(36)),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                Image = UiFontCache.GetBrandLogoBitmap(96),
+                Margin = new Padding(0, 0, S(10), 0)
+            });
             var lblHeader = new Label
             {
                 Text = UiLocalizer.Pick(
@@ -180,8 +196,9 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Font = UiFontCache.GetMyanmar(10.5F, FontStyle.Bold),
                 ForeColor = HostHeaderFore,
                 AutoSize = true,
-                Margin = new Padding(0, 0, 0, S(6))
+                Margin = new Padding(0, S(6), 0, 0)
             };
+            headerFlow.Controls.Add(lblHeader);
 
             _lblInstalledBadge = new Label
             {
@@ -283,7 +300,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 _preferencesChangedCallback?.Invoke();
             };
 
-            mainCard.Controls.Add(lblHeader, 0, 0);
+            mainCard.Controls.Add(headerFlow, 0, 0);
             mainCard.Controls.Add(_lblInstalledBadge, 0, 1);
             mainCard.Controls.Add(_lblPrivacyNote, 0, 2);
             mainCard.Controls.Add(detailsPanel, 0, 3);

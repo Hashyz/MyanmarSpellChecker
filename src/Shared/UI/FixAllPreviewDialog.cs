@@ -211,6 +211,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 #endif
             _allEntries = entries?.ToList() ?? new List<FixPreviewEntry<TPayload>>();
             _dpi = UiFontCache.GetEffectiveDpi(this);
+            try { Icon = UiFontCache.GetSharedBrandIcon(); } catch { }
 
             var savedPrefs = ReviewWindowPreferencesStore.Load(_callbacks.HostTag);
             _isPinnedTopMost = savedPrefs.IsPinnedTopMost;

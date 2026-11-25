@@ -1,3 +1,5 @@
+<p align="left"><img src="images/myanmar-spell-checker-logo.png" width="80" height="80" align="left" alt="Myanmar Spell Checker Logo" /></p>
+
 # Myanmar Spell Checker — Complete Illustrated User Guide & Architecture Handbook
 ## မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး — ပုံနှင့်တကွ အသုံးပြုပုံလမ်းညွှန်အပြည့်အစုံ (Word • Excel • PowerPoint)
 

@@ -98,6 +98,7 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             AutoScaleMode = AutoScaleMode.None;
             DoubleBuffered = true;
+            try { Icon = UiFontCache.GetSharedBrandIcon(); } catch { }
 #if HOST_EXCEL
             Text = UiLocalizer.Pick(
                 "Myanmar Spell Checker (Excel) — About & Open-Source License",
@@ -304,6 +305,21 @@ namespace MyanmarSpellChecker.WordAddIn.UI
 
             int r = 0;
 
+            var headerRow = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Margin = new Padding(0, S(2), 0, S(6))
+            };
+            var picBrand = new PictureBox
+            {
+                Size = new Size(S(42), S(42)),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                Image = UiFontCache.GetBrandLogoBitmap(96),
+                Margin = new Padding(0, 0, S(10), 0)
+            };
             var lblHeader = new Label
             {
                 Text = UiLocalizer.Pick(
@@ -312,13 +328,15 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                 Font = UiFontCache.GetMyanmar(10.8F, FontStyle.Bold),
                 ForeColor = HostHeaderFore,
                 AutoSize = true,
-                MaximumSize = new Size(initWrapWidth, 0),
-                Margin = new Padding(0, S(2), 0, S(6)),
+                MaximumSize = new Size(Math.Max(S(180), initWrapWidth - S(56)), 0),
+                Margin = new Padding(0, S(4), 0, 0),
                 Padding = new Padding(S(2), S(2), S(2), S(2))
             };
             _wrappableLabels.Add(lblHeader);
+            headerRow.Controls.Add(picBrand);
+            headerRow.Controls.Add(lblHeader);
             _cardPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            _cardPanel.Controls.Add(lblHeader, 0, r++);
+            _cardPanel.Controls.Add(headerRow, 0, r++);
 
             string statsLine = loadedWordCount > 0
                 ? UiLocalizer.Pick(

@@ -701,6 +701,13 @@ namespace MyanmarSpellChecker.Setup
             ClientSize = new Size(590, 430);
             BackColor = Color.FromArgb(244, 247, 252);
             Font = CreateMyanmarFont(9.5f, FontStyle.Regular);
+            try
+            {
+                string selfLoc = Assembly.GetExecutingAssembly().Location;
+                if (!string.IsNullOrWhiteSpace(selfLoc) && File.Exists(selfLoc))
+                    Icon = Icon.ExtractAssociatedIcon(selfLoc);
+            }
+            catch { }
 
             var headerPanel = new Panel
             {
@@ -710,19 +717,28 @@ namespace MyanmarSpellChecker.Setup
                 Padding = new Padding(18, 12, 18, 10)
             };
 
+            var picLogo = new PictureBox
+            {
+                Location = new Point(18, 13),
+                Size = new Size(58, 58),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                BackColor = Color.Transparent,
+                Image = RenderSetupHeaderLogoBitmap(116)
+            };
+
             _lblTitle = new Label
             {
                 ForeColor = Color.White,
                 Font = CreateMyanmarFont(12.0f, FontStyle.Bold),
                 AutoSize = true,
-                Location = new Point(18, 13)
+                Location = new Point(86, 13)
             };
             _lblSubTitle = new Label
             {
                 ForeColor = Color.FromArgb(218, 232, 255),
                 Font = CreateMyanmarFont(9.0f, FontStyle.Regular),
                 AutoSize = true,
-                Location = new Point(18, 46)
+                Location = new Point(86, 46)
             };
             _btnLang = new Button
             {
@@ -743,6 +759,7 @@ namespace MyanmarSpellChecker.Setup
             };
 
             headerPanel.Controls.Add(_btnLang);
+            headerPanel.Controls.Add(picLogo);
             headerPanel.Controls.Add(_lblTitle);
             headerPanel.Controls.Add(_lblSubTitle);
 
@@ -1014,6 +1031,83 @@ namespace MyanmarSpellChecker.Setup
             return btn;
         }
 
+        internal static Bitmap RenderSetupHeaderLogoBitmap(int size)
+        {
+            var bmp = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+                g.Clear(Color.Transparent);
+
+                float s = size / 512f;
+                float pad = Math.Max(1f, 20f * s);
+                float w = size - 2f * pad;
+                float r = 108f * s;
+                using (var gp = new System.Drawing.Drawing2D.GraphicsPath())
+                {
+                    float d = r * 2f;
+                    gp.AddArc(pad, pad, d, d, 180, 90);
+                    gp.AddArc(pad + w - d, pad, d, d, 270, 90);
+                    gp.AddArc(pad + w - d, pad + w - d, d, d, 0, 90);
+                    gp.AddArc(pad, pad + w - d, d, d, 90, 90);
+                    gp.CloseFigure();
+                    using (var bg = new System.Drawing.Drawing2D.LinearGradientBrush(
+                        new PointF(0, 0), new PointF(size, size),
+                        Color.FromArgb(11, 46, 107), Color.FromArgb(34, 116, 224)))
+                    {
+                        g.FillPath(bg, gp);
+                    }
+                    using (var rim = new Pen(Color.FromArgb(175, 190, 224, 255), Math.Max(1.2f, 8f * s)))
+                    {
+                        g.DrawPath(rim, gp);
+                    }
+                }
+
+                using (var goldBrush = new SolidBrush(Color.FromArgb(240, 255, 218, 106)))
+                {
+                    g.FillRectangle(goldBrush, 134f * s, 342f * s, 244f * s, 28f * s);
+                }
+                using (var whitePage = new SolidBrush(Color.FromArgb(245, 255, 255, 255)))
+                {
+                    g.FillRectangle(whitePage, 146f * s, 326f * s, 220f * s, 22f * s);
+                }
+
+                using (var kaFont = new Font(CreateMyanmarFont(10f, FontStyle.Bold).FontFamily, Math.Max(8f, 188f * s), FontStyle.Bold, GraphicsUnit.Pixel))
+                using (var sf = new StringFormat(StringFormat.GenericTypographic) { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+                {
+                    g.DrawString("\u1000", kaFont, Brushes.White, new PointF(252f * s, 220f * s), sf);
+                }
+
+                float cx = 388f * s, cy = 388f * s, ri = 74f * s;
+                var chkRect = new RectangleF(cx - ri, cy - ri, ri * 2f, ri * 2f);
+                using (var chkBrush = new System.Drawing.Drawing2D.LinearGradientBrush(chkRect, Color.FromArgb(18, 150, 79), Color.FromArgb(34, 197, 107), 45f))
+                {
+                    g.FillEllipse(chkBrush, chkRect);
+                }
+                using (var ringPen = new Pen(Color.White, Math.Max(1.2f, 10f * s)))
+                {
+                    g.DrawEllipse(ringPen, chkRect);
+                }
+                using (var tickPen = new Pen(Color.White, Math.Max(1.6f, 18f * s))
+                {
+                    StartCap = System.Drawing.Drawing2D.LineCap.Round,
+                    EndCap = System.Drawing.Drawing2D.LineCap.Round,
+                    LineJoin = System.Drawing.Drawing2D.LineJoin.Round
+                })
+                {
+                    g.DrawLines(tickPen, new[]
+                    {
+                        new PointF(cx - 35f * s, cy + 2f * s),
+                        new PointF(cx - 10f * s, cy + 26f * s),
+                        new PointF(cx + 38f * s, cy - 25f * s)
+                    });
+                }
+            }
+            return bmp;
+        }
+
         internal static Font CreateMyanmarFont(float sizePt, FontStyle style)
         {
             foreach (string family in new[] { "Pyidaungsu", "Myanmar Text", "Segoe UI" })
@@ -1055,6 +1149,13 @@ namespace MyanmarSpellChecker.Setup
             BackColor = Color.White;
             Text = "Myanmar Spell Checker — Ready to Finish Update";
             Font = SetupWizardForm.CreateMyanmarFont(9.3f, FontStyle.Regular);
+            try
+            {
+                string selfLoc = Assembly.GetExecutingAssembly().Location;
+                if (!string.IsNullOrWhiteSpace(selfLoc) && File.Exists(selfLoc))
+                    Icon = Icon.ExtractAssociatedIcon(selfLoc);
+            }
+            catch { }
 
             _lblInfo = new Label
             {

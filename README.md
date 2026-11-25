@@ -1,3 +1,7 @@
+<p align="left">
+  <img src="./assets/branding/myanmar-spell-checker-logo.svg" width="84" height="84" align="left" alt="Myanmar Spell Checker Official Logo" />
+</p>
+
 # မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း — Enterprise Offline Myanmar Proofing, Grammar & Dictionary Suite for Microsoft Word, Excel & PowerPoint
 
 [![CI Gate](https://github.com/Hashyz/MyanmarSpellChecker/actions/workflows/ci.yml/badge.svg)](./.github/workflows/ci.yml)

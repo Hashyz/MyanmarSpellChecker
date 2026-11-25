@@ -2246,7 +2246,7 @@ namespace MyanmarSpellChecker.WordAddIn
           <toggleButton id='BtnReviewTogglePane'
                         getLabel='GetRibbonLabel'
                         size='large'
-                        imageMso='SpellingAndGrammar'
+                        getImage='GetRibbonBrandImage'
                         getPressed='GetTaskPanePressed'
                         onAction='OnRibbonToggleTaskPane'
                         getScreentip='GetRibbonScreentip' />
@@ -2319,7 +2319,7 @@ namespace MyanmarSpellChecker.WordAddIn
           <toggleButton id='BtnToggleTaskPane'
                         getLabel='GetRibbonLabel'
                         size='large'
-                        imageMso='ResearchPane'
+                        getImage='GetRibbonBrandImage'
                         getPressed='GetTaskPanePressed'
                         onAction='OnRibbonToggleTaskPane'
                         getScreentip='GetRibbonScreentip' />
@@ -2443,6 +2443,9 @@ namespace MyanmarSpellChecker.WordAddIn
                 });
             }
         }
+
+        public System.Drawing.Bitmap GetRibbonBrandImage(Office.IRibbonControl control) =>
+            UiFontCache.GetBrandLogoBitmap(64);
 
         public string GetRibbonLabel(Office.IRibbonControl control)
         {

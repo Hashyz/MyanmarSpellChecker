@@ -703,6 +703,8 @@ namespace MyanmarSpellChecker.Core.Official
             var chapters = BuildStructuredChapters();
             var sb = new StringBuilder(49152);
 
+            sb.AppendLine("<p align=\"left\"><img src=\"images/myanmar-spell-checker-logo.png\" width=\"80\" height=\"80\" align=\"left\" alt=\"Myanmar Spell Checker Logo\" /></p>");
+            sb.AppendLine();
             sb.AppendLine("# Myanmar Spell Checker — Complete Illustrated User Guide & Architecture Handbook");
             sb.AppendLine("## မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး — ပုံနှင့်တကွ အသုံးပြုပုံလမ်းညွှန်အပြည့်အစုံ (Word • Excel • PowerPoint)");
             sb.AppendLine();
@@ -794,17 +796,29 @@ namespace MyanmarSpellChecker.Core.Official
 
         // ==================== 2. INTERACTIVE OFFLINE HTML HANDBOOK GENERATOR ====================
 
+        private const string InlineBrandLogoSvgDataUri =
+            "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect x='24' y='24' width='464' height='464' rx='108' fill='%231656BA'/%3E%3Cpath d='M138 292 V206 C138 150 252 150 252 206 V292 C252 256 206 252 188 278 M252 214 C252 150 368 150 368 206 V292' fill='none' stroke='%23FFFFFF' stroke-width='34' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='388' cy='388' r='74' fill='%2318A957' stroke='%23FFFFFF' stroke-width='12'/%3E%3Cpath d='M352 389 L377 414 L428 361' fill='none' stroke='%23FFFFFF' stroke-width='20' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E";
+
         public static string BuildInteractiveHtmlUserGuide(string? imagesDirectoryOverride = null)
         {
             var chapters = BuildStructuredChapters();
             string? imgDir = FindDefaultImagesDirectory(imagesDirectoryOverride);
+            string logoDataUri = InlineBrandLogoSvgDataUri;
+            if (!string.IsNullOrEmpty(imgDir))
+            {
+                string logoPng = Path.Combine(imgDir!, "myanmar-spell-checker-logo.png");
+                if (File.Exists(logoPng))
+                    logoDataUri = "data:image/png;base64," + Convert.ToBase64String(File.ReadAllBytes(logoPng));
+            }
             var sb = new StringBuilder(131072);
 
             sb.Append(@"<!DOCTYPE html>
 <html lang=""en"">
 <head>
 <meta charset=""UTF-8"">
-<meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
+<meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">");
+            sb.Append("\r\n<link rel=\"icon\" href=\"").Append(logoDataUri).Append("\">");
+            sb.Append(@"
 <title>Myanmar Spell Checker — Illustrated User Guide (မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး လမ်းညွှန်)</title>
 <style>
 :root {
@@ -932,9 +946,12 @@ footer.credits {
 </head>
 <body data-lang=""both"">
 <header class=""topbar"">
-  <div>
-    <div class=""topbar-title"">Myanmar Spell Checker — Illustrated User Guide &amp; Tool Handbook</div>
-    <div class=""topbar-sub"">မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး ပုံနှင့်တကွ အသုံးပြုပုံလမ်းညွှန် (Word • Excel • PowerPoint — 100% Offline)</div>
+  <div style=""display:flex;align-items:center;gap:12px;"">
+    <img src=""").Append(logoDataUri).Append(@""" alt=""Logo"" width=""44"" height=""44"" style=""border-radius:10px;flex-shrink:0;"" />
+    <div>
+      <div class=""topbar-title"">Myanmar Spell Checker — Illustrated User Guide &amp; Tool Handbook</div>
+      <div class=""topbar-sub"">မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး ပုံနှင့်တကွ အသုံးပြုပုံလမ်းညွှန် (Word • Excel • PowerPoint — 100% Offline)</div>
+    </div>
   </div>
   <div class=""toolbar"">
     <input id=""searchBox"" class=""search-input"" type=""search"" placeholder=""Search tools, captions, FAQ... (ရှာရန်)"" oninput=""filterGuide(this.value)"" />
@@ -1129,6 +1146,13 @@ document.addEventListener('keydown', function(e) {
         {
             var chapters = BuildStructuredChapters();
             string? imgDir = FindDefaultImagesDirectory(imagesDirectoryOverride);
+            string logoDataUri = InlineBrandLogoSvgDataUri;
+            if (!string.IsNullOrEmpty(imgDir))
+            {
+                string logoPng = Path.Combine(imgDir!, "myanmar-spell-checker-logo.png");
+                if (File.Exists(logoPng))
+                    logoDataUri = "data:image/png;base64," + Convert.ToBase64String(File.ReadAllBytes(logoPng));
+            }
             var embeddedImages = new Dictionary<int, (string RelId, string MediaName, byte[] Bytes, long WidthEmu, long HeightEmu)>();
 
             if (!string.IsNullOrEmpty(imgDir))

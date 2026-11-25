@@ -639,6 +639,127 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             }
         }
 
+        private static readonly ConcurrentDictionary<int, Bitmap> s_brandLogoCache = new ConcurrentDictionary<int, Bitmap>();
+        private static Icon? s_sharedBrandIcon;
+
+        [DllImport("user32.dll", SetLastError = false)]
+        private static extern bool DestroyIcon(IntPtr hIcon);
+
+        public static Icon GetSharedBrandIcon()
+        {
+            if (s_sharedBrandIcon != null)
+                return s_sharedBrandIcon;
+
+            using (var bmp = CreateFreshBrandLogoBitmap(32))
+            {
+                IntPtr hIcon = bmp.GetHicon();
+                try
+                {
+                    s_sharedBrandIcon = (Icon)Icon.FromHandle(hIcon).Clone();
+                }
+                finally
+                {
+                    DestroyIcon(hIcon);
+                }
+            }
+            return s_sharedBrandIcon;
+        }
+
+        public static Bitmap GetBrandLogoBitmap(int sizePx)
+        {
+            int clamped = Math.Max(16, Math.Min(256, sizePx));
+            return s_brandLogoCache.GetOrAdd(clamped, CreateFreshBrandLogoBitmap);
+        }
+
+        private static Bitmap CreateFreshBrandLogoBitmap(int size)
+        {
+            var bmp = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+                g.Clear(Color.Transparent);
+
+                float s = size / 512f;
+                float pad = Math.Max(1f, 22f * s);
+                float tileW = size - 2f * pad;
+                float r = 108f * s;
+                using (var gp = new System.Drawing.Drawing2D.GraphicsPath())
+                {
+                    float d = r * 2f;
+                    gp.AddArc(pad, pad, d, d, 180, 90);
+                    gp.AddArc(pad + tileW - d, pad, d, d, 270, 90);
+                    gp.AddArc(pad + tileW - d, pad + tileW - d, d, d, 0, 90);
+                    gp.AddArc(pad, pad + tileW - d, d, d, 90, 90);
+                    gp.CloseFigure();
+                    using (var bg = new System.Drawing.Drawing2D.LinearGradientBrush(
+                        new PointF(0, 0), new PointF(size, size),
+                        Color.FromArgb(11, 46, 107), Color.FromArgb(34, 116, 224)))
+                    {
+                        g.FillPath(bg, gp);
+                    }
+                    if (size >= 32)
+                    {
+                        using (var rim = new Pen(Color.FromArgb(150, 178, 218, 255), Math.Max(1f, 6f * s)))
+                        {
+                            g.DrawPath(rim, gp);
+                        }
+                    }
+                }
+
+                if (size >= 44)
+                {
+                    using (var goldPage = new SolidBrush(Color.FromArgb(238, 255, 218, 106)))
+                        g.FillRectangle(goldPage, 132f * s, 346f * s, 248f * s, 26f * s);
+                    using (var whitePage = new SolidBrush(Color.FromArgb(245, 255, 255, 255)))
+                        g.FillRectangle(whitePage, 144f * s, 330f * s, 224f * s, 20f * s);
+                }
+
+                float glyphPx = size < 32 ? 215f * s : 188f * s;
+                using (var kaFont = new Font(MyanmarFontFamily, Math.Max(7f, glyphPx), FontStyle.Bold, GraphicsUnit.Pixel))
+                using (var sf = new StringFormat(StringFormat.GenericTypographic) { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+                {
+                    float kx = size < 32 ? 242f * s : 252f * s;
+                    float ky = size < 44 ? 248f * s : 222f * s;
+                    g.DrawString("\u1000", kaFont, Brushes.White, new PointF(kx, ky), sf);
+                }
+
+                float cx = size < 32 ? 392f * s : 388f * s;
+                float cy = size < 32 ? 392f * s : 388f * s;
+                float ri = size < 32 ? 86f * s : 74f * s;
+                float ro = size < 32 ? 98f * s : 84f * s;
+                using (var halo = new SolidBrush(Color.FromArgb(11, 46, 107)))
+                    g.FillEllipse(halo, cx - ro, cy - ro, ro * 2f, ro * 2f);
+
+                var chkRect = new RectangleF(cx - ri, cy - ri, ri * 2f, ri * 2f);
+                using (var chkBrush = new System.Drawing.Drawing2D.LinearGradientBrush(
+                    chkRect, Color.FromArgb(18, 150, 79), Color.FromArgb(34, 197, 107), 45f))
+                {
+                    g.FillEllipse(chkBrush, chkRect);
+                }
+                using (var ringPen = new Pen(Color.White, Math.Max(1.2f, 9f * s)))
+                    g.DrawEllipse(ringPen, chkRect);
+
+                using (var tickPen = new Pen(Color.White, Math.Max(1.6f, 18f * s))
+                {
+                    StartCap = System.Drawing.Drawing2D.LineCap.Round,
+                    EndCap = System.Drawing.Drawing2D.LineCap.Round,
+                    LineJoin = System.Drawing.Drawing2D.LineJoin.Round
+                })
+                {
+                    g.DrawLines(tickPen, new[]
+                    {
+                        new PointF(cx - 35f * s, cy + 2f * s),
+                        new PointF(cx - 10f * s, cy + 26f * s),
+                        new PointF(cx + 38f * s, cy - 25f * s)
+                    });
+                }
+            }
+            return bmp;
+        }
+
         private static string ResolveBestMyanmarFontFamily()
         {
             string[] candidates = { "Pyidaungsu", "Myanmar Text", "Padauk", "Segoe UI" };

@@ -4164,7 +4164,7 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.False(File.Exists(Path.Combine(repoRoot, "installer", "obfuscar.xml")));
             string propsRaw = File.ReadAllText(Path.Combine(repoRoot, "Directory.Build.props"));
             Assert.Contains("PowerPoint", propsRaw, StringComparison.Ordinal);
-            Assert.Contains("1.0.84.0", propsRaw, StringComparison.Ordinal);
+            Assert.Contains("1.0.85.0", propsRaw, StringComparison.Ordinal);
 
             string ciYml = Path.Combine(repoRoot, ".github", "workflows", "ci.yml");
             string releaseYml = Path.Combine(repoRoot, ".github", "workflows", "release.yml");
@@ -4721,12 +4721,12 @@ namespace MyanmarSpellChecker.Core.Tests
             string dbPath = TestPaths.EncryptedDbPath;
 
             // 1. Version comparison & privacy-by-default preference gate
-            Assert.Equal("1.0.84.0", MyanmarSpellChecker.Core.Updates.PluginUpdateService.GetCurrentInstalledVersion());
-            Assert.True(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion("1.0.85.0", "1.0.84.0"));
-            Assert.True(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion("v1.0.84", "1.0.83.0"));
-            Assert.False(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion("1.0.84.0", "1.0.84.0"));
-            Assert.False(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion("1.0.83.0", "1.0.84.0"));
-            Assert.Equal("v1.0.84", MyanmarSpellChecker.Core.Updates.PluginUpdateService.FormatShortDisplayVersion("1.0.84.0"));
+            Assert.Equal("1.0.85.0", MyanmarSpellChecker.Core.Updates.PluginUpdateService.GetCurrentInstalledVersion());
+            Assert.True(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion("1.0.86.0", "1.0.85.0"));
+            Assert.True(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion("v1.0.85", "1.0.84.0"));
+            Assert.False(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion("1.0.85.0", "1.0.85.0"));
+            Assert.False(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion("1.0.84.0", "1.0.85.0"));
+            Assert.Equal("v1.0.85", MyanmarSpellChecker.Core.Updates.PluginUpdateService.FormatShortDisplayVersion("1.0.85.0"));
 
             // 2. RSA-2048 Manifest Signing + Tamper Rejection + JSON Roundtrip
             var (privXml, pubXml) = LicenseService.GenerateRsaKeyPair();
@@ -4824,6 +4824,45 @@ namespace MyanmarSpellChecker.Core.Tests
                     Assert.Contains("SETUP_VALIDATE_OK", stdout, StringComparison.Ordinal);
                 }
             }
+        }
+
+        [Fact]
+        public void V85_OfficialBrandLogoSvgPngMultiFrameIcoApplicationIconAndRibbon_Gate()
+        {
+            string repoRoot = TestPaths.RepoRoot;
+            string brandDir = Path.Combine(repoRoot, "assets", "branding");
+            string svgPath = Path.Combine(brandDir, "myanmar-spell-checker-logo.svg");
+            string pngPath = Path.Combine(brandDir, "myanmar-spell-checker-logo-512.png");
+            string icoPath = Path.Combine(brandDir, "myanmar-spell-checker.ico");
+
+            Assert.True(File.Exists(svgPath), $"Expected vector brand SVG at {svgPath}");
+            Assert.True(File.Exists(pngPath), $"Expected 512x512 master PNG at {pngPath}");
+            Assert.True(File.Exists(icoPath), $"Expected multi-frame Windows .ico at {icoPath}");
+
+            byte[] pngBytes = File.ReadAllBytes(pngPath);
+            Assert.Equal(0x89, pngBytes[0]);
+            int width = (pngBytes[16] << 24) | (pngBytes[17] << 16) | (pngBytes[18] << 8) | pngBytes[19];
+            int height = (pngBytes[20] << 24) | (pngBytes[21] << 16) | (pngBytes[22] << 8) | pngBytes[23];
+            Assert.Equal(512, width);
+            Assert.Equal(512, height);
+
+            byte[] icoBytes = File.ReadAllBytes(icoPath);
+            Assert.True(icoBytes.Length > 10_000);
+            Assert.Equal(0, icoBytes[0]);
+            Assert.Equal(0, icoBytes[1]);
+            Assert.Equal(1, icoBytes[2]); // Type = ICO
+            Assert.Equal(0, icoBytes[3]);
+            int frameCount = icoBytes[4] | (icoBytes[5] << 8);
+            Assert.Equal(7, frameCount);
+
+            // Verify Setup.csproj & AdminTools.csproj embed ApplicationIcon and Product.wxs defines ARPPRODUCTICON
+            Assert.Contains("ApplicationIcon", File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.Setup", "MyanmarSpellChecker.Setup.csproj")), StringComparison.Ordinal);
+            Assert.Contains("ApplicationIcon", File.ReadAllText(Path.Combine(repoRoot, "src", "MyanmarSpellChecker.AdminTools", "MyanmarSpellChecker.AdminTools.csproj")), StringComparison.Ordinal);
+            Assert.Contains("ARPPRODUCTICON", File.ReadAllText(Path.Combine(repoRoot, "installer", "Product.wxs")), StringComparison.Ordinal);
+            Assert.Contains("myanmar-spell-checker-logo.svg", File.ReadAllText(Path.Combine(repoRoot, "README.md")), StringComparison.Ordinal);
+
+            string htmlGuide = OfflineUserGuideExporter.BuildInteractiveHtmlUserGuide();
+            Assert.Contains("<link rel=\"icon\"", htmlGuide, StringComparison.Ordinal);
         }
     }
 }

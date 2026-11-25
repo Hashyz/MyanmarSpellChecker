@@ -8,6 +8,7 @@
     <PlatformTarget>AnyCPU</PlatformTarget>
     <RootNamespace>MyanmarSpellChecker.Setup</RootNamespace>
     <AssemblyName>MyanmarSpellChecker-Setup</AssemblyName>
+    <ApplicationIcon>..\..\assets\branding\myanmar-spell-checker.ico</ApplicationIcon>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <Deterministic>true</Deterministic>
   </PropertyGroup>

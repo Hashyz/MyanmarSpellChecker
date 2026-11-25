@@ -3,7 +3,7 @@
   <Product Id="*"
            Name="Myanmar Official Spell &amp; Grammar Checker (မြန်မာစာ စာလုံးပေါင်းသတ်ပုံကျမ်း)"
            Language="1033"
-           Version="1.0.84.0"
+           Version="1.0.85.0"
            Manufacturer="Htet Yar Zar (ထက်ရာဇာ) — Department of Geology, Kyaukse University"
            UpgradeCode="94E1B231-7A40-4C9B-B112-65E8A9012C44">
 
@@ -14,6 +14,8 @@
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of Myanmar Spell Checker is already installed." />
     <MediaTemplate EmbedCab="yes" />
+    <Icon Id="ProductIcon.ico" SourceFile="..\assets\branding\myanmar-spell-checker.ico" />
+    <Property Id="ARPPRODUCTICON" Value="ProductIcon.ico" />
 
     <!-- Directory Structure: Program Files + %ProgramData%\MyanmarSpellChecker for GPO License & Encrypted DB -->
     <Directory Id="TARGETDIR" Name="SourceDir">
