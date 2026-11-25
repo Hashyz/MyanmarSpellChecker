@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   package-release:
@@ -19,16 +20,19 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup .NET 8 SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '8.0.x'
 
-      - name: Resolve Release Version & Tag
+      - name: Resolve Release Version, Tag & SignPath Status
         id: ver
         shell: powershell
+        env:
+          SP_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SP_ORG: ${{ secrets.SIGNPATH_ORG_ID }}
         run: |
           [xml]$props = Get-Content .\Directory.Build.props -Raw
           $fv = $props.Project.PropertyGroup.FileVersion.Trim()
@@ -37,13 +41,50 @@ jobs:
           if ($env:GITHUB_REF -like 'refs/tags/v*') {
               $shortTag = $env:GITHUB_REF -replace '^refs/tags/', ''
           }
+          $spEnabled = (-not [string]::IsNullOrWhiteSpace($env:SP_TOKEN)) -and (-not [string]::IsNullOrWhiteSpace($env:SP_ORG))
           "file_version=$fv" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "tag_name=$shortTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          Write-Host "Resolved FileVersion=$fv, TagName=$shortTag"
+          "signpath_enabled=$($spEnabled.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Resolved FileVersion=$fv, TagName=$shortTag, SignPathEnabled=$spEnabled"
 
-      - name: Build Signed Release Package, Single-File Setup.exe & User Guides
+      - name: Build Release Package, Single-File Setup.exe & User Guides
         shell: powershell
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\installer\Build-EnterpriseRelease.ps1
+        run: |
+          if ('${{ steps.ver.outputs.signpath_enabled }}' -eq 'true') {
+              powershell -NoProfile -ExecutionPolicy Bypass -File .\installer\Build-EnterpriseRelease.ps1 -SkipSetupExeSelfSign
+          } else {
+              powershell -NoProfile -ExecutionPolicy Bypass -File .\installer\Build-EnterpriseRelease.ps1
+          }
+
+      - name: Upload Unsigned Setup.exe for SignPath Foundation Signing
+        id: upload_signpath
+        if: steps.ver.outputs.signpath_enabled == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: signpath-unsigned-setup-${{ steps.ver.outputs.tag_name }}
+          path: artifacts/MyanmarSpellChecker-Setup.exe
+
+      - name: Submit Signing Request to SignPath Foundation
+        if: steps.ver.outputs.signpath_enabled == 'true'
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORG_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'myanmar-spell-checker' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
+          github-artifact-id: ${{ steps.upload_signpath.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: artifacts/signpath-signed
+
+      - name: Apply SignPath-Signed Setup.exe & Refresh SHA-256 Update Manifest
+        if: steps.ver.outputs.signpath_enabled == 'true'
+        shell: powershell
+        run: |
+          $signedExe = Get-ChildItem -Path .\artifacts\signpath-signed -Recurse -Filter 'MyanmarSpellChecker-Setup.exe' | Select-Object -First 1
+          if (-not $signedExe) { throw "SignPath signed MyanmarSpellChecker-Setup.exe was not found." }
+          Copy-Item -Path $signedExe.FullName -Destination .\artifacts\MyanmarSpellChecker-Setup.exe -Force
+          .\src\MyanmarSpellChecker.AdminTools\bin\Release\net48\MyanmarSpellChecker.AdminTools.exe generate-manifest .\artifacts .\artifacts\release-package
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Validate Single-File Setup.exe & Post-Package Architecture Gates
         shell: powershell
@@ -54,7 +95,7 @@ jobs:
           dotnet test .\tests\MyanmarSpellChecker.Core.Tests\MyanmarSpellChecker.Core.Tests.csproj -c Release --no-build --filter "FullyQualifiedName~V46_CleanMachine|FullyQualifiedName~V77_|FullyQualifiedName~V84_"
 
       - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: MyanmarSpellChecker-Release-${{ steps.ver.outputs.tag_name }}
           path: |
@@ -66,10 +107,19 @@ jobs:
             docs/Myanmar-Spell-Checker-User-Guide.docx
 
       - name: Publish GitHub Release (Setup.exe + EasySetup.zip + Manifest + Dictionary)
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.ver.outputs.tag_name }}
           name: "Myanmar Official Spell Checker Suite ${{ steps.ver.outputs.tag_name }} (Word + Excel + PowerPoint)"
+          body: |
+            ### ⚡ 1-Click Install (`အလွယ်တကူ ထည့်သွင်းနည်း`)
+            1. Download **`MyanmarSpellChecker-Setup.exe`** below *(single self-contained `17.8 MB` installer — already embeds the encrypted `mlc_thatpon.db` dictionary; no `.zip` extraction or Admin password needed)*.
+            2. Close Microsoft Word, Excel, and PowerPoint, double-click **`MyanmarSpellChecker-Setup.exe`**, and click **`✓ Install Suite`** (`✓ စတင်ထည့်သွင်းမည်`).
+            3. **Windows SmartScreen Note:** If Microsoft Defender SmartScreen displays *"Windows protected your PC"* on a freshly published open-source build, click **`More info` ➔ `Run anyway`** (`"More info" ကိုနှိပ်ပြီး "Run anyway" ကိုနှိပ်ပါ`). Once installed, Office and in-app `Check Updates` never show SmartScreen again.
+
+            > **Code Signing & Privacy:** Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). See our [Code signing policy](https://github.com/Hashyz/MyanmarSpellChecker/blob/main/CODE_SIGNING_POLICY.md) — 100% offline proofing with zero telemetry.
+
+            ---
           files: |
             artifacts/MyanmarSpellChecker-Setup.exe
             artifacts/MyanmarSpellChecker-EasySetup-OfficeSuite.zip

@@ -4871,6 +4871,19 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.Contains("\\u1019\\u102D\\u102F\\u1038", setupCode, StringComparison.Ordinal);
             string uiCacheCode = File.ReadAllText(Path.Combine(repoRoot, "src", "Shared", "UI", "UiFontCache.cs"));
             Assert.Contains("\\u1019\\u102D\\u102F\\u1038", uiCacheCode, StringComparison.Ordinal);
+
+            // Verify SignPath Foundation CODE_SIGNING_POLICY.md & Node 24 GitHub Actions workflows
+            string policyPath = Path.Combine(repoRoot, "CODE_SIGNING_POLICY.md");
+            Assert.True(File.Exists(policyPath), "Expected CODE_SIGNING_POLICY.md at repository root.");
+            string policyText = File.ReadAllText(policyPath);
+            Assert.Contains("SignPath Foundation", policyText, StringComparison.Ordinal);
+            Assert.Contains("This program will not transfer any information to other networked systems unless specifically requested by the user", policyText, StringComparison.Ordinal);
+
+            string ciYml = File.ReadAllText(Path.Combine(repoRoot, ".github", "workflows", "ci.yml"));
+            string relYml = File.ReadAllText(Path.Combine(repoRoot, ".github", "workflows", "release.yml"));
+            Assert.DoesNotContain("@v4", ciYml, StringComparison.Ordinal);
+            Assert.DoesNotContain("@v4", relYml, StringComparison.Ordinal);
+            Assert.Contains("signpath/github-action-submit-signing-request@v2", relYml, StringComparison.Ordinal);
         }
     }
 }

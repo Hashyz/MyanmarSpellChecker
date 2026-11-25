@@ -40,6 +40,11 @@ This project is open-source software licensed under the **[GNU General Public Li
 2. **Mandatory Preservation of Author Attribution (GPLv3 Section 7b):** Removing, hiding, or altering the [`NOTICE`](./NOTICE) file, source copyright headers, assembly metadata (`Directory.Build.props`), or visible in-app **Creator & Academic Attribution** credits (`Htet Yar Zar (ထက်ရာဇာ) — Department of Geology, Kyaukse University, Kyaukse, Myanmar`) is legally prohibited.
 3. **No Misrepresentation of Origin (GPLv3 Section 7c):** You may **not** claim original authorship of this software or present unmodified/modified copies as your own uncredited academic, institutional, or commercial project. For academic and software citation metadata, see [`CITATION.cff`](./CITATION.cff) (or click **"Cite this repository"** on GitHub).
 
+### Code Signing Policy & Zero-Telemetry Privacy Guarantee
+
+- **Open-Source Code Signing:** Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). See our full **[Code signing policy](./CODE_SIGNING_POLICY.md)** for automated CI build provenance and governance roles.
+- **Zero-Telemetry Privacy Policy:** This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. All spell checking, grammar analysis, dictionary lookups, and document tools run 100% offline.
+
 ---
 
 ## Visual Tour — Annotated Screenshots & Bilingual Captions (`ပုံနှင့်တကွ စနစ်အသုံးပြုပုံ အကျဉ်းချုပ်`)
@@ -98,7 +103,8 @@ This project is open-source software licensed under the **[GNU General Public Li
 1. **Download `MyanmarSpellChecker-Setup.exe`** from **[GitHub Releases (`Latest`)](https://github.com/Hashyz/MyanmarSpellChecker/releases/latest)** *(or share that single `.exe` / `MyanmarSpellChecker-EasySetup-OfficeSuite.zip` directly via Telegram, Viber, Google Drive, or USB)*.
 2. **Close Microsoft Word, Excel, and PowerPoint** (save any open documents first).
 3. **Double-click `MyanmarSpellChecker-Setup.exe`** and click **`✓ Install Suite`** (`✓ စတင်ထည့်သွင်းမည်`) — **zero `.zip` extraction, zero PowerShell commands, zero `.NET SDK`, and zero Administrator password required!**
-   - Includes **`[↻ Repair Office]`** (instantly fixes hidden/disabled Office Ribbons on any PC) and **`[✕ Uninstall]`**, plus standard **Windows Settings ➔ Installed Apps** registration.
+   - **Windows SmartScreen Note (`"Windows protected your PC"`):** If Windows shows a blue SmartScreen prompt on a newly published open-source release before public reputation finishes building, click **`More info`** ➔ **`Run anyway`** (`"More info" ကိုနှိပ်ပြီး "Run anyway" ကိုနှိပ်ပါ`). Once installed, Word, Excel, PowerPoint, and in-app updates never show SmartScreen again.
+   - Includes **`[↻ Repair Office]`** (instantly fixes hidden/disabled Office Ribbons on any PC), **`[Guide]`**, optional **`"မိုး"`** Desktop shortcut, and **`[✕ Uninstall]`**, plus standard **Windows Settings ➔ Installed Apps** registration.
    - *(Portable ZIP Alternative: if using `MyanmarSpellChecker-EasySetup-OfficeSuite.zip` or `Code ➔ Download ZIP`, right-click ➔ **`Extract All...`** and double-click `Install-EasyUser.bat` or `Install-MyanmarSpellChecker.bat`.)*
 4. **Open Microsoft Word, Excel, or PowerPoint** — you will see the **`Myanmar Spell Checker`** Ribbon tab (plus a quick-launch button inside Office's **`Review`** tab) and the **4-Tab Myanmar Spell Checker Task Pane** docked on the right!
    - **Default UI Language is English (`A/က EN`)** — click **`A/က EN` ⇄ `A/က မြန်မာ`** in the Task Pane header (or **`UI: English ➔ မြန်မာ`** on the Ribbon) anytime to switch the entire interface live between **English (`Myanmar Spell Checker`)** and **Myanmar (`မြန်မာစာ စာလုံးပေါင်းစစ်ဆေးရေး`)** without restarting Office!

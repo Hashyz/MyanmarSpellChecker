@@ -1,5 +1,6 @@
 ﻿param(
-    [string]$CertSubject = "CN=Myanmar Official Spell Checker (B2G Enterprise)"
+    [string]$CertSubject = "CN=Myanmar Official Spell Checker (B2G Enterprise)",
+    [switch]$SkipSetupExeSelfSign
 )
 
 $ErrorActionPreference = "Stop"
@@ -393,8 +394,12 @@ if ($LASTEXITCODE -ne 0) { throw "Single-file Setup.exe compilation failed." }
 Remove-Item -Path $setupOutDir -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -Path $payloadZipPath -Force -ErrorAction SilentlyContinue
 
-$sigSetup = Set-AuthenticodeSignature -FilePath $setupOutExe -Certificate $cert -HashAlgorithm SHA256
-Write-Host "    Signed single-file MyanmarSpellChecker-Setup.exe -> Status: $($sigSetup.Status)" -ForegroundColor Green
+if (-not $SkipSetupExeSelfSign) {
+    $sigSetup = Set-AuthenticodeSignature -FilePath $setupOutExe -Certificate $cert -HashAlgorithm SHA256
+    Write-Host "    Signed single-file MyanmarSpellChecker-Setup.exe -> Status: $($sigSetup.Status)" -ForegroundColor Green
+} else {
+    Write-Host "    Skipped local self-signing of MyanmarSpellChecker-Setup.exe (awaiting SignPath Foundation HSM)." -ForegroundColor Cyan
+}
 
 if (Test-Path $adminExe) {
     & $adminExe generate-manifest $artifactsDir $releasePkgDir
