@@ -648,8 +648,56 @@ namespace MyanmarSpellChecker.Setup
             catch { }
         }
 
+        public const string MoeDesktopShortcutFileName = "\u1019\u102D\u102F\u1038.lnk"; // မိုး.lnk
+
+        public static string GetMoeDesktopShortcutPath() =>
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), MoeDesktopShortcutFileName);
+
+        public static void CreateMoeDesktopShortcut()
+        {
+            try
+            {
+                string localRoot = GetLocalRootDir();
+                string setupExe = Path.Combine(localRoot, "MyanmarSpellChecker-Setup.exe");
+                if (!File.Exists(setupExe))
+                {
+                    setupExe = Assembly.GetExecutingAssembly().Location;
+                }
+                if (string.IsNullOrWhiteSpace(setupExe) || !File.Exists(setupExe))
+                    return;
+
+                string lnkPath = GetMoeDesktopShortcutPath();
+                Type? shellType = Type.GetTypeFromProgID("WScript.Shell");
+                if (shellType == null)
+                    return;
+
+                object? shell = Activator.CreateInstance(shellType);
+                if (shell == null)
+                    return;
+
+                object? shortcut = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { lnkPath });
+                if (shortcut != null)
+                {
+                    Type scType = shortcut.GetType();
+                    scType.InvokeMember("TargetPath", BindingFlags.SetProperty, null, shortcut, new object[] { setupExe });
+                    scType.InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, shortcut, new object[] { localRoot });
+                    scType.InvokeMember("IconLocation", BindingFlags.SetProperty, null, shortcut, new object[] { setupExe + ",0" });
+                    scType.InvokeMember("Description", BindingFlags.SetProperty, null, shortcut, new object[] { "မိုး — Myanmar Official Spell Checker & Offline Dictionary Suite" });
+                    scType.InvokeMember("Save", BindingFlags.InvokeMethod, null, shortcut, null);
+                }
+            }
+            catch { }
+        }
+
         public static void ExecuteUninstall()
         {
+            try
+            {
+                string moeLnk = GetMoeDesktopShortcutPath();
+                if (File.Exists(moeLnk))
+                    File.Delete(moeLnk);
+            }
+            catch { }
             foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
             {
                 using (var hkcu = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, view))
@@ -683,9 +731,11 @@ namespace MyanmarSpellChecker.Setup
         private readonly Label _lblStatusCard;
         private readonly Label _lblFeatures;
         private readonly Label _lblAuthor;
+        private readonly CheckBox _chkDesktopMoeShortcut;
         private readonly Label _lblProgress;
         private readonly Button _btnLang;
         private readonly Button _btnInstall;
+        private readonly Button _btnGuide;
         private readonly Button _btnRepair;
         private readonly Button _btnUninstall;
         private readonly Button _btnClose;
@@ -698,7 +748,7 @@ namespace MyanmarSpellChecker.Setup
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
-            ClientSize = new Size(590, 430);
+            ClientSize = new Size(590, 464);
             BackColor = Color.FromArgb(244, 247, 252);
             Font = CreateMyanmarFont(9.5f, FontStyle.Regular);
             try
@@ -766,7 +816,7 @@ namespace MyanmarSpellChecker.Setup
             var bodyCard = new Panel
             {
                 Location = new Point(18, 98),
-                Size = new Size(554, 266),
+                Size = new Size(554, 298),
                 BackColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle,
                 Padding = new Padding(16)
@@ -786,15 +836,15 @@ namespace MyanmarSpellChecker.Setup
 
             _lblFeatures = new Label
             {
-                Location = new Point(14, 70),
-                Size = new Size(524, 112),
+                Location = new Point(14, 68),
+                Size = new Size(524, 110),
                 ForeColor = Color.FromArgb(36, 48, 66),
                 Font = CreateMyanmarFont(9.1f, FontStyle.Regular)
             };
 
             _lblAuthor = new Label
             {
-                Location = new Point(14, 186),
+                Location = new Point(14, 182),
                 Size = new Size(524, 46),
                 BackColor = Color.FromArgb(245, 248, 255),
                 ForeColor = Color.FromArgb(34, 54, 92),
@@ -804,9 +854,19 @@ namespace MyanmarSpellChecker.Setup
                 Padding = new Padding(8, 4, 8, 4)
             };
 
+            _chkDesktopMoeShortcut = new CheckBox
+            {
+                Location = new Point(14, 236),
+                Size = new Size(524, 26),
+                Checked = false,
+                ForeColor = Color.FromArgb(22, 56, 108),
+                Font = CreateMyanmarFont(9.0f, FontStyle.Bold),
+                Cursor = Cursors.Hand
+            };
+
             _lblProgress = new Label
             {
-                Location = new Point(14, 238),
+                Location = new Point(14, 266),
                 Size = new Size(524, 22),
                 ForeColor = Color.FromArgb(20, 90, 178),
                 Font = CreateMyanmarFont(8.8f, FontStyle.Bold)
@@ -815,6 +875,7 @@ namespace MyanmarSpellChecker.Setup
             bodyCard.Controls.Add(_lblStatusCard);
             bodyCard.Controls.Add(_lblFeatures);
             bodyCard.Controls.Add(_lblAuthor);
+            bodyCard.Controls.Add(_chkDesktopMoeShortcut);
             bodyCard.Controls.Add(_lblProgress);
 
             var footerPanel = new Panel
@@ -825,19 +886,33 @@ namespace MyanmarSpellChecker.Setup
                 Padding = new Padding(18, 10, 18, 10)
             };
 
-            _btnInstall = CreateActionButton(new Point(18, 10), new Size(192, 36), Color.FromArgb(18, 120, 60), Color.White, bold: true);
+            _btnInstall = CreateActionButton(new Point(18, 10), new Size(168, 36), Color.FromArgb(18, 120, 60), Color.White, bold: true);
             _btnInstall.Click += OnInstallClick;
 
-            _btnRepair = CreateActionButton(new Point(218, 10), new Size(154, 36), Color.FromArgb(232, 241, 255), Color.FromArgb(20, 74, 158), bold: true);
+            _btnGuide = CreateActionButton(new Point(192, 10), new Size(92, 36), Color.FromArgb(235, 246, 239), Color.FromArgb(16, 104, 52), bold: true);
+            _btnGuide.Click += (s, e) =>
+            {
+                string htmlGuide = Path.Combine(SetupInstallerEngine.GetLocalRootDir(), "Guide", "Myanmar-Spell-Checker-User-Guide.html");
+                if (File.Exists(htmlGuide))
+                {
+                    try { Process.Start(new ProcessStartInfo(htmlGuide) { UseShellExecute = true }); return; } catch { }
+                }
+                MessageBox.Show(this,
+                    _isEnglish ? "Click 'Install Suite' first to unpack the offline HTML & A4 Word User Guides." : "Offline လမ်းညွှန်စာအုပ် ဖွင့်ရန် ဦးစွာ Install နှိပ်၍ ထည့်သွင်းပေးပါ။",
+                    Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            };
+
+            _btnRepair = CreateActionButton(new Point(290, 10), new Size(124, 36), Color.FromArgb(232, 241, 255), Color.FromArgb(20, 74, 158), bold: true);
             _btnRepair.Click += OnRepairClick;
 
-            _btnUninstall = CreateActionButton(new Point(380, 10), new Size(104, 36), Color.FromArgb(253, 240, 240), Color.FromArgb(164, 38, 38), bold: false);
+            _btnUninstall = CreateActionButton(new Point(420, 10), new Size(82, 36), Color.FromArgb(253, 240, 240), Color.FromArgb(164, 38, 38), bold: false);
             _btnUninstall.Click += OnUninstallClick;
 
-            _btnClose = CreateActionButton(new Point(492, 10), new Size(80, 36), Color.FromArgb(242, 244, 248), Color.FromArgb(52, 62, 78), bold: false);
+            _btnClose = CreateActionButton(new Point(508, 10), new Size(64, 36), Color.FromArgb(242, 244, 248), Color.FromArgb(52, 62, 78), bold: false);
             _btnClose.Click += (s, e) => Close();
 
             footerPanel.Controls.Add(_btnInstall);
+            footerPanel.Controls.Add(_btnGuide);
             footerPanel.Controls.Add(_btnRepair);
             footerPanel.Controls.Add(_btnUninstall);
             footerPanel.Controls.Add(_btnClose);
@@ -896,11 +971,16 @@ namespace MyanmarSpellChecker.Setup
                 : "ဖန်တီးသူ - ထက်ရာဇာ (Htet Yar Zar)၊ ဘူမိဗေဒဌာန၊ ကျောက်ဆည်တက္ကသိုလ်\r\n" +
                   "၁၀၀% အခမဲ့ Open-Source စနစ် (GNU GPL v3.0 + Section 7b Attribution)";
 
+            _chkDesktopMoeShortcut.Text = _isEnglish
+                ? "Create Desktop shortcut named \"မိုး\" (Quick Guide / Repair / Update)"
+                : "Desktop ပေါ်တွင် \"မိုး\" အိုင်ကွန် တင်ထားမည် (အမြန်ဖွင့်ရန် / ပြင်ရန်)";
+
             _btnInstall.Text = string.IsNullOrEmpty(instVer)
                 ? (_isEnglish ? "✓ Install Suite" : "✓ စတင်ထည့်သွင်းမည်")
-                : (_isEnglish ? $"✓ Update to v{setupVer}" : $"✓ v{setupVer} အဆင့်မြှင့်မည်");
-            _btnRepair.Text = _isEnglish ? "↻ Repair Office" : "↻ Office ပြင်မည်";
-            _btnUninstall.Text = _isEnglish ? "✕ Uninstall" : "✕ ဖြုတ်မည်";
+                : (_isEnglish ? $"✓ Update v{setupVer}" : $"✓ v{setupVer} မြှင့်မည်");
+            _btnGuide.Text = _isEnglish ? "Guide" : "လမ်းညွှန်";
+            _btnRepair.Text = _isEnglish ? "↻ Repair" : "↻ ပြင်မည်";
+            _btnUninstall.Text = _isEnglish ? "✕ Remove" : "✕ ဖြုတ်မည်";
             _btnClose.Text = _isEnglish ? "Close" : "ပိတ်မည်";
         }
 
@@ -919,6 +999,11 @@ namespace MyanmarSpellChecker.Setup
                         _lblProgress.Text = msg;
                         Application.DoEvents();
                     });
+
+                if (_chkDesktopMoeShortcut.Checked)
+                {
+                    SetupInstallerEngine.CreateMoeDesktopShortcut();
+                }
 
                 _lblProgress.Text = _isEnglish
                     ? "✓ Completed! Open Word, Excel, or PowerPoint to use the plugin."
@@ -1067,17 +1152,17 @@ namespace MyanmarSpellChecker.Setup
 
                 using (var goldBrush = new SolidBrush(Color.FromArgb(240, 255, 218, 106)))
                 {
-                    g.FillRectangle(goldBrush, 134f * s, 342f * s, 244f * s, 28f * s);
+                    g.FillRectangle(goldBrush, 128f * s, 366f * s, 256f * s, 24f * s);
                 }
                 using (var whitePage = new SolidBrush(Color.FromArgb(245, 255, 255, 255)))
                 {
-                    g.FillRectangle(whitePage, 146f * s, 326f * s, 220f * s, 22f * s);
+                    g.FillRectangle(whitePage, 140f * s, 350f * s, 232f * s, 20f * s);
                 }
 
-                using (var kaFont = new Font(CreateMyanmarFont(10f, FontStyle.Bold).FontFamily, Math.Max(8f, 188f * s), FontStyle.Bold, GraphicsUnit.Pixel))
+                using (var moeFont = new Font(CreateMyanmarFont(10f, FontStyle.Bold).FontFamily, Math.Max(8f, 148f * s), FontStyle.Bold, GraphicsUnit.Pixel))
                 using (var sf = new StringFormat(StringFormat.GenericTypographic) { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
                 {
-                    g.DrawString("\u1000", kaFont, Brushes.White, new PointF(252f * s, 220f * s), sf);
+                    g.DrawString("\u1019\u102D\u102F\u1038", moeFont, Brushes.White, new PointF(256f * s, 214f * s), sf);
                 }
 
                 float cx = 388f * s, cy = 388f * s, ri = 74f * s;

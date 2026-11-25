@@ -797,7 +797,7 @@ namespace MyanmarSpellChecker.Core.Official
         // ==================== 2. INTERACTIVE OFFLINE HTML HANDBOOK GENERATOR ====================
 
         private const string InlineBrandLogoSvgDataUri =
-            "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect x='24' y='24' width='464' height='464' rx='108' fill='%231656BA'/%3E%3Cpath d='M138 292 V206 C138 150 252 150 252 206 V292 C252 256 206 252 188 278 M252 214 C252 150 368 150 368 206 V292' fill='none' stroke='%23FFFFFF' stroke-width='34' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='388' cy='388' r='74' fill='%2318A957' stroke='%23FFFFFF' stroke-width='12'/%3E%3Cpath d='M352 389 L377 414 L428 361' fill='none' stroke='%23FFFFFF' stroke-width='20' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E";
+            "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect x='24' y='24' width='464' height='464' rx='108' fill='%231656BA'/%3E%3Ctext x='252' y='232' text-anchor='middle' dominant-baseline='central' font-family='Pyidaungsu,Myanmar Text,sans-serif' font-size='152' font-weight='700' fill='%23FFFFFF'%3E%E1%80%99%E1%80%AD%E1%80%AF%E1%80%B8%3C/text%3E%3Ccircle cx='390' cy='390' r='74' fill='%2318A957' stroke='%23FFFFFF' stroke-width='12'/%3E%3Cpath d='M354 391 L379 416 L430 363' fill='none' stroke='%23FFFFFF' stroke-width='20' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E";
 
         public static string BuildInteractiveHtmlUserGuide(string? imagesDirectoryOverride = null)
         {

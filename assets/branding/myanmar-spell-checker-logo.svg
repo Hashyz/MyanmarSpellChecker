@@ -18,30 +18,28 @@
     </filter>
   </defs>
 
-  <!-- Rounded Royal Sapphire App Tile -->
+  <!-- Rounded Royal Sky-Sapphire App Tile -->
   <rect x="24" y="24" width="464" height="464" rx="108" ry="108" fill="url(#bgGrad)" filter="url(#softShadow)"/>
   <rect x="34" y="34" width="444" height="444" rx="98" ry="98" fill="none" stroke="url(#rimGrad)" stroke-width="5"/>
 
   <!-- Subtle Inner Shield Crest -->
-  <path d="M256 64 L416 112 V252 C416 346 348 416 256 446 C164 416 96 346 96 252 V112 Z"
+  <path d="M256 60 L418 110 V256 C418 350 348 420 256 448 C164 420 94 350 94 256 V110 Z"
         fill="#FFFFFF" fill-opacity="0.07" stroke="#CBE1FF" stroke-opacity="0.28" stroke-width="3"/>
 
   <!-- Open Thatpon Book Pages Accent -->
-  <path d="M132 346 Q194 322 256 352 Q318 322 380 346 L380 374 Q318 350 256 380 Q194 350 132 374 Z"
+  <path d="M128 364 Q192 340 256 368 Q320 340 384 364 L384 390 Q320 366 256 394 Q192 366 128 390 Z"
         fill="#FFE082" fill-opacity="0.92"/>
-  <path d="M142 332 Q198 310 256 338 Q314 310 370 332 L370 348 Q314 326 256 354 Q198 326 142 348 Z"
+  <path d="M140 350 Q198 328 256 354 Q314 328 372 350 L372 366 Q314 344 256 370 Q198 344 140 366 Z"
         fill="#FFFFFF" fill-opacity="0.95"/>
 
-  <!-- Bold Myanmar 'က' (Ka-Gyi) Geometric Double-Arch Centerpiece -->
-  <g fill="none" stroke="#FFFFFF" stroke-width="31" stroke-linecap="round" stroke-linejoin="round">
-    <!-- Left loop of က -->
-    <path d="M138 292 V206 C138 150 252 150 252 206 V292 C252 256 206 252 188 278"/>
-    <!-- Right arch of က -->
-    <path d="M252 214 C252 150 368 150 368 206 V292"/>
-  </g>
+  <!-- Bold Myanmar "မိုး" (Moe — Tribute to U Moe Kyaw Thu) Centerpiece -->
+  <text x="252" y="226" text-anchor="middle" dominant-baseline="central"
+        font-family="'Pyidaungsu','Myanmar Text','Padauk',sans-serif"
+        font-size="152" font-weight="700" fill="#FFFFFF"
+        style="filter: drop-shadow(0px 6px 6px rgba(4,18,48,0.32));">မိုး</text>
 
   <!-- Emerald Verification Checkmark Badge -->
-  <circle cx="388" cy="388" r="82" fill="#0B2E6B"/>
-  <circle cx="388" cy="388" r="74" fill="url(#checkGrad)" stroke="#FFFFFF" stroke-width="10"/>
-  <path d="M352 389 L377 414 L428 361" fill="none" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="390" cy="390" r="82" fill="#0B2E6B"/>
+  <circle cx="390" cy="390" r="74" fill="url(#checkGrad)" stroke="#FFFFFF" stroke-width="10"/>
+  <path d="M354 391 L379 416 L430 363" fill="none" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

@@ -709,21 +709,21 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                     }
                 }
 
-                if (size >= 44)
+                if (size >= 48)
                 {
                     using (var goldPage = new SolidBrush(Color.FromArgb(238, 255, 218, 106)))
-                        g.FillRectangle(goldPage, 132f * s, 346f * s, 248f * s, 26f * s);
+                        g.FillRectangle(goldPage, 128f * s, 366f * s, 256f * s, 24f * s);
                     using (var whitePage = new SolidBrush(Color.FromArgb(245, 255, 255, 255)))
-                        g.FillRectangle(whitePage, 144f * s, 330f * s, 224f * s, 20f * s);
+                        g.FillRectangle(whitePage, 140f * s, 350f * s, 232f * s, 20f * s);
                 }
 
-                float glyphPx = size < 32 ? 215f * s : 188f * s;
-                using (var kaFont = new Font(MyanmarFontFamily, Math.Max(7f, glyphPx), FontStyle.Bold, GraphicsUnit.Pixel))
+                float glyphPx = size < 32 ? 176f * s : (size < 48 ? 166f * s : 148f * s);
+                using (var moeFont = new Font(MyanmarFontFamily, Math.Max(6.5f, glyphPx), FontStyle.Bold, GraphicsUnit.Pixel))
                 using (var sf = new StringFormat(StringFormat.GenericTypographic) { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
                 {
-                    float kx = size < 32 ? 242f * s : 252f * s;
-                    float ky = size < 44 ? 248f * s : 222f * s;
-                    g.DrawString("\u1000", kaFont, Brushes.White, new PointF(kx, ky), sf);
+                    float mx = size < 48 ? 244f * s : 256f * s;
+                    float my = size < 48 ? 236f * s : 214f * s;
+                    g.DrawString("\u1019\u102D\u102F\u1038", moeFont, Brushes.White, new PointF(mx, my), sf);
                 }
 
                 float cx = size < 32 ? 392f * s : 388f * s;
