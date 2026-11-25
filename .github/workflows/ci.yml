@@ -9,7 +9,7 @@ on:
 
 jobs:
   build-test-benchmark:
-    name: Build, xUnit Suite, 13-Tier Benchmark & Installer Validation
+    name: Build, xUnit Suite, 17-Tier Benchmark & Installer Validation
     runs-on: windows-latest
 
     steps:
@@ -21,15 +21,15 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Build All 6 Projects (Zero Warnings / Zero Errors)
+      - name: Build All 7 Projects (Zero Warnings / Zero Errors)
         shell: powershell
         run: dotnet build .\MyanmarSpellChecker.sln -c Release /warnaserror
 
       - name: Run Full xUnit Regression & Architecture Suite
         shell: powershell
-        run: dotnet test .\tests\MyanmarSpellChecker.Core.Tests\MyanmarSpellChecker.Core.Tests.csproj -c Release --no-build --logger "console;verbosity=normal"
+        run: dotnet test .\tests\MyanmarSpellChecker.Core.Tests\MyanmarSpellChecker.Core.Tests.csproj -c Release --no-build --logger "console;verbosity=normal" -- xUnit.ParallelizeTestCollections=false
 
-      - name: Run 13-Tier Progressive Accuracy & Speed Benchmark
+      - name: Run 17-Tier Progressive Accuracy & Speed Benchmark
         shell: powershell
         run: .\src\MyanmarSpellChecker.AdminTools\bin\Release\net48\MyanmarSpellChecker.AdminTools.exe benchmark
 

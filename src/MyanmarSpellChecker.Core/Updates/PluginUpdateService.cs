@@ -791,7 +791,7 @@ namespace MyanmarSpellChecker.Core.Updates
                 if (ext == ".exe")
                 {
                     string exeVer = NormalizeVersionString(FileVersionInfo.GetVersionInfo(filePath).FileVersion ?? string.Empty);
-                    if (fi.Length < 60_000)
+                    if (fi.Length < 16_384)
                     {
                         return new LocalPackageInspectionResult
                         {
