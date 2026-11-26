@@ -1789,7 +1789,7 @@ namespace MyanmarSpellChecker.Core.Tests
                 // Mandatory GPLv3 Section 7(b) attribution preservation
                 Assert.Contains("Htet Yar Zar (ထက်ရာဇာ)", aboutSrc);
                 Assert.Contains("Kyaukse University", aboutSrc);
-                Assert.Contains("U Moe Kyaw Thu", aboutSrc);
+                Assert.DoesNotContain("Special Dedication (Original Idea)", aboutSrc);
                 Assert.Contains("Hein Htet Zaw", aboutSrc);
                 Assert.Contains("Thu Reain Khant", aboutSrc);
             }
@@ -4164,7 +4164,7 @@ namespace MyanmarSpellChecker.Core.Tests
             Assert.False(File.Exists(Path.Combine(repoRoot, "installer", "obfuscar.xml")));
             string propsRaw = File.ReadAllText(Path.Combine(repoRoot, "Directory.Build.props"));
             Assert.Contains("PowerPoint", propsRaw, StringComparison.Ordinal);
-            Assert.Contains("1.0.87.0", propsRaw, StringComparison.Ordinal);
+            Assert.Contains("1.0.88.0", propsRaw, StringComparison.Ordinal);
 
             string ciYml = Path.Combine(repoRoot, ".github", "workflows", "ci.yml");
             string releaseYml = Path.Combine(repoRoot, ".github", "workflows", "release.yml");
@@ -4721,12 +4721,12 @@ namespace MyanmarSpellChecker.Core.Tests
             string dbPath = TestPaths.EncryptedDbPath;
 
             // 1. Version comparison & privacy-by-default preference gate
-            Assert.Equal("1.0.87.0", MyanmarSpellChecker.Core.Updates.PluginUpdateService.GetCurrentInstalledVersion());
-            Assert.True(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion("1.0.88.0", "1.0.87.0"));
-            Assert.True(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion("v1.0.87", "1.0.86.0"));
-            Assert.False(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion("1.0.87.0", "1.0.87.0"));
-            Assert.False(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion("1.0.86.0", "1.0.87.0"));
-            Assert.Equal("v1.0.87", MyanmarSpellChecker.Core.Updates.PluginUpdateService.FormatShortDisplayVersion("1.0.87.0"));
+            Assert.Equal("1.0.88.0", MyanmarSpellChecker.Core.Updates.PluginUpdateService.GetCurrentInstalledVersion());
+            Assert.True(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion("1.0.89.0", "1.0.88.0"));
+            Assert.True(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion("v1.0.88", "1.0.87.0"));
+            Assert.False(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion("1.0.88.0", "1.0.88.0"));
+            Assert.False(MyanmarSpellChecker.Core.Updates.PluginUpdateService.IsNewerVersion("1.0.87.0", "1.0.88.0"));
+            Assert.Equal("v1.0.88", MyanmarSpellChecker.Core.Updates.PluginUpdateService.FormatShortDisplayVersion("1.0.88.0"));
 
             // 2. RSA-2048 Manifest Signing + Tamper Rejection + JSON Roundtrip
             var (privXml, pubXml) = LicenseService.GenerateRsaKeyPair();

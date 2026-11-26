@@ -368,11 +368,12 @@ namespace MyanmarSpellChecker.WordAddIn.UI
             var lblAuthorTitle = new Label
             {
                 Text = UiLocalizer.Pick(
-                    "Creator, Dedication & Collaborators",
-                    "ဖန်တီးသူ၊ ဂုဏ်ပြုမှတ်တမ်းနှင့် ပူးပေါင်းပါဝင်သူများ (Creator, Dedication & Collaborators)"),
+                    "Creator & Collaborators",
+                    "ဖန်တီးသူနှင့် ပူးပေါင်းပါဝင်သူများ (Creator & Collaborators)"),
                 Font = UiFontCache.GetMyanmar(9.4F, FontStyle.Bold),
                 ForeColor = HostSubTitleFore,
                 AutoSize = true,
+                UseMnemonic = false,
                 MaximumSize = new Size(initWrapWidth, 0),
                 Margin = new Padding(0, 0, 0, S(4)),
                 Padding = new Padding(S(2), S(1), S(2), S(1))
@@ -388,19 +389,18 @@ namespace MyanmarSpellChecker.WordAddIn.UI
                     "• Academic Standing : M.Sc. Part II Candidate in Geology (M.Sc. Part I Completed)\n" +
                     "• Department & University : Department of Geology, Kyaukse University (ကျောက်ဆည်တက္ကသိုလ်)\n" +
                     "• Location : Kyaukse, Mandalay Region, Myanmar\n" +
-                    "• Special Dedication (Original Idea) : Father U Moe Kyaw Thu (ဖခင် ဦးမိုးကျော်သူ)\n" +
                     "• Project Collaborators : Hein Htet Zaw (ဟိန်းထက်ဇော်), Thu Reain Khant (သူရိန်ခန့်)",
                     "• ဖန်တီးသူ (Original Creator) : ထက်ရာဇာ — Htet Yar Zar (@Hashyz)\n" +
                     "• ပညာအရည်အချင်း : M.Sc. Part II Candidate in Geology (M.Sc. Part I Completed)\n" +
                     "• ဌာနနှင့် တက္ကသိုလ် : ဘူမိဗေဒဌာန၊ ကျောက်ဆည်တက္ကသိုလ် (Department of Geology, Kyaukse University)\n" +
                     "• တည်နေရာဒေသ : ကျောက်ဆည်မြို့၊ မန္တလေးတိုင်းဒေသကြီး၊ မြန်မာနိုင်ငံ (Kyaukse, Myanmar)\n" +
-                    "• မူလစိတ်ကူးလမ်းညွှန်ပေးသူ (Original Idea) : ဖခင် ဦးမိုးကျော်သူ (Father U Moe Kyaw Thu)\n" +
                     "• ပူးပေါင်းပါဝင်သူများ (Collaborators) : ဟိန်းထက်ဇော် (Hein Htet Zaw)၊ သူရိန်ခန့် (Thu Reain Khant)"),
                 Font = UiFontCache.GetMyanmar(8.9F, FontStyle.Regular),
                 ForeColor = HostAuthorFore,
                 BackColor = HostAuthorBack,
                 BorderStyle = BorderStyle.FixedSingle,
                 AutoSize = true,
+                UseMnemonic = false,
                 MaximumSize = new Size(initWrapWidth, 0),
                 Dock = DockStyle.Fill,
                 Margin = new Padding(0, 0, 0, S(10)),
